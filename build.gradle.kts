@@ -25,7 +25,9 @@ kotlin {
 }
 
 tasks.test {
-    systemProperty("versionchecker.mavenIntegration", providers.gradleProperty("mavenIntegration").orElse("false").get())
+    val mavenIntegration = providers.gradleProperty("mavenIntegration").orElse("false").get()
+    systemProperty("versionchecker.mavenIntegration", mavenIntegration)
+    if (mavenIntegration != "true") exclude("**/MavenSettingsIntegrationTest*")
 }
 
 intellijPlatform {
@@ -37,6 +39,7 @@ intellijPlatform {
     pluginVerification {
         ides {
             create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdea, "2025.3.6.1")
+            create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdea, "2026.1.4")
         }
     }
 }

@@ -3,9 +3,10 @@
     <name>Maven Version Checker</name>
     <vendor>khopland</vendor>
     <description><![CDATA[
-        Highlights Maven dependencies with newer stable versions as errors in pom.xml.
+        Shows newer stable Maven dependency versions through IntelliJ IDEA's standard inspections in pom.xml.
         Uses IntelliJ IDEA's Maven configuration, including settings.xml repositories,
-        mirrors, credentials and active profiles. Includes a version update quick fix.
+        mirrors, credentials and active profiles. Includes version update quick fixes and
+        bulk updates for patch, minor or major versions across imported modules.
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
@@ -13,11 +14,20 @@
     <extensions defaultExtensionNs="com.intellij">
         <localInspection language="XML" shortName="NewerMavenDependencyVersion"
                          displayName="Newer Maven dependency version available"
-                         groupName="Maven" enabledByDefault="true" level="ERROR"
+                         groupName="Maven" enabledByDefault="true" level="WARNING"
                          implementationClass="io.github.khopland.versionchecker.NewerMavenDependencyInspection"/>
         <notificationGroup id="Maven Version Checker" displayType="BALLOON"/>
+        <projectConfigurable parentId="tools" id="maven.version.checker"
+                             displayName="Maven Version Checker"
+                             instance="io.github.khopland.versionchecker.VersionCheckerConfigurable"/>
     </extensions>
     <actions>
+        <group id="MavenVersionChecker.Updates" text="Update Maven Dependencies" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="MavenVersionChecker.Patch" class="io.github.khopland.versionchecker.PatchUpdateAction" text="Patch Only…"/>
+            <action id="MavenVersionChecker.Minor" class="io.github.khopland.versionchecker.MinorUpdateAction" text="Minor + Patch…"/>
+            <action id="MavenVersionChecker.Major" class="io.github.khopland.versionchecker.MajorUpdateAction" text="Major + Minor + Patch…"/>
+        </group>
         <action id="MavenVersionChecker.Refresh"
                 class="io.github.khopland.versionchecker.RefreshVersionsAction"
                 text="Check Maven Dependency Versions"
