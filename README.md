@@ -1,6 +1,6 @@
 # Maven Version Checker
 
-An IntelliJ IDEA plugin that marks Maven dependencies with newer stable versions as **errors in `pom.xml`**.
+An IntelliJ IDEA plugin that shows newer stable Maven dependency versions through **standard IDEA inspections in `pom.xml`**.
 
 For example, a dependency using `junit:junit:4.12` gets this inspection message:
 
@@ -17,7 +17,41 @@ Requires IntelliJ IDEA **2025.3 or later** with its bundled Java and Maven plugi
 3. Open and import a Maven project. Checks start in the background when IDEA inspects an imported POM.
 4. Use **Tools → Check Maven Dependency Versions** to save files and refresh checks for all imported modules.
 
-The inspection appears under **Settings → Editor → Inspections → Maven → Newer Maven dependency version available**. Its default severity is Error; you can change or disable it there. These are editor inspection errors; the plugin does not change Maven's build result.
+The inspection appears under **Settings → Editor → Inspections → Maven → Newer Maven dependency version available**. You can disable the whole inspection there. Configure severity by update type under **Settings → Tools → Maven Version Checker**. Editor diagnostics do not change Maven's build result.
+
+## Severity and deprecated dependencies
+
+The settings page has independent **Warning (yellow)**, **Error (red)**, **Information**, and **Disabled** selectors for patch, minor, major, other version changes, and deprecated/relocated dependencies. All version updates default to Warning, including major upgrades. Deprecated/relocated dependencies default to Error. Disabling a severity hides editor messages for that category while leaving bulk updates available.
+
+Maven has no general deprecation flag for libraries. To explicitly mark a dependency deprecated for your project, add a line in the settings page's deprecated dependencies field:
+
+```text
+old.group:library = Use new.group:library instead
+```
+
+These notices appear even without a newer version. The checker also reads [Maven relocation declarations](https://maven.apache.org/guides/mini/guide-relocation.html) from dependency POMs already downloaded into the project's Maven local repository. Reload Maven to download missing dependency POMs, then refresh the checks. No deprecation is inferred from a library's age or a major-version update. Deprecated/relocated coordinates are listed for manual review during bulk updates, since migration may require coordinate and API changes.
+
+## IDEA highlighting and InlineProblems
+
+Dependency messages use IDEA's standard inspection highlighting, hover tooltips, Problems view, and Alt+Enter quick fixes. Configure their severity under **Settings → Tools → Maven Version Checker**. You can disable automatic checking altogether there, or disable the inspection under **Settings → Editor → Inspections → Maven**.
+
+If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) can render these standard inspection messages using its own display. No dependency on that plugin is required.
+
+## Bulk updates and submodules
+
+**Tools → Update Maven Dependencies** checks every imported, non-ignored Maven module, including submodules, and offers:
+
+- **Patch only:** keep the current major and minor version numbers.
+- **Minor + patch:** keep the current major version number.
+- **Major + minor + patch:** allow any newer stable version.
+
+The check queries the newest version within the selected scope; it does not simply discard a latest version outside that scope. Restricted modes require numeric major/minor prefixes.
+
+A preview lists each POM/property change before applying one undoable command. The plugin saves the changed files and refreshes checks. It skips inherited/composite version declarations and shared properties with conflicting, unchanged, non-dependency, or inherited uses. These cases appear in the preview as needing review. A preview becomes invalid if a target version changes before applying it.
+
+Successful module checks with an empty or absent Maven report count as having no updates and do not abort the scan. Failures are logged to `idea.log`; a **Show details** notification action displays the cause without changing any versions.
+
+Submodules must be imported into IDEA's Maven project model. Maven ignores and offline mode are respected. Parent-managed properties can still be updated individually with Alt+Enter at their declaration; bulk updates take a conservative approach to properties inherited across modules.
 
 ## Maven repositories and settings.xml
 
@@ -38,7 +72,20 @@ Results are cached for ten minutes and invalidated by POM saves, Maven model cha
 
 Gradle, build plugins, transitive-only dependencies, snapshot dependencies, version ranges, and `LATEST`/`RELEASE` declarations are outside this release's scope. Remote Maven environments such as WSL/SSH are not supported by the report-file transport in this version.
 
+## Other ecosystems
+
+Gradle and npm/pnpm/Bun support is feasible. Repository configuration and version/lockfile editing require separate adapters. See [the extension assessment](docs/ecosystem-support.md) for the proposed approach and source documentation. Only Maven is implemented in this release.
+
 ## Development and verification
+
+For hands-on testing, the [Maven demo template](src/test/resources/maven-demo/README.md) contains intentionally outdated dependencies, local and shared version properties, managed dependencies, and nested modules. On a fresh checkout, create a local copy from the repository root:
+
+```bash
+mkdir -p examples
+cp -R src/test/resources/maven-demo examples/maven-demo
+```
+
+Open `examples/maven-demo/pom.xml` as a separate IDEA project. The local `examples` directory is ignored by Git, so dependency updates in the demo do not alter the committed test fixtures. If the demo already exists, use that copy; copying again would not reset it cleanly. The template instructions describe inspection highlighting, bulk update modes, and an optional repository mirror settings file.
 
 Java and Maven can be selected through SDKMAN. The Gradle wrapper builds the plugin; Maven is only needed separately if you want to reproduce its goal from a terminal.
 
@@ -48,9 +95,11 @@ Java and Maven can be selected through SDKMAN. The Gradle wrapper builds the plu
 ./gradlew verifyPlugin
 ```
 
-Parser and IntelliJ platform tests cover stable-version filtering, wrapped reports, stale results, dependency selection, and POM quick fixes.
+Compatibility checks target IDEA 2025.3.6.1 and 2026.1.4.
 
-The optional integration test starts IDEA's real Maven server and an authenticated local Maven repository. Its custom `settings.xml` supplies an active repository profile, a mirror, and server credentials. The test verifies the stable update is retrieved through that mirror. The Versions goal may be downloaded from Maven Central during this test:
+Parser and IntelliJ platform tests cover stable-version filtering, wrapped reports, update scopes, Maven configuration properties, stale previews, shared properties, dependency selection, and POM quick fixes.
+
+The optional integration tests start IDEA's real Maven server with both an authenticated local Maven repository and the five-project demo reactor. They verify the repository profile, mirror, credentials, all three bulk-update modes, nested modules, configurable inspection severity, and a property quick fix. The Versions goal and demo metadata may be downloaded from Maven Central during these tests:
 
 ```bash
 ./gradlew test -PmavenIntegration=true --tests '*MavenSettingsIntegrationTest'
