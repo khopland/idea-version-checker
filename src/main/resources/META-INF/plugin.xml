@@ -10,6 +10,7 @@
     </description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
+    <depends optional="true" config-file="version-checker-npm.xml">JavaScript</depends>
     <extensionPoints>
         <extensionPoint name="buildSystemAdapter" interface="io.github.khopland.versionchecker.core.BuildSystemAdapter" />
     </extensionPoints>
