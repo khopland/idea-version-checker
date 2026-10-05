@@ -3,7 +3,6 @@ package io.github.khopland.versionchecker
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
-import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElementVisitor
@@ -31,6 +30,12 @@ internal fun isProjectDependency(tag: XmlTag): Boolean = tag.localName == "depen
     tag.parentTag?.localName == "dependencies" &&
     tag.parentTag?.parentTag?.localName in setOf("project", "profile", "dependencyManagement")
 
+internal fun isProjectPlugin(tag: XmlTag): Boolean = tag.localName == "plugin" &&
+    tag.parentTag?.localName == "plugins" &&
+    (tag.parentTag?.parentTag?.localName == "build" ||
+        (tag.parentTag?.parentTag?.localName == "pluginManagement" &&
+            tag.parentTag?.parentTag?.parentTag?.localName == "build"))
+
 /** Only update an exact property reference declared in this POM; inherited/composite values need review. */
 internal fun findLocalVersionProperty(versionTag: XmlTag, rawVersion: String?, current: String): XmlTag? {
     val name = rawVersion?.let { Regex("""\$\{([^}]+)}""").matchEntire(it)?.groupValues?.get(1) } ?: return null
@@ -48,7 +53,7 @@ internal fun findLocalVersionProperty(versionTag: XmlTag, rawVersion: String?, c
 class UpdateDependencyVersionFix(target: XmlTag, private val latest: String) : LocalQuickFix {
     private val pointer: SmartPsiElementPointer<XmlTag> = SmartPointerManager.createPointer(target)
     private val expected = target.value.trimmedText
-    override fun getFamilyName(): String = "Update Maven dependency version"
+    override fun getFamilyName(): String = "Update Maven version"
     override fun getName(): String = "Update ${pointer.element?.localName ?: "version"} to $latest"
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
         val tag = pointer.element ?: return

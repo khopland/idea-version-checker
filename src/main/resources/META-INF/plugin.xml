@@ -3,17 +3,17 @@
     <name>Maven Version Checker</name>
     <vendor>khopland</vendor>
     <description><![CDATA[
-        Shows newer stable Maven dependency versions through IntelliJ IDEA's standard inspections in pom.xml.
+        Shows newer stable Maven dependency and build-plugin versions through IntelliJ IDEA's standard inspections in pom.xml.
         Uses IntelliJ IDEA's Maven configuration, including settings.xml repositories,
         mirrors, credentials and active profiles. Includes version update quick fixes and
-        bulk updates for patch, minor or major versions across imported modules.
+        bulk updates for patch, minor or major versions in the current POM or across imported modules.
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
     <depends>org.jetbrains.idea.maven</depends>
     <extensions defaultExtensionNs="com.intellij">
         <localInspection language="XML" shortName="NewerMavenDependencyVersion"
-                         displayName="Newer Maven dependency version available"
+                         displayName="Newer Maven dependency or plugin version available"
                          groupName="Maven" enabledByDefault="true" level="WARNING"
                          implementationClass="io.github.khopland.versionchecker.NewerMavenDependencyInspection"/>
         <notificationGroup id="Maven Version Checker" displayType="BALLOON"/>
@@ -24,15 +24,36 @@
     <actions>
         <group id="MavenVersionChecker.Updates" text="Update Maven Dependencies" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
-            <action id="MavenVersionChecker.Patch" class="io.github.khopland.versionchecker.PatchUpdateAction" text="Patch Only…"/>
-            <action id="MavenVersionChecker.Minor" class="io.github.khopland.versionchecker.MinorUpdateAction" text="Minor + Patch…"/>
-            <action id="MavenVersionChecker.Major" class="io.github.khopland.versionchecker.MajorUpdateAction" text="Major + Minor + Patch…"/>
+            <group id="MavenVersionChecker.Updates.CurrentPom" text="Current POM" popup="true">
+                <action id="MavenVersionChecker.CurrentPom.Patch" class="io.github.khopland.versionchecker.CurrentPomPatchUpdateAction" text="Patch Only…"/>
+                <action id="MavenVersionChecker.CurrentPom.Minor" class="io.github.khopland.versionchecker.CurrentPomMinorUpdateAction" text="Minor + Patch…"/>
+                <action id="MavenVersionChecker.CurrentPom.Major" class="io.github.khopland.versionchecker.CurrentPomMajorUpdateAction" text="Major + Minor + Patch…"/>
+            </group>
+            <group id="MavenVersionChecker.Updates.Project" text="Whole Project" popup="true">
+                <action id="MavenVersionChecker.Patch" class="io.github.khopland.versionchecker.PatchUpdateAction" text="Patch Only…"/>
+                <action id="MavenVersionChecker.Minor" class="io.github.khopland.versionchecker.MinorUpdateAction" text="Minor + Patch…"/>
+                <action id="MavenVersionChecker.Major" class="io.github.khopland.versionchecker.MajorUpdateAction" text="Major + Minor + Patch…"/>
+            </group>
         </group>
-        <action id="MavenVersionChecker.Refresh"
-                class="io.github.khopland.versionchecker.RefreshVersionsAction"
-                text="Check Maven Dependency Versions"
-                description="Refresh dependency version checks using the project's Maven configuration">
+        <group id="MavenVersionChecker.PluginUpdates" text="Update Maven Build Plugins" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
+            <group id="MavenVersionChecker.PluginUpdates.CurrentPom" text="Current POM" popup="true">
+                <action id="MavenVersionChecker.CurrentPom.PluginPatch" class="io.github.khopland.versionchecker.CurrentPomPluginPatchUpdateAction" text="Patch Only…"/>
+                <action id="MavenVersionChecker.CurrentPom.PluginMinor" class="io.github.khopland.versionchecker.CurrentPomPluginMinorUpdateAction" text="Minor + Patch…"/>
+                <action id="MavenVersionChecker.CurrentPom.PluginMajor" class="io.github.khopland.versionchecker.CurrentPomPluginMajorUpdateAction" text="Major + Minor + Patch…"/>
+            </group>
+            <group id="MavenVersionChecker.PluginUpdates.Project" text="Whole Project" popup="true">
+                <action id="MavenVersionChecker.PluginPatch" class="io.github.khopland.versionchecker.PluginPatchUpdateAction" text="Patch Only…"/>
+                <action id="MavenVersionChecker.PluginMinor" class="io.github.khopland.versionchecker.PluginMinorUpdateAction" text="Minor + Patch…"/>
+                <action id="MavenVersionChecker.PluginMajor" class="io.github.khopland.versionchecker.PluginMajorUpdateAction" text="Major + Minor + Patch…"/>
+            </group>
+        </group>
+        <group id="MavenVersionChecker.Check" text="Check Maven Versions" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="MavenVersionChecker.RefreshCurrentPom" class="io.github.khopland.versionchecker.CurrentPomRefreshVersionsAction"
+                    text="Current POM" description="Refresh dependency and build-plugin checks for the current POM"/>
+            <action id="MavenVersionChecker.Refresh" class="io.github.khopland.versionchecker.RefreshVersionsAction"
+                    text="Whole Project" description="Refresh dependency and build-plugin checks for all imported Maven modules"/>
+        </group>
     </actions>
 </idea-plugin>

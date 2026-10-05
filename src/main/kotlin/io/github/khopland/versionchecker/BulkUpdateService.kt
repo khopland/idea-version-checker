@@ -9,6 +9,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.notification.NotificationAction
 import com.intellij.openapi.ui.DialogWrapper
@@ -31,19 +32,20 @@ import javax.swing.JComponent
 class BulkUpdateService(private val project: Project, private val scope: CoroutineScope) {
     private val running = AtomicBoolean()
     private val log = Logger.getInstance(BulkUpdateService::class.java)
-    fun preview(mode: UpdateMode) {
+    fun preview(mode: UpdateMode, updateScope: MavenUpdateScope = MavenUpdateScope.WHOLE_PROJECT,
+                artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY, currentPom: VirtualFile? = null) {
         if (!running.compareAndSet(false, true)) return
         scope.launch(Dispatchers.IO) {
             try {
-                val plan = withBackgroundProgress(project, "Checking Maven dependencies: ${mode.label}", cancellable = true) {
-                    createPlan(mode)
+                val plan = withBackgroundProgress(project, "Checking Maven ${artifactKind.label}: ${updateScope.label} — ${mode.label}", cancellable = true) {
+                    createPlan(mode, updateScope, artifactKind, currentPom)
                 }
                 ApplicationManager.getApplication().invokeLater {
                     if (project.isDisposed) return@invokeLater
                     if (plan.changes.isEmpty()) {
                         Messages.showInfoMessage(project, "No automatic updates available for ${mode.label}." +
                             plan.skipped.takeIf { it.isNotEmpty() }?.joinToString("\n", "\n\nNeeds review:\n").orEmpty(), "Maven Version Checker")
-                    } else if (BulkUpdateDialog(project, mode, plan).showAndGet()) {
+                    } else if (BulkUpdateDialog(project, mode, updateScope, artifactKind, plan).showAndGet()) {
                         val targets = plan.changes.mapNotNull { it.pointer.element }
                         if (!FileModificationService.getInstance().preparePsiElementsForWrite(targets)) return@invokeLater
                         if (!plan.apply(project)) {
@@ -51,7 +53,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                             return@invokeLater
                         }
                         FileDocumentManager.getInstance().saveAllDocuments()
-                        project.service<VersionCheckService>().refresh()
+                        project.service<VersionCheckService>().refresh(if (updateScope == MavenUpdateScope.CURRENT_POM) currentPom else null)
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -59,10 +61,10 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
             } catch (failure: Exception) {
                 log.warn("Maven bulk update check failed (${mode.label})", failure)
                 if (!project.isDisposed) NotificationGroupManager.getInstance().getNotificationGroup("Maven Version Checker")
-                    .createNotification("Maven dependency update check failed",
+                    .createNotification("Maven ${artifactKind.label} update check failed",
                         "${failure.javaClass.simpleName}. No versions were changed. Use Show details for the cause.", NotificationType.WARNING)
                     .addAction(NotificationAction.createSimple("Show details") {
-                        Messages.showErrorDialog(project, failure.stackTraceToString(), "Maven dependency update check failed")
+                        Messages.showErrorDialog(project, failure.stackTraceToString(), "Maven ${artifactKind.label} update check failed")
                     }).notify(project)
             } finally {
                 running.set(false)
@@ -70,11 +72,14 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
         }
     }
 
-    internal suspend fun createPlan(mode: UpdateMode): BulkUpdatePlan {
+    internal suspend fun createPlan(mode: UpdateMode, updateScope: MavenUpdateScope = MavenUpdateScope.WHOLE_PROJECT,
+                                   artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY,
+                                   currentPom: VirtualFile? = null): BulkUpdatePlan {
         val manager = MavenProjectsManager.getInstance(project)
-        val projects = readAction { manager.nonIgnoredProjects.toList() }
+        val projects = readAction { selectMavenProjects(manager, updateScope, currentPom) }
+        check(projects.isNotEmpty()) { "Open an imported Maven POM to update its versions" }
         val service = project.service<VersionCheckService>()
-        val reports = projects.associateWith { service.checkNow(it, mode) }
+        val reports = projects.associateWith { service.checkNow(it, mode, artifactKind) }
         val relocations = projects.associateWith { service.readRelocations(it) }
         return readAction {
             val files = reports.mapNotNull { (mavenProject, updates) ->
@@ -83,14 +88,17 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                 file to MavenDependencyAnalysis(model, mavenProject, updates,
                     project.service<VersionCheckerSettings>().state, relocations.getValue(mavenProject))
             }.toMap()
-            BulkUpdatePlan.create(files)
+            // Check shared properties against every imported POM, even in Current POM mode.
+            val usageFiles = manager.nonIgnoredProjects.mapNotNull { PsiManager.getInstance(project).findFile(it.file) }
+            BulkUpdatePlan.create(files, artifactKind, usageFiles)
         }
     }
 }
 
-private class BulkUpdateDialog(project: Project, mode: UpdateMode, private val plan: BulkUpdatePlan) : DialogWrapper(project) {
+private class BulkUpdateDialog(project: Project, mode: UpdateMode, updateScope: MavenUpdateScope,
+                               artifactKind: MavenArtifactKind, private val plan: BulkUpdatePlan) : DialogWrapper(project) {
     init {
-        title = "Update Maven dependencies — ${mode.label}"
+        title = "Update Maven ${artifactKind.label} — ${updateScope.label} — ${mode.label}"
         setOKButtonText("Update ${plan.changes.size} version declarations")
         init()
     }

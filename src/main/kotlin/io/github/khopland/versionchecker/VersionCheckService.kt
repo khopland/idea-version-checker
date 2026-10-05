@@ -32,6 +32,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     private val cache = ConcurrentHashMap<String, Entry>()
     private val pending = ConcurrentHashMap.newKeySet<String>()
     private val generation = AtomicLong()
+    private val pomGenerations = ConcurrentHashMap<String, AtomicLong>()
     // Avoid competing for a Maven embedder while checking several modules.
     private val scanMutex = Mutex()
     private val log = Logger.getInstance(VersionCheckService::class.java)
@@ -44,7 +45,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         val manager = MavenProjectsManager.getInstance(project)
         if (manager.generalSettings.isWorkOffline || manager.isIgnored(mavenProject)) return emptyMap()
         val fingerprint = Fingerprint(mavenProject.file.modificationStamp,
-            manager.modificationTracker.modificationCount, manager.generalSettings.hashCode(), generation.get())
+            manager.modificationTracker.modificationCount, manager.generalSettings.hashCode(),
+            generation.get() + (pomGenerations[mavenProject.path]?.get() ?: 0))
         val entry = cache[mavenProject.path]
         if (entry == null || entry.fingerprint != fingerprint || entry.expiresAt < System.nanoTime()) {
             schedule(manager, mavenProject, fingerprint)
@@ -52,22 +54,30 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         return entry?.takeIf { it.fingerprint == fingerprint }?.updates.orEmpty()
     }
 
-    internal suspend fun checkNow(mavenProject: MavenProject, mode: UpdateMode): Map<DependencyVersion, String> =
+    internal suspend fun checkNow(mavenProject: MavenProject, mode: UpdateMode,
+                                  artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY): Map<DependencyVersion, String> =
         scanMutex.withLock {
             val manager = MavenProjectsManager.getInstance(project)
             check(!manager.generalSettings.isWorkOffline) { "Maven is offline" }
-            MavenVersionLookup.check(manager, mavenProject, mode)
+            MavenVersionLookup.check(manager, mavenProject, mode, artifactKind)
         }
 
-    fun refresh() {
-        generation.incrementAndGet()
-        cache.clear()
+    fun refresh(currentPom: com.intellij.openapi.vfs.VirtualFile? = null) {
+        if (currentPom == null) {
+            generation.incrementAndGet()
+            cache.clear()
+        } else {
+            pomGenerations.computeIfAbsent(currentPom.path) { AtomicLong() }.incrementAndGet()
+            cache.remove(currentPom.path)
+        }
         val manager = MavenProjectsManager.getInstance(project)
         if (manager.generalSettings.isWorkOffline) {
             notify("Maven is offline. Disable Work offline in Maven settings to check remote versions.", NotificationType.INFORMATION)
             return
         }
-        manager.nonIgnoredProjects.forEach { updates(it) }
+        val projects = if (currentPom == null) manager.nonIgnoredProjects else
+            selectMavenProjects(manager, MavenUpdateScope.CURRENT_POM, currentPom)
+        projects.forEach { updates(it) }
         restartInspections()
     }
 
@@ -77,16 +87,17 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             try {
                 scanMutex.withLock {
                     if (project.isDisposed || manager.generalSettings.isWorkOffline) return@withLock
-                    val updates = MavenVersionLookup.check(manager, mavenProject)
+                    val updates = MavenVersionLookup.check(manager, mavenProject) +
+                        MavenVersionLookup.check(manager, mavenProject, artifactKind = MavenArtifactKind.PLUGIN)
                     val relocations = readRelocations(mavenProject)
                     cache[mavenProject.path] = Entry(fingerprint, System.nanoTime() + TimeUnit.MINUTES.toNanos(10), updates, relocations)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                log.warn("Dependency version check failed for ${mavenProject.path}", failure)
+                log.warn("Maven version check failed for ${mavenProject.path}", failure)
                 cache[mavenProject.path] = Entry(fingerprint, System.nanoTime() + TimeUnit.MINUTES.toNanos(1), emptyMap())
-                notify("Could not check dependency versions for ${mavenProject.file.name}. Check Maven settings and repository access, then use Tools → Check Maven Dependency Versions to retry.", NotificationType.WARNING)
+                notify("Could not check Maven versions for ${mavenProject.path}. Check Maven settings and repository access, then use Tools → Check Maven Versions to retry.", NotificationType.WARNING)
             } finally {
                 pending.remove(mavenProject.path)
                 restartInspections()

@@ -16,7 +16,7 @@ internal data class BulkUpdatePlan(val changes: List<VersionChange>, val skipped
     /** Validate the entire preview before applying one undoable command. */
     fun apply(project: Project): Boolean {
         var applied = false
-        WriteCommandAction.runWriteCommandAction(project, "Update Maven dependency versions", null, Runnable {
+        WriteCommandAction.runWriteCommandAction(project, "Update Maven versions", null, Runnable {
             val targets = changes.map { it.pointer.element ?: return@Runnable }
             if (targets.zip(changes).any { (tag, change) -> tag.value.trimmedText != change.expected }) return@Runnable
             targets.zip(changes).forEach { (tag, change) -> tag.value.setText(change.latest) }
@@ -26,8 +26,10 @@ internal data class BulkUpdatePlan(val changes: List<VersionChange>, val skipped
     }
 
     companion object {
-        fun create(files: Map<PsiFile, MavenDependencyAnalysis>): BulkUpdatePlan {
+        fun create(files: Map<PsiFile, MavenDependencyAnalysis>, artifactKind: MavenArtifactKind? = null,
+                   usageFiles: Collection<PsiFile> = files.keys): BulkUpdatePlan {
             val problems = files.flatMap { (file, analysis) -> analysis.problems(file) }
+                .filter { artifactKind == null || it.coordinate.artifactKind == artifactKind }
             val skipped = mutableListOf<String>()
             val candidates = problems.filter { problem ->
                 if (problem.target == null || problem.latest == null) {
@@ -40,13 +42,13 @@ internal data class BulkUpdatePlan(val changes: List<VersionChange>, val skipped
                 val target = group.first().target!!
                 val versions = group.map { it.latest!! }.distinct()
                 if (versions.size != 1) {
-                    skipped += "${target.localName}: dependencies using this property require different updates"
+                    skipped += "${target.localName}: artifacts using this property require different updates"
                     continue
                 }
                 val latest = versions.single()
                 if (target.parentTag?.localName == "properties") {
                     val reference = "\${${target.localName}}"
-                    val usages = files.keys.flatMap { file ->
+                    val usages = usageFiles.flatMap { file ->
                         PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).filter {
                             it.subTags.isEmpty() && it.value.trimmedText.contains(reference)
                         }
@@ -57,12 +59,13 @@ internal data class BulkUpdatePlan(val changes: List<VersionChange>, val skipped
                             group.any { it.anchor == usage && it.latest == latest }
                     }
                     if (!safe) {
-                        skipped += "${target.localName}: shared, inherited or non-dependency uses need review"
+                        skipped += "${target.localName}: shared, inherited or other uses need review"
                         continue
                     }
                 }
                 changes += VersionChange(SmartPointerManager.createPointer(target), target.value.trimmedText,
-                    latest, "${target.containingFile.virtualFile.path}: ${target.localName}")
+                    latest, "${target.containingFile.virtualFile.path}: ${target.localName} (" +
+                        group.joinToString { "${it.coordinate.groupId}:${it.coordinate.artifactId}" } + ")")
             }
             return BulkUpdatePlan(changes, skipped.distinct())
         }

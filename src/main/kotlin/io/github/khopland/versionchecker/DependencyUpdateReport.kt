@@ -1,7 +1,8 @@
 package io.github.khopland.versionchecker
 
 /** The version is part of the key: an edited or shared dependency must not receive a stale result. */
-data class DependencyVersion(val groupId: String, val artifactId: String, val version: String)
+data class DependencyVersion(val groupId: String, val artifactId: String, val version: String,
+                             val artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY)
 
 object DependencyUpdateReport {
     // Pin the goal version and line width in MavenVersionLookup; also handle wrapped lines defensively.

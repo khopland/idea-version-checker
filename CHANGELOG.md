@@ -14,6 +14,10 @@
 - An extension assessment for Gradle and npm/pnpm/Bun support.
 - Independent severity settings for patch, minor, major, other version changes, and deprecated/relocated dependencies; updates default to yellow warnings.
 - Explicit project deprecation rules and relocation notices read from Maven's downloaded dependency POMs.
+- Separate Current POM and Whole Project actions for checks and bulk updates.
+- Build-plugin version inspections, quick fixes and all three bulk-update modes, including `pluginManagement` and active profiles.
+- Plugin checks respect Maven plugin repositories and runtime prerequisites; restricted modes query candidates within the selected version branch.
+- Shared-property safety checks across imported modules when updating only the current POM.
 
 ### Fixed
 

@@ -62,4 +62,18 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         assertFalse(plan.apply(project))
         assertEquals("1.0", plan.changes.first().pointer.element!!.value.trimmedText)
     }
+
+    fun testCurrentPomPropertySafetyIncludesUsesInOtherModules() {
+        val file = myFixture.configureByText("pom.xml", """
+            <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+            <groupId>g</groupId><artifactId>parent</artifactId><version>1</version>
+            <properties><shared>1.0</shared></properties><dependencies>${dep("a", "\${shared}")}</dependencies></project>
+        """.trimIndent())
+        val child = myFixture.addFileToProject("child/pom.xml", "<project><dependencies>${dep("b", "\${shared}")}</dependencies></project>")
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile),
+            mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
+        val plan = BulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.DEPENDENCY, listOf(file, child))
+        assertTrue(plan.changes.isEmpty())
+        assertTrue(plan.skipped.single().contains("inherited"))
+    }
 }

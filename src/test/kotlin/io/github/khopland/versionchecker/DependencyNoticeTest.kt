@@ -38,6 +38,12 @@ class DependencyNoticeTest : BasePlatformTestCase() {
         assertTrue(plan.skipped.single().contains("Use new:library"))
     }
 
+    fun testPluginRelocationDoesNotTreatUnchangedCoordinatesAsRelocated() {
+        val plugin = coordinate.copy(artifactKind = MavenArtifactKind.PLUGIN)
+        assertNull(MavenRelocation.parse(JDOMUtil.load(StringReader("<project><distributionManagement><relocation/></distributionManagement></project>")), plugin))
+        assertEquals("new:library:1.0", MavenRelocation.parse(JDOMUtil.load(StringReader("<project><distributionManagement><relocation><groupId>new</groupId></relocation></distributionManagement></project>")), plugin))
+    }
+
     fun testRelocatedDependencyNeedsCoordinateReviewEvenWithVersionUpdate() {
         val file = myFixture.configureByText("pom.xml", """
             <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>

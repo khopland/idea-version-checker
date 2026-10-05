@@ -39,23 +39,23 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     private var deprecated: JBTextArea? = null
     override fun getDisplayName(): String = "Maven Version Checker"
     override fun createComponent(): JComponent {
-        enabled = JBCheckBox("Check for newer Maven dependency versions")
+        enabled = JBCheckBox("Check for newer Maven dependency and build-plugin versions")
         val form = FormBuilder.createFormBuilder().addComponent(enabled!!)
         for ((kind, label) in linkedMapOf(
             DependencyChangeKind.PATCH to "Patch updates:",
             DependencyChangeKind.MINOR to "Minor updates:",
             DependencyChangeKind.MAJOR to "Major updates:",
             DependencyChangeKind.OTHER to "Other version changes:",
-            DependencyChangeKind.DEPRECATED to "Deprecated / relocated dependencies:"
+            DependencyChangeKind.DEPRECATED to "Deprecated / relocated:"
         )) {
             val selector = ComboBox(DependencySeverity.entries.toTypedArray())
             severities[kind] = selector
             form.addLabeledComponent(label, selector)
         }
         deprecated = JBTextArea(5, 50)
-        form.addComponent(JBLabel("Explicitly deprecated dependencies (one groupId:artifactId = reason per line):"))
+        form.addComponent(JBLabel("Explicitly deprecated dependencies or plugins (one groupId:artifactId = reason per line):"))
             .addComponent(JBScrollPane(deprecated!!))
-            .addComponent(JBLabel("Maven relocation notices are detected from dependency POMs already downloaded by Maven."))
+            .addComponent(JBLabel("Maven relocation notices are detected from POMs already downloaded by Maven."))
         return form.panel.also { reset() }
     }
     override fun isModified(): Boolean {

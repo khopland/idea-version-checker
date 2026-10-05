@@ -7,16 +7,19 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 
-class RefreshVersionsAction : AnAction() {
+open class RefreshVersionsAction(private val scope: MavenUpdateScope = MavenUpdateScope.WHOLE_PROJECT) : AnAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
     override fun update(event: AnActionEvent) {
         event.presentation.isEnabledAndVisible = event.project?.let {
-            MavenProjectsManager.getInstance(it).hasProjects()
+            selectMavenProjects(MavenProjectsManager.getInstance(it), scope, currentMavenPom(event)).isNotEmpty()
         } == true
     }
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
         FileDocumentManager.getInstance().saveAllDocuments()
-        project.service<VersionCheckService>().refresh()
+        val currentPom = if (scope == MavenUpdateScope.CURRENT_POM) currentMavenPom(event) ?: return else null
+        project.service<VersionCheckService>().refresh(currentPom)
     }
 }
+
+class CurrentPomRefreshVersionsAction : RefreshVersionsAction(MavenUpdateScope.CURRENT_POM)
