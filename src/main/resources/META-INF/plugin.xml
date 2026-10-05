@@ -1,0 +1,28 @@
+<idea-plugin>
+    <id>io.github.khopland.version-checker</id>
+    <name>Maven Version Checker</name>
+    <vendor>khopland</vendor>
+    <description><![CDATA[
+        Highlights Maven dependencies with newer stable versions as errors in pom.xml.
+        Uses IntelliJ IDEA's Maven configuration, including settings.xml repositories,
+        mirrors, credentials and active profiles. Includes a version update quick fix.
+    ]]></description>
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.java</depends>
+    <depends>org.jetbrains.idea.maven</depends>
+    <extensions defaultExtensionNs="com.intellij">
+        <localInspection language="XML" shortName="NewerMavenDependencyVersion"
+                         displayName="Newer Maven dependency version available"
+                         groupName="Maven" enabledByDefault="true" level="ERROR"
+                         implementationClass="io.github.khopland.versionchecker.NewerMavenDependencyInspection"/>
+        <notificationGroup id="Maven Version Checker" displayType="BALLOON"/>
+    </extensions>
+    <actions>
+        <action id="MavenVersionChecker.Refresh"
+                class="io.github.khopland.versionchecker.RefreshVersionsAction"
+                text="Check Maven Dependency Versions"
+                description="Refresh dependency version checks using the project's Maven configuration">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>
