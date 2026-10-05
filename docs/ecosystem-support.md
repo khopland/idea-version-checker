@@ -2,6 +2,8 @@
 
 The current release implements Maven. Gradle and npm/pnpm/Bun support is feasible, but needs separate adapters for discovery, version comparison, repository configuration, and edits. The standard inspection approach, settings, update-mode selection, and preview flow can be reused.
 
+See [the shared build-system API proposal](build-system-api.md) for the concrete adapter boundary, current-code mapping, update/lockfile contracts and migration sequence.
+
 ## Gradle
 
 Use IDEA's linked Gradle projects and the project's Gradle wrapper. Execute a temporary inspection task/init script through Gradle's tooling integration so repository credentials, repository content filters, settings-level repositories, and init scripts are evaluated by Gradle. Maven `settings.xml` is not the repository configuration for Gradle builds.
