@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.maven.*
+
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import org.jetbrains.idea.maven.dom.MavenDomUtil
@@ -33,7 +35,7 @@ class DependencyNoticeTest : BasePlatformTestCase() {
         assertTrue(notice.message.contains("marked deprecated: Use new:library"))
         assertNull(notice.latest)
         assertNull(notice.target)
-        val plan = BulkUpdatePlan.create(mapOf(file to analysis))
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
         assertTrue(plan.changes.isEmpty())
         assertTrue(plan.skipped.single().contains("Use new:library"))
     }
@@ -57,6 +59,6 @@ class DependencyNoticeTest : BasePlatformTestCase() {
         assertEquals(DependencyChangeKind.DEPRECATED, notice.kind)
         assertTrue(notice.message.contains("relocated to new:library:1.0"))
         assertNull(notice.target)
-        assertTrue(BulkUpdatePlan.create(mapOf(file to analysis)).changes.isEmpty())
+        assertTrue(MavenBulkUpdatePlan.create(mapOf(file to analysis)).changes.isEmpty())
     }
 }

@@ -1,4 +1,6 @@
-package io.github.khopland.versionchecker
+package io.github.khopland.versionchecker.maven
+
+import io.github.khopland.versionchecker.*
 
 import org.jetbrains.idea.maven.dom.MavenVersionComparable
 
@@ -30,7 +32,7 @@ internal object MavenPluginUpdates {
             val match = update.matchEntire(line) ?: continue
             val (name, current, latest) = match.destructured
             if (!DependencyUpdateReport.isFixedVersion(current) || unstable.matches(latest) ||
-                MavenVersionComparable(latest) <= MavenVersionComparable(current) || !mode.allows(current, latest)) continue
+                MavenVersionComparable(latest) <= MavenVersionComparable(current) || !MavenVersionSemantics.allows(mode, current, latest)) continue
             val group = if (':' in name) name.substringBefore(':') else "org.apache.maven.plugins"
             val artifact = name.substringAfter(':', name)
             val coordinate = DependencyVersion(group, artifact, current, MavenArtifactKind.PLUGIN)

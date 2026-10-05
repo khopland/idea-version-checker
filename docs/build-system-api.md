@@ -2,6 +2,8 @@
 
 Status: design proposal, reviewed against the current implementation and upstream documentation on 2026-10-05. Maven is still the only implemented adapter. This proposal does not change runtime behavior.
 
+Implementation has started: the shared model/coordinator and Maven adapter extraction are complete. See [implementation notes](adapter-implementation.md) for the actual internal contract and remaining work. The signatures below remain the original design sketch.
+
 [Read the self-contained HTML page](build-system-api.html).
 
 The recommended next step is to extract a small shared model and update coordinator, then move the existing Maven implementation behind an adapter. Keep discovery, repository access, version semantics and declaration editing inside each adapter. Add Gradle and npm against that boundary before treating it as a public API.

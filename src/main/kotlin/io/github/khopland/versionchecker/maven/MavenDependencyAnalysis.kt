@@ -1,4 +1,6 @@
-package io.github.khopland.versionchecker
+package io.github.khopland.versionchecker.maven
+
+import io.github.khopland.versionchecker.*
 
 import com.intellij.openapi.components.service
 import com.intellij.psi.PsiFile
@@ -64,7 +66,7 @@ internal class MavenDependencyAnalysis(
         val notice = relocations[coordinate]?.let { "$label $id:${coordinate.version} has been relocated to $it" }
             ?: deprecated[id]?.let { "$label $id is marked deprecated: $it" }
         if (latest == null && notice == null) return null
-        val kind = if (notice != null) DependencyChangeKind.DEPRECATED else DependencyChangeKind.between(coordinate.version, latest!!)
+        val kind = if (notice != null) DependencyChangeKind.DEPRECATED else MavenVersionSemantics.between(coordinate.version, latest!!)
         val versionTag = tag.findFirstSubTag("version")
         val rawVersion = versionTag?.value?.trimmedText
         val current = coordinate.version
@@ -86,7 +88,7 @@ internal class MavenDependencyAnalysis(
             if (!file.project.service<VersionCheckerSettings>().state.enabled) return null
             val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return null
             val mavenProject = MavenProjectsManager.getInstance(file.project).findProject(file.virtualFile ?: return null) ?: return null
-            val service = file.project.service<VersionCheckService>()
+            val service = file.project.service<MavenVersionCheckService>()
             return MavenDependencyAnalysis(model, mavenProject, service.updates(mavenProject),
                 file.project.service<VersionCheckerSettings>().state, service.relocations(mavenProject))
         }

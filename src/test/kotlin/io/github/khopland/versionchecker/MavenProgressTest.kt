@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.maven.*
+
 import kotlinx.coroutines.*
 import org.junit.Assert.assertTrue
 import org.junit.Test

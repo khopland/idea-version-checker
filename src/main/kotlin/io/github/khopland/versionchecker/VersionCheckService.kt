@@ -8,129 +8,102 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
+import io.github.khopland.versionchecker.core.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.jetbrains.idea.maven.project.MavenProject
-import org.jetbrains.idea.maven.project.MavenProjectsManager
-import com.intellij.psi.PsiManager
-import com.intellij.psi.util.PsiTreeUtil
-import com.intellij.psi.xml.XmlTag
-import org.jetbrains.idea.maven.dom.MavenDomUtil
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicLong
 
+/** Shared background coordinator. Only adapters know how a build resolves or declares versions. */
 @Service(Service.Level.PROJECT)
 class VersionCheckService(private val project: Project, private val scope: CoroutineScope) {
-    private data class Fingerprint(val pomStamp: Long, val modelStamp: Long, val settingsHash: Int, val generation: Long)
-    private data class Entry(val fingerprint: Fingerprint, val expiresAt: Long, val updates: Map<DependencyVersion, String>,
-                             val relocations: Map<DependencyVersion, String> = emptyMap())
-    private val cache = ConcurrentHashMap<String, Entry>()
-    private val pending = ConcurrentHashMap.newKeySet<String>()
-    private val generation = AtomicLong()
-    private val pomGenerations = ConcurrentHashMap<String, AtomicLong>()
-    // Avoid competing for a Maven embedder while checking several modules.
-    private val scanMutex = Mutex()
+    private data class ScanToken(val sourceFile: String, val fingerprint: BuildFingerprint, val declarations: List<VersionDeclaration>, val revision: VersionResultCache.Revision)
+    private val cache = VersionResultCache()
+    private val pending = ConcurrentHashMap<BuildContextId, ScanToken>()
+    private val scanMutexes = ConcurrentHashMap<String, Mutex>()
     private val log = Logger.getInstance(VersionCheckService::class.java)
 
-    internal fun relocations(mavenProject: MavenProject): Map<DependencyVersion, String> =
-        cache[mavenProject.path]?.relocations.orEmpty()
+    internal fun cached(snapshot: BuildSnapshot): UpdateReport? = cache.get(snapshot)
 
-    fun updates(mavenProject: MavenProject): Map<DependencyVersion, String> {
-        if (!project.service<VersionCheckerSettings>().state.enabled) return emptyMap()
-        val manager = MavenProjectsManager.getInstance(project)
-        if (manager.generalSettings.isWorkOffline || manager.isIgnored(mavenProject)) return emptyMap()
-        val fingerprint = Fingerprint(mavenProject.file.modificationStamp,
-            manager.modificationTracker.modificationCount, manager.generalSettings.hashCode(),
-            generation.get() + (pomGenerations[mavenProject.path]?.get() ?: 0))
-        val entry = cache[mavenProject.path]
-        if (entry == null || entry.fingerprint != fingerprint || entry.expiresAt < System.nanoTime()) {
-            schedule(manager, mavenProject, fingerprint)
-        }
-        return entry?.takeIf { it.fingerprint == fingerprint }?.updates.orEmpty()
+    internal fun updates(adapter: BuildSystemAdapter, snapshot: BuildSnapshot): UpdateReport? {
+        if (!project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project)) return null
+        val entry = cache.get(snapshot)
+        if (entry == null) schedule(adapter, snapshot)
+        return entry
     }
 
-    internal suspend fun checkNow(mavenProject: MavenProject, mode: UpdateMode,
-                                  artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY): Map<DependencyVersion, String> =
-        scanMutex.withLock {
-            val manager = MavenProjectsManager.getInstance(project)
-            check(!manager.generalSettings.isWorkOffline) { "Maven is offline" }
-            MavenVersionLookup.check(manager, mavenProject, mode, artifactKind)
+    internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport =
+        scanMutexes.computeIfAbsent(adapter.id) { Mutex() }.withLock {
+            check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
+            check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
+            val result = adapter.check(project, snapshot, mode)
+            check(result.successful) { result.failure.orEmpty() }
+            result
         }
 
-    fun refresh(currentPom: com.intellij.openapi.vfs.VirtualFile? = null) {
-        if (currentPom == null) {
-            generation.incrementAndGet()
-            cache.clear()
+    fun refresh(adapterId: String, currentFile: VirtualFile? = null) {
+        val adapter = BuildSystemAdapter.find(adapterId) ?: return
+        // Invalidate immediately, before an in-flight check can publish a pre-refresh result.
+        if (currentFile == null) {
+            // A provider refresh must preserve cached results for other build systems.
+            cache.invalidateAdapter(adapterId)
+            pending.keys.filter { it.adapterId == adapterId }.forEach { pending.remove(it) }
         } else {
-            pomGenerations.computeIfAbsent(currentPom.path) { AtomicLong() }.incrementAndGet()
-            cache.remove(currentPom.path)
+            cache.invalidateSource(adapterId, currentFile.path)
+            pending.entries.filter { it.key.adapterId == adapterId && it.value.sourceFile == currentFile.path }
+                .forEach { (context, token) -> pending.remove(context, token) }
         }
-        val manager = MavenProjectsManager.getInstance(project)
-        if (manager.generalSettings.isWorkOffline) {
-            notify("Maven is offline. Disable Work offline in Maven settings to check remote versions.", NotificationType.INFORMATION)
-            return
+        scope.launch(Dispatchers.IO) {
+            val selection = BuildSelection(if (currentFile == null) UpdateScope.WHOLE_PROJECT else UpdateScope.CURRENT_FILE, currentFile?.path)
+            val snapshots = adapter.discover(project, selection)
+            if (adapter.isOffline(project)) {
+                notify("${adapter.displayName} is offline. Disable Work offline to check remote versions.", NotificationType.INFORMATION)
+            } else snapshots.forEach { updates(adapter, it) }
+            restartInspections()
         }
-        val projects = if (currentPom == null) manager.nonIgnoredProjects else
-            selectMavenProjects(manager, MavenUpdateScope.CURRENT_POM, currentPom)
-        projects.forEach { updates(it) }
-        restartInspections()
     }
 
-    private fun schedule(manager: MavenProjectsManager, mavenProject: MavenProject, fingerprint: Fingerprint) {
-        if (!pending.add(mavenProject.path)) return
+    private fun schedule(adapter: BuildSystemAdapter, snapshot: BuildSnapshot) {
+        val token = ScanToken(snapshot.sourceFile, snapshot.fingerprint, snapshot.declarations, cache.begin(snapshot))
+        var claimed = false
+        pending.compute(snapshot.context) { _, active ->
+            if (active == token) active else { claimed = true; token }
+        }
+        if (!claimed) return
         scope.launch(Dispatchers.IO) {
             try {
-                scanMutex.withLock {
-                    if (project.isDisposed || manager.generalSettings.isWorkOffline) return@withLock
-                    val updates = MavenVersionLookup.check(manager, mavenProject) +
-                        MavenVersionLookup.check(manager, mavenProject, artifactKind = MavenArtifactKind.PLUGIN)
-                    val relocations = readRelocations(mavenProject)
-                    cache[mavenProject.path] = Entry(fingerprint, System.nanoTime() + TimeUnit.MINUTES.toNanos(10), updates, relocations)
+                scanMutexes.computeIfAbsent(adapter.id) { Mutex() }.withLock {
+                    if (project.isDisposed || adapter.isOffline(project) || cache.revision(snapshot.context) != token.revision) return@withLock
+                    if (!readAction { adapter.isCurrent(project, snapshot) }) return@withLock
+                    val report = adapter.check(project, snapshot, UpdateMode.MAJOR)
+                    if (readAction { !project.isDisposed && adapter.isCurrent(project, snapshot) } && cache.put(snapshot, token.revision, report)) {
+                        if (!report.successful) notify("Could not check ${adapter.displayName} versions: ${report.failure}", NotificationType.WARNING)
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                log.warn("Maven version check failed for ${mavenProject.path}", failure)
-                cache[mavenProject.path] = Entry(fingerprint, System.nanoTime() + TimeUnit.MINUTES.toNanos(1), emptyMap())
-                notify("Could not check Maven versions for ${mavenProject.path}. Check Maven settings and repository access, then use Tools → Check Maven Versions to retry.", NotificationType.WARNING)
+                log.warn("${adapter.displayName} version check failed for ${snapshot.sourceFile}", failure)
+                if (cache.put(snapshot, token.revision, UpdateReport(failure = failure.message ?: failure.javaClass.simpleName))) {
+                    notify("Could not check ${adapter.displayName} versions for ${snapshot.sourceFile}. Check repository settings, then refresh version checks to retry.", NotificationType.WARNING)
+                }
             } finally {
-                pending.remove(mavenProject.path)
+                pending.remove(snapshot.context, token)
                 restartInspections()
             }
         }
     }
 
-    internal suspend fun readRelocations(mavenProject: MavenProject): Map<DependencyVersion, String> {
-        val dependencies = readAction {
-            val file = PsiManager.getInstance(project).findFile(mavenProject.file) ?: return@readAction emptyList()
-            val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return@readAction emptyList()
-            val analysis = MavenDependencyAnalysis(model, mavenProject, emptyMap())
-            PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).mapNotNull(analysis::coordinate).distinct()
-        }
-        return buildMap {
-            for (dependency in dependencies) {
-                try {
-                    MavenRelocation.read(mavenProject.localRepositoryPath, dependency)?.let { put(dependency, it) }
-                } catch (failure: Exception) {
-                    log.debug("Could not read relocation metadata for $dependency", failure)
-                }
-            }
-        }
-    }
-
     private fun restartInspections() {
-        ApplicationManager.getApplication().invokeLater {
-            if (!project.isDisposed) refreshEditorProblems(project, this)
-        }
+        ApplicationManager.getApplication().invokeLater { if (!project.isDisposed) refreshEditorProblems(project, this) }
     }
 
     private fun notify(message: String, type: NotificationType) {
         if (!project.isDisposed) NotificationGroupManager.getInstance().getNotificationGroup("Maven Version Checker")
-            .createNotification("Maven Version Checker", message, type).notify(project)
+            .createNotification("Version Checker", message, type).notify(project)
     }
 }

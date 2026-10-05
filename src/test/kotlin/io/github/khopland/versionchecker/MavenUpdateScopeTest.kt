@@ -1,5 +1,8 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.maven.*
+import io.github.khopland.versionchecker.core.*
+
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
@@ -27,14 +30,14 @@ class MavenUpdateScopeTest : BasePlatformTestCase() {
         try {
             val root = imported(manager, "root")
             val child = imported(manager, "child")
-            assertEquals(listOf(child), selectMavenProjects(manager, MavenUpdateScope.CURRENT_POM, child.file))
-            assertEquals(setOf(root, child), selectMavenProjects(manager, MavenUpdateScope.WHOLE_PROJECT, child.file).toSet())
-            assertTrue(selectMavenProjects(manager, MavenUpdateScope.CURRENT_POM, null).isEmpty())
+            assertEquals(listOf(child), selectMavenProjects(manager, UpdateScope.CURRENT_FILE, child.file))
+            assertEquals(setOf(root, child), selectMavenProjects(manager, UpdateScope.WHOLE_PROJECT, child.file).toSet())
+            assertTrue(selectMavenProjects(manager, UpdateScope.CURRENT_FILE, null).isEmpty())
             val text = myFixture.addFileToProject("README.txt", "Not a Maven POM")
-            assertTrue(selectMavenProjects(manager, MavenUpdateScope.CURRENT_POM, text.virtualFile).isEmpty())
+            assertTrue(selectMavenProjects(manager, UpdateScope.CURRENT_FILE, text.virtualFile).isEmpty())
             manager.projectsTree.setIgnoredState(listOf(child), true)
-            assertTrue(selectMavenProjects(manager, MavenUpdateScope.CURRENT_POM, child.file).isEmpty())
-            assertEquals(listOf(root), selectMavenProjects(manager, MavenUpdateScope.WHOLE_PROJECT, child.file))
+            assertTrue(selectMavenProjects(manager, UpdateScope.CURRENT_FILE, child.file).isEmpty())
+            assertEquals(listOf(root), selectMavenProjects(manager, UpdateScope.WHOLE_PROJECT, child.file))
         } finally {
             manager.projectsTree.setIgnoredState(manager.projects, true)
         }
@@ -51,7 +54,7 @@ class MavenUpdateScopeTest : BasePlatformTestCase() {
             val context = SimpleDataContext.builder().add(CommonDataKeys.PROJECT, project)
                 .add(CommonDataKeys.EDITOR, myFixture.editor).add(CommonDataKeys.VIRTUAL_FILE, root.file).build()
             val event = AnActionEvent.createFromDataContext("test", null, context)
-            assertEquals(child.file, currentMavenPom(event))
+            assertEquals(child.file, currentBuildFile(event))
             CurrentPomPluginPatchUpdateAction().update(event)
             assertTrue(event.presentation.isEnabledAndVisible)
             manager.projectsTree.setIgnoredState(listOf(child), true)

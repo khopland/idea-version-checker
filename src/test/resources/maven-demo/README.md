@@ -23,13 +23,13 @@ Hover over a highlighted dependency to read its standard IDEA inspection message
 
 To test a red deprecation notice, add `org.slf4j:slf4j-api = Demo policy: migrate to a maintained version` to the explicitly deprecated dependencies field. This is a demo policy you supply, not a claim that SLF4J itself is deprecated. The dependency then displays a deprecation notice and is skipped for manual review during bulk updates. Remove the rule to resume the normal update demo.
 
-Choose **Tools → Update Maven Dependencies**, then **Current POM** or **Whole Project**, and inspect the preview before applying:
+Choose **Tools → Update Maven Versions**, then **Current POM** or **Whole Project**, and inspect the combined dependency/plugin preview before applying:
 
 - **Patch Only** keeps the current major and minor numbers. Guava stays within `32.1.x`; SLF4J stays within `1.7.x`; Jackson stays within `2.15.x`.
 - **Minor + Patch** keeps the major number. Guava stays within `32.x`; SLF4J stays within `1.x`; Jackson stays within `2.x`.
 - **Major + Minor + Patch** allows newer major versions too. Review these changes before applying them.
 
-Try the same scopes and modes under **Tools → Update Maven Build Plugins**. With the root POM open, **Current POM → Patch Only** can update Compiler to `3.12.1` and Surefire to `3.2.5`. These versions are declared in the root's `pluginManagement`; child POMs inherit them. Minor and major modes can offer newer plugin versions compatible with the project's Maven runtime.
+Build plugins are included in the same preview. With the root POM open, **Current POM → Patch Only** can update Compiler to `3.12.1` and Surefire to `3.2.5` alongside eligible dependencies. These versions are declared in the root's `pluginManagement`; child POMs inherit them. Minor and major modes can offer newer plugin versions compatible with the project's Maven runtime.
 
 Targets depend on the versions your configured repository currently provides. There may be no candidate for a particular artifact in a restricted mode. Current POM edits only the POM in the editor; Whole Project includes all imported modules, including the nested child. A single editor Undo restores an applied bulk update. Reload Maven after edits and refresh the checks.
 

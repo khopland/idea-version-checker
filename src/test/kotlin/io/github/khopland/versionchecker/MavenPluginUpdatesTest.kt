@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.maven.*
+
 import org.junit.Assert.*
 import org.junit.Test
 

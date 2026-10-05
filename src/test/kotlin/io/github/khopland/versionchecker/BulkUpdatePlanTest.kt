@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.maven.*
+
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.psi.xml.XmlFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -15,7 +17,7 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
             </project>
         """.trimIndent())
         val model = MavenDomUtil.getMavenDomProjectModel(file)!!
-        return BulkUpdatePlan.create(mapOf(file to MavenDependencyAnalysis(model, MavenProject(file.virtualFile), updates, options)))
+        return MavenBulkUpdatePlan.create(mapOf(file to MavenDependencyAnalysis(model, MavenProject(file.virtualFile), updates, options)))
     }
     private fun dep(name: String, version: String): String =
         "<dependency><groupId>g</groupId><artifactId>$name</artifactId><version>$version</version></dependency>"
@@ -58,9 +60,9 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         val plan = plan("<dependencies>" + dep("a", "1.0") + dep("b", "1.0") + "</dependencies>",
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0", DependencyVersion("g", "b", "1.0") to "2.0"))
         assertEquals(2, plan.changes.size)
-        WriteCommandAction.runWriteCommandAction(project) { plan.changes.last().pointer.element!!.value.setText("3.0") }
+        WriteCommandAction.runWriteCommandAction(project) { (plan.changes.last().element as com.intellij.psi.xml.XmlTag).value.setText("3.0") }
         assertFalse(plan.apply(project))
-        assertEquals("1.0", plan.changes.first().pointer.element!!.value.trimmedText)
+        assertEquals("1.0", (plan.changes.first().element as com.intellij.psi.xml.XmlTag).value.trimmedText)
     }
 
     fun testCurrentPomPropertySafetyIncludesUsesInOtherModules() {
@@ -72,7 +74,7 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         val child = myFixture.addFileToProject("child/pom.xml", "<project><dependencies>${dep("b", "\${shared}")}</dependencies></project>")
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile),
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
-        val plan = BulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.DEPENDENCY, listOf(file, child))
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.DEPENDENCY, listOf(file, child))
         assertTrue(plan.changes.isEmpty())
         assertTrue(plan.skipped.single().contains("inherited"))
     }

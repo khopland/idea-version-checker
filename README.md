@@ -39,7 +39,7 @@ If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) c
 
 ## Bulk updates and submodules
 
-Choose **Tools → Update Maven Dependencies** or **Tools → Update Maven Build Plugins**, then choose **Current POM** or **Whole Project**. Current POM checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
+Choose **Tools → Update Maven Versions**, then **Current POM** or **Whole Project**. Each action checks dependencies and build plugins together and shows one combined preview. Current POM checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
 
 - **Patch only:** keep the current major and minor version numbers.
 - **Minor + patch:** keep the current major version number.
@@ -47,7 +47,7 @@ Choose **Tools → Update Maven Dependencies** or **Tools → Update Maven Build
 
 The check queries the newest version within the selected scope; it does not simply discard a latest version outside that scope. Restricted modes require numeric major/minor prefixes.
 
-A preview lists each POM/property change before applying one undoable command. The plugin saves the changed files and refreshes checks. It skips inherited/composite version declarations and shared properties with conflicting, unchanged, unselected, or inherited uses. Shared-property safety checks cover all imported POMs even in Current POM mode. These cases appear in the preview as needing review. A preview becomes invalid if a target version changes before applying it.
+A preview lists each POM/property change before applying one undoable command. The plugin saves the changed files and refreshes checks. Compatible dependency/plugin updates sharing a property become one edit. It skips inherited/composite version declarations and shared properties with conflicting, unchanged, unselected, or inherited uses. Shared-property safety checks cover all imported POMs even in Current POM mode. These cases appear in the preview as needing review. A preview becomes invalid if an imported POM, relevant Maven configuration, or deprecation policy changes before applying it.
 
 Successful module checks with an empty or absent Maven report count as having no updates and do not abort the scan. Failures are logged to `idea.log`; a **Show details** notification action displays the cause without changing any versions.
 
@@ -77,7 +77,7 @@ Gradle, reporting plugins, build extensions, plugin-contained dependencies, tran
 
 ## Other ecosystems
 
-Gradle and npm/pnpm/Bun support is feasible. Repository configuration and version/lockfile editing require separate adapters. See [the extension assessment](docs/ecosystem-support.md) for the proposed approach and source documentation. Only Maven is implemented in this release.
+The shared adapter model, coordinator, cache and edit bridge are implemented, with Maven as the first adapter. Gradle and npm/pnpm/Bun require their own discovery, repository and version/lockfile editing adapters. See [implementation notes](docs/adapter-implementation.md) and [the extension assessment](docs/ecosystem-support.md). Only Maven is implemented in this release.
 
 ## Development and verification
 

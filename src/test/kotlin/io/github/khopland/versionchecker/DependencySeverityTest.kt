@@ -1,14 +1,16 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.maven.*
+
 import org.junit.Assert.*
 import org.junit.Test
 
 class DependencySeverityTest {
     @Test fun `classifies numeric and qualified Maven versions`() {
-        assertEquals(DependencyChangeKind.PATCH, DependencyChangeKind.between("32.1.1-jre", "32.1.3-jre"))
-        assertEquals(DependencyChangeKind.MINOR, DependencyChangeKind.between("4.12", "4.13.2"))
-        assertEquals(DependencyChangeKind.MAJOR, DependencyChangeKind.between("1.7.36", "2.0.20"))
-        assertEquals(DependencyChangeKind.OTHER, DependencyChangeKind.between("RELEASE_1", "RELEASE_2"))
+        assertEquals(DependencyChangeKind.PATCH, MavenVersionSemantics.between("32.1.1-jre", "32.1.3-jre"))
+        assertEquals(DependencyChangeKind.MINOR, MavenVersionSemantics.between("4.12", "4.13.2"))
+        assertEquals(DependencyChangeKind.MAJOR, MavenVersionSemantics.between("1.7.36", "2.0.20"))
+        assertEquals(DependencyChangeKind.OTHER, MavenVersionSemantics.between("RELEASE_1", "RELEASE_2"))
     }
 
     @Test fun `updates default to warnings and explicit notices to errors`() {

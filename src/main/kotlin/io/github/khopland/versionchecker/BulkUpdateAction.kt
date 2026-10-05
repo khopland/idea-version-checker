@@ -3,33 +3,42 @@ package io.github.khopland.versionchecker
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import org.jetbrains.idea.maven.project.MavenProjectsManager
+import com.intellij.openapi.vfs.VirtualFile
+import io.github.khopland.versionchecker.core.*
+
+internal fun currentBuildFile(event: AnActionEvent): VirtualFile? =
+    event.getData(CommonDataKeys.EDITOR)?.document?.let { FileDocumentManager.getInstance().getFile(it) }
+        ?: event.getData(CommonDataKeys.PSI_FILE)?.virtualFile
+        ?: event.getData(CommonDataKeys.VIRTUAL_FILE)
 
 abstract class BulkUpdateAction(private val mode: UpdateMode,
-                                private val scope: MavenUpdateScope = MavenUpdateScope.WHOLE_PROJECT,
-                                private val artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY) : AnAction() {
-    override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+                                private val scope: UpdateScope = UpdateScope.WHOLE_PROJECT,
+                                private val adapterId: String = "maven") : AnAction() {
+    override fun getActionUpdateThread() = ActionUpdateThread.BGT
     override fun update(event: AnActionEvent) {
-        event.presentation.isEnabledAndVisible = event.project?.let {
-            val manager = MavenProjectsManager.getInstance(it)
-            !manager.generalSettings.isWorkOffline && selectMavenProjects(manager, scope, currentMavenPom(event)).isNotEmpty()
+        val adapter = BuildSystemAdapter.find(adapterId)
+        event.presentation.isEnabledAndVisible = event.project?.let { project ->
+            adapter != null && mode in adapter.capabilities.updateModes && !adapter.isOffline(project) &&
+                adapter.supports(project, BuildSelection(scope, currentBuildFile(event)?.path))
         } == true
     }
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
+        val current = currentBuildFile(event)
         FileDocumentManager.getInstance().saveAllDocuments()
-        project.service<BulkUpdateService>().preview(mode, scope, artifactKind, currentMavenPom(event))
+        project.service<BulkUpdateService>().preview(mode, scope, current, adapterId)
     }
 }
-class PatchUpdateAction : BulkUpdateAction(UpdateMode.PATCH)
-class MinorUpdateAction : BulkUpdateAction(UpdateMode.MINOR)
-class MajorUpdateAction : BulkUpdateAction(UpdateMode.MAJOR)
-class CurrentPomPatchUpdateAction : BulkUpdateAction(UpdateMode.PATCH, MavenUpdateScope.CURRENT_POM)
-class CurrentPomMinorUpdateAction : BulkUpdateAction(UpdateMode.MINOR, MavenUpdateScope.CURRENT_POM)
-class CurrentPomMajorUpdateAction : BulkUpdateAction(UpdateMode.MAJOR, MavenUpdateScope.CURRENT_POM)
-class PluginPatchUpdateAction : BulkUpdateAction(UpdateMode.PATCH, artifactKind = MavenArtifactKind.PLUGIN)
-class PluginMinorUpdateAction : BulkUpdateAction(UpdateMode.MINOR, artifactKind = MavenArtifactKind.PLUGIN)
-class PluginMajorUpdateAction : BulkUpdateAction(UpdateMode.MAJOR, artifactKind = MavenArtifactKind.PLUGIN)
-class CurrentPomPluginPatchUpdateAction : BulkUpdateAction(UpdateMode.PATCH, MavenUpdateScope.CURRENT_POM, MavenArtifactKind.PLUGIN)
-class CurrentPomPluginMinorUpdateAction : BulkUpdateAction(UpdateMode.MINOR, MavenUpdateScope.CURRENT_POM, MavenArtifactKind.PLUGIN)
-class CurrentPomPluginMajorUpdateAction : BulkUpdateAction(UpdateMode.MAJOR, MavenUpdateScope.CURRENT_POM, MavenArtifactKind.PLUGIN)
+open class PatchUpdateAction : BulkUpdateAction(UpdateMode.PATCH)
+open class MinorUpdateAction : BulkUpdateAction(UpdateMode.MINOR)
+open class MajorUpdateAction : BulkUpdateAction(UpdateMode.MAJOR)
+open class CurrentPomPatchUpdateAction : BulkUpdateAction(UpdateMode.PATCH, UpdateScope.CURRENT_FILE)
+open class CurrentPomMinorUpdateAction : BulkUpdateAction(UpdateMode.MINOR, UpdateScope.CURRENT_FILE)
+open class CurrentPomMajorUpdateAction : BulkUpdateAction(UpdateMode.MAJOR, UpdateScope.CURRENT_FILE)
+// Keep existing shortcut IDs usable; these aliases now run the combined update workflow.
+class PluginPatchUpdateAction : PatchUpdateAction()
+class PluginMinorUpdateAction : MinorUpdateAction()
+class PluginMajorUpdateAction : MajorUpdateAction()
+class CurrentPomPluginPatchUpdateAction : CurrentPomPatchUpdateAction()
+class CurrentPomPluginMinorUpdateAction : CurrentPomMinorUpdateAction()
+class CurrentPomPluginMajorUpdateAction : CurrentPomMajorUpdateAction()

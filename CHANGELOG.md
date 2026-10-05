@@ -4,6 +4,10 @@
 
 ### Added
 
+- Shared build-system adapter model and coordinator; Maven discovery, metadata lookup and XML edits are isolated in the Maven adapter.
+- Generic artifact/declaration identities, context-isolated caching, refresh generations and a format-independent edit bridge.
+- Optional Maven registration and contract tests using a non-Maven provider.
+
 - Maven dependency version inspection with configurable severity and literal/property update quick fixes.
 - Background checks through IDEA's Maven server, respecting Maven settings, mirrors and authentication.
 - Cached per-POM results, offline support, and a Tools action to refresh version checks.
@@ -20,6 +24,9 @@
 - Shared-property safety checks across imported modules when updating only the current POM.
 
 ### Fixed
+
+- Maven dependency and build-plugin updates now share one action group and preview; compatible shared properties are edited once.
+- Stale in-flight results are discarded after refresh, and prepared edits are invalidated by changes to imported POMs or Maven configuration.
 
 - Bulk checks no longer fail when a successful module produces no dependency-update report.
 - Bulk check failures are logged and include a Show details action.

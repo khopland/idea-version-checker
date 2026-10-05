@@ -1,5 +1,8 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.maven.*
+import io.github.khopland.versionchecker.core.*
+
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.ProblemHighlightType
@@ -71,14 +74,14 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 assertTrue(plan.changes.any { "property-dependencies" in it.location })
                 val plugins = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                     runBlocking {
-                        project.service<BulkUpdateService>().createPlan(mode, MavenUpdateScope.CURRENT_POM, MavenArtifactKind.PLUGIN, rootFile)
+                        project.service<BulkUpdateService>().createPlan(mode, UpdateScope.CURRENT_FILE, rootFile)
                     }
                 })
                 val pluginPlan = PlatformTestUtil.waitForFuture(plugins, 120_000)
                 assertTrue("Expected compiler and Surefire updates for ${mode.label}", pluginPlan.changes.size >= 2)
                 assertTrue(pluginPlan.changes.all { it.location.startsWith(rootFile.path) })
                 if (mode == UpdateMode.PATCH) {
-                    assertEquals(setOf("3.12.1", "3.2.5"), pluginPlan.changes.map { it.latest }.toSet())
+                    assertEquals(setOf("3.12.1", "3.2.5"), pluginPlan.changes.filter { "maven-compiler-plugin" in it.location || "maven-surefire-plugin" in it.location }.map { it.latest }.toSet())
                 }
             }
         } finally {
@@ -217,38 +220,50 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 }
             })
             val bulkPlan = PlatformTestUtil.waitForFuture(bulkCheck, 120_000)
-            assertEquals("Global action must collect updates from parent and child", 2, bulkPlan.changes.size)
+            assertEquals("Global action must collect dependency and plugin updates from parent and child", 4, bulkPlan.changes.size)
             assertEquals(setOf("1.0.1", "1.1.1"), bulkPlan.changes.map { it.latest }.toSet())
             for ((mode, expected) in listOf(UpdateMode.PATCH to "1.0.1", UpdateMode.MINOR to "1.1.1", UpdateMode.MAJOR to "2.0")) {
                 val pluginCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                     runBlocking {
                         withBackgroundProgress(project, "Checking plugin versions", cancellable = true) {
-                            project.service<BulkUpdateService>().createPlan(mode, MavenUpdateScope.WHOLE_PROJECT, MavenArtifactKind.PLUGIN)
+                            project.service<BulkUpdateService>().createPlan(mode, UpdateScope.WHOLE_PROJECT)
                         }
                     }
                 })
                 val pluginPlan = PlatformTestUtil.waitForFuture(pluginCheck, 120_000)
-                assertEquals("Plugin updates must include root and child", 2, pluginPlan.changes.size)
+                assertEquals("Combined updates must include root and child", 4, pluginPlan.changes.size)
                 assertEquals(expected, pluginPlan.changes.single { "fixture-plugin.version" in it.location }.latest)
                 val currentCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                     runBlocking {
-                        project.service<BulkUpdateService>().createPlan(mode, MavenUpdateScope.CURRENT_POM, MavenArtifactKind.PLUGIN, childFile)
+                        project.service<BulkUpdateService>().createPlan(mode, UpdateScope.CURRENT_FILE, childFile)
                     }
                 })
                 val currentPlan = PlatformTestUtil.waitForFuture(currentCheck, 120_000)
-                assertEquals(1, currentPlan.changes.size)
-                assertTrue(currentPlan.changes.single().location.startsWith(childFile.path))
-                assertEquals(if (mode == UpdateMode.MAJOR) "2.0" else "1.1.1", currentPlan.changes.single().latest)
+                assertEquals(2, currentPlan.changes.size)
+                assertTrue(currentPlan.changes.all { it.location.startsWith(childFile.path) })
+                assertTrue(currentPlan.changes.all { it.latest == if (mode == UpdateMode.MAJOR) "2.0" else "1.1.1" })
             }
             val currentDependencyCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking {
-                    project.service<BulkUpdateService>().createPlan(UpdateMode.PATCH, MavenUpdateScope.CURRENT_POM, MavenArtifactKind.DEPENDENCY, childFile)
+                    project.service<BulkUpdateService>().createPlan(UpdateMode.PATCH, UpdateScope.CURRENT_FILE, childFile)
                 }
             })
             val currentDependencyPlan = PlatformTestUtil.waitForFuture(currentDependencyCheck, 120_000)
-            assertEquals(1, currentDependencyPlan.changes.size)
-            assertTrue(currentDependencyPlan.changes.single().location.startsWith(childFile.path))
-            val service = project.service<VersionCheckService>()
+            assertEquals(2, currentDependencyPlan.changes.size)
+            assertTrue(currentDependencyPlan.changes.all { it.location.startsWith(childFile.path) })
+            val rootCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { project.service<BulkUpdateService>().createPlan(UpdateMode.PATCH, UpdateScope.CURRENT_FILE, virtualFile) }
+            })
+            val rootPlan = PlatformTestUtil.waitForFuture(rootCheck, 120_000)
+            assertEquals(2, rootPlan.changes.size)
+            val childDocument = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(childFile)!!
+            val childText = childDocument.text
+            WriteCommandAction.runWriteCommandAction(project) { childDocument.setText(childText + "\n") }
+            assertFalse("Changes in an unselected module must invalidate the current POM preview", rootPlan.apply(project))
+            assertTrue(rootPlan.changes.all { it.isValid() })
+            WriteCommandAction.runWriteCommandAction(project) { childDocument.setText(childText) }
+            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
+            val service = project.service<MavenVersionCheckService>()
             PlatformTestUtil.waitWithEventsDispatching("Background Maven version check", {
                 service.updates(mavenProject)[DependencyVersion("example.versionchecker", "fixture", "1.0")] == "2.0"
             }, 120_000)

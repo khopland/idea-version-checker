@@ -1,4 +1,6 @@
-package io.github.khopland.versionchecker
+package io.github.khopland.versionchecker.maven
+
+import io.github.khopland.versionchecker.*
 
 /** The version is part of the key: an edited or shared dependency must not receive a stale result. */
 data class DependencyVersion(val groupId: String, val artifactId: String, val version: String,

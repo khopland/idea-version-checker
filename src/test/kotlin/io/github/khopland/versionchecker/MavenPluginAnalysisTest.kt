@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.maven.*
+
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.psi.xml.XmlFile
 import org.jetbrains.idea.maven.dom.MavenDomUtil
@@ -23,7 +25,7 @@ class MavenPluginAnalysisTest : BasePlatformTestCase() {
         val problems = analysis.problems(file)
         assertEquals(2, problems.size)
         assertTrue(problems.all { it.severity == DependencySeverity.WARNING && it.message.contains("Maven plugin") })
-        val plan = BulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.PLUGIN)
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.PLUGIN)
         assertEquals(2, plan.changes.size)
         assertTrue(plan.apply(project))
         assertEquals("3.2.5", (file as XmlFile).rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
@@ -45,8 +47,8 @@ class MavenPluginAnalysisTest : BasePlatformTestCase() {
             <build><plugins><plugin><groupId>g</groupId><artifactId>p</artifactId><version>${'$'}{shared}</version></plugin></plugins></build>""")
         val updates = mapOf(DependencyVersion("g", "p", "1.0", MavenArtifactKind.PLUGIN) to "2.0", DependencyVersion("g", "a", "1.0") to "2.0")
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile), updates)
-        assertTrue(BulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.PLUGIN).changes.isEmpty())
-        assertEquals(1, BulkUpdatePlan.create(mapOf(file to analysis)).changes.size)
+        assertTrue(MavenBulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.PLUGIN).changes.isEmpty())
+        assertEquals(1, MavenBulkUpdatePlan.create(mapOf(file to analysis)).changes.size)
     }
 
     fun testInactiveProfilePluginsAndUnversionedDefaultsAreNotUpdated() {
@@ -56,4 +58,15 @@ class MavenPluginAnalysisTest : BasePlatformTestCase() {
             mapOf(DependencyVersion("g", "p", "1.0", MavenArtifactKind.PLUGIN) to "2.0"))
         assertTrue(analysis.problems(file).isEmpty())
     }
+    fun testCombinedUpdatesSkipConflictingDependencyAndPluginProperty() {
+        val file = file("""<properties><shared>1.0</shared></properties>
+            <dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>${'$'}{shared}</version></dependency></dependencies>
+            <build><plugins><plugin><groupId>g</groupId><artifactId>p</artifactId><version>${'$'}{shared}</version></plugin></plugins></build>""")
+        val updates = mapOf(DependencyVersion("g", "p", "1.0", MavenArtifactKind.PLUGIN) to "3.0", DependencyVersion("g", "a", "1.0") to "2.0")
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile), updates)
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
+        assertTrue(plan.changes.isEmpty())
+        assertTrue(plan.skipped.single().contains("different updates"))
+    }
+
 }

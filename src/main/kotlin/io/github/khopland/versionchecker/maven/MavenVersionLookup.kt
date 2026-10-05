@@ -1,4 +1,6 @@
-package io.github.khopland.versionchecker
+package io.github.khopland.versionchecker.maven
+
+import io.github.khopland.versionchecker.*
 
 import org.jetbrains.idea.maven.buildtool.MavenLogEventHandler
 import org.jetbrains.idea.maven.project.MavenEmbeddersManager
@@ -41,7 +43,7 @@ internal object MavenVersionLookup {
             }
         }
         val report = execute(manager, project, mode, "display-dependency-updates", DependencyUpdateReport.IGNORED_VERSIONS)
-        return DependencyUpdateReport.parse(report).filter { (dependency, latest) -> mode.allows(dependency.version, latest) }
+        return DependencyUpdateReport.parse(report).filter { (dependency, latest) -> MavenVersionSemantics.allows(mode, dependency.version, latest) }
     }
 
     private suspend fun execute(manager: MavenProjectsManager, project: MavenProject, mode: UpdateMode,
