@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.maven
 
+import io.github.khopland.versionchecker.core.VersionChangeKind
+
 import io.github.khopland.versionchecker.*
 
 import com.intellij.openapi.components.service
@@ -14,8 +16,8 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 
 internal data class DependencyProblem(
     val coordinate: DependencyVersion, val latest: String?, val anchor: XmlTag, val target: XmlTag?,
-    val kind: DependencyChangeKind,
-    val severity: DependencySeverity,
+    val kind: VersionChangeKind,
+    val severity: VersionSeverity,
     val notice: String? = null
 ) {
     val message: String get() = notice ?: "Newer version of ${if (coordinate.artifactKind == MavenArtifactKind.PLUGIN) "Maven plugin " else ""}${coordinate.groupId}:${coordinate.artifactId} is available: ${coordinate.version} → $latest"
@@ -66,7 +68,7 @@ internal class MavenDependencyAnalysis(
         val notice = relocations[coordinate]?.let { "$label $id:${coordinate.version} has been relocated to $it" }
             ?: deprecated[id]?.let { "$label $id is marked deprecated: $it" }
         if (latest == null && notice == null) return null
-        val kind = if (notice != null) DependencyChangeKind.DEPRECATED else MavenVersionSemantics.between(coordinate.version, latest!!)
+        val kind = if (notice != null) VersionChangeKind.DEPRECATED else MavenVersionSemantics.between(coordinate.version, latest!!)
         val versionTag = tag.findFirstSubTag("version")
         val rawVersion = versionTag?.value?.trimmedText
         val current = coordinate.version

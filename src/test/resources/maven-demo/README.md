@@ -1,4 +1,4 @@
-# Maven Version Checker demo
+# Version Checker demo
 
 A standalone Maven project with intentionally old dependency and build-plugin versions. Requires Java 21 or newer and Maven. The reactor has five projects: the root, two direct modules, a nested aggregator and its child module.
 
@@ -6,7 +6,7 @@ A standalone Maven project with intentionally old dependency and build-plugin ve
 
 1. Install the plugin ZIP from `../../build/distributions/` using **Settings → Plugins → gear → Install Plugin from Disk**, then restart if prompted. Alternatively, open this project in the development IDE launched with `./gradlew runIde` from the plugin repository.
 2. Open this directory's **root `pom.xml` as a project**. Reload all Maven projects and wait for dependency import to finish. Use Java 21 or newer as the project SDK and Maven runner JDK.
-3. Open a POM and choose **Tools → Check Maven Versions → Current POM**, or **Whole Project** to check all imported modules. Keep Maven online. Checks run in the background, so messages can take a little time to appear on the first run.
+3. Open a POM and choose **Tools → Check Versions → Current File**, or **Whole Project** to check all imported modules. Keep Maven online. Checks run in the background, so messages can take a little time to appear on the first run.
 
 ## Things to try
 
@@ -19,19 +19,19 @@ A standalone Maven project with intentionally old dependency and build-plugin ve
 | Root `pom.xml` | Compiler plugin `3.12.0` and Surefire plugin `3.2.1` in `pluginManagement` | Warnings on plugin versions; Alt+Enter updates the compiler literal or the local `maven-surefire.version` property. |
 | `nested/managed-dependencies/pom.xml` | Dependencies inherit versions through two parent levels | Warnings appear on the dependency declarations. Edit the version in the root POM; the child has no local version quick fix. |
 
-Hover over a highlighted dependency to read its standard IDEA inspection message, or use the Problems view. These messages are also available to the InlineProblems plugin. The plugin's settings are under **Settings → Tools → Maven Version Checker**. Try changing major updates to Error or disabling patch messages; bulk updates remain available.
+Hover over a highlighted dependency to read its standard IDEA inspection message, or use the Problems view. These messages are also available to the InlineProblems plugin. The plugin's settings are under **Settings → Tools → Version Checker**. Try changing major updates to Error or disabling patch messages; bulk updates remain available.
 
 To test a red deprecation notice, add `org.slf4j:slf4j-api = Demo policy: migrate to a maintained version` to the explicitly deprecated dependencies field. This is a demo policy you supply, not a claim that SLF4J itself is deprecated. The dependency then displays a deprecation notice and is skipped for manual review during bulk updates. Remove the rule to resume the normal update demo.
 
-Choose **Tools → Update Maven Versions**, then **Current POM** or **Whole Project**, and inspect the combined dependency/plugin preview before applying:
+Choose **Tools → Update Versions**, then **Current File** or **Whole Project**, and inspect the combined dependency/plugin preview before applying:
 
 - **Patch Only** keeps the current major and minor numbers. Guava stays within `32.1.x`; SLF4J stays within `1.7.x`; Jackson stays within `2.15.x`.
 - **Minor + Patch** keeps the major number. Guava stays within `32.x`; SLF4J stays within `1.x`; Jackson stays within `2.x`.
 - **Major + Minor + Patch** allows newer major versions too. Review these changes before applying them.
 
-Build plugins are included in the same preview. With the root POM open, **Current POM → Patch Only** can update Compiler to `3.12.1` and Surefire to `3.2.5` alongside eligible dependencies. These versions are declared in the root's `pluginManagement`; child POMs inherit them. Minor and major modes can offer newer plugin versions compatible with the project's Maven runtime.
+Build plugins are included in the same preview. With the root POM open, **Current File → Patch Only** can update Compiler to `3.12.1` and Surefire to `3.2.5` alongside eligible dependencies. These versions are declared in the root's `pluginManagement`; child POMs inherit them. Minor and major modes can offer newer plugin versions compatible with the project's Maven runtime.
 
-Targets depend on the versions your configured repository currently provides. There may be no candidate for a particular artifact in a restricted mode. Current POM edits only the POM in the editor; Whole Project includes all imported modules, including the nested child. A single editor Undo restores an applied bulk update. Reload Maven after edits and refresh the checks.
+Targets depend on the versions your configured repository currently provides. There may be no candidate for a particular artifact in a restricted mode. Current File edits only the POM in the editor; Whole Project includes all imported modules, including the nested child. A single editor Undo restores an applied bulk update. Reload Maven after edits and refresh the checks.
 
 ## Build and check repository settings
 

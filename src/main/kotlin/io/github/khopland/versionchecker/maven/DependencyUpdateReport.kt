@@ -2,11 +2,14 @@ package io.github.khopland.versionchecker.maven
 
 import io.github.khopland.versionchecker.*
 
+internal enum class MavenArtifactKind { DEPENDENCY, PLUGIN }
+
 /** The version is part of the key: an edited or shared dependency must not receive a stale result. */
-data class DependencyVersion(val groupId: String, val artifactId: String, val version: String,
+
+internal data class DependencyVersion(val groupId: String, val artifactId: String, val version: String,
                              val artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY)
 
-object DependencyUpdateReport {
+internal object DependencyUpdateReport {
     // Pin the goal version and line width in MavenVersionLookup; also handle wrapped lines defensively.
     private val update = Regex("""^\s*(\S+):(\S+)\s+\.+\s+(\S+)\s+->\s+(\S+)\s*$""")
     private val wrappedCoordinate = Regex("""^\s*(\S+):(\S+)\s+\.{3}\s*$""")

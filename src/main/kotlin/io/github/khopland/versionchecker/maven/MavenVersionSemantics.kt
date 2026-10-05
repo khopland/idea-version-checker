@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.maven
 
+import io.github.khopland.versionchecker.core.VersionChangeKind
+
 import io.github.khopland.versionchecker.*
 
 /** Maven's numeric-prefix update modes must not become the version rules for other ecosystems. */
@@ -17,16 +19,16 @@ internal object MavenVersionSemantics {
             (match.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0)
     }
 
-    fun between(current: String, latest: String): DependencyChangeKind {
+    fun between(current: String, latest: String): VersionChangeKind {
         fun numbers(version: String): List<Int>? =
             Regex("""^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-.].*)?$""").matchEntire(version)
                 ?.groupValues?.drop(1)?.map { if (it.isEmpty()) 0 else it.toIntOrNull() ?: return null }
-        val old = numbers(current) ?: return DependencyChangeKind.OTHER
-        val new = numbers(latest) ?: return DependencyChangeKind.OTHER
+        val old = numbers(current) ?: return VersionChangeKind.OTHER
+        val new = numbers(latest) ?: return VersionChangeKind.OTHER
         return when {
-            old[0] != new[0] -> DependencyChangeKind.MAJOR
-            old[1] != new[1] -> DependencyChangeKind.MINOR
-            else -> DependencyChangeKind.PATCH
+            old[0] != new[0] -> VersionChangeKind.MAJOR
+            old[1] != new[1] -> VersionChangeKind.MINOR
+            else -> VersionChangeKind.PATCH
         }
     }
 }

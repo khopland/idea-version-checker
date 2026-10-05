@@ -1,4 +1,4 @@
-# Maven Version Checker
+# Version Checker
 
 An IntelliJ IDEA plugin that shows newer stable Maven dependency and build-plugin versions through **standard IDEA inspections in `pom.xml`**.
 
@@ -15,9 +15,9 @@ Requires IntelliJ IDEA **2025.3 or later** with its bundled Java and Maven plugi
 1. Build with `./gradlew buildPlugin` using Java 21 or later. Gradle uses a Java 21 toolchain.
 2. In IDEA, open **Settings → Plugins → gear → Install Plugin from Disk** and select `build/distributions/version-checker-1.0.0-SNAPSHOT.zip`.
 3. Open and import a Maven project. Checks start in the background when IDEA inspects an imported POM.
-4. Use **Tools → Check Maven Versions → Current POM** to refresh the POM in the editor, or **Whole Project** for all imported modules.
+4. Use **Tools → Check Versions → Current File** to refresh the POM in the editor, or **Whole Project** for all imported modules.
 
-The inspection appears under **Settings → Editor → Inspections → Maven → Newer Maven dependency or plugin version available**. You can disable the whole inspection there. Configure severity by update type under **Settings → Tools → Maven Version Checker**. Editor diagnostics do not change Maven's build result.
+The inspection appears under **Settings → Editor → Inspections → Maven → Newer Maven dependency or plugin version available**. You can disable the whole inspection there. Configure severity by update type under **Settings → Tools → Version Checker**. Editor diagnostics do not change Maven's build result.
 
 ## Severity and deprecated dependencies
 
@@ -33,13 +33,13 @@ These notices appear even without a newer version. The checker also reads [Maven
 
 ## IDEA highlighting and InlineProblems
 
-Messages use IDEA's standard inspection highlighting, hover tooltips, Problems view, and Alt+Enter quick fixes. Configure their severity under **Settings → Tools → Maven Version Checker**. You can disable automatic checking altogether there, or disable the inspection under **Settings → Editor → Inspections → Maven**.
+Messages use IDEA's standard inspection highlighting, hover tooltips, Problems view, and Alt+Enter quick fixes. Configure their severity under **Settings → Tools → Version Checker**. You can disable automatic checking altogether there, or disable the inspection under **Settings → Editor → Inspections → Maven**.
 
 If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) can render these standard inspection messages using its own display. No dependency on that plugin is required.
 
 ## Bulk updates and submodules
 
-Choose **Tools → Update Maven Versions**, then **Current POM** or **Whole Project**. Each action checks dependencies and build plugins together and shows one combined preview. Current POM checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
+Choose **Tools → Update Versions**, then **Current File** or **Whole Project**. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven is the currently implemented adapter. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
 
 - **Patch only:** keep the current major and minor version numbers.
 - **Minor + patch:** keep the current major version number.
@@ -47,7 +47,7 @@ Choose **Tools → Update Maven Versions**, then **Current POM** or **Whole Proj
 
 The check queries the newest version within the selected scope; it does not simply discard a latest version outside that scope. Restricted modes require numeric major/minor prefixes.
 
-A preview lists each POM/property change before applying one undoable command. The plugin saves the changed files and refreshes checks. Compatible dependency/plugin updates sharing a property become one edit. It skips inherited/composite version declarations and shared properties with conflicting, unchanged, unselected, or inherited uses. Shared-property safety checks cover all imported POMs even in Current POM mode. These cases appear in the preview as needing review. A preview becomes invalid if an imported POM, relevant Maven configuration, or deprecation policy changes before applying it.
+A preview lists each POM/property change before applying one undoable command. The plugin saves the changed files and refreshes checks. Compatible dependency/plugin updates sharing a property become one edit. It skips inherited/composite version declarations and shared properties with conflicting, unchanged, unselected, or inherited uses. Shared-property safety checks cover all imported POMs even in Current File mode. These cases appear in the preview as needing review. A preview becomes invalid if an imported POM, relevant Maven configuration, or deprecation policy changes before applying it.
 
 Successful module checks with an empty or absent Maven report count as having no updates and do not abort the scan. Failures are logged to `idea.log`; a **Show details** notification action displays the cause without changing any versions.
 

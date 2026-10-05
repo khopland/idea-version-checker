@@ -18,10 +18,17 @@ internal data class BulkUpdatePlan(
     val changes: List<VersionEdit>, val skipped: List<String>,
     private val isCurrent: () -> Boolean = { true }
 ) {
+    companion object {
+        fun combine(plans: List<BulkUpdatePlan>) = BulkUpdatePlan(
+            plans.flatMap { it.changes }, plans.flatMap { it.skipped }.distinct(),
+            isCurrent = { plans.all { it.isCurrent() } }
+        )
+    }
+
     /** Validate every edit and the discovery snapshot before applying one undoable command. */
     fun apply(project: Project): Boolean {
         var applied = false
-        WriteCommandAction.runWriteCommandAction(project, "Update dependency and plugin versions", null, Runnable {
+        WriteCommandAction.runWriteCommandAction(project, "Update versions", null, Runnable {
             if (!isCurrent() || changes.any { !it.isValid() }) return@Runnable
             changes.forEach { it.apply() }
             applied = true

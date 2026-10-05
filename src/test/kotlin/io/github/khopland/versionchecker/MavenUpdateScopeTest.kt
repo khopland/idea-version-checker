@@ -23,27 +23,30 @@ class MavenUpdateScopeTest : BasePlatformTestCase() {
         }
     }
 
-    fun testCurrentPomSelectionNeverFallsBackToWholeProject() {
+    fun testCurrentFileSelectionNeverFallsBackToWholeProject() {
         val manager = MavenProjectsManager.getInstance(project)
         manager.initForTests()
         manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
         try {
             val root = imported(manager, "root")
             val child = imported(manager, "child")
-            assertEquals(listOf(child), selectMavenProjects(manager, UpdateScope.CURRENT_FILE, child.file))
-            assertEquals(setOf(root, child), selectMavenProjects(manager, UpdateScope.WHOLE_PROJECT, child.file).toSet())
-            assertTrue(selectMavenProjects(manager, UpdateScope.CURRENT_FILE, null).isEmpty())
+            val adapter = MavenBuildSystemAdapter()
+            assertTrue(adapter.supports(project, BuildSelection(UpdateScope.CURRENT_FILE, child.file.path)))
+            assertTrue(adapter.supports(project, BuildSelection(UpdateScope.WHOLE_PROJECT)))
+            assertFalse(adapter.supports(project, BuildSelection(UpdateScope.CURRENT_FILE)))
             val text = myFixture.addFileToProject("README.txt", "Not a Maven POM")
-            assertTrue(selectMavenProjects(manager, UpdateScope.CURRENT_FILE, text.virtualFile).isEmpty())
+            assertFalse(adapter.supports(project, BuildSelection(UpdateScope.CURRENT_FILE, text.virtualFile.path)))
             manager.projectsTree.setIgnoredState(listOf(child), true)
-            assertTrue(selectMavenProjects(manager, UpdateScope.CURRENT_FILE, child.file).isEmpty())
-            assertEquals(listOf(root), selectMavenProjects(manager, UpdateScope.WHOLE_PROJECT, child.file))
+            assertFalse(adapter.supports(project, BuildSelection(UpdateScope.CURRENT_FILE, child.file.path)))
+            assertTrue(adapter.supports(project, BuildSelection(UpdateScope.WHOLE_PROJECT)))
+            manager.projectsTree.setIgnoredState(listOf(root), true)
+            assertFalse(adapter.supports(project, BuildSelection(UpdateScope.WHOLE_PROJECT)))
         } finally {
             manager.projectsTree.setIgnoredState(manager.projects, true)
         }
     }
 
-    fun testCurrentPomActionsPreferActiveEditorOverProjectViewSelection() {
+    fun testCurrentFileActionsPreferActiveEditorOverProjectViewSelection() {
         val manager = MavenProjectsManager.getInstance(project)
         manager.initForTests()
         manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
@@ -55,12 +58,12 @@ class MavenUpdateScopeTest : BasePlatformTestCase() {
                 .add(CommonDataKeys.EDITOR, myFixture.editor).add(CommonDataKeys.VIRTUAL_FILE, root.file).build()
             val event = AnActionEvent.createFromDataContext("test", null, context)
             assertEquals(child.file, currentBuildFile(event))
-            CurrentPomPluginPatchUpdateAction().update(event)
+            CurrentFilePatchUpdateAction().update(event)
             assertTrue(event.presentation.isEnabledAndVisible)
             manager.projectsTree.setIgnoredState(listOf(child), true)
-            CurrentPomPluginPatchUpdateAction().update(event)
+            CurrentFilePatchUpdateAction().update(event)
             assertFalse(event.presentation.isEnabledAndVisible)
-            PluginPatchUpdateAction().update(event)
+            PatchUpdateAction().update(event)
             assertTrue(event.presentation.isEnabledAndVisible)
         } finally {
             manager.projectsTree.setIgnoredState(manager.projects, true)

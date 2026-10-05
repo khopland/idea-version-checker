@@ -19,8 +19,7 @@ import java.nio.file.Path
 internal class MavenBuildSystemAdapter : BuildSystemAdapter {
     override val id = "maven"
     override val displayName = "Maven"
-    override val currentFileLabel = "Current POM"
-    override val capabilities = AdapterCapabilities(ArtifactRole.entries.toSet())
+    override val capabilities = AdapterCapabilities()
 
     override fun supports(project: Project, selection: BuildSelection): Boolean {
         val manager = MavenProjectsManager.getInstance(project)
@@ -37,7 +36,7 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
         val analysis = MavenDependencyAnalysis(model, mavenProject, emptyMap())
         val declarations = PsiTreeUtil.findChildrenOfType(psi, XmlTag::class.java).mapNotNull { tag ->
             val coordinate = analysis.coordinate(tag) ?: return@mapNotNull null
-            VersionDeclaration(DeclarationId(file.path, tag.textOffset.toString()), coordinate.artifactId(), coordinate.artifactKind,
+            VersionDeclaration(DeclarationId(file.path, "${coordinate.artifactKind.name}:${tag.textOffset}"), coordinate.artifactId(),
                 tag.findFirstSubTag("version")?.value?.trimmedText ?: coordinate.version, coordinate.version)
         }
         return BuildSnapshot(BuildContextId(id, file.parent.path, file.path), file.path, fingerprint(manager, mavenProject), declarations)
@@ -121,6 +120,7 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
 }
 
 internal fun DependencyVersion.artifactId() = ArtifactId("maven", "$groupId:$artifactId")
-internal fun VersionDeclaration.coordinate() = DependencyVersion(artifact.name.substringBefore(':'), artifact.name.substringAfter(':'), baseline, role)
+internal fun VersionDeclaration.coordinate() = DependencyVersion(artifact.name.substringBefore(':'), artifact.name.substringAfter(':'), baseline,
+    MavenArtifactKind.valueOf(id.location.substringBefore(':')))
 internal fun UpdateReport.mavenUpdates() = candidates.associate { it.declaration.coordinate() to it.version }
 internal fun UpdateReport.mavenRelocations() = notices.filter { it.kind == NoticeKind.RELOCATED }.associate { it.declaration.coordinate() to it.message }

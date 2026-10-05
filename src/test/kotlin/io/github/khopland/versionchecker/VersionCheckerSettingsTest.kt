@@ -18,20 +18,20 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             val selectors = components(panel as Container).filterIsInstance<JComboBox<*>>()
             assertEquals(5, selectors.size)
             assertFalse(configurable.isModified())
-            selectors[0].selectedItem = DependencySeverity.DISABLED
-            selectors[2].selectedItem = DependencySeverity.ERROR
+            selectors[0].selectedItem = VersionSeverity.DISABLED
+            selectors[2].selectedItem = VersionSeverity.ERROR
             components(panel).filterIsInstance<JBTextArea>().single().text = "old:library = Use new:library"
             assertTrue(configurable.isModified())
             configurable.apply()
             val state = project.service<VersionCheckerSettings>().state
-            assertEquals(DependencySeverity.DISABLED, state.patchSeverity)
-            assertEquals(DependencySeverity.WARNING, state.minorSeverity)
-            assertEquals(DependencySeverity.ERROR, state.majorSeverity)
+            assertEquals(VersionSeverity.DISABLED, state.patchSeverity)
+            assertEquals(VersionSeverity.WARNING, state.minorSeverity)
+            assertEquals(VersionSeverity.ERROR, state.majorSeverity)
             assertEquals("old:library = Use new:library", state.deprecatedDependencies)
             assertFalse(configurable.isModified())
-            selectors[2].selectedItem = DependencySeverity.INFORMATION
+            selectors[2].selectedItem = VersionSeverity.INFORMATION
             configurable.reset()
-            assertEquals(DependencySeverity.ERROR, selectors[2].selectedItem)
+            assertEquals(VersionSeverity.ERROR, selectors[2].selectedItem)
             assertFalse(configurable.isModified())
         } finally {
             configurable.disposeUIResources()
@@ -40,9 +40,9 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
     }
 
     fun testSeverityPreferencesSurviveSerialization() {
-        val state = VersionCheckerSettings.Options(patchSeverity = DependencySeverity.DISABLED,
-            minorSeverity = DependencySeverity.INFORMATION, majorSeverity = DependencySeverity.ERROR,
-            deprecatedSeverity = DependencySeverity.WARNING, deprecatedDependencies = "old:library = Retired")
+        val state = VersionCheckerSettings.Options(patchSeverity = VersionSeverity.DISABLED,
+            minorSeverity = VersionSeverity.INFORMATION, majorSeverity = VersionSeverity.ERROR,
+            deprecatedSeverity = VersionSeverity.WARNING, deprecatedDependencies = "old:library = Retired")
         assertEquals(state, XmlSerializer.deserialize(XmlSerializer.serialize(state), VersionCheckerSettings.Options::class.java))
     }
 }

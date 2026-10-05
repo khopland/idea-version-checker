@@ -1,12 +1,12 @@
 # Build-system adapter implementation
 
-The first implementation stage extracts Maven behind an internal adapter. Dependencies and build plugins now use **Tools → Update Maven Versions → Current POM / Whole Project**, with the three existing update modes. Existing dependency and plugin action IDs still invoke this combined workflow so configured shortcuts continue to work.
+The first implementation stage extracts Maven behind an internal adapter. Dependencies and build plugins now use **Tools → Update Versions → Current File / Whole Project**, with the three existing update modes. The shared menus discover matching adapters automatically; Whole Project combines their plans into one atomic preview. Legacy Maven and plugin-only action aliases have been removed.
 
 ## Boundaries
 
 | Layer | Location | Responsibility |
 | --- | --- | --- |
-| Immutable model | `core/BuildModels.kt` | Artifact namespace, role, context, declaration identity, selector/baseline/resolved version, snapshots, candidates, notices and explicit failures. |
+| Immutable model | `core/BuildModels.kt` | Artifact namespace, context, declaration identity, selector/baseline/resolved version, snapshots, candidates, notices and explicit failures. |
 | Internal provider contract | `core/BuildSystemAdapter.kt` | Discovery, capabilities, snapshot validity, repository checks and preparation of edits. |
 | Shared result cache | `core/VersionResultCache.kt` | Context/provider isolation, expiry and refresh generations. |
 | Shared coordinator | `VersionCheckService.kt` | Background work, cancellation, serialization per provider, stale-result rejection and refresh. |
@@ -17,7 +17,7 @@ The model contains no IntelliJ or Maven types. The provider and edit bridges use
 
 ## Current contract
 
-`BuildSystemAdapter` exposes a provider ID, display labels and supported roles/update modes, plus:
+`BuildSystemAdapter` exposes a provider ID, a display name and supported update modes, plus:
 
 - `supports` and `isOffline` for action availability.
 - `snapshot` and `discover` for one build file or the selected project scope.

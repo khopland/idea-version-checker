@@ -1,12 +1,12 @@
 <idea-plugin>
     <id>io.github.khopland.version-checker</id>
-    <name>Maven Version Checker</name>
+    <name>Version Checker</name>
     <vendor>khopland</vendor>
     <description>
         Shows newer stable Maven dependency and build-plugin versions through IntelliJ IDEA's standard inspections in pom.xml.
         Uses IntelliJ IDEA's Maven configuration, including settings.xml repositories,
         mirrors, credentials and active profiles. Includes version update quick fixes and
-        bulk updates for patch, minor or major versions in the current POM or across imported modules.
+        bulk updates for patch, minor or major versions in the current build file or across imported modules.
     </description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
@@ -14,7 +14,27 @@
         <extensionPoint name="buildSystemAdapter" interface="io.github.khopland.versionchecker.core.BuildSystemAdapter" />
     </extensionPoints>
     <extensions defaultExtensionNs="com.intellij">
-        <notificationGroup id="Maven Version Checker" displayType="BALLOON" />
-        <projectConfigurable parentId="tools" id="maven.version.checker" displayName="Maven Version Checker" instance="io.github.khopland.versionchecker.VersionCheckerConfigurable" />
+        <notificationGroup id="Version Checker" displayType="BALLOON" />
+        <projectConfigurable parentId="tools" id="version.checker" displayName="Version Checker" instance="io.github.khopland.versionchecker.VersionCheckerConfigurable" />
     </extensions>
+    <actions>
+        <group id="VersionChecker.Updates" text="Update Versions" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last" />
+            <group id="VersionChecker.Updates.CurrentFile" text="Current File" popup="true">
+                <action id="VersionChecker.CurrentFile.Patch" class="io.github.khopland.versionchecker.CurrentFilePatchUpdateAction" text="Patch Only…" />
+                <action id="VersionChecker.CurrentFile.Minor" class="io.github.khopland.versionchecker.CurrentFileMinorUpdateAction" text="Minor + Patch…" />
+                <action id="VersionChecker.CurrentFile.Major" class="io.github.khopland.versionchecker.CurrentFileMajorUpdateAction" text="Major + Minor + Patch…" />
+            </group>
+            <group id="VersionChecker.Updates.Project" text="Whole Project" popup="true">
+                <action id="VersionChecker.Patch" class="io.github.khopland.versionchecker.PatchUpdateAction" text="Patch Only…" />
+                <action id="VersionChecker.Minor" class="io.github.khopland.versionchecker.MinorUpdateAction" text="Minor + Patch…" />
+                <action id="VersionChecker.Major" class="io.github.khopland.versionchecker.MajorUpdateAction" text="Major + Minor + Patch…" />
+            </group>
+        </group>
+        <group id="VersionChecker.Check" text="Check Versions" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last" />
+            <action id="VersionChecker.RefreshCurrentFile" class="io.github.khopland.versionchecker.CurrentFileRefreshVersionsAction" text="Current File" description="Refresh dependency and build-plugin checks for the current build file" />
+            <action id="VersionChecker.Refresh" class="io.github.khopland.versionchecker.RefreshVersionsAction" text="Whole Project" description="Refresh dependency and build-plugin checks for all supported build files in the project" />
+        </group>
+    </actions>
 </idea-plugin>

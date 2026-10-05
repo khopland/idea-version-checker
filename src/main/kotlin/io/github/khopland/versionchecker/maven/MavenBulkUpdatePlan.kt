@@ -17,10 +17,9 @@ internal data class MavenVersionEdit(
 }
 
 internal object MavenBulkUpdatePlan {
-    fun create(files: Map<PsiFile, MavenDependencyAnalysis>, artifactKind: MavenArtifactKind? = null,
+    fun create(files: Map<PsiFile, MavenDependencyAnalysis>,
                usageFiles: Collection<PsiFile> = files.keys, isCurrent: () -> Boolean = { true }): BulkUpdatePlan {
         val problems = files.flatMap { (file, analysis) -> analysis.problems(file) }
-            .filter { artifactKind == null || it.coordinate.artifactKind == artifactKind }
         val skipped = mutableListOf<String>()
         val candidates = problems.filter { problem ->
             if (problem.target == null || problem.latest == null) {

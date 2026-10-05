@@ -4,6 +4,7 @@ import com.intellij.codeInsight.FileModificationService
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -30,40 +31,44 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
     private val running = AtomicBoolean()
     private val log = Logger.getInstance(BulkUpdateService::class.java)
     fun preview(mode: UpdateMode, updateScope: UpdateScope = UpdateScope.WHOLE_PROJECT,
-                currentFile: VirtualFile? = null, adapterId: String = "maven") {
-        val adapter = BuildSystemAdapter.find(adapterId) ?: return
-        val scopeLabel = if (updateScope == UpdateScope.CURRENT_FILE) adapter.currentFileLabel else updateScope.label
+                currentFile: VirtualFile? = null) {
+        val adapters = BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path))
+        if (adapters.isEmpty()) return
+        val buildSystems = adapters.joinToString { it.displayName }
+        val scopeLabel = updateScope.label
         if (!running.compareAndSet(false, true)) return
         scope.launch(Dispatchers.IO) {
             try {
-                val plan = withBackgroundProgress(project, "Checking ${adapter.displayName} versions: $scopeLabel — ${mode.label}", cancellable = true) {
-                    createPlan(mode, updateScope, currentFile, adapterId)
+                val plan = withBackgroundProgress(project, "Checking $buildSystems versions: $scopeLabel — ${mode.label}", cancellable = true) {
+                    createPlan(mode, updateScope, currentFile, adapters)
                 }
                 ApplicationManager.getApplication().invokeLater {
                     if (project.isDisposed) return@invokeLater
                     if (plan.changes.isEmpty()) {
                         Messages.showInfoMessage(project, "No automatic updates available for ${mode.label}." +
-                            plan.skipped.takeIf { it.isNotEmpty() }?.joinToString("\n", "\n\nNeeds review:\n").orEmpty(), "Maven Version Checker")
-                    } else if (BulkUpdateDialog(project, mode, scopeLabel, adapter.displayName, plan).showAndGet()) {
+                            plan.skipped.takeIf { it.isNotEmpty() }?.joinToString("\n", "\n\nNeeds review:\n").orEmpty(), "Version Checker")
+                    } else if (BulkUpdateDialog(project, mode, scopeLabel, buildSystems, plan).showAndGet()) {
                         val targets = plan.changes.mapNotNull { it.element }
                         if (!FileModificationService.getInstance().preparePsiElementsForWrite(targets)) return@invokeLater
                         if (!plan.apply(project)) {
-                            Messages.showWarningDialog(project, "A version changed after the preview. Run the update check again.", "Maven Version Checker")
+                            Messages.showWarningDialog(project, "A build file or configuration changed after the preview. Run the update check again.", "Version Checker")
                             return@invokeLater
                         }
                         FileDocumentManager.getInstance().saveAllDocuments()
-                        project.service<VersionCheckService>().refresh(adapterId, if (updateScope == UpdateScope.CURRENT_FILE) currentFile else null)
+                        adapters.forEach { adapter ->
+                            project.service<VersionCheckService>().refresh(adapter.id, if (updateScope == UpdateScope.CURRENT_FILE) currentFile else null)
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                log.warn("${adapter.displayName} bulk update check failed (${mode.label})", failure)
-                if (!project.isDisposed) NotificationGroupManager.getInstance().getNotificationGroup("Maven Version Checker")
-                    .createNotification("${adapter.displayName} version update check failed",
+                log.warn("$buildSystems bulk update check failed (${mode.label})", failure)
+                if (!project.isDisposed) NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
+                    .createNotification("$buildSystems version update check failed",
                         "${failure.javaClass.simpleName}. No versions were changed. Use Show details for the cause.", NotificationType.WARNING)
                     .addAction(NotificationAction.createSimple("Show details") {
-                        Messages.showErrorDialog(project, failure.stackTraceToString(), "${adapter.displayName} version update check failed")
+                        Messages.showErrorDialog(project, failure.stackTraceToString(), "$buildSystems version update check failed")
                     }).notify(project)
             } finally {
                 running.set(false)
@@ -72,15 +77,23 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
     }
 
     internal suspend fun createPlan(mode: UpdateMode, updateScope: UpdateScope = UpdateScope.WHOLE_PROJECT,
-                                   currentFile: VirtualFile? = null, adapterId: String = "maven"): BulkUpdatePlan {
-        val adapter = BuildSystemAdapter.find(adapterId) ?: error("Build-system adapter is unavailable: $adapterId")
-        check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
-        check(mode in adapter.capabilities.updateModes) { "${adapter.displayName} does not support ${mode.label}" }
-        val snapshots = adapter.discover(project, BuildSelection(updateScope, currentFile?.path))
-        check(snapshots.isNotEmpty()) { "Open a supported build file to update its versions" }
+                                   currentFile: VirtualFile? = null): BulkUpdatePlan =
+        createPlan(mode, updateScope, currentFile,
+            readAction { BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path)) })
+
+    private suspend fun createPlan(mode: UpdateMode, updateScope: UpdateScope, currentFile: VirtualFile?,
+                                   adapters: List<BuildSystemAdapter>): BulkUpdatePlan {
+        check(adapters.isNotEmpty()) { "Open a supported build file to update its versions" }
         val service = project.service<VersionCheckService>()
-        val reports = snapshots.associateWith { service.checkNow(adapter, it, mode) }
-        return adapter.prepareUpdates(project, reports)
+        val plans = adapters.map { adapter ->
+            check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
+            check(mode in adapter.capabilities.updateModes) { "${adapter.displayName} does not support ${mode.label}" }
+            val snapshots = adapter.discover(project, BuildSelection(updateScope, currentFile?.path))
+            check(snapshots.isNotEmpty()) { "No supported build files found for ${adapter.displayName}" }
+            val reports = snapshots.associateWith { service.checkNow(adapter, it, mode) }
+            adapter.prepareUpdates(project, reports)
+        }
+        return BulkUpdatePlan.combine(plans)
     }
 
 }

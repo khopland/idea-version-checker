@@ -1,11 +1,11 @@
 <html><body>
 Reports Maven dependencies and build plugins with a newer stable version available from the project's Maven repositories.
 <p>Update messages are warnings by default. Configure patch, minor, major, other version changes,
-and deprecated/relocated artifact severity under <b>Settings → Tools → Maven Version Checker</b>.
+and deprecated/relocated artifact severity under <b>Settings → Tools → Version Checker</b>.
 Explicitly deprecated dependencies/plugins and Maven relocation notices
 are errors by default, including when no version update is available.</p>
 <p>Checks use IntelliJ IDEA's Maven settings and active profiles. Results are cached for ten minutes.
-Use <b>Tools → Check Maven Versions → Current POM</b> or <b>Whole Project</b> to refresh them.</p>
+Use <b>Tools → Check Versions → Current File</b> or <b>Whole Project</b> to refresh them.</p>
 <p>The quick fix updates a literal version or an exact property reference declared in the same POM.
 Updating a shared property affects every declaration using it. Inherited versions need to be changed at their source.</p>
 <p>Build plugins in build/plugins and build/pluginManagement/plugins are supported.

@@ -10,7 +10,6 @@ import io.github.khopland.versionchecker.UpdateMode
 internal interface BuildSystemAdapter {
     val id: String
     val displayName: String
-    val currentFileLabel: String
     val capabilities: AdapterCapabilities
     fun supports(project: Project, selection: BuildSelection): Boolean
     fun isOffline(project: Project): Boolean
@@ -22,6 +21,8 @@ internal interface BuildSystemAdapter {
 
     companion object {
         val EP = ExtensionPointName.create<BuildSystemAdapter>("io.github.khopland.version-checker.buildSystemAdapter")
+        fun matching(project: Project, selection: BuildSelection): List<BuildSystemAdapter> =
+            EP.extensionList.filter { it.supports(project, selection) }
         fun find(id: String): BuildSystemAdapter? = EP.extensionList.singleOrNull { it.id == id }
     }
 }

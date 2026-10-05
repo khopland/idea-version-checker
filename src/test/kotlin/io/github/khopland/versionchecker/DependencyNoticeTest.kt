@@ -1,5 +1,8 @@
 package io.github.khopland.versionchecker
 
+
+import io.github.khopland.versionchecker.core.VersionChangeKind
+
 import io.github.khopland.versionchecker.maven.*
 
 import com.intellij.openapi.util.JDOMUtil
@@ -31,7 +34,7 @@ class DependencyNoticeTest : BasePlatformTestCase() {
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
             MavenProject(file.virtualFile), emptyMap(), options)
         val notice = analysis.problems(file).single()
-        assertEquals(DependencySeverity.ERROR, notice.severity)
+        assertEquals(VersionSeverity.ERROR, notice.severity)
         assertTrue(notice.message.contains("marked deprecated: Use new:library"))
         assertNull(notice.latest)
         assertNull(notice.target)
@@ -56,7 +59,7 @@ class DependencyNoticeTest : BasePlatformTestCase() {
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
             MavenProject(file.virtualFile), mapOf(coordinate to "2.0"), relocations = mapOf(coordinate to "new:library:1.0"))
         val notice = analysis.problems(file).single()
-        assertEquals(DependencyChangeKind.DEPRECATED, notice.kind)
+        assertEquals(VersionChangeKind.DEPRECATED, notice.kind)
         assertTrue(notice.message.contains("relocated to new:library:1.0"))
         assertNull(notice.target)
         assertTrue(MavenBulkUpdatePlan.create(mapOf(file to analysis)).changes.isEmpty())

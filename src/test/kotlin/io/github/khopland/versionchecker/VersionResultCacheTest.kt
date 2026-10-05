@@ -7,7 +7,7 @@ import org.junit.Test
 class VersionResultCacheTest {
     private fun snapshot(adapter: String = "maven", root: String = "/one", selector: String = "1.0") = BuildSnapshot(
         BuildContextId(adapter, root, "$root/manifest"), "$root/manifest", BuildFingerprint(mapOf("$root/manifest" to "1"), "settings-1"),
-        listOf(VersionDeclaration(DeclarationId("$root/manifest", "dependency"), ArtifactId("npm", "@scope/package"), ArtifactRole.DEPENDENCY, selector, "1.0", "1.1"))
+        listOf(VersionDeclaration(DeclarationId("$root/manifest", "dependency"), ArtifactId("npm", "@scope/package"), selector, "1.0", "1.1"))
     )
     private fun report(snapshot: BuildSnapshot, version: String = "2.0") = UpdateReport(listOf(UpdateCandidate(snapshot.declarations.single(), version)))
 

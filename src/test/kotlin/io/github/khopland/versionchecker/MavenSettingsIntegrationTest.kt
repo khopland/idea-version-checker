@@ -271,7 +271,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             PlatformTestUtil.waitWithEventsDispatching("Child background check", {
                 service.updates(childProject)[childCoordinate] == "2.0"
             }, 120_000)
-            service.refresh(virtualFile)
+            project.service<VersionCheckService>().refresh("maven", virtualFile)
             assertEquals("Current POM refresh must preserve the other module's cache", "2.0", service.updates(childProject)[childCoordinate])
             PlatformTestUtil.waitWithEventsDispatching("Current POM refresh", {
                 service.updates(mavenProject)[DependencyVersion("example.versionchecker", "fixture", "1.0")] == "2.0"
@@ -293,18 +293,18 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 service.updates(mavenProject)[DependencyVersion("example.versionchecker", "fixture", "1.0")] == "2.0"
             }, 120_000)
             val options = project.service<VersionCheckerSettings>().state
-            options.majorSeverity = DependencySeverity.ERROR
+            options.majorSeverity = VersionSeverity.ERROR
             val errorHolder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
             val errorVisitor = NewerMavenDependencyInspection().buildVisitor(errorHolder, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(errorVisitor) }
             assertEquals(2, errorHolder.results.size)
             assertTrue(errorHolder.results.all { it.highlightType == ProblemHighlightType.GENERIC_ERROR })
-            options.majorSeverity = DependencySeverity.DISABLED
+            options.majorSeverity = VersionSeverity.DISABLED
             val disabledHolder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
             val disabledVisitor = NewerMavenDependencyInspection().buildVisitor(disabledHolder, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(disabledVisitor) }
             assertTrue(disabledHolder.results.isEmpty())
-            options.majorSeverity = DependencySeverity.WARNING
+            options.majorSeverity = VersionSeverity.WARNING
             val standard = ProblemsHolder(InspectionManager.getInstance(project), file, true)
             val standardVisitor = NewerMavenDependencyInspection().buildVisitor(standard, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(standardVisitor) }

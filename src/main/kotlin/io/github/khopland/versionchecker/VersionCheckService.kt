@@ -103,7 +103,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     }
 
     private fun notify(message: String, type: NotificationType) {
-        if (!project.isDisposed) NotificationGroupManager.getInstance().getNotificationGroup("Maven Version Checker")
+        if (!project.isDisposed) NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
             .createNotification("Version Checker", message, type).notify(project)
     }
 }

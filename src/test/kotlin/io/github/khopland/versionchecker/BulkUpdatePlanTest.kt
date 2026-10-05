@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker
 
+
 import io.github.khopland.versionchecker.maven.*
 
 import com.intellij.openapi.command.WriteCommandAction
@@ -25,7 +26,7 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
     fun testDisablingEditorMessagesDoesNotDisableBulkUpdates() {
         val plan = plan("<dependencies>" + dep("a", "1.0") + "</dependencies>",
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0"),
-            VersionCheckerSettings.Options(majorSeverity = DependencySeverity.DISABLED))
+            VersionCheckerSettings.Options(majorSeverity = VersionSeverity.DISABLED))
         assertEquals(1, plan.changes.size)
     }
 
@@ -65,7 +66,7 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         assertEquals("1.0", (plan.changes.first().element as com.intellij.psi.xml.XmlTag).value.trimmedText)
     }
 
-    fun testCurrentPomPropertySafetyIncludesUsesInOtherModules() {
+    fun testCurrentFilePropertySafetyIncludesUsesInOtherModules() {
         val file = myFixture.configureByText("pom.xml", """
             <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
             <groupId>g</groupId><artifactId>parent</artifactId><version>1</version>
@@ -74,7 +75,7 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         val child = myFixture.addFileToProject("child/pom.xml", "<project><dependencies>${dep("b", "\${shared}")}</dependencies></project>")
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile),
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
-        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.DEPENDENCY, listOf(file, child))
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis), usageFiles = listOf(file, child))
         assertTrue(plan.changes.isEmpty())
         assertTrue(plan.skipped.single().contains("inherited"))
     }

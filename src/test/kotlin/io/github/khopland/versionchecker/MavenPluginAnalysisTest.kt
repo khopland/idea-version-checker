@@ -1,6 +1,8 @@
 package io.github.khopland.versionchecker
 
+
 import io.github.khopland.versionchecker.maven.*
+import io.github.khopland.versionchecker.core.*
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.psi.xml.XmlFile
@@ -8,6 +10,17 @@ import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.project.MavenProject
 
 class MavenPluginAnalysisTest : BasePlatformTestCase() {
+    fun testSharedDeclarationsKeepDependencyAndPluginResultsDistinctForIdenticalCoordinates() {
+        val dependency = VersionDeclaration(DeclarationId("pom.xml", "DEPENDENCY:100"),
+            ArtifactId("maven", "g:a"), "1.0", "1.0")
+        val plugin = dependency.copy(id = DeclarationId("pom.xml", "PLUGIN:200"))
+        val report = UpdateReport(listOf(UpdateCandidate(dependency, "2.0"), UpdateCandidate(plugin, "3.0")))
+        assertEquals(mapOf(
+            DependencyVersion("g", "a", "1.0") to "2.0",
+            DependencyVersion("g", "a", "1.0", MavenArtifactKind.PLUGIN) to "3.0"
+        ), report.mavenUpdates())
+    }
+
     private fun file(body: String) = myFixture.configureByText("pom.xml", """
         <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
         <groupId>demo</groupId><artifactId>app</artifactId><version>1</version>$body</project>
@@ -24,8 +37,8 @@ class MavenPluginAnalysisTest : BasePlatformTestCase() {
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile), updates)
         val problems = analysis.problems(file)
         assertEquals(2, problems.size)
-        assertTrue(problems.all { it.severity == DependencySeverity.WARNING && it.message.contains("Maven plugin") })
-        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.PLUGIN)
+        assertTrue(problems.all { it.severity == VersionSeverity.WARNING && it.message.contains("Maven plugin") })
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
         assertEquals(2, plan.changes.size)
         assertTrue(plan.apply(project))
         assertEquals("3.2.5", (file as XmlFile).rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
@@ -41,13 +54,12 @@ class MavenPluginAnalysisTest : BasePlatformTestCase() {
         assertEquals(1, analysis.problems(file).size)
     }
 
-    fun testSharedDependencyPluginPropertyRequiresReviewInPluginOnlyMode() {
+    fun testSharedDependencyPluginPropertyProducesOneCombinedEdit() {
         val file = file("""<properties><shared>1.0</shared></properties>
             <dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>${'$'}{shared}</version></dependency></dependencies>
             <build><plugins><plugin><groupId>g</groupId><artifactId>p</artifactId><version>${'$'}{shared}</version></plugin></plugins></build>""")
         val updates = mapOf(DependencyVersion("g", "p", "1.0", MavenArtifactKind.PLUGIN) to "2.0", DependencyVersion("g", "a", "1.0") to "2.0")
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile), updates)
-        assertTrue(MavenBulkUpdatePlan.create(mapOf(file to analysis), MavenArtifactKind.PLUGIN).changes.isEmpty())
         assertEquals(1, MavenBulkUpdatePlan.create(mapOf(file to analysis)).changes.size)
     }
 

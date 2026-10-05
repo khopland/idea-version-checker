@@ -12,14 +12,14 @@ The recommended next step is to extract a small shared model and update coordina
 
 | Current code | Proposed responsibility |
 | --- | --- |
-| `MavenUpdateScope` and the action classes | Generic Current File / Whole Project selection, with provider-specific labels such as Current POM. |
+| `UpdateScope` and the action classes | Generic Current File / Whole Project selection, with the same labels for every build system. |
 | `VersionCheckService` | Background scheduling, cancellation, cache expiry, refresh and reporting failures. Provider supplies context identity and invalidation inputs. |
-| `DependencySeverity` and settings | Shared severity categories and project deprecation policy. Classification of versions belongs to the adapter. |
+| `VersionSeverity` and settings | Shared severity categories and project deprecation policy. Classification of versions belongs to the adapter. |
 | `BulkUpdateService` and its dialog | Provider selection, preview, skipped reasons, stale-plan validation and apply orchestration. |
 | `BulkUpdatePlan` | Shared preview and edit contracts. XML traversal and property ownership checks move to the Maven adapter. |
 | `MavenDependencyAnalysis`, inspection and quick fix | Maven discovery, XML anchors, property resolution and edits. Each language gets a thin inspection bridge to the shared results. |
 | `MavenVersionLookup`, report parsers and relocation reader | Maven repository operations and metadata translation. These remain Maven-specific. |
-| `UpdateMode.allows` and `DependencyChangeKind.between` | Keep the three mode names shared; move their current numeric-prefix rules into Maven version semantics. |
+| `MavenVersionSemantics.allows` and `MavenVersionSemantics.between` | Keep the three mode names shared; move their current numeric-prefix rules into Maven version semantics. |
 
 Simply renaming Maven classes would leave the API dependent on `MavenProject`, `XmlTag`, `groupId:artifactId` and a single version string. Those assumptions need explicit replacements.
 
@@ -29,7 +29,7 @@ Use immutable result objects without Maven, Gradle or language PSI types. The In
 
 | Model | Meaning |
 | --- | --- |
-| `ArtifactId(namespace, name)` | Examples: `maven / org.slf4j:slf4j-api`, `gradle-plugin / org.jetbrains.kotlin.jvm`, `npm / @scope/package`. Role (dependency or build plugin) is separate from identity. |
+| `ArtifactId(namespace, name)` | Examples: `maven / org.slf4j:slf4j-api`, `gradle-plugin / org.jetbrains.kotlin.jvm`, `npm / @scope/package`. Declaration-specific details remain inside each adapter. |
 | `BuildContextId` | Adapter ID, build/workspace root and opaque resolution-context ID. Identical coordinates in different repository contexts must not share results accidentally. |
 | `DeclarationId` | Stable identity for one declaration, including its owning file and logical location. Two modules using the same package are distinct declarations. |
 | `VersionDeclaration` | Original selector, optional concrete comparison baseline, optional resolved version, source anchor and controlling declaration ID. A range such as `^1.2.3` is not an installed version. |
@@ -51,7 +51,7 @@ interface BuildSystemAdapter {
 }
 ```
 
-Requests carry the selected files/declarations, artifact roles and update mode. Capabilities describe supported files, roles, modes and apply strategies; they drive enabled actions and explanations for unsupported cases. The coordinator applies a prepared plan through an IntelliJ edit bridge, with the adapter responsible for format-specific validation and any staged build-tool work.
+Requests carry the selected files/declarations and update mode. Capabilities describe supported files, modes and apply strategies; they drive enabled actions and explanations for unsupported cases. The coordinator applies a prepared plan through an IntelliJ edit bridge, with the adapter responsible for format-specific validation and any staged build-tool work.
 
 ```mermaid
 flowchart TD
@@ -104,7 +104,7 @@ The current plugin requires Java and Maven in its main descriptor. Move Maven re
 
 Recommended implementation sequence:
 
-1. Extract shared identity, declaration, result, scope and edit contracts. Adapt Maven without changing menus or results; preserve plugin ID, existing action/inspection IDs and persisted severity settings.
+1. Extract shared identity, declaration, result, scope and edit contracts. Adapt Maven with generic menus and results; remove obsolete action aliases and Maven-specific shared API names before release.
 2. Move scheduling, cache keys and preview orchestration into the coordinator. Keep the Maven server, parsers, XML analysis and edits inside `maven/`. Run all 44 current tests and both IDEA compatibility checks.
 3. Add contract tests for two repository contexts containing the same artifact, range versus resolved versions, stale results, partial failures, shared declarations and current-file isolation.
 4. Prototype Gradle repository queries, then add local catalogs and literal declarations with private-repository/subproject coverage. Verify the plugin repository path separately.
