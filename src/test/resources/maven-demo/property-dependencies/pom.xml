@@ -12,7 +12,7 @@
     <properties>
         <commons-lang3.version>3.18.0</commons-lang3.version>
         <!-- Two dependencies share this property to exercise grouped updates. -->
-        <jackson.version>2.15.2</jackson.version>
+        <jackson.version>2.18.11</jackson.version>
     </properties>
     <dependencies>
         <dependency>
