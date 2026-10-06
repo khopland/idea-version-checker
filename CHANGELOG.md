@@ -4,7 +4,10 @@
 
 ### Added
 
+- Two quick-fix choices for inherited Maven dependency versions: override locally or update the controlling literal/property in an imported parent POM, with stale-context protection.
+
 - npm dependency inspections, range-preserving quick fixes and all three bulk-update modes for package.json and workspaces.
+- Local or workspace-wide npm quick fixes, preserving per-declaration selectors and applying workspace changes in one undoable command.
 - Read-only npm registry checks through IntelliJ's local Node/npm configuration, including scoped registries, authentication, aliases and deprecation notices.
 - Manifest-only npm updates; lockfiles and installation remain with IntelliJ/npm. Peer compatibility and unsupported selectors are listed for review.
 - Package-manager detection, npm stale-preview protection and authenticated registry integration tests.

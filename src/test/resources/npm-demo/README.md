@@ -11,7 +11,7 @@ cp -R src/test/resources/npm-demo examples/npm-demo
 
 Open `examples/npm-demo` as an IntelliJ project with JavaScript and TypeScript enabled. Configure a local Node.js interpreter and npm in the JavaScript runtime settings. If the example already exists, use your existing copy.
 
-1. Open the root `package.json` and wait for inspection results. Alt+Enter on a supported selector offers a manifest quick fix.
+1. Open `packages/app/package.json` and wait for inspection results. Alt+Enter on `lodash` offers **Update locally** for this declaration or **Update across workspace** for the root, app and library declarations, including the root's alias. The workspace fix preserves the root/library caret, app's exact version and alias's tilde. Apply either choice, inspect the manifests and Undo before continuing. The root manifest offers the same two choices on `lodash`; packages used in only one manifest keep a single quick fix.
 2. Use **Tools → Update Versions → Current File → Patch Only**. The preview should include root declarations only, retaining the caret/tilde and alias operators.
 3. Use **Whole Project → Minor + Patch** to include the workspace manifests. `@demo/library` is local; `peerDependencies/react-dom` requires compatibility review; the `@types/node` complex range requires selector review.
 4. Try **Major + Minor + Patch** to preview newer major branches. Review application compatibility before applying.

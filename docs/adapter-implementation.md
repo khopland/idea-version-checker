@@ -32,11 +32,15 @@ The background cache stores complete major-mode checks for each context. Restric
 
 Maven snapshots cover all imported POMs because shared-property checks include unselected consumers. They also track Maven settings, ancestor `.mvn` configuration and the deprecation policy. Prepared previews validate this snapshot and every target before making any edits. Unsaved changes in another imported POM invalidate the preview even when its target versions have not changed.
 
+Inherited Maven dependency inspections offer explicit local and parent edits. The local choice adds/replaces the child declaration's version. The parent choice uses IntelliJ's Maven DOM resolution to locate the managing dependency or inherited property, follows simple property chains, and edits only a non-ignored POM in that parent chain. It makes the target POM writable and validates the same source/configuration fingerprint used by Maven previews. Bulk scope and shared-property checks remain unchanged.
+
 ## npm behavior
 
 npm checks use IntelliJ's configured local Node.js interpreter and npm package manager. Workspace members share their owning root's registry configuration while retaining declaration and cache identities per manifest. Only members declared in the workspace patterns share its local package names; excluded and independent nested projects retain their own contexts. Other managers are detected from explicit declarations or manager files and excluded.
 
 Only `npm view` is executed. Version selection uses the published version set rather than capping results at the `latest` tag. Exact, caret and tilde selectors and npm aliases retain their syntax. Supported dependency sections are `dependencies`, `devDependencies` and `optionalDependencies`; peer compatibility, workspace/local dependencies and unsupported selectors require review. Installed versions are not inferred from range floors. Deprecation checks use the declared baseline and exclude deprecated candidates.
+
+For dependencies shared across workspace manifests, inspection quick fixes offer the selected declaration or all supported declarations of that registry package in the owning workspace. The workspace fix includes the root and declared members, respects nested workspace ownership, preserves aliases/range prefixes and never downgrades newer declarations. It prepares all affected files for writing and validates the captured snapshot and every target before applying one undoable command. These explicit workspace fixes do not expand Current File bulk-update scope.
 
 Apply edits only manifest strings through the shared native PSI bridge. Lockfiles and dependency installation are handled by IntelliJ/npm afterward. This deliberately narrows the original proposal's staged lockfile contract for the current implementation. Fingerprints include project manifests, ancestor npm configuration, manager markers, user/custom npm configuration, runtime/environment and project deprecation policy. Checks and prepared plans are rejected when that context changes.
 

@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.npm
 
+import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.json.psi.*
 import com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterManager
 import com.intellij.javascript.nodejs.npm.NpmManager
@@ -34,17 +35,22 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         val manifest = NpmManifest.root(psi) ?: return false
         val workspaceRoot = workspace(project, file).root
         val rootManifest = workspaceRoot.findChild("package.json")?.let { PsiManager.getInstance(project).findFile(it) }?.let(NpmManifest::root)
+        var explicitNpm = false
         for (root in listOfNotNull(rootManifest, manifest).distinct()) {
             val manager = root.findProperty("packageManager")?.value
-            if (manager != null) return manager is JsonStringLiteral && manager.value.startsWith("npm@")
+            if (manager != null) {
+                if (manager !is JsonStringLiteral || !manager.value.startsWith("npm@")) return false
+                explicitNpm = true
+            }
             val engines = root.findProperty("devEngines")?.value as? JsonObject
             val engineManager = engines?.findProperty("packageManager")?.value
             if (engineManager != null) {
                 val engineName = (engineManager as? JsonObject)?.findProperty("name")?.value as? JsonStringLiteral
-                return engineName?.value == "npm"
+                if (engineName?.value != "npm") return false
+                explicitNpm = true
             }
         }
-        return otherManagerFiles.none { workspaceRoot.findChild(it) != null || file.parent.findChild(it) != null }
+        return explicitNpm || otherManagerFiles.none { workspaceRoot.findChild(it) != null || file.parent.findChild(it) != null }
     }
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
         if (!NpmManifest.supported(file) || !validManifest(project, file)) return null
@@ -119,6 +125,36 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
                 .forEach { skipped += "${it.declaration.id.file}: ${it.message}" }
         }
         BulkUpdatePlan(edits, skipped.distinct(), isCurrent = { reports.keys.all { isCurrent(project, it) } })
+    }
+
+    internal fun workspaceDeclarations(project: Project, snapshot: BuildSnapshot): List<Pair<VersionDeclaration, JsonStringLiteral>> =
+        NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).flatMap { file ->
+            if (!validManifest(project, file) || workspace(project, file).root.path != snapshot.context.root) return@flatMap emptyList()
+            val psi = PsiManager.getInstance(project).findFile(file) ?: return@flatMap emptyList()
+            val values = NpmManifest.values(psi)
+            NpmManifest.declarations(psi).mapNotNull { declaration -> values[declaration.id]?.let { declaration to it } }
+        }
+
+    /** npm members own their declarations: updating the root alone does not update a member. */
+    @JvmOverloads
+    internal fun quickFixes(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
+                            value: JsonStringLiteral,
+                            declarations: List<Pair<VersionDeclaration, JsonStringLiteral>> = workspaceDeclarations(project, snapshot)): Array<LocalQuickFix> {
+        val current = { isCurrent(project, snapshot) }
+        val local = UpdateNpmVersionFix(value, candidate.replacementSelector, isCurrent = current)
+        val latest = NpmVersion.parse(candidate.version) ?: return arrayOf(local)
+        val edits = declarations.mapNotNull { (declaration, target) ->
+            if (declaration.artifact != candidate.declaration.artifact || declaration.baseline.isEmpty()) return@mapNotNull null
+            val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector) ?: return@mapNotNull null
+            // Keep newer declarations; a workspace update must never downgrade another package.
+            if (selector.baseline >= latest) return@mapNotNull null
+            NpmVersionEdit(target, selector.replace(candidate.version), "${declaration.id.file}: ${declaration.id.location}")
+        }
+        if (edits.mapNotNull { it.element?.containingFile?.virtualFile?.path }.distinct().size < 2) return arrayOf(local)
+        return arrayOf(
+            UpdateNpmVersionFix(value, candidate.replacementSelector, "Update locally to ${candidate.replacementSelector}", current),
+            UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits, current)
+        )
     }
     private fun findFile(project: Project, path: String): VirtualFile? =
         NpmManifest.files(project, BuildSelection(UpdateScope.CURRENT_FILE, path)).singleOrNull()

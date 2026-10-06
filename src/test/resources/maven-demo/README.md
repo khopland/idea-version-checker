@@ -17,7 +17,9 @@ A standalone Maven project with intentionally old dependency and build-plugin ve
 | `property-dependencies/pom.xml` | Jackson Core and Databind share `2.15.2` | Bulk updates group the property edit when both dependencies agree on a target. Conflicting targets are skipped and explained in the preview. |
 | Root `pom.xml` | Managed Commons IO `2.11.0` and JUnit `4.12` | Managed versions can be updated where they are declared. |
 | Root `pom.xml` | Compiler plugin `3.12.0` and Surefire plugin `3.2.1` in `pluginManagement` | Warnings on plugin versions; Alt+Enter updates the compiler literal or the local `maven-surefire.version` property. |
-| `nested/managed-dependencies/pom.xml` | Dependencies inherit versions through two parent levels | Warnings appear on the dependency declarations. Edit the version in the root POM; the child has no local version quick fix. |
+| `nested/managed-dependencies/pom.xml` | Dependencies inherit versions through two parent levels | Warnings appear on the dependency declarations. Alt+Enter offers a local version override or an update in the root POM (JUnit literal or Commons IO property). |
+
+In `nested/managed-dependencies/pom.xml`, try both inherited-version choices separately. The local choice adds `<version>` immediately after `<artifactId>` in that child dependency. The parent choice updates the root declaration/property and leaves the child version omitted. Use Undo between trials. The parent option shows the POM it edits; other consumers of the managed version or shared property also inherit the update.
 
 Hover over a highlighted dependency to read its standard IDEA inspection message, or use the Problems view. These messages are also available to the InlineProblems plugin. The plugin's settings are under **Settings → Tools → Version Checker**. Try changing major updates to Error or disabling patch messages; bulk updates remain available.
 

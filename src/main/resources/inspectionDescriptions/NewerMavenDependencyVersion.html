@@ -7,7 +7,11 @@ are errors by default, including when no version update is available.</p>
 <p>Checks use IntelliJ IDEA's Maven settings and active profiles. Results are cached for ten minutes.
 Use <b>Tools → Check Versions → Current File</b> or <b>Whole Project</b> to refresh them.</p>
 <p>The quick fix updates a literal version or an exact property reference declared in the same POM.
-Updating a shared property affects every declaration using it. Inherited versions need to be changed at their source.</p>
+Updating a shared property affects every declaration using it.</p>
+<p>For inherited dependency versions, choose <b>Override version locally</b> to add or replace the child dependency's version,
+or <b>Update parent version</b> to change its controlling version/property in an imported, non-ignored parent POM.
+The parent action names the POM it edits and can follow multiple parent levels. Shared consumers inherit that update.
+Changes to POMs or configuration invalidate these fixes. External parent declarations and composite expressions require manual review.</p>
 <p>Build plugins in build/plugins and build/pluginManagement/plugins are supported.
 Snapshots, version ranges, reporting plugins, build extensions and transitive dependencies are outside this inspection's scope.</p>
 </body></html>

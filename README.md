@@ -8,6 +8,13 @@ For example, a dependency using `junit:junit:4.12` gets this inspection message:
 
 Use **Alt+Enter → Update version to 4.13.2** to update a literal version. For a simple `${junit.version}` reference declared in the same POM, the quick fix updates the property instead. A shared property change affects every dependency using it.
 
+For a dependency whose version is managed by a parent POM in this project, Alt+Enter offers two choices:
+
+- **Override version locally with 4.13.2:** add or replace `<version>` on this dependency in the current POM.
+- **Update parent version to 4.13.2 in …/pom.xml:** change the controlling version or property in the imported parent, including across multiple parent levels. Shared consumers inherit that change.
+
+The parent choice is available only when the controlling declaration can be identified in a non-ignored project POM. A local override remains available for externally managed versions with a known baseline. These choices belong to Version Checker's version inspection; IntelliJ's built-in vulnerability inspection has its own fixes.
+
 ## Install and use
 
 Requires IntelliJ IDEA **2025.3 or later**. Enable the bundled Java and Maven plugins for Maven projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2025.3.6.1.
@@ -51,7 +58,7 @@ A preview lists each POM/property change before applying one undoable command. T
 
 Successful module checks with an empty or absent Maven report count as having no updates and do not abort the scan. Failures are logged to `idea.log`; a **Show details** notification action displays the cause without changing any versions.
 
-Submodules must be imported into IDEA's Maven project model. Maven ignores and offline mode are respected. Parent-managed properties can still be updated individually with Alt+Enter at their declaration; bulk updates take a conservative approach to properties inherited across modules.
+Submodules must be imported into IDEA's Maven project model. Maven ignores and offline mode are respected. Parent-managed dependency versions and properties can also be updated from the child with the parent quick fix; bulk updates take a conservative approach to properties inherited across modules.
 
 ## Maven repositories and settings.xml
 
@@ -70,7 +77,7 @@ Results are cached for ten minutes and invalidated by POM saves, Maven model cha
 - Maven dependencies and dependency management, including BOM version declarations, in imported POMs and active profiles.
 - Maven build plugins under `build/plugins` and `build/pluginManagement/plugins`, including active profiles. An omitted plugin group defaults to `org.apache.maven.plugins`.
 - Stable versions, including major upgrades, using Maven's version ordering. Common prerelease qualifiers and snapshots are excluded.
-- Literal versions and properties. Simple local properties have a quick fix; inherited, composite, and externally managed versions must be edited at their source.
+- Literal versions and properties. Simple local properties have a quick fix. Inherited dependencies offer a local override and, when the controlling declaration is in an imported project POM, a parent update. Composite expressions require manual review.
 - Each module is checked in its own Maven repository context. Reactor-only dependencies have no remote upgrade result unless the artifact is also published.
 
 Gradle, reporting plugins, build extensions, plugin-contained dependencies, transitive-only dependencies, snapshot dependencies, version ranges, and `LATEST`/`RELEASE` declarations are outside this release's scope. Plugins without an explicit or managed version are not pinned automatically; edit inherited versions at their source. Remote Maven environments such as WSL/SSH are not supported by the report-file transport in this version.
@@ -82,6 +89,8 @@ Configure a **local Node.js interpreter and npm** in IntelliJ's JavaScript runti
 Registry checks execute only read-only `npm view` commands through IntelliJ's configured runtime. npm evaluates project/user `.npmrc`, environment settings, scoped registries and authentication. Workspace members query from their workspace root so they use its registry configuration. Projects declaring pnpm, Yarn or Bun through `packageManager`, `devEngines.packageManager`, or their manager files are excluded. An explicit npm `packageManager` takes precedence over leftover lockfiles. npm does not need to install dependencies to check versions.
 
 Automatic updates cover `dependencies`, `devDependencies` and `optionalDependencies`, including scoped packages and npm aliases. Exact versions and simple caret/tilde selectors retain their operator: `^1.2.3` becomes `^1.2.9`, and `npm:@scope/package@~1.2.3` retains the alias. Each update mode finds the highest published stable, non-deprecated version in its numeric branch, even if the registry's `latest` tag points to an older version. For `0.x` packages, minor mode can cross minor branches; it does not guarantee compatibility.
+
+When a dependency can be updated in multiple manifests within one npm workspace, **Alt+Enter** offers **Update locally** for the selected declaration and **Update across workspace** for its supported declarations in the root and member packages. The workspace option includes aliases of the same registry package and preserves each selector's operator and dependency section. It leaves newer versions, peer declarations and unsupported selectors for review, and excludes independent projects and nested workspaces. npm packages keep their own dependency declarations; changing only the root declaration does not update a member's version. Current File bulk updates still edit only the selected manifest.
 
 Comparisons use the **declared version or range floor**, not the installed or locked version. Registry deprecation notices refer to that baseline, and the project deprecation field accepts npm names such as `@scope/package = Use another package`. Explicitly retired packages require replacement review. Complex ranges, tags, Git/file selectors, local workspace dependencies and peer compatibility are listed as needing review. Peer declarations, overrides, scripts and the package's own version are not updated.
 

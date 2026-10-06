@@ -144,6 +144,8 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 return holder.results
             }
             assertEquals(2, problems().size)
+            assertTrue(problems().all { it.fixes?.size == 2 })
+            assertTrue(problems().all { "locally" in it.fixes!![0].name && "across workspace" in it.fixes!![1].name })
             assertTrue(problems().all { it.highlightType == ProblemHighlightType.GENERIC_ERROR && "deprecated" in it.descriptionTemplate })
             val options = project.service<VersionCheckerSettings>().state
             options.deprecatedSeverity = VersionSeverity.DISABLED
