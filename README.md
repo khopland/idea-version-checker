@@ -1,6 +1,6 @@
 # Version Checker
 
-An IntelliJ IDEA plugin that shows newer stable Maven dependency and build-plugin versions in `pom.xml` and npm dependency versions in `package.json` through **standard IDEA inspections**.
+An IntelliJ IDEA plugin that shows newer stable Maven dependency and build-plugin versions in `pom.xml`, npm dependency versions in `package.json`, and Gradle dependency versions in build scripts and local version catalogs through **standard IDEA inspections**.
 
 For example, a dependency using `junit:junit:4.12` gets this inspection message:
 
@@ -17,7 +17,7 @@ The parent choice is available only when the controlling declaration can be iden
 
 ## Install and use
 
-Requires IntelliJ IDEA **2025.3.6.1 or later**. Enable the bundled Java and Maven plugins for Maven projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2025.3.6.1.
+Requires IntelliJ IDEA **2025.3.6.1 or later**. Enable the bundled Java and Maven plugins for Maven projects, the bundled Gradle plugin for Gradle projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2025.3.6.1.
 
 1. In IDEA, open **Settings → Plugins → Marketplace**, search for **Version Checker**, and install it. For a local build, run `./gradlew buildPlugin` using Java 21 or later; Gradle uses a Java 21 toolchain.
 2. If installing a local build, use **Settings → Plugins → gear → Install Plugin from Disk** and select the ZIP in `build/distributions/`.
@@ -46,7 +46,7 @@ If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) c
 
 ## Bulk updates and submodules
 
-Choose **Tools → Update Versions**, then **Current File** or **Whole Project**. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven and npm are implemented adapters; a mixed project gets one combined preview. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
+Choose **Tools → Update Versions**, then **Current File** or **Whole Project**. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven, npm and Gradle are implemented adapters; a mixed project gets one combined preview. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
 
 - **Patch only:** keep the current major and minor version numbers.
 - **Minor + patch:** keep the current major version number.
@@ -80,7 +80,7 @@ Results are cached for ten minutes and invalidated by POM saves, Maven model cha
 - Literal versions and properties. Simple local properties have a quick fix. Inherited dependencies offer a local override and, when the controlling declaration is in an imported project POM, a parent update. Composite expressions require manual review.
 - Each module is checked in its own Maven repository context. Reactor-only dependencies have no remote upgrade result unless the artifact is also published.
 
-Gradle, reporting plugins, build extensions, plugin-contained dependencies, transitive-only dependencies, snapshot dependencies, version ranges, and `LATEST`/`RELEASE` declarations are outside this release's scope. Plugins without an explicit or managed version are not pinned automatically; edit inherited versions at their source. Remote Maven environments such as WSL/SSH are not supported by the report-file transport in this version.
+Reporting plugins, build extensions, plugin-contained dependencies, transitive-only dependencies, snapshot dependencies, version ranges, and `LATEST`/`RELEASE` declarations are outside this release's scope. Plugins without an explicit or managed version are not pinned automatically; edit inherited versions at their source. Remote Maven environments such as WSL/SSH are not supported by the report-file transport in this version.
 
 ## npm projects
 
@@ -100,9 +100,25 @@ The preview applies only `package.json` string edits in one undoable command, pr
 
 The bulk-update preview includes this reminder, and a notification repeats it after successful bulk, local or workspace npm updates. A stale quick fix that makes no edit does not show the reminder.
 
+## Gradle projects
+
+Link/import the Gradle project in IntelliJ and enable the bundled Gradle plugin. The same **Tools → Check Versions** and **Tools → Update Versions** actions work for `build.gradle`, `build.gradle.kts`, and the default local `gradle/libs.versions.toml` catalog. The inspection is under **Settings → Editor → Inspections → Gradle → Newer Gradle dependency version available**, with the shared severity settings and Alt+Enter version fixes.
+
+Checks run a temporary metadata inspection task through IntelliJ's Gradle tooling integration, using the linked project's selected distribution/wrapper, Gradle JVM and Gradle user home. Gradle evaluates project/settings repositories, credentials, content filters and user init scripts. The checker adds no public repository. Gradle offline mode disables remote checks. Checks configure the build and can download Gradle/build plugins as part of configuration; the inspection task resolves dependency metadata without downloading library JARs or running application build tasks.
+
+The initial scope covers fixed numeric stable library/BOM coordinates in dependency calls, literal catalog library versions, and simple catalog `version.ref` entries. Declared versions are the comparison baseline; installed, locked or platform-selected versions are not treated as declarations. Gradle selects the latest stable candidate inside the requested patch/minor/major branch, preserving release suffixes such as `jre` and `android`. Catalog entries are checked in the repository contexts of linked subprojects that directly declare their coordinates and baseline. Unused catalog entries have no automatic update.
+
+A catalog version shared by several libraries gets one edit only when every library has an update to the same version. Unchanged, unsupported or conflicting consumers prevent the shared edit. References also used by catalog plugins require manual review. Current File edits only the selected build file or catalog; a catalog edit affects every consumer of that shared version.
+
+Dynamic versions, prereleases, interpolated/shared build-script properties, map notation, dependency customization blocks, constraints, plugin versions, custom/published catalogs, convention plugins and dependency substitutions are outside the initial automatic-edit scope. Dependency declarations made for subprojects from another project's build script are not automatically followed back to their source. Project deprecation rules support Gradle `group:artifact` coordinates; there is no inferred Gradle deprecation status.
+
+Save Gradle build files before checking. Results and previews track build scripts, catalogs, properties, wrapper and lock/verification files, user Gradle properties/init scripts, linked project settings, JVM selection and deprecation policy. Unsaved edits or relevant configuration changes invalidate the preview. Updates are one undoable command that changes version text only. **Reload the Gradle project afterward; synchronize dependency locks yourself if the build uses locking.**
+
+The [Gradle demo](src/test/resources/gradle-demo/README.md) includes Groovy and Kotlin scripts, a shared catalog, a BOM, and nested subprojects.
+
 ## Other ecosystems
 
-The shared adapter model, coordinator, cache and edit bridge support Maven and npm. Gradle, pnpm and Bun still require their own discovery, repository and editing adapters. See [implementation notes](docs/adapter-implementation.md) and [the extension assessment](docs/ecosystem-support.md).
+The shared adapter model, coordinator, cache and edit bridge support Maven, npm and Gradle. pnpm and Bun still require their own discovery, repository and editing adapters.
 
 ## Development and verification
 
@@ -125,8 +141,6 @@ Java and Maven can be selected through SDKMAN. The Gradle wrapper builds the plu
 
 Compatibility checks target IDEA 2025.3.6.1 and 2026.1.4.
 
-See the [1.0.0 release verification record](docs/release-verification-1.0.0.md) for installed-ZIP startup checks and the licensing limitation affecting fresh npm profiles on IDEA 2025.3.6.1.
-
 Parser and IntelliJ platform tests cover stable-version filtering, wrapped reports, current-POM/project scopes, plugin Maven prerequisites, Maven configuration properties, stale previews, shared properties, dependency/plugin selection, and POM quick fixes.
 
 The optional integration tests start IDEA's real Maven server with both an authenticated local Maven repository and the five-project demo reactor. They verify the repository profile, mirror, credentials, all three bulk-update modes for dependencies and plugins, current-POM isolation, nested modules, configurable inspection severity, and a property quick fix. The Versions goals and demo metadata may be downloaded from Maven Central during these tests:
@@ -143,6 +157,11 @@ The npm integration test uses IntelliJ's configured Node/npm with an authenticat
 
 A [small npm workspace demo](src/test/resources/npm-demo/README.md) is also available for hands-on inspection and preview checks.
 
+The optional Gradle integration test runs IntelliJ's real Gradle tooling with the project wrapper and an authenticated local Maven repository declared in settings. It covers nested Groovy/Kotlin projects, shared catalog versions, all update modes, current-file isolation, inspections/quick fixes, authentication failures, and unchanged locks with no dependency JAR downloads:
+
+```bash
+./gradlew test -PgradleIntegration=true --tests '*GradleRepositoryIntegrationTest'
+```
 ## Releasing
 
 See the [release pipeline guide](docs/releasing.md) for Marketplace credentials, version preparation, signing, prereleases, and recovery.

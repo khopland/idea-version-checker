@@ -1,0 +1,111 @@
+package io.github.khopland.versionchecker.gradle
+
+import com.intellij.openapi.application.readAction
+import com.intellij.openapi.components.service
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.vfs.*
+import com.intellij.psi.PsiManager
+import io.github.khopland.versionchecker.*
+import io.github.khopland.versionchecker.core.*
+import org.jetbrains.plugins.gradle.settings.GradleSettings
+import java.nio.file.Files
+import java.nio.file.Path
+import java.security.MessageDigest
+
+internal class GradleBuildSystemAdapter : BuildSystemAdapter {
+    override val id = "gradle"
+    override val displayName = "Gradle"
+    override val capabilities = AdapterCapabilities()
+    override fun isOffline(project: Project) = GradleSettings.getInstance(project).isOfflineWork
+    private fun supported(file: VirtualFile) = !file.isDirectory &&
+        (file.name in setOf("build.gradle", "build.gradle.kts") || file.name == "libs.versions.toml" && file.parent.name == "gradle") &&
+        generateSequence(file.parent) { it.parent }.none { it.name in excluded }
+    private val excluded = setOf(".git", ".gradle", ".idea", "build", "out", "node_modules", "vendor")
+    private fun roots(project: Project) = GradleSettings.getInstance(project).linkedProjectsSettings.mapNotNull { it.externalProjectPath }.sortedByDescending { it.length }
+    private fun owner(project: Project, file: VirtualFile) = roots(project).firstOrNull { root ->
+        if (file.name.endsWith(".toml")) {
+            find(project, root)?.findFileByRelativePath("gradle/libs.versions.toml") == file
+        } else {
+            val directories = listOf(root) + GradleSettings.getInstance(project).getLinkedProjectSettings(root)?.modules.orEmpty()
+            directories.any { directory -> find(project, directory)?.let { VfsUtilCore.isAncestor(it, file, false) } == true }
+        }
+    }
+    private fun files(project: Project, root: String): List<VirtualFile> {
+        val settings = GradleSettings.getInstance(project).getLinkedProjectSettings(root)
+        val directories = (listOf(root) + settings?.modules.orEmpty()).distinct()
+        val result = mutableSetOf<VirtualFile>()
+        for (directory in directories) {
+            val file = find(project, directory) ?: continue
+            VfsUtilCore.iterateChildrenRecursively(file, { it.name !in excluded }) {
+                if (!it.isDirectory && (it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") || it.name.endsWith(".toml") || it.name in setOf("gradle.properties", "gradle-wrapper.properties", "gradle-wrapper.jar", "gradlew", "gradlew.bat", "gradle.lockfile") || it.path.contains("/gradle/dependency-locks/") || it.name == "verification-metadata.xml")) result += it
+                true
+            }
+        }
+        return result.toList()
+    }
+    private fun find(project: Project, path: String): VirtualFile? = LocalFileSystem.getInstance().findFileByPath(path)
+        ?: ProjectRootManager.getInstance(project).contentRoots.firstNotNullOfOrNull { it.fileSystem.findFileByPath(path) }
+    override fun supports(project: Project, selection: BuildSelection): Boolean = when (selection.scope) {
+        UpdateScope.CURRENT_FILE -> selection.currentFile?.let { find(project, it) }?.let { supported(it) && owner(project, it) != null } == true
+        UpdateScope.WHOLE_PROJECT -> roots(project).any { root -> files(project, root).any(::supported) }
+    }
+    override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
+        if (!supported(file)) return null
+        val root = owner(project, file) ?: return null
+        val sources = files(project, root)
+        if (sources.any { FileDocumentManager.getInstance().isFileModified(it) }) return null
+        val psi = PsiManager.getInstance(project).findFile(file) ?: return null
+        return BuildSnapshot(BuildContextId(id, root, file.path), file.path, fingerprint(project, root), GradleDeclarations.parse(file.path, psi.text).map { it.declaration })
+    }
+    private fun fingerprint(project: Project, root: String): BuildFingerprint {
+        fun hash(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        val settings = GradleSettings.getInstance(project)
+        val linked = settings.getLinkedProjectSettings(root)
+        val hashes = files(project, root).associate { file ->
+            val text = FileDocumentManager.getInstance().getCachedDocument(file)?.text
+            file.path to hash((text?.toByteArray() ?: file.contentsToByteArray()) + file.contentsToByteArray())
+        }.toMutableMap()
+        val home = Path.of(settings.serviceDirectoryPath ?: System.getenv("GRADLE_USER_HOME") ?: Path.of(System.getProperty("user.home"), ".gradle").toString())
+        for (path in listOf(home.resolve("gradle.properties"), home.resolve("init.gradle"), home.resolve("init.gradle.kts"))) hashes[path.toString()] = if (Files.exists(path)) hash(Files.readAllBytes(path)) else "missing"
+        val init = home.resolve("init.d")
+        if (Files.isDirectory(init)) Files.walk(init).use { paths -> paths.filter(Files::isRegularFile).forEach { hashes[it.toString()] = hash(Files.readAllBytes(it)) } }
+        val sdk = ProjectRootManager.getInstance(project).projectSdk
+        return BuildFingerprint(hashes, listOf(root, linked?.modules?.sorted(), linked?.gradleJvm, linked?.gradleHome, linked?.distributionType, sdk?.name, sdk?.homePath, settings.serviceDirectoryPath, settings.gradleVmOptions, settings.isOfflineWork, project.service<VersionCheckerSettings>().state.deprecatedDependencies, System.getenv().toSortedMap()).joinToString("|").let { hash(it.toByteArray()) })
+    }
+    override fun isCurrent(project: Project, snapshot: BuildSnapshot) = find(project, snapshot.sourceFile)?.let { owner(project, it) == snapshot.context.root && snapshot.fingerprint == fingerprint(project, snapshot.context.root) } == true
+    override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = readAction {
+        val files = if (selection.scope == UpdateScope.CURRENT_FILE) listOfNotNull(selection.currentFile?.let { find(project, it) }) else roots(project).flatMap { files(project, it) }.distinct()
+        files.mapNotNull { snapshot(project, it) }
+    }
+    override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
+        val policy = readAction { project.service<VersionCheckerSettings>().state.deprecatedDependencies }.lineSequence().map(String::trim).filter { it.isNotEmpty() && !it.startsWith('#') }.associate { val parts = it.split('=', limit = 2); parts[0].trim() to (parts.getOrNull(1)?.trim() ?: "Deprecated by project policy") }
+        val results = GradleVersionLookup.check(project, snapshot.copy(declarations = snapshot.declarations.filter { "${it.artifact.namespace}:${it.artifact.name}" !in policy }), mode)
+        return UpdateReport(snapshot.declarations.mapNotNull { declaration ->
+            val versions = results[declaration.id.location]?.versions.orEmpty().distinct()
+            val latest = versions.singleOrNull() ?: return@mapNotNull null
+            if (!GradleVersions.newer(declaration.baseline, latest)) return@mapNotNull null
+            UpdateCandidate(declaration, latest, kind = GradleVersions.kind(declaration.baseline, latest))
+        }, snapshot.declarations.mapNotNull { declaration -> policy["${declaration.artifact.namespace}:${declaration.artifact.name}"]?.let { UpdateNotice(declaration, NoticeKind.DEPRECATED, "${declaration.artifact.namespace}:${declaration.artifact.name} is deprecated: $it") } })
+    }
+    override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
+        check(reports.keys.all { isCurrent(project, it) }) { "Gradle build files or settings changed. Run the check again." }
+        val edits = mutableListOf<VersionEdit>(); val skipped = mutableListOf<String>()
+        for ((snapshot, report) in reports) {
+            val psi = find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")
+            val declarations = GradleDeclarations.parse(snapshot.sourceFile, psi.text)
+            val candidates = report.candidates.associateBy { it.declaration.id }
+            for ((range, consumers) in declarations.groupBy { it.range }) {
+                val updates = consumers.map { candidates[it.declaration.id] }
+                if (range != null && consumers.all { it.reason == null } && updates.all { it != null } && updates.map { it!!.version }.distinct().size == 1) {
+                    edits += GradleVersionEdit(psi, range, updates.first()!!.version, "${psi.virtualFile.path}: ${consumers.joinToString { it.declaration.id.location }}")
+                } else if (consumers.any { it.reason != null } || updates.any { it != null }) {
+                    skipped += "${psi.virtualFile.path}: ${consumers.joinToString { it.declaration.id.location }}: ${consumers.mapNotNull { it.reason }.firstOrNull() ?: "Shared version has conflicting or unchanged consumers"}"
+                }
+            }
+            skipped += report.notices.map { "${it.declaration.id.file}: ${it.message}" }
+        }
+        BulkUpdatePlan(edits.sortedByDescending { (it as GradleVersionEdit).range.startOffset }, skipped, { reports.keys.all { isCurrent(project, it) } }, if (edits.isEmpty()) emptyList() else listOf("Reload the Gradle project in IntelliJ after updating versions. Update dependency locks yourself if the build uses locking."))
+    }
+}

@@ -10,6 +10,8 @@ plugins {
 
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
+    implementation("org.tomlj:tomlj:1.1.1")
+    compileOnly("org.checkerframework:checker-qual:3.21.2")
     testImplementation(libs.junit)
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
@@ -19,6 +21,7 @@ dependencies {
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.idea.maven")
+        bundledPlugin("org.jetbrains.plugins.gradle")
         bundledPlugin("JavaScript")
         bundledPlugin("com.intellij.modules.json")
     }
@@ -39,6 +42,9 @@ tasks.test {
     val npmIntegration = providers.gradleProperty("npmIntegration").orElse("false").get()
     systemProperty("versionchecker.npmIntegration", npmIntegration)
     if (npmIntegration != "true") exclude("**/NpmRegistryIntegrationTest*")
+    val gradleIntegration = providers.gradleProperty("gradleIntegration").orElse("false").get()
+    systemProperty("versionchecker.gradleIntegration", gradleIntegration)
+    if (gradleIntegration != "true") exclude("**/GradleRepositoryIntegrationTest*")
 }
 
 intellijPlatform {

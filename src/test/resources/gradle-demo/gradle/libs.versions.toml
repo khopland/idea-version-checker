@@ -1,0 +1,6 @@
+[versions]
+jackson = "2.16.0"
+
+[libraries]
+jackson-core = { module = "com.fasterxml.jackson.core:jackson-core", version.ref = "jackson" }
+jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }

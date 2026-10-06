@@ -3,16 +3,19 @@
     <name>Version Checker</name>
     <vendor>khopland</vendor>
     <description>
-        Shows newer stable Maven dependency and build-plugin versions in pom.xml and npm dependency versions in package.json
+        Shows newer stable Maven dependency and build-plugin versions in pom.xml, npm dependency versions in package.json and Gradle library versions in build scripts and local catalogs
         through IntelliJ IDEA's standard inspections. Maven checks use IDEA's Maven configuration;
-        npm checks use its configured local Node.js/npm runtime and npm registry configuration.
+        npm checks use its configured local Node.js/npm runtime and npm registry configuration;
+        Gradle checks use its linked project tooling, wrapper/JVM and Gradle repositories.
         Includes version update quick fixes and bulk previews for patch, minor or major versions
         in the current build file or across the project. npm updates edit manifests only;
         IntelliJ or npm can synchronize lockfiles and installed dependencies afterward.
+        Gradle updates edit declarations only; reload the project and synchronize dependency locks afterward.
     </description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
     <depends optional="true" config-file="version-checker-npm.xml">JavaScript</depends>
+    <depends optional="true" config-file="version-checker-gradle.xml">org.jetbrains.plugins.gradle</depends>
     <extensionPoints>
         <extensionPoint name="buildSystemAdapter" interface="io.github.khopland.versionchecker.core.BuildSystemAdapter" />
     </extensionPoints>

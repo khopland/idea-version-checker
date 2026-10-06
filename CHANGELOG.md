@@ -1,6 +1,6 @@
 # Version Checker Changelog
 
-## [Unreleased]
+## Unreleased
 
 ### Added
 
@@ -17,7 +17,10 @@
 - npm discovery and manifest fingerprints are cached between changes, bulk validation shares workspace fingerprints, and edits to independent npm projects no longer invalidate each other.
 - Maven checks no longer fail when the resolver cannot order an artifact's versions ("Comparison method violates its general contract"), for example when a locally installed `0-SNAPSHOT` meets branch-named snapshots. That artifact is resolved from the metadata Maven downloaded, and the remaining dependencies are still checked.
 
-## [1.0.0] - 2026-10-06
+- Initial Gradle support for linked Groovy/Kotlin build files and default local version catalogs, through IntelliJ’s Gradle tooling and project repository configuration.
+- Gradle inspections, version quick fixes, scoped bulk previews, shared-catalog conflict checks, and authenticated repository integration coverage.
+
+## 1.0.0 - 2026-10-06
 
 ### Added
 
