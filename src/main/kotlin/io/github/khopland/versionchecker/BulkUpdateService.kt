@@ -55,6 +55,11 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                             return@invokeLater
                         }
                         FileDocumentManager.getInstance().saveAllDocuments()
+                        if (plan.followUp.isNotEmpty()) {
+                            NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
+                                .createNotification("Versions updated", plan.followUp.joinToString("\n"), NotificationType.INFORMATION)
+                                .notify(project)
+                        }
                         adapters.forEach { adapter ->
                             project.service<VersionCheckService>().refresh(adapter.id, if (updateScope == UpdateScope.CURRENT_FILE) currentFile else null)
                         }
@@ -106,7 +111,8 @@ private class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: S
         init()
     }
     override fun createCenterPanel(): JComponent {
-        val preview = plan.changes.joinToString("\n\n") { "${it.location}\n${it.expected} → ${it.latest}" } +
+        val reminder = plan.followUp.takeIf { it.isNotEmpty() }?.joinToString("\n\n", postfix = "\n\n").orEmpty()
+        val preview = reminder + plan.changes.joinToString("\n\n") { "${it.location}\n${it.expected} → ${it.latest}" } +
             plan.skipped.takeIf { it.isNotEmpty() }?.joinToString("\n", "\n\nSkipped — needs review:\n").orEmpty()
         return JBScrollPane(JBTextArea(preview).apply { isEditable = false; lineWrap = true; wrapStyleWord = true })
             .apply { preferredSize = Dimension(760, 440) }

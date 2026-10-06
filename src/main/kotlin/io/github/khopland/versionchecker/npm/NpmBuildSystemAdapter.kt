@@ -124,7 +124,11 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
             report.notices.filter { notice -> report.candidates.none { it.declaration.id == notice.declaration.id } }
                 .forEach { skipped += "${it.declaration.id.file}: ${it.message}" }
         }
-        BulkUpdatePlan(edits, skipped.distinct(), isCurrent = { reports.keys.all { isCurrent(project, it) } })
+        BulkUpdatePlan(edits, skipped.distinct(), isCurrent = { reports.keys.all { isCurrent(project, it) } },
+            followUp = if (edits.isEmpty()) emptyList() else listOf(
+                "npm updates edit package.json only. After applying, use IntelliJ's npm install action or run npm install " +
+                    "to synchronize lockfiles and installed dependencies."
+            ))
     }
 
     internal fun workspaceDeclarations(project: Project, snapshot: BuildSnapshot): List<Pair<VersionDeclaration, JsonStringLiteral>> =

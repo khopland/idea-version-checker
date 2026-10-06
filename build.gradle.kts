@@ -1,4 +1,5 @@
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.changelog.Changelog
 
 plugins {
     id("org.jetbrains.kotlin.jvm")
@@ -26,6 +27,10 @@ kotlin {
     jvmToolchain(21)
 }
 
+tasks.processResources {
+    from("LICENSE") { into("META-INF") }
+}
+
 tasks.test {
     val mavenIntegration = providers.gradleProperty("mavenIntegration").orElse("false").get()
     systemProperty("versionchecker.mavenIntegration", mavenIntegration)
@@ -37,8 +42,11 @@ tasks.test {
 
 intellijPlatform {
     pluginConfiguration {
+        changeNotes = provider {
+            changelog.renderItem(changelog.get(project.version.toString()).withHeader(false), Changelog.OutputType.HTML)
+        }
         ideaVersion {
-            sinceBuild = "253"
+            sinceBuild = "253.33813.55"
         }
     }
     pluginVerification {

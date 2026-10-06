@@ -4,6 +4,10 @@ package io.github.khopland.versionchecker
 import io.github.khopland.versionchecker.maven.*
 
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.command.undo.UndoManager
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.TextEditor
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import org.jetbrains.idea.maven.dom.MavenDomUtil
@@ -64,6 +68,21 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         WriteCommandAction.runWriteCommandAction(project) { (plan.changes.last().element as com.intellij.psi.xml.XmlTag).value.setText("3.0") }
         assertFalse(plan.apply(project))
         assertEquals("1.0", (plan.changes.first().element as com.intellij.psi.xml.XmlTag).value.trimmedText)
+    }
+
+    fun testMultipleMavenEditsUndoTogether() {
+        val plan = plan("<dependencies>" + dep("a", "1.0") + dep("b", "1.0") + "</dependencies>",
+            mapOf(DependencyVersion("g", "a", "1.0") to "2.0", DependencyVersion("g", "b", "1.0") to "2.0"))
+        val editor = FileEditorManager.getInstance(project).openFile(myFixture.file.virtualFile, true)
+            .filterIsInstance<TextEditor>().single()
+        assertTrue(plan.apply(project))
+        val undo = UndoManager.getInstance(project)
+        assertTrue(undo.isUndoAvailable(editor))
+        undo.undo(editor)
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        val versions = (myFixture.file as XmlFile).rootTag!!.findFirstSubTag("dependencies")!!.subTags
+            .map { it.findFirstSubTag("version")!!.value.trimmedText }
+        assertEquals(listOf("1.0", "1.0"), versions)
     }
 
     fun testCurrentFilePropertySafetyIncludesUsesInOtherModules() {

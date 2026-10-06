@@ -37,6 +37,9 @@ class NpmAdapterTest : BasePlatformTestCase() {
         assertTrue(snapshot.declarations.single { it.id.location.startsWith("peerDependencies/") }.baseline.isEmpty())
         val prepared = plan(mapOf(snapshot to report(snapshot)))
         assertEquals(3, prepared.changes.size)
+        assertTrue(prepared.followUp.single().contains("npm install"))
+        val combined = BulkUpdatePlan.combine(listOf(BulkUpdatePlan(emptyList(), emptyList()), prepared, prepared))
+        assertEquals(prepared.followUp, combined.followUp)
         assertTrue(prepared.skipped.single().contains("peer compatibility"))
         assertTrue(prepared.apply(project))
         val root = (file as JsonFile).topLevelValue as JsonObject
@@ -56,6 +59,7 @@ class NpmAdapterTest : BasePlatformTestCase() {
         assertTrue(snapshot.declarations.all { it.baseline.isEmpty() })
         val prepared = plan(mapOf(snapshot to UpdateReport()))
         assertTrue(prepared.changes.isEmpty())
+        assertTrue(prepared.followUp.isEmpty())
         assertEquals(4, prepared.skipped.size)
         assertTrue(prepared.skipped.any { "@local/library" in it && "local workspace" in it })
     }

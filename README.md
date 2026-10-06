@@ -17,10 +17,10 @@ The parent choice is available only when the controlling declaration can be iden
 
 ## Install and use
 
-Requires IntelliJ IDEA **2025.3 or later**. Enable the bundled Java and Maven plugins for Maven projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2025.3.6.1.
+Requires IntelliJ IDEA **2025.3.6.1 or later**. Enable the bundled Java and Maven plugins for Maven projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2025.3.6.1.
 
 1. Build with `./gradlew buildPlugin` using Java 21 or later. Gradle uses a Java 21 toolchain.
-2. In IDEA, open **Settings → Plugins → gear → Install Plugin from Disk** and select `build/distributions/version-checker-1.0.0-SNAPSHOT.zip`.
+2. In IDEA, open **Settings → Plugins → gear → Install Plugin from Disk** and select `build/distributions/version-checker-1.0.0.zip`.
 3. Open and import a Maven project. Checks start in the background when IDEA inspects an imported POM.
 4. Use **Tools → Check Versions → Current File** to refresh the POM in the editor, or **Whole Project** for all imported modules.
 
@@ -98,6 +98,8 @@ The preview applies only `package.json` string edits in one undoable command, pr
 
 **Lockfiles and installed dependencies are left to IntelliJ or npm.** After applying manifest edits, use IntelliJ's package-manager action or run npm yourself to synchronize them. The checker never installs packages or regenerates lockfiles.
 
+The bulk-update preview includes this reminder, and a notification repeats it after applying npm updates.
+
 ## Other ecosystems
 
 The shared adapter model, coordinator, cache and edit bridge support Maven and npm. Gradle, pnpm and Bun still require their own discovery, repository and editing adapters. See [implementation notes](docs/adapter-implementation.md) and [the extension assessment](docs/ecosystem-support.md).
@@ -123,6 +125,8 @@ Java and Maven can be selected through SDKMAN. The Gradle wrapper builds the plu
 
 Compatibility checks target IDEA 2025.3.6.1 and 2026.1.4.
 
+See the [1.0.0 release verification record](docs/release-verification-1.0.0.md) for installed-ZIP startup checks and the licensing limitation affecting fresh npm profiles on IDEA 2025.3.6.1.
+
 Parser and IntelliJ platform tests cover stable-version filtering, wrapped reports, current-POM/project scopes, plugin Maven prerequisites, Maven configuration properties, stale previews, shared properties, dependency/plugin selection, and POM quick fixes.
 
 The optional integration tests start IDEA's real Maven server with both an authenticated local Maven repository and the five-project demo reactor. They verify the repository profile, mirror, credentials, all three bulk-update modes for dependencies and plugins, current-POM isolation, nested modules, configurable inspection severity, and a property quick fix. The Versions goals and demo metadata may be downloaded from Maven Central during these tests:
@@ -138,3 +142,7 @@ The npm integration test uses IntelliJ's configured Node/npm with an authenticat
 ```
 
 A [small npm workspace demo](src/test/resources/npm-demo/README.md) is also available for hands-on inspection and preview checks.
+
+## License
+
+Copyright 2026 Kristoffer Larsen Hopland. Licensed under the [Apache License, Version 2.0](LICENSE). A copy is included in the plugin JAR under `META-INF/LICENSE`.

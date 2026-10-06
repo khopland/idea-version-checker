@@ -16,12 +16,14 @@ internal interface VersionEdit {
 
 internal data class BulkUpdatePlan(
     val changes: List<VersionEdit>, val skipped: List<String>,
-    private val isCurrent: () -> Boolean = { true }
+    private val isCurrent: () -> Boolean = { true },
+    val followUp: List<String> = emptyList()
 ) {
     companion object {
         fun combine(plans: List<BulkUpdatePlan>) = BulkUpdatePlan(
             plans.flatMap { it.changes }, plans.flatMap { it.skipped }.distinct(),
-            isCurrent = { plans.all { it.isCurrent() } }
+            isCurrent = { plans.all { it.isCurrent() } },
+            followUp = plans.flatMap { it.followUp }.distinct()
         )
     }
 
