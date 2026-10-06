@@ -2,6 +2,8 @@ version: 2
 updates:
   - package-ecosystem: "gradle"
     directory: "/"
+    exclude-paths:
+      - "src/test/resources/**"
     schedule:
       interval: "weekly"
   - package-ecosystem: "github-actions"
