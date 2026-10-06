@@ -146,7 +146,7 @@ internal data class SupportDiagnosticReport(
             limitedFields++; ""
         }
         val bounded = displayed.take(MAX_ROWS).map { row -> row.copy(
-            adapter = row.adapter.takeIf { it in setOf("maven", "npm", "gradle") } ?: "unknown", root = boundedPath(row.root), artifact = safe(row.artifact), current = safe(row.current), available = row.available?.let(::safe),
+            adapter = row.adapter.takeIf { it in setOf("maven", "npm", "pnpm", "yarn", "bun", "gradle") } ?: "unknown", root = boundedPath(row.root), artifact = safe(row.artifact), current = safe(row.current), available = row.available?.let(::safe),
             // Raw source paths stay private and are only passed to the established relative-path boundary.
             source = row.source.copy(file = boundedPath(row.source.file), location = safe(row.source.location)),
             origin = row.origin?.let { it.copy(checkSourceFile = boundedPath(it.checkSourceFile), coverageDescription = it.coverageDescription?.let(::safe)) },

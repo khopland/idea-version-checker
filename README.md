@@ -1,6 +1,6 @@
 # Version Checker
 
-Version Checker is an IntelliJ IDEA plugin for Maven, npm, and Gradle projects.
+Version Checker is an IntelliJ IDEA plugin for Maven, npm, pnpm, Yarn, Bun, and Gradle projects.
 It shows newer stable dependency versions through standard IDEA inspections.
 It also checks Maven build plugins.
 
@@ -16,7 +16,7 @@ Use **IntelliJ IDEA 2026.1.4 through 2026.2.x** with these plugins and settings:
 | Build system | Required setup |
 | --- | --- |
 | Maven | Enable Java and Maven. Import the Maven project. Maven 4 requires IDEA 2026.2.3 or later. |
-| npm | Enable JavaScript and TypeScript. Configure a local Node.js interpreter and npm. |
+| npm, pnpm, Yarn, Bun | Enable JavaScript and TypeScript. Configure a local Node.js interpreter and the matching installed package manager. |
 | Gradle | Enable Gradle. Import the Gradle project. |
 
 1. Open **Settings → Plugins → Marketplace**.
@@ -66,7 +66,7 @@ Use **Refresh** to check again.
 | Build system | Automatic updates |
 | --- | --- |
 | Maven | Dependencies, dependency management, BOMs, and build plugins in imported POMs and active profiles. Supports literal versions and simple local properties. Parent-managed versions can offer local overrides or imported-parent updates. |
-| npm | `dependencies`, `devDependencies`, and `optionalDependencies`. Supports scoped packages, aliases, and npm workspaces. Exact versions and simple `^` or `~` selectors keep their operator. |
+| npm, pnpm, Yarn, Bun | `dependencies`, `devDependencies`, and `optionalDependencies`. Supports scoped packages, aliases, and npm workspaces. Exact versions and simple `^` or `~` selectors keep their operator. |
 | Gradle | Fixed stable library and BOM versions in supported Groovy and Kotlin dependency calls. Supports the default local `gradle/libs.versions.toml` catalog, literal named local TOML catalog registrations in root settings, and simple `version.ref` entries. |
 
 These declarations require manual review:
@@ -75,7 +75,8 @@ These declarations require manual review:
 - npm ranges and peer dependencies.
 - Gradle dynamic versions, script properties, plugin versions, and published or programmatically constructed catalogs.
 
-The npm adapter excludes pnpm, Yarn, and Bun projects.
+pnpm uses `pnpm-workspace.yaml`; Yarn and Bun use `package.json` workspaces.
+Checks use each manager’s native registry commands. Shared catalogs, resolution overrides and custom hooks require manual review.
 See the [user guide](docs/user-guide.md) for declaration limits and shared-version rules.
 
 Maven inspections also flag unnecessary property and dependency version overrides when the parent provides the same or a newer version.
@@ -88,6 +89,8 @@ See [Maven override cleanup](docs/user-guide.md#remove-unnecessary-maven-overrid
 Maven and Gradle notifications offer **Save and reload … projects**.
 Check the native build tool window for the reload result.
 Update Gradle dependency locks through your normal build process.
+
+For pnpm, Yarn and Bun, run the matching package manager yourself after reviewing manifest edits.
 
 npm notifications offer **Preview npm lockfile sync**.
 Select a supported `package.json`. Confirm the workspace root and command.

@@ -19,8 +19,9 @@ internal data class NpmPreparedUpdate(
     companion object {
         fun prepare(project: Project, file: VirtualFile, declaration: VersionDeclaration, value: JsonStringLiteral?,
                     replacement: String): NpmPreparedUpdate {
+            val manager = NpmWorkspaces.manager(project, file) ?: NodePackageManager.NPM
             // Review blockers explain unavailable edits; stale eligible targets fail explicitly.
-            val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector)
+            val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector, manager == NodePackageManager.YARN)
             val reason = NpmManifest.overrideReviewReason(project, file, declaration)
                 ?: NpmManifest.reviewReason(declaration)
                 ?: when {
@@ -39,14 +40,14 @@ internal data class NpmPreparedUpdate(
                 "npm declaration no longer exists"
             }
             check(value.value == declaration.selector) { "npm selector changed during the check" }
-            val selected = NpmSelector.parse(declaration.artifact.name, replacement)
+            val selected = NpmSelector.parse(declaration.artifact.name, replacement, manager == NodePackageManager.YARN)
                 ?.takeIf { it.packageName == selector!!.packageName && it.baseline > selector.baseline }
             val target = selected?.let { NpmTarget(declaration.id, NpmWorkspaces.resolve(project, file).root.path,
-                it.packageName, replacement.removePrefix(it.prefix), declaration.baseline, declaration.selector) }
+                it.packageName, replacement.removePrefix(it.prefix), declaration.baseline, declaration.selector, manager) }
             val edit = NpmVersionEdit(value, replacement,
                 "${declaration.id.file}: ${declaration.id.location} (${declaration.artifact.name})", target)
             return NpmPreparedUpdate(declaration.id, setOf(declaration.id), replacement, emptyList(), edit,
-                listOf(NpmUpdateGuidance.message))
+                listOf(NpmUpdateGuidance.message(manager)))
         }
     }
 }

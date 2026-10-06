@@ -30,11 +30,12 @@ internal class NpmInputInventory private constructor(val entries: Set<Entry>) {
                 var ancestor: Path? = Path.of(root)
                 while (ancestor != null) {
                     checkCancellation()
-                    entries += Entry(ancestor.resolve(".npmrc"), Role.NPM_CONFIGURATION, ancestor)
+                    NodePackageManager.configFiles.forEach { entries += Entry(ancestor.resolve(it), Role.NPM_CONFIGURATION, ancestor) }
+                    entries += Entry(ancestor.resolve(".pnpmfile.cjs"), Role.NPM_CONFIGURATION, ancestor)
                     for (name in listOf(".nvmrc", ".node-version", ".tool-versions", ".mise.toml", "mise.toml", "mise.local.toml"))
                         entries += Entry(ancestor.resolve(name), Role.RUNTIME_CONFIGURATION, ancestor)
                     entries += Entry(ancestor.resolve("package.json"), Role.MANIFEST, ancestor)
-                    NpmWorkspaces.otherManagerFiles.forEach { entries += Entry(ancestor.resolve(it), Role.OTHER_MANAGER_MARKER, ancestor) }
+                    (NodePackageManager.markerFiles - NodePackageManager.configFiles).forEach { entries += Entry(ancestor.resolve(it), Role.OTHER_MANAGER_MARKER, ancestor) }
                     ancestor = ancestor.parent
                 }
                 NpmBuildInputs.userConfigurationPaths(environment, Path.of(root)).forEach {
@@ -49,7 +50,8 @@ internal class NpmInputInventory private constructor(val entries: Set<Entry>) {
             runCatching { Path.of(npm) }.getOrNull()?.let { configured ->
                 entries += Entry(configured, Role.RUNTIME)
                 entries += Entry(configured.resolve("package.json"), Role.RUNTIME)
-                entries += Entry(configured.resolve("bin/npm-cli.js"), Role.RUNTIME)
+                for (binary in listOf("bin/npm-cli.js", "bin/pnpm.cjs", "bin/yarn.js", "bin/yarn.cjs", "bin/bun", "bun"))
+                    entries += Entry(configured.resolve(binary), Role.RUNTIME)
             }
             return NpmInputInventory(entries)
         }

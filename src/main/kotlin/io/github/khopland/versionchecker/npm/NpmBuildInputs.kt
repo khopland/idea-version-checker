@@ -81,7 +81,10 @@ internal object NpmBuildInputs {
         val home = environment["HOME"] ?: System.getProperty("user.home")
         val default = if (userConfigurationVariables.take(2).any { !environment[it].isNullOrBlank() }) emptyList()
             else listOf(directory.resolve(home.ifEmpty { "~" }).resolve(".npmrc").normalize())
-        return default + userConfigurationVariables.mapNotNull { key ->
+        val userDirectory = directory.resolve(home.ifEmpty { "~" })
+        val managerConfigs = listOf(".yarnrc", ".yarnrc.yml", ".bunfig.toml").map(userDirectory::resolve) +
+            NodePackageManager.pnpmGlobalConfig(environment)
+        return default + managerConfigs.map { directory.resolve(it).normalize() } + userConfigurationVariables.mapNotNull { key ->
             environment[key]?.takeIf(String::isNotBlank)?.let { directory.resolve(it).normalize() }
         }
     }
@@ -173,7 +176,7 @@ internal object NpmBuildInputs {
         }
         return inventory.entries.mapNotNull { entry ->
             val directory = entry.ancestorDirectory?.let(ancestors::get) ?: return@mapNotNull null
-            VirtualInput(entry, directory.findChild(entry.path.fileName.toString()), "${directory.path}/${entry.path.fileName}")
+            VirtualInput(entry, directory.findChild(entry.path.fileName.toString())?.takeUnless { it.isDirectory }, "${directory.path}/${entry.path.fileName}")
         }
     }
     private fun diskDigest(path: Path, external: External? = null): String {

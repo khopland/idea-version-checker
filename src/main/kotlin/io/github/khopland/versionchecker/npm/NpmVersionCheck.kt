@@ -25,12 +25,13 @@ internal suspend fun checkNpmVersions(
     metadata: suspend (String) -> NpmPackageMetadata,
     deprecated: suspend (String, String) -> String?,
     reviewReasons: Map<DeclarationId, String> = emptyMap(),
+    allowRegistryProtocol: Boolean = false,
     publish: suspend (InspectionUpdate) -> Unit = {}
 ): UpdateReport = coroutineScope {
     val packages = declarations.mapNotNull { declaration ->
         if (declaration.id in reviewReasons) return@mapNotNull null
         val baseline = NpmVersion.parse(declaration.baseline) ?: return@mapNotNull null
-        val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector) ?: return@mapNotNull null
+        val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector, allowRegistryProtocol) ?: return@mapNotNull null
         NpmUsage(declaration, baseline, selector)
     }.groupBy { it.selector.packageName }
     val supported = packages.values.flatten().map { it.declaration.id }.toSet()

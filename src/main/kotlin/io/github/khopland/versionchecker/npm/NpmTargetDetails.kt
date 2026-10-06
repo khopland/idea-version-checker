@@ -23,7 +23,8 @@ internal data class NpmTarget(
     val packageName: String,
     val version: String,
     val baseline: String,
-    val selector: String
+    val selector: String,
+    val manager: NodePackageManager = NodePackageManager.NPM
 )
 
 internal data class NpmTargetDetails(
@@ -96,8 +97,8 @@ internal object NpmTargetDetailsLoader {
             val file = LocalFileSystem.getInstance().findFileByPath(target.declaration.file)
                 ?: error("npm declaration unavailable")
             val workspace = NpmWorkspaces.resolve(project, file)
-            check(workspace.root.path == target.workspaceRoot && NpmWorkspaces.supportsManifest(project, file))
-            val declarations = PsiManager.getInstance(project).findFile(file)?.let(NpmManifest::declarations).orEmpty()
+            check(workspace.root.path == target.workspaceRoot && NpmWorkspaces.supportsManifest(project, file, target.manager))
+            val declarations = PsiManager.getInstance(project).findFile(file)?.let { NpmManifest.declarations(it, target.manager) }.orEmpty()
             val declaration = declarations.singleOrNull { it.id == target.declaration }
             checkNotNull(declaration)
             check(declaration.selector == target.selector && declaration.baseline == target.baseline)

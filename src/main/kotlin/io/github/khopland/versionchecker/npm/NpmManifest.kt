@@ -1,6 +1,10 @@
 package io.github.khopland.versionchecker.npm
 
 import com.intellij.json.psi.*
+import com.intellij.json.JsonFileType
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiFileFactory
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbService
 import com.intellij.psi.search.FilenameIndex
@@ -48,8 +52,16 @@ internal object NpmManifest {
     }
 
     /** Read ancestor workspace declarations only; this never grants check or edit eligibility. */
-    fun ownershipRoot(file: PsiFile): JsonObject? {
-        if (file !is JsonFile || file.virtualFile?.name != "package.json" ||
+    fun ownershipRoot(file: PsiFile, currentDocument: Boolean = false): JsonObject? {
+        if (currentDocument) {
+            val document = file.virtualFile?.let { FileDocumentManager.getInstance().getCachedDocument(it) }
+            if (document != null && !PsiDocumentManager.getInstance(file.project).isCommitted(document)) {
+                val current = PsiFileFactory.getInstance(file.project)
+                    .createFileFromText("package.json", JsonFileType.INSTANCE, document.text)
+                return ownershipRoot(current)
+            }
+        }
+        if (file !is JsonFile || file.name != "package.json" ||
             PsiTreeUtil.findChildOfType(file, PsiErrorElement::class.java) != null) return null
         val root = file.topLevelValue as? JsonObject ?: return null
         return root.takeIf { it.propertyList.map { property -> property.name }.distinct().size == it.propertyList.size }
@@ -76,6 +88,17 @@ internal object NpmManifest {
         val rootPsi = com.intellij.psi.PsiManager.getInstance(project).findFile(rootFile)
             ?: return "npm root manifest is unavailable; review overrides"
         val root = root(rootPsi) ?: return "npm root manifest is invalid; review overrides"
+        val manager = NpmWorkspaces.manager(project, file) ?: return "Package-manager ownership is unavailable; review this declaration"
+        if (manager != NodePackageManager.NPM) {
+            val pnpm = root.findProperty("pnpm")?.value as? JsonObject
+            val yaml = workspace.root.findChild("pnpm-workspace.yaml")?.takeUnless { it.isDirectory }
+            val configuration = yaml?.let(PnpmWorkspace::configuration)
+            if (root.findProperty("overrides") != null || root.findProperty("resolutions") != null ||
+                pnpm?.findProperty("overrides") != null || configuration?.containsKey("overrides") == true ||
+                workspace.root.findChild(".pnpmfile.cjs") != null || configuration?.containsKey("pnpmfile") == true ||
+                configuration?.containsKey("globalPnpmfile") == true)
+                return "${manager.title} resolution overrides or hooks require manual review; update their controlling declarations explicitly"
+        }
         val overridesProperty = root.findProperty("overrides") ?: return null
         val overrides = overridesProperty.value as? JsonObject
             ?: return "npm overrides need manual review before updating dependencies"
@@ -115,6 +138,7 @@ internal object NpmManifest {
         if (declaration.id.location.startsWith("peerDependencies/")) return "peer compatibility requires manual review"
         if (declaration.baseline.isNotEmpty()) return null
         return when {
+            declaration.selector.startsWith("catalog:") -> "shared catalog dependency; update the catalog declaration manually"
             NpmSelector.parse(declaration.artifact.name, declaration.selector) != null || declaration.selector.startsWith("workspace:") ->
                 "local workspace dependency; managed in the project"
             declaration.selector.startsWith("file:") || declaration.selector.startsWith("link:") ->
@@ -123,9 +147,10 @@ internal object NpmManifest {
         }
     }
 
-    fun declarations(file: PsiFile): List<VersionDeclaration> = values(file).map { (id, value) ->
+    @JvmOverloads
+    fun declarations(file: PsiFile, manager: NodePackageManager? = null): List<VersionDeclaration> = values(file).map { (id, value) ->
         val name = (value.parent as JsonProperty).name
-        val selector = NpmSelector.parse(name, value.value)
+        val selector = NpmSelector.parse(name, value.value, manager == NodePackageManager.YARN)
         VersionDeclaration(id, ArtifactId("npm", selector?.packageName ?: name), value.value, selector?.baseline?.toString()?.takeUnless { id.location.startsWith("peerDependencies/") }.orEmpty())
     }
 }

@@ -15,12 +15,12 @@ internal data class IgnoredVersion(val adapter: String, val artifact: ArtifactId
 internal fun artifactLabel(artifact: ArtifactId) =
     if (artifact.namespace.isEmpty() || artifact.namespace == "npm") artifact.name else "${artifact.namespace}:${artifact.name}"
 
-private val ignoredVersionRule = Regex("^(maven|npm|gradle)\\s+(\\S+)\\s*=\\s*(\\S+)\\s*$")
+private val ignoredVersionRule = Regex("^(maven|npm|pnpm|yarn|bun|gradle)\\s+(\\S+)\\s*=\\s*(\\S+)\\s*$")
 
 internal fun ignoredVersions(text: String): Set<IgnoredVersion> = text.lineSequence().mapNotNull { line ->
     val match = ignoredVersionRule.matchEntire(line.trim()) ?: return@mapNotNull null
     val (adapter, name, version) = match.destructured
-    val artifact = if (adapter == "npm") ArtifactId("npm", name) else {
+    val artifact = if (adapter in setOf("npm", "pnpm", "yarn", "bun")) ArtifactId("npm", name) else {
         val parts = name.split(':')
         if (parts.size != 2 || parts.any(String::isBlank)) return@mapNotNull null
         ArtifactId(parts[0], parts[1])

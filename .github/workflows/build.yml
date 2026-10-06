@@ -96,6 +96,19 @@ jobs:
           node-version: '22.23.1'
           package-manager-cache: false
 
+      - name: Install native Node package-manager fixtures
+        run: |
+          fixture_tools="$RUNNER_TEMP/version-checker-node-tools"
+          npm install --prefix "$fixture_tools" --ignore-scripts --no-audit --no-fund --no-package-lock \
+            @pnpm/exe.linux-x64@12.15.0 pnpm-legacy@npm:pnpm@10.34.7 yarn@1.22.22 @yarnpkg/cli-dist@4.18.1 @oven/bun-linux-x64@1.4.4
+          {
+            echo "VERSIONCHECKER_PNPM_PATH=$fixture_tools/node_modules/@pnpm/exe.linux-x64/pnpm"
+            echo "VERSIONCHECKER_PNPM_LEGACY_PATH=$fixture_tools/node_modules/pnpm-legacy/bin/pnpm.cjs"
+            echo "VERSIONCHECKER_YARN_CLASSIC_PATH=$fixture_tools/node_modules/yarn"
+            echo "VERSIONCHECKER_YARN_MODERN_PATH=$fixture_tools/node_modules/@yarnpkg/cli-dist/bin/yarn.js"
+            echo "VERSIONCHECKER_BUN_PATH=$fixture_tools/node_modules/@oven/bun-linux-x64/bin/bun"
+          } >> "$GITHUB_ENV"
+
       - name: Test release automation
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 
@@ -103,7 +116,7 @@ jobs:
         run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
       - name: Run unit and native repository integration tests
-        run: ./gradlew check -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain
+        run: ./gradlew check -PmavenIntegration=true -PnpmIntegration=true -PnodeIntegration=true -PgradleIntegration=true --console=plain
 
       - name: Collect test results
         if: ${{ always() }}

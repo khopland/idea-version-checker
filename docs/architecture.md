@@ -1,6 +1,6 @@
 # Architecture
 
-Version Checker shares the check and edit workflow across Maven, npm, and Gradle adapters.
+Version Checker shares the check and edit workflow across Maven, npm, pnpm, Yarn, Bun, and Gradle adapters.
 Each adapter owns repository resolution, declaration parsing, and build-specific IntelliJ APIs.
 
 ## Responsibilities
@@ -94,7 +94,7 @@ They invalidate each source immediately before its check.
 
 Maven and npm keep separate metadata caches.
 Maven batches requests and supports persistent storage.
-npm shares package workers and tracks retained version indexes.
+npm, pnpm, Yarn and Bun share package workers and retained version indexes. Manager identity and native configuration isolate their metadata/runtime sessions; pnpm YAML changes also invalidate cached workspace ownership.
 `MetadataCacheContractTest` checks their common lifecycle rules.
 
 File hashing is shared because saved bytes and unsaved editor text use the same identity rules.

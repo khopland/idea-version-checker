@@ -16,17 +16,20 @@ import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Semaphore
 
-internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> ByteArray = Files::readAllBytes) : BuildSystemAdapter {
+internal open class NpmBuildSystemAdapter(val manager: NodePackageManager = NodePackageManager.NPM,
+                                          private val readExternalBytes: (Path) -> ByteArray = Files::readAllBytes) : BuildSystemAdapter {
+    constructor(readExternalBytes: (Path) -> ByteArray) : this(NodePackageManager.NPM, readExternalBytes)
+
     private suspend fun <T> capture(project: Project, files: () -> List<VirtualFile>,
                                     action: (NpmBuildInputs.External) -> T): T =
         NpmBuildInputs.capture(project, { files().map { NpmWorkspaces.resolve(project, it).root.path }.toSet() }, readExternalBytes, action)
-    override val id = "npm"
-    override val displayName = "npm"
+    override val id = manager.id
+    override val displayName = manager.title
     override val capabilities = AdapterCapabilities(incrementalInspections = true)
     private val registrySlots = Semaphore(4)
     override fun isOffline(project: Project) = false // npm evaluates its own offline/cache configuration.
     override fun supports(project: Project, selection: BuildSelection) =
-        selection.scope in capabilities.updateScopes && NpmManifest.files(project, selection).any { NpmWorkspaces.supportsManifest(project, it) }
+        selection.scope in capabilities.updateScopes && NpmManifest.files(project, selection).any { NpmWorkspaces.supportsManifest(project, it, manager) }
 
     override suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> = readAction {
         val workspaces = NpmManifest.files(project, selection).map { NpmWorkspaces.resolve(project, it) }.distinctBy { it.root }
@@ -52,11 +55,11 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
 
     private fun captureSnapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>,
                                 external: NpmBuildInputs.External?): BuildSnapshot? {
-        if (!NpmManifest.supported(project, file) || !NpmWorkspaces.supportsManifest(project, file)) return null
+        if (!NpmManifest.supported(project, file) || !NpmWorkspaces.supportsManifest(project, file, manager)) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
         val workspace = NpmWorkspaces.resolve(project, file)
         val localNames = workspace.names
-        val declarations = NpmManifest.declarations(psi).map { declaration ->
+        val declarations = NpmManifest.declarations(psi, manager).map { declaration ->
             if (declaration.artifact.name in localNames) declaration.copy(baseline = "") else declaration
         }
         val fingerprint = fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace, external) }
@@ -83,7 +86,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
     override fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean {
         val file = findFile(project, snapshot.sourceFile) ?: return false
         val workspace = NpmWorkspaces.resolve(project, file)
-        return NpmWorkspaces.supportsManifest(project, file) && workspace.root.path == snapshot.context.root && snapshot.fingerprint == NpmBuildInputs.fingerprint(project, workspace)
+        return NpmWorkspaces.supportsManifest(project, file, manager) && workspace.root.path == snapshot.context.root && snapshot.fingerprint == NpmBuildInputs.fingerprint(project, workspace)
     }
     override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
         capture(project, { listOfNotNull(findFile(project, snapshot.sourceFile)) }) { external ->
@@ -118,19 +121,19 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             val file = findFile(project, snapshot.sourceFile) ?: error("package.json is no longer available")
             val root = NpmWorkspaces.resolve(project, file).root
             check(root.path == snapshot.context.root) { "npm workspace changed during the check" }
-            NpmBuildInputs.resolutionContext(project, root, external)
+            NpmBuildInputs.resolutionContext(project, root, external).let { it.copy(configuration = "$id:${it.configuration}") }
         }
         val metadata = project.service<NpmMetadataService>()
-        val policy = readAction { projectDeprecations(project, "npm") }
+        val policy = readAction { projectDeprecations(project, id) }
         val expires = AtomicLong(Long.MAX_VALUE)
-        val report = metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory) }) { runtime ->
+        val report = metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory, manager) }) { runtime ->
             checkNpmVersions(snapshot.declarations, mode, policy, registrySlots,
                 metadata = { name ->
                     val lease = CheckPerformance.measure(CheckPerformance.Stage.NPM_METADATA_WAIT) {
                         metadata.cache.getFresh(context, name) {
                             // The shared metadata worker owns a separate lease. Cancelling the
                             // initiating check must not stop runtime setup needed by another caller.
-                            metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory) }) {
+                            metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory, manager) }) {
                                 NpmRegistry.metadata(it.await(), directory, name)
                             }
                         }
@@ -139,6 +142,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
                     lease.metadata
                 },
                 deprecated = { name, version -> NpmRegistry.deprecated(runtime.await(), directory, name, version) },
+                allowRegistryProtocol = manager == NodePackageManager.YARN,
                 reviewReasons = snapshot.skippedDeclarations.filterKeys { id ->
                     snapshot.declarations.any { it.id == id && it.baseline.isNotEmpty() }
                 },
@@ -165,25 +169,25 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             val values = NpmManifest.values(psi)
             for (declaration in snapshot.declarations.filter { it.baseline.isEmpty() }) {
                 skipped += "${declaration.id.file}: ${declaration.id.location}: ${NpmManifest.reviewReason(declaration)}"
-                review += VersionReviewItem(NpmManifest.reviewReason(declaration).orEmpty(), VersionReviewSource.capture(values[declaration.id]) ?: VersionReviewSource(file.path), declaration.id.location, declaration.selector, buildContext = "npm")
+                review += VersionReviewItem(NpmManifest.reviewReason(declaration).orEmpty(), VersionReviewSource.capture(values[declaration.id]) ?: VersionReviewSource(file.path), declaration.id.location, declaration.selector, buildContext = id)
             }
             for (declaration in snapshot.declarations.filter { it.baseline.isNotEmpty() }) {
                 val reason = NpmManifest.overrideReviewReason(project, file, declaration) ?: continue
                 skipped += "${file.path}: ${declaration.id.location}: $reason"
-                review += VersionReviewItem(reason, VersionReviewSource.capture(values[declaration.id]) ?: VersionReviewSource(file.path), declaration.id.location, declaration.selector, buildContext = "npm")
+                review += VersionReviewItem(reason, VersionReviewSource.capture(values[declaration.id]) ?: VersionReviewSource(file.path), declaration.id.location, declaration.selector, buildContext = id)
             }
             for (candidate in report.candidates) {
                 val prepared = NpmPreparedUpdate.prepare(project, file, candidate.declaration,
                     values[candidate.declaration.id], candidate.replacementSelector)
                 skipped += prepared.blockingReasons.map { "${file.path}: ${prepared.target.location}: $it" }
-                review += prepared.blockingReasons.map { VersionReviewItem(it, VersionReviewSource.capture(values[candidate.declaration.id]) ?: VersionReviewSource(file.path), candidate.declaration.id.location, candidate.declaration.selector, candidate.replacementSelector, buildContext = "npm") }
-                prepared.edit?.let { edits += it.withReview(listOf(candidate.declaration), "npm") }
+                review += prepared.blockingReasons.map { VersionReviewItem(it, VersionReviewSource.capture(values[candidate.declaration.id]) ?: VersionReviewSource(file.path), candidate.declaration.id.location, candidate.declaration.selector, candidate.replacementSelector, buildContext = id) }
+                prepared.edit?.let { edits += it.withReview(listOf(candidate.declaration), id) }
                 followUp += prepared.followUp
             }
             report.notices.filter { notice -> report.candidates.none { it.declaration.id == notice.declaration.id } }
                 .forEach {
                     skipped += "${it.declaration.id.file}: ${it.message}"
-                    review += VersionReviewItem(it.message, VersionReviewSource.capture(values[it.declaration.id]) ?: VersionReviewSource(file.path), it.declaration.id.location, it.declaration.selector, buildContext = "npm")
+                    review += VersionReviewItem(it.message, VersionReviewSource.capture(values[it.declaration.id]) ?: VersionReviewSource(file.path), it.declaration.id.location, it.declaration.selector, buildContext = id)
                 }
         }
         BulkUpdatePlan(edits, skipped.distinct(), reviewItems = review.distinct(),
@@ -193,10 +197,10 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
 
     internal fun workspaceDeclarations(project: Project, snapshot: BuildSnapshot): List<Pair<VersionDeclaration, JsonStringLiteral>> =
         NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).flatMap { file ->
-            if (!NpmWorkspaces.supportsManifest(project, file) || NpmWorkspaces.resolve(project, file).root.path != snapshot.context.root) return@flatMap emptyList()
+            if (!NpmWorkspaces.supportsManifest(project, file, manager) || NpmWorkspaces.resolve(project, file).root.path != snapshot.context.root) return@flatMap emptyList()
             val psi = PsiManager.getInstance(project).findFile(file) ?: return@flatMap emptyList()
             val values = NpmManifest.values(psi)
-            NpmManifest.declarations(psi).mapNotNull { declaration -> values[declaration.id]?.let { declaration to it } }
+            NpmManifest.declarations(psi, manager).mapNotNull { declaration -> values[declaration.id]?.let { declaration to it } }
         }
 
     /** npm members own their declarations: updating the root alone does not update a member. */
@@ -218,9 +222,9 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         val localLease = lease?.forDeclarations(prepared.affectedDeclarations)
         val current = { (localLease == null || localLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
             policy.isCurrent(project) }
-        if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(edit, null, current)
+        if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(edit, null, current, manager)
             .withInputValidation { prepareEditValidation(project, listOf(snapshot)) })
-        return arrayOf(UpdateNpmVersionFix(edit, "Update locally to ${prepared.replacement}", current)
+        return arrayOf(UpdateNpmVersionFix(edit, "Update locally to ${prepared.replacement}", current, manager)
             .withInputValidation { prepareEditValidation(project, listOf(snapshot)) },
             workspaceFix)
     }
@@ -231,7 +235,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         val latest = NpmVersion.parse(candidate.version) ?: return null
         val eligible = declarations.filter { (declaration, _) ->
             declaration.artifact == candidate.declaration.artifact && declaration.baseline.isNotEmpty() &&
-                NpmSelector.parse(declaration.artifact.name, declaration.selector)?.baseline?.let { it < latest } == true
+                NpmSelector.parse(declaration.artifact.name, declaration.selector, manager == NodePackageManager.YARN)?.baseline?.let { it < latest } == true
         }
         val policy = projectPolicy(project)
         val presentation = VersionPresentationPolicy(id, policy.ignoredText, policy)
@@ -240,7 +244,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
                 !presentation.includes(candidate.copy(declaration = declaration, kind = baseline.change(latest)))
             }) return null
         val prepared = eligible.map { (declaration, target) ->
-            val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector)!!
+            val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector, manager == NodePackageManager.YARN)!!
             NpmPreparedUpdate.prepare(project, target.containingFile.virtualFile, declaration, target,
                 selector.replace(candidate.version))
         }
@@ -250,13 +254,13 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         if (edits.mapNotNull { it.element?.containingFile?.virtualFile?.path }.distinct().size < 2) return null
         val contributingIds = snapshot.declarations.filter { declaration ->
             declaration.artifact == candidate.declaration.artifact && declaration.baseline.isNotEmpty() &&
-                NpmSelector.parse(declaration.artifact.name, declaration.selector)?.baseline?.let { it < latest } == true
+                NpmSelector.parse(declaration.artifact.name, declaration.selector, manager == NodePackageManager.YARN)?.baseline?.let { it < latest } == true
         }.map { it.id }.toSet() + candidate.declaration.id
         val workspaceLease = lease?.forDeclarations(contributingIds)
-        return UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits) {
+        return UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits, manager, {
             (workspaceLease == null || workspaceLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
                 policy.isCurrent(project)
-        }.withInputValidation { prepareEditValidation(project, listOf(snapshot)) }
+        }).withInputValidation { prepareEditValidation(project, listOf(snapshot)) }
     }
     private fun findFile(project: Project, path: String): VirtualFile? =
         NpmManifest.files(project, BuildSelection(UpdateScope.CURRENT_FILE, path)).singleOrNull()
@@ -266,7 +270,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         return snapshots.all { snapshot ->
             val file = findFile(project, snapshot.sourceFile) ?: return@all false
             val workspace = NpmWorkspaces.resolve(project, file)
-            NpmWorkspaces.supportsManifest(project, file) && workspace.root.path == snapshot.context.root &&
+            NpmWorkspaces.supportsManifest(project, file, manager) && workspace.root.path == snapshot.context.root &&
                 snapshot.fingerprint == fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace, external) }
         }
     }

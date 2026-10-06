@@ -32,18 +32,24 @@ internal data class NpmSelector(val packageName: String, val baseline: NpmVersio
     companion object {
         private val packageName = Regex("(?:@[A-Za-z0-9][A-Za-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*")
         fun validName(name: String) = packageName.matches(name)
-        fun parse(name: String, selector: String): NpmSelector? {
+        @JvmOverloads
+        fun parse(name: String, selector: String, allowRegistryProtocol: Boolean = false): NpmSelector? {
             if (!validName(name)) return null
             var target = name
             var version = selector
             var prefix = ""
             if (selector.startsWith("npm:")) {
                 val separator = selector.lastIndexOf('@')
-                if (separator <= 4) return null
-                target = selector.substring(4, separator)
-                if (!validName(target)) return null
-                prefix = selector.substring(0, separator + 1)
-                version = selector.substring(separator + 1)
+                if (separator <= 4) {
+                    if (!allowRegistryProtocol) return null
+                    prefix = "npm:"
+                    version = selector.substring(4)
+                } else {
+                    target = selector.substring(4, separator)
+                    if (!validName(target)) return null
+                    prefix = selector.substring(0, separator + 1)
+                    version = selector.substring(separator + 1)
+                }
             }
             if (version.startsWith('^') || version.startsWith('~')) {
                 prefix += version.first()

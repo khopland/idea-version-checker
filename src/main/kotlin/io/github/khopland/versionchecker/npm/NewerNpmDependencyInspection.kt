@@ -14,7 +14,7 @@ import io.github.khopland.versionchecker.core.*
 
 internal class NpmVersionEdit(value: JsonStringLiteral, override val latest: String,
                               override val location: String, override val npmTarget: NpmTarget? = null) : VersionEdit {
-    override val buildSystemId = "npm"
+    override val buildSystemId = npmTarget?.manager?.id ?: "npm"
     private val pointer = SmartPointerManager.createPointer(value)
     override val documentChange = DocumentVersionChange(value.containingFile, value.textRange,
         JsonElementGenerator(value.project).createStringLiteral(latest).text, value.containingFile.text)
@@ -29,7 +29,8 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
         val file = holder.file.virtualFile ?: return PsiElementVisitor.EMPTY_VISITOR
         if (!NpmManifest.supported(holder.project, file)) return PsiElementVisitor.EMPTY_VISITOR
-        val adapter = BuildSystemAdapter.find("npm") as? NpmBuildSystemAdapter ?: return PsiElementVisitor.EMPTY_VISITOR
+        val manager = NpmWorkspaces.manager(holder.project, file) ?: return PsiElementVisitor.EMPTY_VISITOR
+        val adapter = BuildSystemAdapter.find(manager.id) as? NpmBuildSystemAdapter ?: return PsiElementVisitor.EMPTY_VISITOR
         val snapshot = holder.project.service<VersionCheckService>().inspectionSnapshot(adapter, file) ?: return PsiElementVisitor.EMPTY_VISITOR
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR
         val options = holder.project.service<VersionCheckerSettings>().state
@@ -55,7 +56,7 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
                     val key = it.declaration.artifact to it.version
                     if (key !in workspaceFixes) workspaceFixes[key] = adapter.workspaceFix(holder.project, snapshot, it,
                         workspaceDeclarationsByArtifact[it.declaration.artifact].orEmpty(), report.lease)
-                    adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral, workspaceFixes[key], report.lease) + IgnorePublishedVersionFix(IgnoredVersion("npm", it.declaration.artifact, it.version))
+                    adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral, workspaceFixes[key], report.lease) + IgnorePublishedVersionFix(IgnoredVersion(manager.id, it.declaration.artifact, it.version))
                 }.orEmpty()
                 holder.registerProblem(element, message, highlight, *fixes)
             }
@@ -64,7 +65,8 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
 }
 
 class UpdateNpmVersionFix internal constructor(private val edit: NpmVersionEdit, private val actionName: String?,
-                                              private val isCurrent: () -> Boolean) : LocalQuickFix {
+                                              private val isCurrent: () -> Boolean,
+                                              private val manager: NodePackageManager = NodePackageManager.NPM) : LocalQuickFix {
     private var prepareValidation: EditInputCapture? = null
     internal fun withInputValidation(prepare: EditInputCapture) = apply { prepareValidation = prepare }
     constructor(value: JsonStringLiteral, latest: String, isCurrent: () -> Boolean = { true }) :
@@ -77,18 +79,19 @@ class UpdateNpmVersionFix internal constructor(private val edit: NpmVersionEdit,
         CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
             val interaction = CheckPerformance.current()
             if (!isCurrent() || !edit.isValid()) {
-                notifyStaleVersionFix(project, "npm", descriptor)
+                notifyStaleVersionFix(project, manager.id, descriptor)
                 return@locally
             }
             if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOfNotNull(edit.element))) return@locally
             val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
             if (plan.apply(project, interaction))
-                NpmUpdateGuidance.notify(project, plan.appliedChanges)
-            else notifyStaleVersionFix(project, "npm", descriptor)
+                NpmUpdateGuidance.notify(project, plan.appliedChanges, manager)
+            else notifyStaleVersionFix(project, manager.id, descriptor)
         }
 }
 
 internal class UpdateNpmWorkspaceVersionFix(name: String, version: String, private val edits: List<NpmVersionEdit>,
+                                          private val manager: NodePackageManager = NodePackageManager.NPM,
                                           private val isCurrent: () -> Boolean) : LocalQuickFix {
     private var prepareValidation: EditInputCapture? = null
     internal fun withInputValidation(prepare: EditInputCapture) = apply { prepareValidation = prepare }
@@ -101,13 +104,13 @@ internal class UpdateNpmWorkspaceVersionFix(name: String, version: String, priva
         CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
             val interaction = CheckPerformance.current()
             if (!isCurrent() || edits.any { !it.isValid() }) {
-                notifyStaleVersionFix(project, "npm", descriptor)
+                notifyStaleVersionFix(project, manager.id, descriptor)
                 return@locally
             }
             val elements = edits.mapNotNull { it.element }
             if (!FileModificationService.getInstance().preparePsiElementsForWrite(elements)) return@locally
-            val plan = BulkUpdatePlan(edits, emptyList(), isCurrent, followUp = listOf(NpmUpdateGuidance.message), prepareValidation = prepareValidation)
-            if (plan.apply(project, interaction)) notifyVersionUpdates(project, plan.followUp, changedFiles = plan.appliedChanges)
-            else notifyStaleVersionFix(project, "npm", descriptor)
+            val plan = BulkUpdatePlan(edits, emptyList(), isCurrent, followUp = listOf(NpmUpdateGuidance.message(manager)), prepareValidation = prepareValidation)
+            if (plan.apply(project, interaction)) notifyVersionUpdates(project, plan.followUp, buildSystems = setOf(manager.id), changedFiles = plan.appliedChanges)
+            else notifyStaleVersionFix(project, manager.id, descriptor)
         }
 }

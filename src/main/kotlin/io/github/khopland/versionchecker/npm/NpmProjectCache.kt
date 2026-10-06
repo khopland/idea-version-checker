@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicLong
 /** Share discovery and manifest hashing between inspections, scans and write-time validation. */
 @Service(Service.Level.PROJECT)
 internal class NpmProjectCache(private val project: Project) : Disposable {
+    private val ownershipFiles = NodePackageManager.markerFiles + "package.json"
     private val manifestChanges = AtomicLong()
     private val structureChanges = AtomicLong()
     private var structureGeneration: List<Long> = emptyList()
@@ -36,13 +37,13 @@ internal class NpmProjectCache(private val project: Project) : Disposable {
         // PSI's counter alone misses uncommitted document edits, which must invalidate fixes too.
         EditorFactory.getInstance().eventMulticaster.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
-                if (FileDocumentManager.getInstance().getFile(event.document)?.name == "package.json") manifestChanges.incrementAndGet()
+                if (FileDocumentManager.getInstance().getFile(event.document)?.name in ownershipFiles) manifestChanges.incrementAndGet()
             }
         }, this)
         // PSI edits can precede document synchronization. Only manifest PSI affects ownership.
         PsiManager.getInstance(project).addPsiTreeChangeListener(object : PsiTreeChangeAdapter() {
             private fun changed(event: PsiTreeChangeEvent) {
-                if (event.file?.virtualFile?.name == "package.json") manifestChanges.incrementAndGet()
+                if (event.file?.virtualFile?.name in ownershipFiles) manifestChanges.incrementAndGet()
             }
             override fun childAdded(event: PsiTreeChangeEvent) = changed(event)
             override fun childRemoved(event: PsiTreeChangeEvent) = changed(event)
@@ -54,7 +55,7 @@ internal class NpmProjectCache(private val project: Project) : Disposable {
         project.messageBus.connect(this).subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
             override fun after(events: List<VFileEvent>) {
                 if (events.any(::changesStructure)) structureChanges.incrementAndGet()
-                if (events.any { it.file?.name == "package.json" }) manifestChanges.incrementAndGet()
+                if (events.any { it.file?.name in ownershipFiles }) manifestChanges.incrementAndGet()
             }
         })
     }
@@ -85,11 +86,11 @@ internal class NpmProjectCache(private val project: Project) : Disposable {
     }
 
     private fun changesStructure(event: VFileEvent): Boolean = when (event) {
-        is VFileCreateEvent -> event.isDirectory || event.childName == "package.json"
-        is VFileCopyEvent -> event.file.isDirectory || event.newChildName == "package.json"
-        is VFileMoveEvent, is VFileDeleteEvent -> event.file?.let { it.isDirectory || it.name == "package.json" } == true
+        is VFileCreateEvent -> event.isDirectory || event.childName in ownershipFiles
+        is VFileCopyEvent -> event.file.isDirectory || event.newChildName in ownershipFiles
+        is VFileMoveEvent, is VFileDeleteEvent -> event.file?.let { it.isDirectory || it.name in ownershipFiles } == true
         is VFilePropertyChangeEvent -> event.file.isDirectory || event.propertyName == VirtualFile.PROP_NAME &&
-            (event.oldValue == "package.json" || event.newValue == "package.json")
+            (event.oldValue in ownershipFiles || event.newValue in ownershipFiles)
         else -> false
     }
 

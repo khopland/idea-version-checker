@@ -269,6 +269,7 @@ class NpmAdapterTest : BasePlatformTestCase() {
             assertNull(marker, adapter.snapshot(project, file.virtualFile))
         }
         val root = myFixture.addFileToProject("owners/package.json", """{"packageManager":"pnpm@10.0.0","workspaces":["packages/*"]}""")
+        myFixture.addFileToProject("owners/pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n")
         val member = myFixture.addFileToProject("owners/packages/member/package.json", """{"dependencies":{"alpha":"1.2.3"}}""")
         assertNull(adapter.snapshot(project, member.virtualFile))
         val independent = myFixture.addFileToProject("owners/independent/package.json", """{"dependencies":{"alpha":"1.2.3"}}""")
