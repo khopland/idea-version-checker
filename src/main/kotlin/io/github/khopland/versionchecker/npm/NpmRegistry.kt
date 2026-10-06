@@ -60,7 +60,7 @@ internal object NpmRegistry {
             suspendCancellableCoroutine<ProcessOutput> { continuation ->
                 val handler = OSProcessHandler(command(project, directory, parameters))
                 val result = ProcessOutput()
-                handler.addProcessListener(object : ProcessAdapter() {
+                handler.addProcessListener(object : ProcessListener {
                     override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
                         if (outputType == ProcessOutputTypes.STDOUT) result.appendStdout(event.text)
                     }
