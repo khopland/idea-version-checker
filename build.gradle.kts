@@ -17,6 +17,8 @@ dependencies {
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.idea.maven")
+        bundledPlugin("JavaScript")
+        bundledPlugin("com.intellij.modules.json")
     }
 }
 
@@ -25,7 +27,12 @@ kotlin {
 }
 
 tasks.test {
-    systemProperty("versionchecker.mavenIntegration", providers.gradleProperty("mavenIntegration").orElse("false").get())
+    val mavenIntegration = providers.gradleProperty("mavenIntegration").orElse("false").get()
+    systemProperty("versionchecker.mavenIntegration", mavenIntegration)
+    if (mavenIntegration != "true") exclude("**/MavenSettingsIntegrationTest*")
+    val npmIntegration = providers.gradleProperty("npmIntegration").orElse("false").get()
+    systemProperty("versionchecker.npmIntegration", npmIntegration)
+    if (npmIntegration != "true") exclude("**/NpmRegistryIntegrationTest*")
 }
 
 intellijPlatform {
@@ -37,6 +44,7 @@ intellijPlatform {
     pluginVerification {
         ides {
             create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdea, "2025.3.6.1")
+            create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdea, "2026.1.4")
         }
     }
 }

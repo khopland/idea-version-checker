@@ -1,0 +1,8 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <localInspection language="XML" shortName="NewerMavenDependencyVersion" displayName="Newer Maven dependency or plugin version available" groupName="Maven" enabledByDefault="true" level="WARNING" implementationClass="io.github.khopland.versionchecker.maven.NewerMavenDependencyInspection" />
+    </extensions>
+    <extensions defaultExtensionNs="io.github.khopland.version-checker">
+        <buildSystemAdapter implementation="io.github.khopland.versionchecker.maven.MavenBuildSystemAdapter" />
+    </extensions>
+</idea-plugin>
