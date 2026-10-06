@@ -162,6 +162,7 @@ The optional Gradle integration test runs IntelliJ's real Gradle tooling with th
 ```bash
 ./gradlew test -PgradleIntegration=true --tests '*GradleRepositoryIntegrationTest'
 ```
+
 ## Releasing
 
 See the [release pipeline guide](docs/releasing.md) for Marketplace credentials, version preparation, signing, prereleases, and recovery.

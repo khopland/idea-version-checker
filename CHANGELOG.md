@@ -1,10 +1,12 @@
 # Version Checker Changelog
 
-## Unreleased
+## [Unreleased]
 
 ### Added
 
 - Maven `<parent>` version updates for parents outside the workspace. Reactor and snapshot parents are left unchanged.
+- Initial Gradle support for linked Groovy/Kotlin build files and default local version catalogs, through IntelliJ’s Gradle tooling and project repository configuration.
+- Gradle inspections, version quick fixes, scoped bulk previews, shared-catalog conflict checks, and authenticated repository integration coverage.
 
 ### Fixed
 
@@ -15,14 +17,6 @@
 - npm project detection accepts object and array forms of `devEngines.packageManager`; mixed, empty or malformed manager declarations remain excluded.
 - npm quick fixes show the lockfile and installed-dependency synchronization reminder after a successful edit.
 - npm discovery and manifest fingerprints are cached between changes, bulk validation shares workspace fingerprints, and edits to independent npm projects no longer invalidate each other.
-- Maven checks no longer fail when the resolver cannot order an artifact's versions ("Comparison method violates its general contract"), for example when a locally installed `0-SNAPSHOT` meets branch-named snapshots. That artifact is resolved from the metadata Maven downloaded, and the remaining dependencies are still checked.
-
-- Initial Gradle support for linked Groovy/Kotlin build files and default local version catalogs, through IntelliJ’s Gradle tooling and project repository configuration.
-- Gradle inspections, version quick fixes, scoped bulk previews, shared-catalog conflict checks, and authenticated repository integration coverage.
-- Maven `<parent>` version updates for parents outside the workspace. Reactor and snapshot parents are left unchanged.
-
-### Fixed
-
 - Maven checks no longer fail when the resolver cannot order an artifact's versions ("Comparison method violates its general contract"), for example when a locally installed `0-SNAPSHOT` meets branch-named snapshots. That artifact is resolved from the metadata Maven downloaded, and the remaining dependencies are still checked.
 
 ## [1.0.0] - 2026-10-06
