@@ -1,6 +1,6 @@
 # Extending beyond Maven
 
-The current release implements Maven. Gradle and npm/pnpm/Bun support is feasible, but needs separate adapters for discovery, version comparison, repository configuration, and edits. The standard inspection approach, settings, update-mode selection, and preview flow can be reused.
+The current release implements Maven and npm. Gradle, pnpm and Bun support needs separate adapters for discovery, version comparison, repository configuration, and edits. The standard inspection approach, settings, update-mode selection, and preview flow can be reused.
 
 See [the shared build-system API proposal](build-system-api.md) for the concrete adapter boundary, current-code mapping, update/lockfile contracts and migration sequence.
 
@@ -20,7 +20,7 @@ Discover package roots and workspaces, and identify the package manager from `pa
 
 `npm outdated --json` and `pnpm outdated --format json` provide machine-readable checks; pnpm supports recursive workspace checks. Current, wanted/compatible, and latest versions have different meanings. For patch/minor selection, query the available version set and apply SemVer rules rather than treating a caret range as “minor only,” especially for versions below 1.0.
 
-Update both the version declaration and the package manager's lockfile through that package manager. Preserve range operators, aliases, workspace dependencies, and pnpm catalogs. Check dependencies, devDependencies, and optionalDependencies first; peerDependencies need a distinct compatibility policy.
+The npm adapter updates manifest declarations only, leaving lockfile synchronization and installation to IntelliJ or npm. Future pnpm support needs its own execution and configuration adapter. Preserve range operators, aliases, workspace dependencies, and pnpm catalogs. Check dependencies, devDependencies, and optionalDependencies first; peerDependencies need a distinct compatibility policy.
 
 Sources: [npm outdated](https://docs.npmjs.com/cli/v11/commands/npm-outdated/), [npm registry selection](https://docs.npmjs.com/using-npm/registry.html/), [npmrc](https://docs.npmjs.com/cli/v8/configuring-npm/npmrc/), [pnpm outdated](https://pnpm.io/cli/outdated), [pnpm update](https://pnpm.io/cli/update).
 
@@ -37,7 +37,7 @@ Sources: [Bun outdated](https://bun.sh/docs/pm/cli/outdated), [Bun update](https
 1. Keep Maven's checked behavior and test suite as the reference implementation.
 2. Separate dependency results and version-declaration editing from Maven XML classes; keep repository operations inside each tool's adapter.
 3. Add Gradle version catalogs and literal dependencies, including subprojects.
-4. Add npm/pnpm declarations and workspace checks with package-manager-controlled lockfile updates.
+4. Keep npm manifest and workspace checks covered by authenticated registry tests, then add pnpm configuration and declaration support.
 5. Add Bun using the same package metadata model, with its own configuration and lockfile operations.
 
 These adapters are an extension plan, not functionality included in this release.

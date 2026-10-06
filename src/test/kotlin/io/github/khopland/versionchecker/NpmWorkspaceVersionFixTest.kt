@@ -1,0 +1,169 @@
+package io.github.khopland.versionchecker
+
+import com.intellij.codeInspection.InspectionManager
+import com.intellij.codeInspection.LocalQuickFix
+import com.intellij.codeInspection.ProblemHighlightType
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.command.undo.UndoManager
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.TextEditor
+import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import io.github.khopland.versionchecker.core.UpdateCandidate
+import io.github.khopland.versionchecker.core.VersionChangeKind
+import io.github.khopland.versionchecker.npm.*
+
+class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
+    private val adapter = NpmBuildSystemAdapter()
+    private fun add(path: String, text: String) = myFixture.addFileToProject("workspace/$path", text)
+    private fun root() = add("package.json", """{
+        "packageManager":"npm@11.0.0",
+        "workspaces":["packages/*","!packages/excluded"],
+        "dependencies":{"alpha":"^1.2.3"},
+        "devDependencies":{"alias":"npm:alpha@~1.2.3"},
+        "overrides":{"alpha":"1.2.3"},"version":"1.2.3"
+    }""")
+    private fun child() = add("packages/app/package.json", """{
+        "dependencies":{"alpha":"1.2.3"},"optionalDependencies":{"alpha-alias":"npm:alpha@^1.2.3"},
+        "peerDependencies":{"alpha":"^1.2.3"},"scripts":{"test":"echo 1.2.3"}
+    }""")
+    private fun fixes(file: PsiFile): Array<LocalQuickFix> {
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val declaration = snapshot.declarations.first { it.id.location == "dependencies/alpha" }
+        return adapter.quickFixes(project, snapshot,
+            UpdateCandidate(declaration, "1.2.9", NpmSelector.parse("alpha", declaration.selector)!!.replace("1.2.9"), VersionChangeKind.PATCH),
+            NpmManifest.values(file)[declaration.id]!!)
+    }
+    private fun apply(file: PsiFile, fix: LocalQuickFix) {
+        val value = NpmManifest.values(file).entries.first { it.key.location == "dependencies/alpha" }.value
+        val descriptor = InspectionManager.getInstance(project)
+            .createProblemDescriptor(value, "update", fix, ProblemHighlightType.WARNING, false)
+        if (fix.startInWriteAction()) WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        else fix.applyFix(project, descriptor)
+    }
+    private fun selectors(file: PsiFile) = NpmManifest.values(file).mapKeys { it.key.location }.mapValues { it.value.value }
+
+    fun testLocalChoiceUpdatesOnlySelectedDeclaration() {
+        val root = root()
+        val child = child()
+        val fixes = fixes(child)
+        assertEquals(2, fixes.size)
+        assertEquals("Update locally to 1.2.9", fixes[0].name)
+        apply(child, fixes[0])
+        assertEquals("1.2.9", selectors(child)["dependencies/alpha"])
+        assertEquals("npm:alpha@^1.2.3", selectors(child)["optionalDependencies/alpha-alias"])
+        assertEquals("^1.2.3", selectors(root)["dependencies/alpha"])
+    }
+    fun testWorkspaceChoiceUpdatesRootMembersAndAliasesWithOriginalOperators() {
+        val root = root()
+        val child = child()
+        val lock = add("package-lock.json", "unchanged")
+        val fixes = fixes(child)
+        assertEquals("Update alpha across workspace to 1.2.9 (4 declarations)", fixes[1].name)
+        assertFalse(fixes[1].startInWriteAction())
+        apply(child, fixes[1])
+        assertEquals("^1.2.9", selectors(root)["dependencies/alpha"])
+        assertEquals("npm:alpha@~1.2.9", selectors(root)["devDependencies/alias"])
+        assertEquals("1.2.9", selectors(child)["dependencies/alpha"])
+        assertEquals("npm:alpha@^1.2.9", selectors(child)["optionalDependencies/alpha-alias"])
+        assertEquals("^1.2.3", selectors(child)["peerDependencies/alpha"])
+        assertTrue(root.text.contains("\"overrides\":{\"alpha\":\"1.2.3\"}"))
+        assertTrue(root.text.contains("\"version\":\"1.2.3\""))
+        assertTrue(child.text.contains("echo 1.2.3"))
+        assertEquals("unchanged", lock.text)
+        assertNull(root.virtualFile.parent.findChild("node_modules"))
+    }
+    fun testRootDeclarationAlsoOffersBothChoices() {
+        val root = root()
+        val child = child()
+        assertEquals(2, fixes(root).size)
+        apply(root, fixes(root)[0])
+        assertEquals("^1.2.9", selectors(root)["dependencies/alpha"])
+        assertEquals("1.2.3", selectors(child)["dependencies/alpha"])
+    }
+    fun testWorkspaceUpdateIsOneUndoableCommand() {
+        val root = root()
+        val child = child()
+        val editor = FileEditorManager.getInstance(project).openFile(child.virtualFile, true).filterIsInstance<TextEditor>().single()
+        apply(child, fixes(child)[1])
+        val undo = UndoManager.getInstance(project)
+        assertTrue(undo.isUndoAvailable(editor))
+        undo.undo(editor)
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        assertEquals("^1.2.3", selectors(root)["dependencies/alpha"])
+        assertEquals("npm:alpha@~1.2.3", selectors(root)["devDependencies/alias"])
+        assertEquals("1.2.3", selectors(child)["dependencies/alpha"])
+        assertEquals("npm:alpha@^1.2.3", selectors(child)["optionalDependencies/alpha-alias"])
+    }
+    fun testStandaloneAndSingleManifestKeepSingleFix() {
+        val root = root()
+        assertEquals(1, fixes(root).size)
+        val independent = add("independent/package.json", """{"dependencies":{"alpha":"1.2.3"}}""")
+        assertEquals(1, fixes(independent).size)
+        assertEquals("Update declared version to 1.2.9", fixes(independent).single().name)
+    }
+    fun testWorkspaceWithoutRootDependencyStillOffersMemberUpdates() {
+        add("package.json", """{"workspaces":{"packages":["packages/*"]}}""")
+        val child = child()
+        val other = add("packages/other/package.json", """{"devDependencies":{"alpha":"~1.2.3"}}""")
+        apply(child, fixes(child)[1])
+        assertEquals("~1.2.9", selectors(other)["devDependencies/alpha"])
+    }
+    fun testExcludedIndependentAndNestedWorkspaceDeclarationsRemainUnchanged() {
+        val root = root()
+        val child = child()
+        val untouched = listOf(
+            add("packages/excluded/package.json", """{"dependencies":{"alpha":"1.2.3"}}"""),
+            add("independent/package.json", """{"dependencies":{"alpha":"1.2.3"}}"""),
+            add("packages/nested/package.json", """{"workspaces":["nested/*"],"dependencies":{"alpha":"1.2.3"}}"""),
+            add("packages/nested/nested/app/package.json", """{"dependencies":{"alpha":"1.2.3"}}"""),
+            add("packages/pnpm/package.json", """{"packageManager":"pnpm@10.0.0","dependencies":{"alpha":"1.2.3"}}"""),
+            add("packages/bun/package.json", """{"devEngines":{"packageManager":{"name":"bun"}},"dependencies":{"alpha":"1.2.3"}}"""),
+            add("node_modules/library/package.json", """{"dependencies":{"alpha":"1.2.3"}}""")
+        )
+        val before = untouched.map { it.text }
+        apply(child, fixes(child)[1])
+        assertEquals(before, untouched.map { it.text })
+        assertEquals("^1.2.9", selectors(root)["dependencies/alpha"])
+    }
+    fun testNewerComplexLocalAndPeerDeclarationsRemainUnchanged() {
+        root()
+        val child = child()
+        val other = add("packages/other/package.json", """{
+            "dependencies":{"alpha":"^2.0.0"},"devDependencies":{"alpha":"latest"},
+            "optionalDependencies":{"alpha":"file:../external"},"peerDependencies":{"alpha":"1.2.3"}
+        }""")
+        val before = other.text
+        apply(child, fixes(child)[1])
+        assertEquals(before, other.text)
+    }
+    fun testChangedSiblingRejectsEntireWorkspaceFix() {
+        val root = root()
+        val child = child()
+        val fix = fixes(child)[1]
+        WriteCommandAction.runWriteCommandAction(project) { NpmVersionEdit(NpmManifest.values(root).values.first(), "^1.2.8", "test").apply() }
+        val before = root.text
+        apply(child, fix)
+        assertEquals(before, root.text)
+        assertEquals("1.2.3", selectors(child)["dependencies/alpha"])
+    }
+    fun testChangedSelectedDeclarationRejectsEntireWorkspaceFix() {
+        val root = root()
+        val child = child()
+        val fix = fixes(child)[1]
+        WriteCommandAction.runWriteCommandAction(project) { NpmVersionEdit(NpmManifest.values(child).values.first(), "1.2.8", "test").apply() }
+        apply(child, fix)
+        assertEquals("1.2.8", selectors(child)["dependencies/alpha"])
+        assertEquals("^1.2.3", selectors(root)["dependencies/alpha"])
+    }
+    fun testMembershipChangesRejectLocalAndWorkspaceFixes() {
+        val root = root()
+        val child = child()
+        val fixes = fixes(child)
+        add("packages/new/package.json", """{"name":"new","dependencies":{"alpha":"1.2.3"}}""")
+        fixes.forEach { apply(child, it) }
+        assertEquals("1.2.3", selectors(child)["dependencies/alpha"])
+        assertEquals("^1.2.3", selectors(root)["dependencies/alpha"])
+    }
+}

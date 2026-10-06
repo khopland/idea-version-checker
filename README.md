@@ -1,6 +1,6 @@
 # Version Checker
 
-An IntelliJ IDEA plugin that shows newer stable Maven dependency and build-plugin versions through **standard IDEA inspections in `pom.xml`**.
+An IntelliJ IDEA plugin that shows newer stable Maven dependency and build-plugin versions in `pom.xml` and npm dependency versions in `package.json` through **standard IDEA inspections**.
 
 For example, a dependency using `junit:junit:4.12` gets this inspection message:
 
@@ -8,9 +8,16 @@ For example, a dependency using `junit:junit:4.12` gets this inspection message:
 
 Use **Alt+Enter → Update version to 4.13.2** to update a literal version. For a simple `${junit.version}` reference declared in the same POM, the quick fix updates the property instead. A shared property change affects every dependency using it.
 
+For a dependency whose version is managed by a parent POM in this project, Alt+Enter offers two choices:
+
+- **Override version locally with 4.13.2:** add or replace `<version>` on this dependency in the current POM.
+- **Update parent version to 4.13.2 in …/pom.xml:** change the controlling version or property in the imported parent, including across multiple parent levels. Shared consumers inherit that change.
+
+The parent choice is available only when the controlling declaration can be identified in a non-ignored project POM. A local override remains available for externally managed versions with a known baseline. These choices belong to Version Checker's version inspection; IntelliJ's built-in vulnerability inspection has its own fixes.
+
 ## Install and use
 
-Requires IntelliJ IDEA **2025.3 or later** with its bundled Java and Maven plugins enabled. The build targets 2025.3.6.1.
+Requires IntelliJ IDEA **2025.3 or later**. Enable the bundled Java and Maven plugins for Maven projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2025.3.6.1.
 
 1. Build with `./gradlew buildPlugin` using Java 21 or later. Gradle uses a Java 21 toolchain.
 2. In IDEA, open **Settings → Plugins → gear → Install Plugin from Disk** and select `build/distributions/version-checker-1.0.0-SNAPSHOT.zip`.
@@ -39,7 +46,7 @@ If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) c
 
 ## Bulk updates and submodules
 
-Choose **Tools → Update Versions**, then **Current File** or **Whole Project**. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven is the currently implemented adapter. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
+Choose **Tools → Update Versions**, then **Current File** or **Whole Project**. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven and npm are implemented adapters; a mixed project gets one combined preview. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
 
 - **Patch only:** keep the current major and minor version numbers.
 - **Minor + patch:** keep the current major version number.
@@ -51,7 +58,7 @@ A preview lists each POM/property change before applying one undoable command. T
 
 Successful module checks with an empty or absent Maven report count as having no updates and do not abort the scan. Failures are logged to `idea.log`; a **Show details** notification action displays the cause without changing any versions.
 
-Submodules must be imported into IDEA's Maven project model. Maven ignores and offline mode are respected. Parent-managed properties can still be updated individually with Alt+Enter at their declaration; bulk updates take a conservative approach to properties inherited across modules.
+Submodules must be imported into IDEA's Maven project model. Maven ignores and offline mode are respected. Parent-managed dependency versions and properties can also be updated from the child with the parent quick fix; bulk updates take a conservative approach to properties inherited across modules.
 
 ## Maven repositories and settings.xml
 
@@ -65,19 +72,35 @@ The [plugin update goal](https://www.mojohaus.org/versions/versions-maven-plugin
 
 Results are cached for ten minutes and invalidated by POM saves, Maven model changes, settings changes in IDEA, or the refresh action. After changing `settings.xml` externally, reload the Maven project or use the refresh action. Checks inspect saved POM contents; version results only apply when the current version still matches.
 
-## First version scope
+## Maven scope
 
 - Maven dependencies and dependency management, including BOM version declarations, in imported POMs and active profiles.
 - Maven build plugins under `build/plugins` and `build/pluginManagement/plugins`, including active profiles. An omitted plugin group defaults to `org.apache.maven.plugins`.
 - Stable versions, including major upgrades, using Maven's version ordering. Common prerelease qualifiers and snapshots are excluded.
-- Literal versions and properties. Simple local properties have a quick fix; inherited, composite, and externally managed versions must be edited at their source.
+- Literal versions and properties. Simple local properties have a quick fix. Inherited dependencies offer a local override and, when the controlling declaration is in an imported project POM, a parent update. Composite expressions require manual review.
 - Each module is checked in its own Maven repository context. Reactor-only dependencies have no remote upgrade result unless the artifact is also published.
 
 Gradle, reporting plugins, build extensions, plugin-contained dependencies, transitive-only dependencies, snapshot dependencies, version ranges, and `LATEST`/`RELEASE` declarations are outside this release's scope. Plugins without an explicit or managed version are not pinned automatically; edit inherited versions at their source. Remote Maven environments such as WSL/SSH are not supported by the report-file transport in this version.
 
+## npm projects
+
+Configure a **local Node.js interpreter and npm** in IntelliJ's JavaScript runtime settings, then open a project containing `package.json`. Checks start when IDEA inspects the manifest. The inspection is under **Settings → Editor → Inspections → npm → Newer npm dependency version available**. The same **Tools → Check Versions** and **Tools → Update Versions** actions work for npm, including Current File and Whole Project.
+
+Registry checks execute only read-only `npm view` commands through IntelliJ's configured runtime. npm evaluates project/user `.npmrc`, environment settings, scoped registries and authentication. Workspace members query from their workspace root so they use its registry configuration. Projects declaring pnpm, Yarn or Bun through `packageManager`, `devEngines.packageManager`, or their manager files are excluded. An explicit npm `packageManager` takes precedence over leftover lockfiles. npm does not need to install dependencies to check versions.
+
+Automatic updates cover `dependencies`, `devDependencies` and `optionalDependencies`, including scoped packages and npm aliases. Exact versions and simple caret/tilde selectors retain their operator: `^1.2.3` becomes `^1.2.9`, and `npm:@scope/package@~1.2.3` retains the alias. Each update mode finds the highest published stable, non-deprecated version in its numeric branch, even if the registry's `latest` tag points to an older version. For `0.x` packages, minor mode can cross minor branches; it does not guarantee compatibility.
+
+When a dependency can be updated in multiple manifests within one npm workspace, **Alt+Enter** offers **Update locally** for the selected declaration and **Update across workspace** for its supported declarations in the root and member packages. The workspace option includes aliases of the same registry package and preserves each selector's operator and dependency section. It leaves newer versions, peer declarations and unsupported selectors for review, and excludes independent projects and nested workspaces. npm packages keep their own dependency declarations; changing only the root declaration does not update a member's version. Current File bulk updates still edit only the selected manifest.
+
+Comparisons use the **declared version or range floor**, not the installed or locked version. Registry deprecation notices refer to that baseline, and the project deprecation field accepts npm names such as `@scope/package = Use another package`. Explicitly retired packages require replacement review. Complex ranges, tags, Git/file selectors, local workspace dependencies and peer compatibility are listed as needing review. Peer declarations, overrides, scripts and the package's own version are not updated.
+
+The preview applies only `package.json` string edits in one undoable command, preserving declaration categories. Changes to manifests, workspace membership, npm configuration, package-manager selection, runtime selection or deprecation policy invalidate a prepared preview. Generated/vendor directories such as `node_modules`, `dist`, `build`, `vendor` and `.yarn` are excluded.
+
+**Lockfiles and installed dependencies are left to IntelliJ or npm.** After applying manifest edits, use IntelliJ's package-manager action or run npm yourself to synchronize them. The checker never installs packages or regenerates lockfiles.
+
 ## Other ecosystems
 
-The shared adapter model, coordinator, cache and edit bridge are implemented, with Maven as the first adapter. Gradle and npm/pnpm/Bun require their own discovery, repository and version/lockfile editing adapters. See [implementation notes](docs/adapter-implementation.md) and [the extension assessment](docs/ecosystem-support.md). Only Maven is implemented in this release.
+The shared adapter model, coordinator, cache and edit bridge support Maven and npm. Gradle, pnpm and Bun still require their own discovery, repository and editing adapters. See [implementation notes](docs/adapter-implementation.md) and [the extension assessment](docs/ecosystem-support.md).
 
 ## Development and verification
 
@@ -107,3 +130,11 @@ The optional integration tests start IDEA's real Maven server with both an authe
 ```bash
 ./gradlew test -PmavenIntegration=true --tests '*MavenSettingsIntegrationTest'
 ```
+
+The npm integration test uses IntelliJ's configured Node/npm with an authenticated local registry. It covers scoped registries, workspaces, aliases, all update modes, deprecation highlighting and manifest-only application, and verifies that no tarballs are downloaded, no `node_modules` directory is created and lockfiles remain unchanged:
+
+```bash
+./gradlew test -PnpmIntegration=true --tests '*NpmRegistryIntegrationTest'
+```
+
+A [small npm workspace demo](src/test/resources/npm-demo/README.md) is also available for hands-on inspection and preview checks.

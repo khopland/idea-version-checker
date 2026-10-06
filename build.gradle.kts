@@ -17,6 +17,8 @@ dependencies {
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.idea.maven")
+        bundledPlugin("JavaScript")
+        bundledPlugin("com.intellij.modules.json")
     }
 }
 
@@ -28,6 +30,9 @@ tasks.test {
     val mavenIntegration = providers.gradleProperty("mavenIntegration").orElse("false").get()
     systemProperty("versionchecker.mavenIntegration", mavenIntegration)
     if (mavenIntegration != "true") exclude("**/MavenSettingsIntegrationTest*")
+    val npmIntegration = providers.gradleProperty("npmIntegration").orElse("false").get()
+    systemProperty("versionchecker.npmIntegration", npmIntegration)
+    if (npmIntegration != "true") exclude("**/NpmRegistryIntegrationTest*")
 }
 
 intellijPlatform {

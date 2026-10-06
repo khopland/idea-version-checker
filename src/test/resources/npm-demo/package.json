@@ -1,0 +1,13 @@
+{
+  "name": "version-checker-npm-demo",
+  "private": true,
+  "packageManager": "npm@11.0.0",
+  "workspaces": ["packages/*"],
+  "dependencies": {
+    "lodash": "^4.17.19"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.2",
+    "lodash-alias": "npm:lodash@~4.17.19"
+  }
+}
