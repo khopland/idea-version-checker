@@ -1,4 +1,6 @@
-package io.github.khopland.versionchecker
+package io.github.khopland.versionchecker.maven
+
+import io.github.khopland.versionchecker.*
 
 import com.intellij.platform.util.progress.RawProgressReporter
 import kotlinx.coroutines.currentCoroutineContext

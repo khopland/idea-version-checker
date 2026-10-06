@@ -1,4 +1,6 @@
-package io.github.khopland.versionchecker
+package io.github.khopland.versionchecker.maven
+
+import io.github.khopland.versionchecker.*
 
 import com.intellij.openapi.util.JDOMUtil
 import org.jdom.Element
@@ -21,7 +23,7 @@ internal object MavenRelocation {
         fun value(name: String, fallback: String): String = relocation.getChildTextTrim(name, namespace)
             ?.takeIf { it.isNotEmpty() } ?: fallback
         val target = DependencyVersion(value("groupId", dependency.groupId), value("artifactId", dependency.artifactId),
-            value("version", dependency.version))
+            value("version", dependency.version), dependency.artifactKind)
         if (target == dependency) return null
         val message = relocation.getChildTextTrim("message", namespace)?.takeIf { it.isNotBlank() }
         return "${target.groupId}:${target.artifactId}:${target.version}" + message?.let { " ($it)" }.orEmpty()

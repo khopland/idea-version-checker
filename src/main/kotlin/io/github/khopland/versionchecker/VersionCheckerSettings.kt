@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.core.VersionChangeKind
+
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
@@ -17,15 +19,15 @@ import com.intellij.util.ui.FormBuilder
 import javax.swing.JComponent
 
 @Service(Service.Level.PROJECT)
-@State(name = "MavenVersionChecker", storages = [Storage(StoragePathMacros.WORKSPACE_FILE)])
+@State(name = "VersionChecker", storages = [Storage(StoragePathMacros.WORKSPACE_FILE)])
 class VersionCheckerSettings : PersistentStateComponent<VersionCheckerSettings.Options> {
     data class Options(
         var enabled: Boolean = true,
-        var patchSeverity: DependencySeverity = DependencySeverity.WARNING,
-        var minorSeverity: DependencySeverity = DependencySeverity.WARNING,
-        var majorSeverity: DependencySeverity = DependencySeverity.WARNING,
-        var otherSeverity: DependencySeverity = DependencySeverity.WARNING,
-        var deprecatedSeverity: DependencySeverity = DependencySeverity.ERROR,
+        var patchSeverity: VersionSeverity = VersionSeverity.WARNING,
+        var minorSeverity: VersionSeverity = VersionSeverity.WARNING,
+        var majorSeverity: VersionSeverity = VersionSeverity.WARNING,
+        var otherSeverity: VersionSeverity = VersionSeverity.WARNING,
+        var deprecatedSeverity: VersionSeverity = VersionSeverity.ERROR,
         var deprecatedDependencies: String = ""
     )
     private var options = Options()
@@ -35,27 +37,27 @@ class VersionCheckerSettings : PersistentStateComponent<VersionCheckerSettings.O
 
 class VersionCheckerConfigurable(private val project: Project) : Configurable {
     private var enabled: JBCheckBox? = null
-    private val severities = linkedMapOf<DependencyChangeKind, ComboBox<DependencySeverity>>()
+    private val severities = linkedMapOf<VersionChangeKind, ComboBox<VersionSeverity>>()
     private var deprecated: JBTextArea? = null
-    override fun getDisplayName(): String = "Maven Version Checker"
+    override fun getDisplayName(): String = "Version Checker"
     override fun createComponent(): JComponent {
-        enabled = JBCheckBox("Check for newer Maven dependency versions")
+        enabled = JBCheckBox("Check for newer dependency and build-plugin versions")
         val form = FormBuilder.createFormBuilder().addComponent(enabled!!)
         for ((kind, label) in linkedMapOf(
-            DependencyChangeKind.PATCH to "Patch updates:",
-            DependencyChangeKind.MINOR to "Minor updates:",
-            DependencyChangeKind.MAJOR to "Major updates:",
-            DependencyChangeKind.OTHER to "Other version changes:",
-            DependencyChangeKind.DEPRECATED to "Deprecated / relocated dependencies:"
+            VersionChangeKind.PATCH to "Patch updates:",
+            VersionChangeKind.MINOR to "Minor updates:",
+            VersionChangeKind.MAJOR to "Major updates:",
+            VersionChangeKind.OTHER to "Other version changes:",
+            VersionChangeKind.DEPRECATED to "Deprecated / relocated:"
         )) {
-            val selector = ComboBox(DependencySeverity.entries.toTypedArray())
+            val selector = ComboBox(VersionSeverity.entries.toTypedArray())
             severities[kind] = selector
             form.addLabeledComponent(label, selector)
         }
         deprecated = JBTextArea(5, 50)
-        form.addComponent(JBLabel("Explicitly deprecated dependencies (one groupId:artifactId = reason per line):"))
+        form.addComponent(JBLabel("Explicitly deprecated dependencies or plugins (one artifact identifier = reason per line):"))
             .addComponent(JBScrollPane(deprecated!!))
-            .addComponent(JBLabel("Maven relocation notices are detected from dependency POMs already downloaded by Maven."))
+            .addComponent(JBLabel("Use the build system’s artifact identifier, such as org.example:library or @scope/package."))
         return form.panel.also { reset() }
     }
     override fun isModified(): Boolean {
@@ -67,11 +69,11 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     override fun apply() {
         val state = project.service<VersionCheckerSettings>().state
         state.enabled = enabled!!.isSelected
-        state.patchSeverity = selected(DependencyChangeKind.PATCH)
-        state.minorSeverity = selected(DependencyChangeKind.MINOR)
-        state.majorSeverity = selected(DependencyChangeKind.MAJOR)
-        state.otherSeverity = selected(DependencyChangeKind.OTHER)
-        state.deprecatedSeverity = selected(DependencyChangeKind.DEPRECATED)
+        state.patchSeverity = selected(VersionChangeKind.PATCH)
+        state.minorSeverity = selected(VersionChangeKind.MINOR)
+        state.majorSeverity = selected(VersionChangeKind.MAJOR)
+        state.otherSeverity = selected(VersionChangeKind.OTHER)
+        state.deprecatedSeverity = selected(VersionChangeKind.DEPRECATED)
         state.deprecatedDependencies = deprecated!!.text
         refreshEditorProblems(project, this)
     }
@@ -81,6 +83,6 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         severities.forEach { (kind, selector) -> selector.selectedItem = kind.severity(state) }
         deprecated?.text = state.deprecatedDependencies
     }
-    private fun selected(kind: DependencyChangeKind) = severities.getValue(kind).selectedItem as DependencySeverity
+    private fun selected(kind: VersionChangeKind) = severities.getValue(kind).selectedItem as VersionSeverity
     override fun disposeUIResources() { enabled = null; deprecated = null; severities.clear() }
 }

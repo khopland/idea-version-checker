@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.maven.*
+
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.openapi.command.WriteCommandAction
