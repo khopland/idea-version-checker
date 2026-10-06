@@ -19,9 +19,9 @@ internal data class NpmVersion(val major: Long, val minor: Long, val patch: Long
         else -> VersionChangeKind.PATCH
     }
     companion object {
-        private val stable = Regex("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:\\+[0-9A-Za-z.-]+)?")
+        private val stable = Regex("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?")
         fun parse(text: String): NpmVersion? {
-            val parts = stable.matchEntire(text)?.groupValues?.drop(1)?.map { it.toLongOrNull() ?: return null } ?: return null
+            val parts = stable.matchEntire(text)?.groupValues?.drop(1)?.map { it.toLongOrNull()?.takeIf { value -> value <= 9_007_199_254_740_991L } ?: return null } ?: return null
             return NpmVersion(parts[0], parts[1], parts[2])
         }
     }

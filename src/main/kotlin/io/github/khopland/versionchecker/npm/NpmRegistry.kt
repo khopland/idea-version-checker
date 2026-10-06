@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import kotlin.coroutines.resume
 
-internal data class NpmPackageMetadata(val versions: List<String>, val latest: String?)
+internal data class NpmPackageMetadata(val versions: List<String>)
 
 /** Only npm view is executed. npm owns .npmrc, scopes, credentials, proxies and TLS settings. */
 internal object NpmRegistry {
@@ -26,20 +26,23 @@ internal object NpmRegistry {
             ?: error("Configure a local Node.js interpreter and npm in IntelliJ's JavaScript runtime settings")
         check(interpreter is NodeJsLocalInterpreter) { "npm checks currently require a local Node.js interpreter" }
         val npm = NpmManager.getInstance(project).getPackageOrThrow(interpreter)
-        check(npm.name == "npm") { "npm checks currently require npm as IntelliJ's configured package manager" }
+        check(NpmManager.getNpmPackagePresentableName(npm) == "npm") { "npm checks currently require npm as IntelliJ's configured package manager" }
         return NpmUtil.createNpmCommandLine(directory, interpreter, npm, NpmCommand.VIEW,
             parameters + listOf("--json", "--loglevel=error", "--update-notifier=false", "--fetch-retries=0", "--workspaces=false"))
             .withCharset(StandardCharsets.UTF_8)
     }
     suspend fun metadata(project: Project, directory: Path, name: String): NpmPackageMetadata {
         check(NpmSelector.validName(name)) { "Invalid npm package name" }
-        return parseMetadata(view(project, directory, listOf(name, "versions", "dist-tags")))
+        return parseMetadata(view(project, directory, listOf(name, "versions")))
     }
     fun parseMetadata(json: String): NpmPackageMetadata {
-        val root = JsonParser.parseString(json).asJsonObject
-        val versions = root.get("versions") ?: error("npm did not return package versions")
+        val root = JsonParser.parseString(json)
+        val versions = if (root.isJsonObject) root.asJsonObject.get("versions") else root
+        check(versions != null && (versions.isJsonArray || versions.isJsonPrimitive && versions.asJsonPrimitive.isString)) {
+            "npm did not return package versions"
+        }
         val values = if (versions.isJsonArray) versions.asJsonArray.map { it.asString } else listOf(versions.asString)
-        return NpmPackageMetadata(values, root.getAsJsonObject("dist-tags")?.get("latest")?.asString)
+        return NpmPackageMetadata(values)
     }
     suspend fun deprecated(project: Project, directory: Path, name: String, version: String): String? {
         val text = view(project, directory, listOf("$name@$version", "deprecated")).trim()
@@ -48,9 +51,8 @@ internal object NpmRegistry {
         return value.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString?.takeIf { it.isNotBlank() }
     }
     fun eligible(metadata: NpmPackageMetadata, baseline: NpmVersion, mode: UpdateMode): List<String> {
-        val latest = metadata.latest?.let(NpmVersion::parse)
         return metadata.versions.mapNotNull { text -> NpmVersion.parse(text)?.let { text to it } }
-            .filter { (_, version) -> baseline.allows(version, mode) && (latest == null || version <= latest) }
+            .filter { (_, version) -> baseline.allows(version, mode) }
             .sortedByDescending { it.second }.map { it.first }
     }
     private suspend fun view(project: Project, directory: Path, parameters: List<String>): String = withContext(Dispatchers.IO) {

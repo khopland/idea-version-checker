@@ -57,7 +57,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         deprecated = JBTextArea(5, 50)
         form.addComponent(JBLabel("Explicitly deprecated dependencies or plugins (one artifact identifier = reason per line):"))
             .addComponent(JBScrollPane(deprecated!!))
-            .addComponent(JBLabel("Use the build system’s artifact identifier, such as org.example:library."))
+            .addComponent(JBLabel("Use the build system’s artifact identifier, such as org.example:library or @scope/package."))
         return form.panel.also { reset() }
     }
     override fun isModified(): Boolean {

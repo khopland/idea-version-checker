@@ -5,7 +5,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
@@ -35,15 +34,17 @@ class NpmAdapterTest : BasePlatformTestCase() {
         val lock = myFixture.addFileToProject("npm/package-lock.json", "unchanged lockfile")
         val snapshot = adapter.snapshot(project, file.virtualFile)!!
         assertEquals(4, snapshot.declarations.size)
+        assertTrue(snapshot.declarations.single { it.id.location.startsWith("peerDependencies/") }.baseline.isEmpty())
         val prepared = plan(mapOf(snapshot to report(snapshot)))
-        assertEquals(4, prepared.changes.size)
+        assertEquals(3, prepared.changes.size)
+        assertTrue(prepared.skipped.single().contains("peer compatibility"))
         assertTrue(prepared.apply(project))
         val root = (file as JsonFile).topLevelValue as JsonObject
         assertEquals("1.2.3", (root.findProperty("version")!!.value as JsonStringLiteral).value)
         assertEquals("npm:@scope/pkg@^1.2.9", ((root.findProperty("optionalDependencies")!!.value as JsonObject).propertyList.single().value as JsonStringLiteral).value)
         assertEquals("1.2.3", ((root.findProperty("overrides")!!.value as JsonObject).propertyList.single().value as JsonStringLiteral).value)
         assertEquals("unchanged lockfile", lock.text)
-        assertEquals(setOf("^1.2.9", "~1.2.9", "npm:@scope/pkg@^1.2.9", "1.2.9"), NpmManifest.values(file).values.map { it.value }.toSet())
+        assertEquals(setOf("^1.2.9", "~1.2.9", "npm:@scope/pkg@^1.2.9", "1.2.3"), NpmManifest.values(file).values.map { it.value }.toSet())
     }
     fun testWorkspaceReferencesAndComplexRangesRequireReview() {
         myFixture.addFileToProject("workspace/package.json", """{"private":true,"workspaces":["packages/*"]}""")
@@ -85,6 +86,10 @@ class NpmAdapterTest : BasePlatformTestCase() {
         assertFalse(adapter.supports(project, BuildSelection(UpdateScope.CURRENT_FILE)))
         assertFalse(adapter.supports(project, BuildSelection(UpdateScope.CURRENT_FILE, "unknown")))
         assertNull(adapter.snapshot(project, ignored.virtualFile))
+        for (directory in listOf("dist", "build", "vendor", "coverage", ".next", ".yarn")) {
+            val generated = myFixture.addFileToProject("selection/$directory/package.json", "{}")
+            assertNull(adapter.snapshot(project, generated.virtualFile))
+        }
     }
     fun testOtherPackageManagersAndMalformedOrDuplicateDeclarationsAreNotEdited() {
         val pnpm = myFixture.addFileToProject("pnpm/package.json", """{"packageManager":"pnpm@10.0.0","dependencies":{"a":"1.2.3"}}""")
@@ -93,6 +98,44 @@ class NpmAdapterTest : BasePlatformTestCase() {
         assertTrue(adapter.snapshot(project, duplicate.virtualFile)!!.declarations.isEmpty())
         val malformed = myFixture.addFileToProject("invalid/package.json", "{ invalid }")
         assertNull(adapter.snapshot(project, malformed.virtualFile))
+    }
+    fun testPackageManagerMarkersAndWorkspaceOwnership() {
+        for (marker in listOf("pnpm-lock.yaml", "pnpm-workspace.yaml", "yarn.lock", "bun.lock", "bun.lockb")) {
+            val file = myFixture.addFileToProject("managers/$marker/package.json", """{"dependencies":{"alpha":"1.2.3"}}""")
+            myFixture.addFileToProject("managers/$marker/$marker", "")
+            assertNull(marker, adapter.snapshot(project, file.virtualFile))
+        }
+        val root = myFixture.addFileToProject("owners/package.json", """{"packageManager":"pnpm@10.0.0","workspaces":["packages/*"]}""")
+        val member = myFixture.addFileToProject("owners/packages/member/package.json", """{"dependencies":{"alpha":"1.2.3"}}""")
+        assertNull(adapter.snapshot(project, member.virtualFile))
+        val independent = myFixture.addFileToProject("owners/independent/package.json", """{"dependencies":{"alpha":"1.2.3"}}""")
+        assertEquals(independent.virtualFile.parent.path, adapter.snapshot(project, independent.virtualFile)!!.context.root)
+        val explicitNpm = myFixture.addFileToProject("explicit/package.json", """{"packageManager":"npm@11.0.0","dependencies":{"alpha":"1.2.3"}}""")
+        myFixture.addFileToProject("explicit/yarn.lock", "old lockfile")
+        assertNotNull(adapter.snapshot(project, explicitNpm.virtualFile))
+        val engine = myFixture.addFileToProject("engine/package.json", """{"devEngines":{"packageManager":{"name":"bun"}},"dependencies":{"alpha":"1.2.3"}}""")
+        assertNull(adapter.snapshot(project, engine.virtualFile))
+        assertNull(adapter.snapshot(project, root.virtualFile))
+    }
+    fun testOnlyWorkspaceMembersShareRegistryContextAndLocalNames() {
+        val root = myFixture.addFileToProject("members/package.json", """{"workspaces":["./packages/*","!packages/excluded"]}""")
+        myFixture.addFileToProject("members/packages/library/package.json", """{"name":"@local/library","version":"1.0.0"}""")
+        val member = myFixture.addFileToProject("members/packages/app/package.json", """{"dependencies":{"@local/library":"^1.2.3"}}""")
+        val excluded = myFixture.addFileToProject("members/packages/excluded/package.json", """{"dependencies":{"@local/library":"^1.2.3"}}""")
+        val snapshot = adapter.snapshot(project, member.virtualFile)!!
+        assertEquals(root.virtualFile.parent.path, snapshot.context.root)
+        assertTrue(snapshot.declarations.single().baseline.isEmpty())
+        val independent = adapter.snapshot(project, excluded.virtualFile)!!
+        assertEquals(excluded.virtualFile.parent.path, independent.context.root)
+        assertEquals("1.2.3", independent.declarations.single().baseline)
+    }
+    fun testAddingAnotherPackageManagerInvalidatesPreparedUpdates() {
+        val file = myFixture.addFileToProject("manager-change/package.json", """{"dependencies":{"alpha":"^1.2.3"}}""")
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val prepared = plan(mapOf(snapshot to report(snapshot)))
+        myFixture.addFileToProject("manager-change/pnpm-lock.yaml", "lockfileVersion: '9.0'")
+        assertFalse(prepared.apply(project))
+        assertEquals("^1.2.3", NpmManifest.values(file).values.single().value)
     }
     fun testQuickFixPreservesRangeAndRejectsStaleSelectors() {
         val file = myFixture.addFileToProject("fix/package.json", """{"dependencies":{"alpha":"^1.2.3"}}""")

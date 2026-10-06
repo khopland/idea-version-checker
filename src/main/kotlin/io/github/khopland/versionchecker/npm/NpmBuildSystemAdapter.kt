@@ -27,37 +27,45 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     override fun supports(project: Project, selection: BuildSelection) =
         NpmManifest.files(project, selection).any { validManifest(project, it) }
 
+    private val otherManagerFiles = listOf("pnpm-lock.yaml", "pnpm-workspace.yaml", "yarn.lock", "bun.lock", "bun.lockb")
+
     private fun validManifest(project: Project, file: VirtualFile): Boolean {
         val psi = PsiManager.getInstance(project).findFile(file) ?: return false
-        if (NpmManifest.root(psi) == null) return false
-        var directory: VirtualFile? = file.parent
-        while (directory != null) {
-            val ancestor = directory.findChild("package.json")?.let { PsiManager.getInstance(project).findFile(it) }
-            val manager = ancestor?.let(NpmManifest::root)?.findProperty("packageManager")?.value as? JsonStringLiteral
-            if (manager != null) return manager.value.startsWith("npm@")
-            directory = directory.parent
+        val manifest = NpmManifest.root(psi) ?: return false
+        val workspaceRoot = workspace(project, file).root
+        val rootManifest = workspaceRoot.findChild("package.json")?.let { PsiManager.getInstance(project).findFile(it) }?.let(NpmManifest::root)
+        for (root in listOfNotNull(rootManifest, manifest).distinct()) {
+            val manager = root.findProperty("packageManager")?.value
+            if (manager != null) return manager is JsonStringLiteral && manager.value.startsWith("npm@")
+            val engines = root.findProperty("devEngines")?.value as? JsonObject
+            val engineManager = engines?.findProperty("packageManager")?.value
+            if (engineManager != null) {
+                val engineName = (engineManager as? JsonObject)?.findProperty("name")?.value as? JsonStringLiteral
+                return engineName?.value == "npm"
+            }
         }
-        return true
+        return otherManagerFiles.none { workspaceRoot.findChild(it) != null || file.parent.findChild(it) != null }
     }
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
         if (!NpmManifest.supported(file) || !validManifest(project, file)) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
-        val localNames = workspaceNames(project, file)
+        val workspace = workspace(project, file)
+        val localNames = workspace.names
         val declarations = NpmManifest.declarations(psi).map { declaration ->
             if (declaration.artifact.name in localNames) declaration.copy(baseline = "") else declaration
         }
-        return BuildSnapshot(BuildContextId(id, file.parent.path, file.path), file.path,
+        return BuildSnapshot(BuildContextId(id, workspace.root.path, file.path), file.path,
             fingerprint(project, file), declarations)
     }
     override fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean {
         val file = findFile(project, snapshot.sourceFile) ?: return false
-        return validManifest(project, file) && snapshot.fingerprint == fingerprint(project, file)
+        return validManifest(project, file) && workspace(project, file).root.path == snapshot.context.root && snapshot.fingerprint == fingerprint(project, file)
     }
     override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = readAction {
         NpmManifest.files(project, selection).mapNotNull { snapshot(project, it) }
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
-        val directory = Path.of(snapshot.sourceFile).parent
+        val directory = Path.of(snapshot.context.root)
         val candidates = mutableListOf<UpdateCandidate>()
         val notices = mutableListOf<UpdateNotice>()
         val metadata = mutableMapOf<String, NpmPackageMetadata>()
@@ -99,10 +107,7 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
             val psi = PsiManager.getInstance(project).findFile(file) ?: error("package.json is no longer valid")
             val values = NpmManifest.values(psi)
             for (declaration in snapshot.declarations.filter { it.baseline.isEmpty() }) {
-                val parsed = NpmSelector.parse(declaration.artifact.name, declaration.selector)
-                skipped += "${declaration.id.file}: ${declaration.id.location}: " +
-                    if (parsed != null || declaration.selector.startsWith("workspace:")) "local workspace dependency; managed in the project"
-                    else "selector '${declaration.selector}' needs manual review (supported: exact, ^ or ~ versions and npm aliases)"
+                skipped += "${declaration.id.file}: ${declaration.id.location}: ${NpmManifest.reviewReason(declaration)}"
             }
             for (candidate in report.candidates) {
                 val value = values[candidate.declaration.id] ?: error("npm declaration no longer exists")
@@ -125,16 +130,18 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         files[file.path] = virtualDigest(file)
         var ancestor: Path? = Path.of(file.path).parent
         while (ancestor != null) {
-            for (name in listOf(".npmrc", "package.json")) {
+            for (name in listOf(".npmrc", "package.json") + otherManagerFiles) {
                 val path = ancestor.resolve(name)
-                files["disk-config:$path"] = diskDigest(path)
+                files["disk-config:$path"] = if (name in otherManagerFiles) Files.exists(path).toString() else diskDigest(path)
             }
             ancestor = ancestor.parent
         }
         var virtualAncestor: VirtualFile? = file.parent
         while (virtualAncestor != null) {
-            for (name in listOf(".npmrc", "package.json")) {
-                files["virtual-config:${virtualAncestor.path}/$name"] = virtualAncestor.findChild(name)?.let(::virtualDigest) ?: "missing"
+            for (name in listOf(".npmrc", "package.json") + otherManagerFiles) {
+                val config = virtualAncestor.findChild(name)
+                files["virtual-config:${virtualAncestor.path}/$name"] =
+                    if (name in otherManagerFiles) (config != null).toString() else config?.let(::virtualDigest) ?: "missing"
             }
             virtualAncestor = virtualAncestor.parent
         }
@@ -159,32 +166,35 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         digest((FileDocumentManager.getInstance().getCachedDocument(file)?.text?.toByteArray() ?: file.contentsToByteArray()))
     private fun digest(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
-    private fun workspaceNames(project: Project, file: VirtualFile): Set<String> {
-        val names = mutableSetOf<String>()
+    private data class Workspace(val root: VirtualFile, val names: Set<String>)
+
+    /** Only declared members share a workspace context; nested independent projects stay separate. */
+    private fun workspace(project: Project, file: VirtualFile): Workspace {
         val manifests = NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT))
         var directory: VirtualFile? = file.parent
         while (directory != null) {
-            val owner = directory.findChild("package.json")?.let { PsiManager.getInstance(project).findFile(it) }
-            val root = owner?.let(NpmManifest::root)
-            val workspaceValue = root?.findProperty("workspaces")?.value
+            val workspaceDirectory = directory
+            val owner = workspaceDirectory.findChild("package.json")?.let { PsiManager.getInstance(project).findFile(it) }
+            val workspaceValue = owner?.let(NpmManifest::root)?.findProperty("workspaces")?.value
             val workspaces = (workspaceValue as? JsonArray) ?: ((workspaceValue as? JsonObject)?.findProperty("packages")?.value as? JsonArray)
             val patterns = workspaces?.valueList?.mapNotNull { (it as? JsonStringLiteral)?.value }.orEmpty()
-            if (patterns.isNotEmpty()) {
-                fun matches(pattern: String, path: String) = runCatching {
-                    FileSystems.getDefault().getPathMatcher("glob:${pattern.trimEnd('/')}").matches(Path.of(path))
-                }.getOrDefault(false)
-                for (manifest in manifests) {
-                    val relative = VfsUtilCore.getRelativePath(manifest.parent, directory) ?: continue
-                    if (patterns.filterNot { it.startsWith('!') }.any { matches(it, relative) } &&
-                        patterns.filter { it.startsWith('!') }.none { matches(it.drop(1), relative) }) {
-                        val psi = PsiManager.getInstance(project).findFile(manifest)
-                        val name = psi?.let(NpmManifest::root)?.findProperty("name")?.value as? JsonStringLiteral
-                        name?.value?.let(names::add)
-                    }
-                }
+            fun matches(pattern: String, path: String) = runCatching {
+                FileSystems.getDefault().getPathMatcher("glob:${pattern.removePrefix("./").trimEnd('/')}").matches(Path.of(path))
+            }.getOrDefault(false)
+            fun member(manifest: VirtualFile): Boolean {
+                val relative = VfsUtilCore.getRelativePath(manifest.parent, workspaceDirectory) ?: return false
+                return patterns.filterNot { it.startsWith('!') }.any { matches(it, relative) } &&
+                    patterns.filter { it.startsWith('!') }.none { matches(it.drop(1), relative) }
+            }
+            if (patterns.isNotEmpty() && (file.parent == directory || member(file))) {
+                val names = manifests.filter(::member).mapNotNull { manifest ->
+                    val psi = PsiManager.getInstance(project).findFile(manifest)
+                    (psi?.let(NpmManifest::root)?.findProperty("name")?.value as? JsonStringLiteral)?.value
+                }.toSet()
+                return Workspace(workspaceDirectory, names)
             }
             directory = directory.parent
         }
-        return names
+        return Workspace(file.parent, emptySet())
     }
 }

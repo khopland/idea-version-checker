@@ -13,7 +13,7 @@ import io.github.khopland.versionchecker.core.*
 
 internal object NpmManifest {
     val sections = setOf("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
-    private val excluded = setOf("node_modules", "bower_components", ".git", ".idea", ".npm")
+    private val excluded = setOf("node_modules", "bower_components", ".git", ".idea", ".npm", ".yarn", ".pnpm-store", "vendor", "dist", "build", "coverage", ".next", ".nuxt")
     fun supported(file: VirtualFile): Boolean {
         if (file.isDirectory || file.name != "package.json") return false
         var parent = file.parent
@@ -51,9 +51,21 @@ internal object NpmManifest {
             }
         }
     }
+    fun reviewReason(declaration: VersionDeclaration): String? {
+        if (declaration.id.location.startsWith("peerDependencies/")) return "peer compatibility requires manual review"
+        if (declaration.baseline.isNotEmpty()) return null
+        return when {
+            NpmSelector.parse(declaration.artifact.name, declaration.selector) != null || declaration.selector.startsWith("workspace:") ->
+                "local workspace dependency; managed in the project"
+            declaration.selector.startsWith("file:") || declaration.selector.startsWith("link:") ->
+                "local path dependency; managed in the project"
+            else -> "selector '${declaration.selector}' needs manual review (supported: exact, ^ or ~ versions and npm aliases)"
+        }
+    }
+
     fun declarations(file: PsiFile): List<VersionDeclaration> = values(file).map { (id, value) ->
         val name = (value.parent as JsonProperty).name
         val selector = NpmSelector.parse(name, value.value)
-        VersionDeclaration(id, ArtifactId("npm", selector?.packageName ?: name), value.value, selector?.baseline?.toString().orEmpty())
+        VersionDeclaration(id, ArtifactId("npm", selector?.packageName ?: name), value.value, selector?.baseline?.toString()?.takeUnless { id.location.startsWith("peerDependencies/") }.orEmpty())
     }
 }

@@ -26,11 +26,14 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.sun.net.httpserver.HttpServer
 import io.github.khopland.versionchecker.core.*
 import io.github.khopland.versionchecker.npm.*
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.util.concurrent.Callable
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Opt-in: real IntelliJ-selected Node/npm, with an authenticated local registry and no installs. */
 class NpmRegistryIntegrationTest : BasePlatformTestCase() {
@@ -38,9 +41,13 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
         if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
         val node = PathEnvironmentVariableUtil.findInPath("node")!!.toPath().toRealPath()
         val npm = PathEnvironmentVariableUtil.findInPath("npm")!!.toPath().toRealPath()
-        val directory = Files.createTempDirectory("version-checker-npm-integration-")
-        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString(), directory.toRealPath().toString(), node.parent.toString(), npm.parent.toString())
+        val directory = Files.createTempDirectory("version-checker-npm-integration-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString(), directory.toRealPath().toString(), node.parent.toString(), npm.parent.parent.toString())
         val requests = CopyOnWriteArrayList<String>()
+        val rejectAccess = AtomicBoolean()
+        val blockResponse = AtomicBoolean()
+        val queryStarted = CountDownLatch(1)
+        val releaseResponse = CountDownLatch(1)
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val versions = listOf("1.2.3", "1.2.5", "1.2.8", "1.2.9", "1.9.0", "2.0.0", "3.0.0-beta.1", "4.0.0")
         val metadata = JsonObject().apply {
@@ -58,7 +65,11 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
         server.createContext("/") { exchange ->
             try {
                 requests += exchange.requestURI.path
-                if (exchange.requestHeaders.getFirst("Authorization") != "Bearer fixture-token") {
+                if (blockResponse.get()) {
+                    queryStarted.countDown()
+                    releaseResponse.await(15, TimeUnit.SECONDS)
+                }
+                if (rejectAccess.get() || exchange.requestHeaders.getFirst("Authorization") != "Bearer fixture-token") {
                     exchange.sendResponseHeaders(401, -1)
                 } else if (exchange.requestURI.path == "/@fixture/alpha") {
                     exchange.responseHeaders.add("Content-Type", "application/json")
@@ -75,7 +86,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
         var contentRootAdded = false
         try {
             interpreterManager.setInterpreterRef(NodeJsInterpreterRef.create(NodeJsLocalInterpreter(node.toString())))
-            npmManager.setPackageRef(NodePackageRef.create(NpmNodePackage(npm.toString())))
+            npmManager.setPackageRef(NodePackageRef.create(NpmNodePackage(npm.parent.parent.toString())))
             project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
             Files.writeString(directory.resolve("package.json"), """{
               "name":"integration-demo", "private":true, "packageManager":"npm@10.9.8", "workspaces":["packages/*"],
@@ -93,13 +104,22 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             val lockText = """{"lockfileVersion":3,"packages":{}}"""
             Files.writeString(lock, lockText)
             val virtualRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
-            ModuleRootModificationUtil.addContentRoot(myFixture.module, virtualRoot.url)
+            com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(false, true, true, virtualRoot)
+            ModuleRootModificationUtil.addContentRoot(myFixture.module, directory.toString())
             contentRootAdded = true
             IndexingTestUtil.waitUntilIndexesAreReady(project)
             val rootFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory.resolve("package.json"))!!
             val childFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(workspace.resolve("package.json"))!!
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
             val adapter = BuildSystemAdapter.find("npm")!!
-            for ((mode, expected) in listOf(UpdateMode.PATCH to "1.2.8", UpdateMode.MINOR to "1.9.0", UpdateMode.MAJOR to "2.0.0")) {
+            assertFalse("Indexing is still running", com.intellij.openapi.project.DumbService.isDumb(project))
+            assertTrue("Manifest is outside project content", com.intellij.openapi.roots.ProjectFileIndex.getInstance(project).isInContent(rootFile))
+            val indexed = com.intellij.psi.search.FilenameIndex.getVirtualFilesByName("package.json", com.intellij.psi.search.GlobalSearchScope.allScope(project))
+            assertEquals("Indexed manifests: ${indexed.map { it.path }}; root: ${rootFile.path}", 2,
+                NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).size)
+            assertNotNull(adapter.snapshot(project, rootFile))
+            assertEquals(directory.toString(), adapter.snapshot(project, childFile)!!.context.root)
+            for ((mode, expected) in listOf(UpdateMode.PATCH to "1.2.8", UpdateMode.MINOR to "1.9.0", UpdateMode.MAJOR to "4.0.0")) {
                 for (scope in UpdateScope.entries) {
                     val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                         runBlocking { project.service<BulkUpdateService>().createPlan(mode, scope, rootFile) }
@@ -149,6 +169,36 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             service.updates(adapter, updated)
             PlatformTestUtil.waitWithEventsDispatching("npm updated diagnostics", { service.cached(updated) != null }, 120_000)
             assertTrue(problems().all { it.highlightType == ProblemHighlightType.WARNING && "declared range" in it.descriptionTemplate })
+            // Registry failures must propagate, without publishing an empty successful plan or touching declarations.
+            val beforeFailure = Files.readString(directory.resolve("package.json"))
+            rejectAccess.set(true)
+            val denied = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { runCatching { service.checkNow(adapter, updated, UpdateMode.PATCH) }.exceptionOrNull() }
+            })
+            val failure = PlatformTestUtil.waitForFuture(denied, 30_000)
+            assertTrue(failure is java.io.IOException)
+            assertTrue(failure!!.message.orEmpty().contains("npm view failed"))
+            assertFalse(failure.message.orEmpty().contains("fixture-token"))
+            assertEquals(beforeFailure, Files.readString(directory.resolve("package.json")))
+            rejectAccess.set(false)
+            // Cancel after npm has started a real registry request, while the server withholds its response.
+            blockResponse.set(true)
+            val cancelled = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking {
+                    withTimeout(15_000) {
+                        val query = async { NpmRegistry.metadata(project, directory, "@fixture/alpha") }
+                        try {
+                            check(withContext(Dispatchers.IO) { queryStarted.await(10, TimeUnit.SECONDS) })
+                            query.cancelAndJoin()
+                            query.isCancelled
+                        } finally { query.cancel(); releaseResponse.countDown() }
+                    }
+                }
+            })
+            assertTrue(PlatformTestUtil.waitForFuture(cancelled, 30_000))
+            assertEquals(beforeFailure, Files.readString(directory.resolve("package.json")))
+            assertEquals(lockText, Files.readString(lock))
+            assertFalse(Files.exists(directory.resolve("node_modules")))
             assertEquals("1.2.8", ((PsiManager.getInstance(project).findFile(childFile) as JsonFile).topLevelValue as PsiJsonObject)
                 .findProperty("dependencies")!!.value.let { ((it as PsiJsonObject).propertyList.single().value as JsonStringLiteral).value })
         } finally {
@@ -157,6 +207,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             }
             interpreterManager.setInterpreterRef(previousInterpreter)
             npmManager.setPackageRef(previousNpm)
+            releaseResponse.countDown()
             server.stop(0)
             directory.toFile().deleteRecursively()
         }
