@@ -19,8 +19,9 @@
 
 - Initial Gradle support for linked Groovy/Kotlin build files and default local version catalogs, through IntelliJ’s Gradle tooling and project repository configuration.
 - Gradle inspections, version quick fixes, scoped bulk previews, shared-catalog conflict checks, and authenticated repository integration coverage.
+- Maven `<parent>` version updates for parents outside the workspace. Reactor and snapshot parents are left unchanged.
 
-## 1.0.0 - 2026-10-06
+## [1.0.0] - 2026-10-06
 
 ### Added
 
