@@ -26,7 +26,7 @@ internal data class UpdateCandidate(
     val declaration: VersionDeclaration, val version: String,
     val replacementSelector: String = version, val kind: VersionChangeKind = VersionChangeKind.OTHER
 )
-internal enum class NoticeKind { RELOCATED, DEPRECATED }
+internal enum class NoticeKind { RELOCATED, DEPRECATED, MANUAL_REVIEW }
 internal data class UpdateNotice(val declaration: VersionDeclaration, val kind: NoticeKind, val message: String)
 
 /** A failed check is distinct from a successful check with no available updates. */

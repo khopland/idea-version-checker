@@ -1,0 +1,8 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <localInspection shortName="NewerGradleDependencyVersion" displayName="Newer Gradle dependency version available" groupName="Gradle" enabledByDefault="true" level="WARNING" implementationClass="io.github.khopland.versionchecker.gradle.NewerGradleDependencyInspection" />
+    </extensions>
+    <extensions defaultExtensionNs="io.github.khopland.version-checker">
+        <buildSystemAdapter implementation="io.github.khopland.versionchecker.gradle.GradleBuildSystemAdapter" />
+    </extensions>
+</idea-plugin>
