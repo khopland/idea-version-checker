@@ -30,6 +30,14 @@ internal object GradleVersions {
 }
 
 internal object GradleDeclarations {
+    // Unknown calls may be user helpers, even if their arguments match a real dependency.
+    private val configurations = setOf(
+        "api", "implementation", "compileOnly", "compileOnlyApi", "runtimeOnly", "annotationProcessor",
+        "testImplementation", "testCompileOnly", "testRuntimeOnly", "testAnnotationProcessor",
+        "testFixturesApi", "testFixturesImplementation", "testFixturesCompileOnly", "testFixturesRuntimeOnly",
+        "kapt", "kaptTest", "ksp", "kspTest", "coreLibraryDesugaring"
+    )
+    private val platformWrappers = setOf("platform", "enforcedPlatform")
     private data class Token(val text: String, val start: Int, val string: Boolean = false)
     private fun tokens(text: String): List<Token> {
         val result = mutableListOf<Token>()
@@ -91,19 +99,27 @@ internal object GradleDeclarations {
             if (!token.string && token.text == "{") blocks += tokens.getOrNull(index - 1)?.text.orEmpty()
             if (!token.string && token.text == "}" && blocks.isNotEmpty()) blocks.removeAt(blocks.lastIndex)
             if (!token.string || "dependencies" !in blocks || "buildscript" in blocks) continue
-            val prefix = tokens.take(index).takeLast(5).map { it.text }
-            // A string must be the first argument of a dependency call, optionally inside platform(...).
-            val call = if (prefix.lastOrNull() == "(") prefix.getOrNull(prefix.lastIndex - 1) else prefix.lastOrNull()
+            val callIndex = if (tokens.getOrNull(index - 1)?.text == "(") index - 2 else index - 1
+            val call = tokens.getOrNull(callIndex)?.text
             if (call == null || !Regex("[A-Za-z_][A-Za-z_0-9]*").matches(call) || call in setOf("println", "print", "because", "version", "require", "prefer", "strictly", "reject")) continue
+            val outerIndex = if (tokens.getOrNull(callIndex - 1)?.text == "(") callIndex - 2 else callIndex - 1
+            val supportedCall = (call in configurations && tokens.getOrNull(callIndex - 1)?.text != ".") ||
+                (call in platformWrappers && tokens.getOrNull(outerIndex)?.text in configurations &&
+                    tokens.getOrNull(outerIndex - 1)?.text != ".")
             val coordinate = token.text.split(':')
             if (coordinate.size != 3 || coordinate.take(2).any { !Regex("[A-Za-z0-9_.-]+").matches(it) }) continue
             val version = coordinate[2]
             val range = TextRange(token.start + coordinate[0].length + coordinate[1].length + 2, token.start + token.text.length)
             val expression = tokens.getOrNull(index + 1)?.text in setOf("+", ".")
             val customized = tokens.drop(index + 1).dropWhile { !it.string && it.text == ")" }.firstOrNull()?.text == "{"
-            val fixed = GradleVersions.fixed(version) && !expression && !customized && "constraints" !in blocks
+            val fixed = supportedCall && GradleVersions.fixed(version) && !expression && !customized && "constraints" !in blocks
             val declaration = VersionDeclaration(DeclarationId(file, "dependency@${token.start}"), ArtifactId(coordinate[0], coordinate[1]), version, if (fixed) version else "")
-            result += GradleDeclaration(declaration, range, if (fixed) null else "Dynamic, interpolated, composite or customized dependency versions need manual review")
+            val reason = when {
+                !supportedCall -> "Unknown dependency calls or feature wrappers need manual review"
+                !fixed -> "Dynamic, interpolated, composite or customized dependency versions need manual review"
+                else -> null
+            }
+            result += GradleDeclaration(declaration, range, reason)
         }
         return result
     }

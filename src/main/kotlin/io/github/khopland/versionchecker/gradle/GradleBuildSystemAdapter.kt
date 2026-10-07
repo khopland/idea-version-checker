@@ -87,7 +87,13 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
             val latest = versions.singleOrNull() ?: return@mapNotNull null
             if (!GradleVersions.newer(declaration.baseline, latest)) return@mapNotNull null
             UpdateCandidate(declaration, latest, kind = GradleVersions.kind(declaration.baseline, latest))
-        }, snapshot.declarations.mapNotNull { declaration -> policy["${declaration.artifact.namespace}:${declaration.artifact.name}"]?.let { UpdateNotice(declaration, NoticeKind.DEPRECATED, "${declaration.artifact.namespace}:${declaration.artifact.name} is deprecated: $it") } })
+        }, snapshot.declarations.mapNotNull { declaration ->
+            policy["${declaration.artifact.namespace}:${declaration.artifact.name}"]?.let {
+                UpdateNotice(declaration, NoticeKind.DEPRECATED, "${declaration.artifact.namespace}:${declaration.artifact.name} is deprecated: $it")
+            } ?: results[declaration.id.location]?.reason?.let {
+                UpdateNotice(declaration, NoticeKind.MANUAL_REVIEW, it)
+            }
+        })
     }
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
         check(reports.keys.all { isCurrent(project, it) }) { "Gradle build files or settings changed. Run the check again." }

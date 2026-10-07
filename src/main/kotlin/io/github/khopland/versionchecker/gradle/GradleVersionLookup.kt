@@ -24,7 +24,7 @@ import kotlinx.coroutines.isActive
 internal object GradleVersionLookup {
     private val gson = Gson()
     internal data class Request(val id: String, val group: String, val name: String, val current: String)
-    internal data class Result(val versions: List<String> = emptyList())
+    internal data class Result(val versions: List<String> = emptyList(), val reason: String? = null)
 
     @OptIn(kotlinx.coroutines.InternalCoroutinesApi::class)
     suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): Map<String, Result> = withContext(Dispatchers.IO) {
@@ -70,6 +70,7 @@ internal object GradleVersionLookup {
             import groovy.json.JsonOutput
             import org.gradle.api.artifacts.result.ResolvedDependencyResult
             import org.gradle.api.artifacts.result.UnresolvedDependencyResult
+            import org.gradle.api.artifacts.component.ModuleComponentIdentifier
             gradle.projectsEvaluated {
                 if (gradle.parent != null) return
                 def requests = new JsonSlurper().parse(new File(${literal(requests.toString())}))
@@ -85,13 +86,45 @@ internal object GradleVersionLookup {
                                     c.dependencyConstraints.any { d -> d.group == request.group && d.name == request.name && d.version == request.current }
                                 }
                             }
+                            def reason = null
                             def versions = owners.collect { p ->
-                                def dep = p.dependencies.create(request.group + ':' + request.name + ':+')
+                                def matches = { d -> d.group == request.group && d.name == request.name && d.version == request.current }
                                 // Keep dependency attributes, especially the category of platform/BOM calls.
                                 def originals = p.configurations.collectMany { c -> c.dependencies.findAll { d ->
-                                    d.group == request.group && d.name == request.name && d.version == request.current &&
+                                    matches(d) &&
                                     d instanceof org.gradle.api.artifacts.ModuleDependency
                                 }.toList() }
+                                // Catalog consumers can request features without a literal wrapper in this file.
+                                if (originals.any { original -> !original.requestedCapabilities.empty ||
+                                    (original.hasProperty('capabilitySelectors') && !original.capabilitySelectors.empty) }) {
+                                    reason = 'Dependency capabilities or features need manual review for ' + request.group + ':' + request.name
+                                    return null
+                                }
+                                def contexts = p.configurations.findAll { c -> c.canBeResolved && c.allDependencies.any(matches) }
+                                if (contexts.empty) {
+                                    reason = 'No resolvable source configuration for ' + request.group + ':' + request.name
+                                    return null
+                                }
+                                // A copy retains the source resolution strategy, including version-specific substitutions.
+                                // Read only the resolution graph; do not resolve artifact files or execute build tasks.
+                                for (context in contexts) {
+                                    def probe = context.copyRecursive(matches)
+                                    probe.transitive = false
+                                    def originalResults = probe.incoming.resolutionResult.root.dependencies
+                                    for (originalResult in originalResults) {
+                                        if (originalResult instanceof UnresolvedDependencyResult)
+                                            throw new GradleException('Could not check ' + request.group + ':' + request.name + ' in ' + p.path, originalResult.failure)
+                                        if (!(originalResult instanceof ResolvedDependencyResult) ||
+                                            !(originalResult.selected.id instanceof ModuleComponentIdentifier) ||
+                                            originalResult.selected.moduleVersion.group != request.group ||
+                                            originalResult.selected.moduleVersion.name != request.name ||
+                                            originalResult.selected.selectionReason.selectedByRule) {
+                                            reason = 'Dependency substitution needs manual review for ' + request.group + ':' + request.name
+                                            return null
+                                        }
+                                    }
+                                }
+                                def dep = p.dependencies.create(request.group + ':' + request.name + ':+')
                                 def attributes = [:]
                                 originals.each { original -> original.attributes.keySet().each { key ->
                                     def value = original.attributes.getAttribute(key)
@@ -119,7 +152,7 @@ internal object GradleVersionLookup {
                                     throw new GradleException('Dependency substitution needs manual review for ' + request.group + ':' + request.name)
                                 result.selected.moduleVersion.version
                             }
-                            report[request.id] = [versions: versions]
+                            report[request.id] = [versions: reason == null ? versions : [], reason: reason]
                         }
                         new File(${literal(output.toString())}).text = JsonOutput.toJson(report)
                     }

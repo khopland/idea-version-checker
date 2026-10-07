@@ -40,7 +40,12 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
                     val notice = report.notices.firstOrNull { it.declaration.id in consumers.map { c -> c.declaration.id } }
                     val candidate = candidates.filterNotNull().firstOrNull()
                     if (candidate == null && notice == null) continue
-                    val highlight = (if (notice != null) VersionChangeKind.DEPRECATED else candidate!!.kind).severity(options).highlight ?: continue
+                    val kind = when (notice?.kind) {
+                        NoticeKind.DEPRECATED -> VersionChangeKind.DEPRECATED
+                        NoticeKind.MANUAL_REVIEW -> VersionChangeKind.OTHER
+                        else -> candidate?.kind ?: VersionChangeKind.OTHER
+                    }
+                    val highlight = kind.severity(options).highlight ?: continue
                     val safe = notice == null && consumers.all { it.reason == null } && candidates.all { it != null } && candidates.map { it!!.version }.distinct().size == 1
                     val fixes = if (safe) arrayOf<LocalQuickFix>(UpdateGradleVersionFix(GradleVersionEdit(file, range, candidate!!.version, file.name), { adapter.isCurrent(holder.project, snapshot) })) else emptyArray()
                     val message = notice?.message ?: "Newer Gradle version of ${candidate!!.declaration.artifact.namespace}:${candidate.declaration.artifact.name} is available: ${candidate.declaration.baseline} → ${candidate.version}" + if (!safe) " (shared version needs review)" else ""

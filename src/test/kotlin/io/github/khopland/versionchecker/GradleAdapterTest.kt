@@ -63,6 +63,22 @@ class GradleAdapterTest : BasePlatformTestCase() {
         assertTrue(prepared.apply(project))
         assertTrue(file.text.contains("shared = \"1.2.9\""))
     }
+    fun testManualReviewNoticeBlocksSharedCatalogEdit() {
+        val file = myFixture.addFileToProject("gradle-project/gradle/libs.versions.toml", """
+            [versions]
+            shared = "1.2.3"
+            [libraries]
+            alpha = { module = "g:alpha", version.ref = "shared" }
+            fixtures = { module = "g:fixtures", version.ref = "shared" }
+        """.trimIndent())
+        link()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val notice = UpdateNotice(snapshot.declarations.last(), NoticeKind.MANUAL_REVIEW, "Dependency capabilities or features need manual review")
+        val prepared = plan(snapshot, report(snapshot, listOf("1.2.9", null)).copy(notices = listOf(notice)))
+        assertTrue(prepared.changes.isEmpty())
+        assertTrue(prepared.skipped.any { it.contains(notice.message) })
+        assertTrue(file.text.contains("shared = \"1.2.3\""))
+    }
     fun testUnsavedSettingsOrOtherSubprojectChangesInvalidatePreview() {
         val file = myFixture.addFileToProject("gradle-project/build.gradle", "dependencies { implementation 'g:alpha:1.2.3' }")
         val other = myFixture.addFileToProject("gradle-project/nested/build.gradle.kts", "// original")

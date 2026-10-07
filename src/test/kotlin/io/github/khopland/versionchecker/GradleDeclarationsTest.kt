@@ -5,6 +5,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GradleDeclarationsTest {
+    @Test fun helperArgumentsWithMatchingCoordinatesRequireReview() {
+        for (extension in listOf("gradle", "gradle.kts")) {
+            val text = """dependencies {
+                implementation("g:a:1.2.3")
+                verifyNotation("g:a:1.2.3")
+                helper.implementation("g:a:1.2.3")
+            }"""
+            val declarations = GradleDeclarations.parse("build.$extension", text)
+            assertEquals(listOf("1.2.3", "", ""), declarations.map { it.declaration.baseline })
+            assertTrue(declarations.drop(1).all { it.reason != null })
+        }
+    }
+    @Test fun onlyPlatformWrappersInsideDependencyCallsAreAutomaticallyEditable() {
+        val text = """dependencies {
+            implementation(platform("g:bom:1.2.3"))
+            implementation enforcedPlatform('g:enforced:1.2.3')
+            testImplementation(testFixtures("g:fixtures:1.2.3"))
+            implementation(helper("g:helper:1.2.3"))
+            helper(platform("g:wrapped:1.2.3"))
+            customConfiguration("g:custom:1.2.3")
+        }"""
+        val declarations = GradleDeclarations.parse("build.gradle", text)
+        assertEquals(listOf("1.2.3", "1.2.3", "", "", "", ""), declarations.map { it.declaration.baseline })
+        assertTrue(declarations.drop(2).all { it.reason!!.contains("manual review") })
+    }
     @Test fun groovyAndKotlinLiteralDependenciesExcludeCommentsAndUnrelatedStrings() {
         for (extension in listOf("gradle", "gradle.kts")) {
             val text = """

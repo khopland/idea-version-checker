@@ -27,6 +27,136 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Real IDEA Gradle tooling + project wrapper + authenticated settings repositories. No public artifact queries. */
 class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
+    fun testHelpersSubstitutionsAndCatalogFeaturesCannotReceiveAutomaticEdits() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-gradle-safety-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val settings = GradleSettings.getInstance(project)
+        val previousOffline = settings.isOfflineWork
+        try {
+            settings.isOfflineWork = false
+            project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+            val repository = Files.createDirectories(directory.resolve("repo/example/versionchecker"))
+            for (artifact in listOf("plain", "substituted", "version-specific", "fixtures")) {
+                val artifactDirectory = Files.createDirectories(repository.resolve(artifact))
+                Files.writeString(artifactDirectory.resolve("maven-metadata.xml"), """<metadata>
+                    <groupId>example.versionchecker</groupId><artifactId>$artifact</artifactId>
+                    <versioning><versions><version>1.2.3</version><version>2.0.0</version></versions></versioning>
+                </metadata>""")
+                for (version in listOf("1.2.3", "2.0.0")) {
+                    val publication = Files.createDirectories(artifactDirectory.resolve(version))
+                    Files.writeString(publication.resolve("$artifact-$version.pom"), """<project>
+                        <modelVersion>4.0.0</modelVersion><groupId>example.versionchecker</groupId>
+                        <artifactId>$artifact</artifactId><version>$version</version>
+                    </project>""")
+                }
+            }
+            // The original fixture publication has the feature; the newer publication does not.
+            val fixturePublication = repository.resolve("fixtures/1.2.3")
+            Files.writeString(fixturePublication.resolve("fixtures-1.2.3.pom"), """<project>
+                <!-- do_not_remove: published-with-gradle-metadata -->
+                <modelVersion>4.0.0</modelVersion><groupId>example.versionchecker</groupId>
+                <artifactId>fixtures</artifactId><version>1.2.3</version>
+            </project>""")
+            Files.writeString(fixturePublication.resolve("fixtures-1.2.3.module"), """{
+                "formatVersion": "1.1",
+                "component": { "group": "example.versionchecker", "module": "fixtures", "version": "1.2.3" },
+                "variants": [{
+                    "name": "testFixturesApiElements",
+                    "attributes": { "org.gradle.category": "library", "org.gradle.usage": "java-api" },
+                    "capabilities": [{ "group": "example.versionchecker", "name": "fixtures-test-fixtures", "version": "1.2.3" }]
+                }, {
+                    "name": "testFixturesRuntimeElements",
+                    "attributes": { "org.gradle.category": "library", "org.gradle.usage": "java-runtime" },
+                    "capabilities": [{ "group": "example.versionchecker", "name": "fixtures-test-fixtures", "version": "1.2.3" }]
+                }]
+            }""")
+            Files.writeString(directory.resolve("settings.gradle"), "rootProject.name = 'safety-fixture'\ninclude 'local'\n")
+            val local = Files.createDirectories(directory.resolve("local"))
+            Files.writeString(local.resolve("build.gradle"), "plugins { id 'java-library' }")
+            Files.writeString(directory.resolve("build.gradle"), """
+                plugins { id 'java' }
+                repositories { maven { url = uri('repo') } }
+                void verifyNotation(String notation) {
+                    if (notation != 'example.versionchecker:plain:1.2.3') throw new GradleException('Helper was edited')
+                }
+                configurations.configureEach {
+                    resolutionStrategy.dependencySubstitution {
+                        substitute module('example.versionchecker:substituted') using project(':local')
+                        substitute module('example.versionchecker:version-specific:1.2.3') using project(':local')
+                        substitute module('example.versionchecker:unpublished') using project(':local')
+                    }
+                }
+                dependencies {
+                    implementation 'example.versionchecker:plain:1.2.3'
+                    verifyNotation('example.versionchecker:plain:1.2.3')
+                    implementation 'example.versionchecker:substituted:1.2.3'
+                    implementation 'example.versionchecker:version-specific:1.2.3'
+                    implementation 'example.versionchecker:unpublished:1.2.3'
+                    implementation libs.plain
+                    testImplementation testFixtures(libs.fixtures)
+                    testImplementation testFixtures('example.versionchecker:fixtures:1.2.3')
+                }
+            """.trimIndent())
+            val catalog = Files.createDirectories(directory.resolve("gradle")).resolve("libs.versions.toml")
+            Files.writeString(catalog, """
+                [versions]
+                shared = "1.2.3"
+                [libraries]
+                plain = { module = "example.versionchecker:plain", version.ref = "shared" }
+                fixtures = { module = "example.versionchecker:fixtures", version.ref = "shared" }
+            """.trimIndent())
+            val wrapper = Files.createDirectories(directory.resolve("gradle/wrapper"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.properties"), wrapper.resolve("gradle-wrapper.properties"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.jar"), wrapper.resolve("gradle-wrapper.jar"))
+            val root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            VfsUtil.markDirtyAndRefresh(false, true, true, root)
+            settings.linkProject(GradleProjectSettings().apply {
+                externalProjectPath = directory.toString()
+                gradleJvm = "#JAVA_HOME"
+                distributionType = DistributionType.DEFAULT_WRAPPED
+                setModules(setOf(directory.toString(), local.toString()))
+            })
+            fun <T> background(work: suspend () -> T): T = PlatformTestUtil.waitForFuture(
+                ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { work() } }), 120_000)
+            val adapter = GradleBuildSystemAdapter()
+            val source = root.findChild("build.gradle")!!
+            val snapshot = adapter.snapshot(project, source)!!
+            val report = background { adapter.check(project, snapshot, UpdateMode.MAJOR) }
+            assertEquals(listOf("plain"), report.candidates.map { it.declaration.artifact.name })
+            assertEquals(setOf("substituted", "version-specific", "unpublished"), report.notices.map { it.declaration.artifact.name }.toSet())
+            assertTrue(report.notices.all { it.kind == NoticeKind.MANUAL_REVIEW })
+            val catalogSnapshot = adapter.snapshot(project, root.findFileByRelativePath("gradle/libs.versions.toml")!!)!!
+            val catalogReport = background { adapter.check(project, catalogSnapshot, UpdateMode.MAJOR) }
+            assertEquals(listOf("plain"), catalogReport.candidates.map { it.declaration.artifact.name })
+            assertEquals("fixtures", catalogReport.notices.single().declaration.artifact.name)
+            assertTrue(catalogReport.notices.single().message.contains("features"))
+            val plan = background { adapter.prepareUpdates(project, mapOf(snapshot to report, catalogSnapshot to catalogReport)) }
+            assertEquals(1, plan.changes.size)
+            assertEquals("2.0.0", plan.changes.single().latest)
+            assertTrue(plan.skipped.any { it.contains("substitution") })
+            assertTrue(plan.skipped.any { it.contains("features") })
+            assertTrue(plan.apply(project))
+            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
+            val changed = PsiManager.getInstance(project).findFile(source)!!.text
+            assertTrue(changed.contains("implementation 'example.versionchecker:plain:2.0.0'"))
+            assertTrue(changed.contains("verifyNotation('example.versionchecker:plain:1.2.3')"))
+            assertTrue(changed.contains("substituted:1.2.3"))
+            assertTrue(changed.contains("version-specific:1.2.3"))
+            assertTrue(changed.contains("unpublished:1.2.3"))
+            assertTrue(changed.contains("testFixtures('example.versionchecker:fixtures:1.2.3')"))
+            assertTrue(Files.readString(catalog).contains("shared = \"1.2.3\""))
+            // Evaluating the edited build also proves the helper argument was preserved.
+            val after = adapter.snapshot(project, source)!!
+            assertTrue(background { adapter.check(project, after, UpdateMode.MAJOR) }.candidates.isEmpty())
+            assertFalse(Files.exists(directory.resolve("build/classes")))
+        } finally {
+            settings.unlinkExternalProject(directory.toString())
+            settings.isOfflineWork = previousOffline
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testNativeGradleRepositoryAuthenticationCatalogSubprojectsAndModes() {
         if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
         val directory = Files.createTempDirectory("version-checker-gradle-integration-").toRealPath()
