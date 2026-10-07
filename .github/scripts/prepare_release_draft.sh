@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Listing releases distinguishes an absent release from authentication/API failures.
-releases=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --slurp --jq 'add')
+releases=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate | jq -s 'add')
 release=$(jq -c --arg version "$VERSION" '[.[] | select(.tag_name == $version or .tag_name == ("v" + $version))] | sort_by(.draft) | first // empty' <<< "$releases")
 if [[ -n "$release" && $(jq -r '.draft' <<< "$release") == false ]]; then
   echo "Version $VERSION is already released; increment version and finalize its changelog for the next release."
