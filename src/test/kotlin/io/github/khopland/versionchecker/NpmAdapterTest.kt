@@ -63,15 +63,45 @@ class NpmAdapterTest : BasePlatformTestCase() {
         assertEquals(4, prepared.skipped.size)
         assertTrue(prepared.skipped.any { "@local/library" in it && "local workspace" in it })
     }
-    fun testUnsavedChangesToAnotherManifestInvalidateTheEntirePreview() {
-        val file = myFixture.addFileToProject("stale/package.json", """{"dependencies":{"alpha":"^1.2.3"}}""")
-        val other = myFixture.addFileToProject("stale/other/package.json", "{}")
+    fun testUnsavedChangesToWorkspaceSiblingInvalidateTheEntirePreview() {
+        myFixture.addFileToProject("stale/package.json", """{"workspaces":["packages/*"]}""")
+        val file = myFixture.addFileToProject("stale/packages/app/package.json", """{"dependencies":{"alpha":"^1.2.3"}}""")
+        val other = myFixture.addFileToProject("stale/packages/other/package.json", "{}")
         val snapshot = adapter.snapshot(project, file.virtualFile)!!
         val prepared = plan(mapOf(snapshot to report(snapshot)))
         val document = FileDocumentManager.getInstance().getDocument(other.virtualFile)!!
         WriteCommandAction.runWriteCommandAction(project) { document.setText("{\"name\":\"changed\"}") }
         assertFalse(prepared.apply(project))
         assertEquals("^1.2.3", NpmManifest.values(file).values.single().value)
+    }
+    fun testIndependentProjectEditsDoNotInvalidatePreview() {
+        val file = myFixture.addFileToProject("independent/app/package.json", """{"dependencies":{"alpha":"^1.2.3"}}""")
+        val other = myFixture.addFileToProject("independent/other/package.json", "{}")
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val prepared = plan(mapOf(snapshot to report(snapshot)))
+        val document = FileDocumentManager.getInstance().getDocument(other.virtualFile)!!
+        WriteCommandAction.runWriteCommandAction(project) { document.setText("{\"name\":\"changed\"}") }
+        assertTrue(prepared.apply(project))
+        assertEquals("^1.2.9", NpmManifest.values(file).values.single().value)
+    }
+    fun testSavedChangesAndWorkspaceRenamesInvalidateCachedSnapshots() {
+        myFixture.addFileToProject("cached/package.json", """{"workspaces":["packages/*"]}""")
+        val member = myFixture.addFileToProject("cached/packages/app/package.json", """{"dependencies":{"alpha":"^1.2.3"}}""")
+        val library = myFixture.addFileToProject("cached/packages/library/package.json", """{"name":"beta"}""")
+        val snapshot = adapter.snapshot(project, member.virtualFile)!!
+        val name = (NpmManifest.root(library)!!.findProperty("name")!!.value as JsonStringLiteral)
+        WriteCommandAction.runWriteCommandAction(project) { NpmVersionEdit(name, "alpha", "name").apply() }
+        FileDocumentManager.getInstance().saveAllDocuments()
+        assertFalse(adapter.isCurrent(project, snapshot))
+        assertTrue(adapter.snapshot(project, member.virtualFile)!!.declarations.single().baseline.isEmpty())
+    }
+    fun testDeletingWorkspaceMemberInvalidatesSnapshot() {
+        myFixture.addFileToProject("deleted/package.json", """{"workspaces":["packages/*"]}""")
+        val member = myFixture.addFileToProject("deleted/packages/app/package.json", """{"dependencies":{"alpha":"^1.2.3"}}""")
+        val library = myFixture.addFileToProject("deleted/packages/library/package.json", "{}")
+        val snapshot = adapter.snapshot(project, member.virtualFile)!!
+        WriteCommandAction.runWriteCommandAction(project) { library.virtualFile.delete(this) }
+        assertFalse(adapter.isCurrent(project, snapshot))
     }
     fun testNpmrcChangesInvalidatePreviewWithoutAnyPartialEdits() {
         val file = myFixture.addFileToProject("config/package.json", """{"dependencies":{"alpha":"^1.2.3"}}""")
@@ -120,6 +150,40 @@ class NpmAdapterTest : BasePlatformTestCase() {
         val engine = myFixture.addFileToProject("engine/package.json", """{"devEngines":{"packageManager":{"name":"bun"}},"dependencies":{"alpha":"1.2.3"}}""")
         assertNull(adapter.snapshot(project, engine.virtualFile))
         assertNull(adapter.snapshot(project, root.virtualFile))
+    }
+    fun testDevEnginesNpmObjectAndArraysAreSupported() {
+        for ((index, manager) in listOf(
+            """{"name":"npm"}""",
+            """[{"name":"npm"}]""",
+            """[{"name":"npm","version":"^10"},{"name":"npm","version":"^11"}]"""
+        ).withIndex()) {
+            val file = myFixture.addFileToProject("engine-array/$index/package.json", """{
+                "devEngines":{"packageManager":$manager},"dependencies":{"alpha":"1.2.3"}
+            }""")
+            myFixture.addFileToProject("engine-array/$index/yarn.lock", "leftover")
+            assertNotNull(manager, adapter.snapshot(project, file.virtualFile))
+        }
+    }
+    fun testDevEnginesNpmArrayAtWorkspaceRootSupportsMembers() {
+        val root = myFixture.addFileToProject("engine-workspace/package.json", """{
+            "devEngines":{"packageManager":[{"name":"npm"}]},"workspaces":["packages/*"]
+        }""")
+        val member = myFixture.addFileToProject("engine-workspace/packages/app/package.json",
+            """{"dependencies":{"alpha":"1.2.3"}}""")
+        assertNotNull(adapter.snapshot(project, root.virtualFile))
+        assertEquals(root.virtualFile.parent.path, adapter.snapshot(project, member.virtualFile)!!.context.root)
+    }
+    fun testMixedAndMalformedDevEngineManagersAreExcluded() {
+        for ((index, manager) in listOf(
+            """[{"name":"npm"},{"name":"pnpm"}]""", """[{"name":"npm"},{}]""",
+            """[{"name":"npm"},null]""", """[{"name":42}]""", "[]", "null", "42", "\"npm\""
+        ).withIndex()) {
+            val file = myFixture.addFileToProject("engine-invalid/$index/package.json", """{
+                "packageManager":"npm@11.0.0","devEngines":{"packageManager":$manager},
+                "dependencies":{"alpha":"1.2.3"}
+            }""")
+            assertNull(manager, adapter.snapshot(project, file.virtualFile))
+        }
     }
     fun testOnlyWorkspaceMembersShareRegistryContextAndLocalNames() {
         val root = myFixture.addFileToProject("members/package.json", """{"workspaces":["./packages/*","!packages/excluded"]}""")

@@ -45,14 +45,23 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
             val engines = root.findProperty("devEngines")?.value as? JsonObject
             val engineManager = engines?.findProperty("packageManager")?.value
             if (engineManager != null) {
-                val engineName = (engineManager as? JsonObject)?.findProperty("name")?.value as? JsonStringLiteral
-                if (engineName?.value != "npm") return false
+                val managers = when (engineManager) {
+                    is JsonObject -> listOf(engineManager)
+                    is JsonArray -> engineManager.valueList
+                    else -> return false
+                }
+                // Conflicting or malformed entries do not establish an npm-only project.
+                if (managers.isEmpty() || managers.any {
+                        ((it as? JsonObject)?.findProperty("name")?.value as? JsonStringLiteral)?.value != "npm"
+                    }) return false
                 explicitNpm = true
             }
         }
         return explicitNpm || otherManagerFiles.none { workspaceRoot.findChild(it) != null || file.parent.findChild(it) != null }
     }
-    override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
+    override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? = snapshot(project, file, mutableMapOf())
+
+    private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>): BuildSnapshot? {
         if (!NpmManifest.supported(file) || !validManifest(project, file)) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
         val workspace = workspace(project, file)
@@ -61,14 +70,16 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
             if (declaration.artifact.name in localNames) declaration.copy(baseline = "") else declaration
         }
         return BuildSnapshot(BuildContextId(id, workspace.root.path, file.path), file.path,
-            fingerprint(project, file), declarations)
+            fingerprints.getOrPut(workspace.root) { fingerprint(project, workspace) }, declarations)
     }
     override fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean {
         val file = findFile(project, snapshot.sourceFile) ?: return false
-        return validManifest(project, file) && workspace(project, file).root.path == snapshot.context.root && snapshot.fingerprint == fingerprint(project, file)
+        val workspace = workspace(project, file)
+        return validManifest(project, file) && workspace.root.path == snapshot.context.root && snapshot.fingerprint == fingerprint(project, workspace)
     }
     override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = readAction {
-        NpmManifest.files(project, selection).mapNotNull { snapshot(project, it) }
+        val fingerprints = mutableMapOf<VirtualFile, BuildFingerprint>()
+        NpmManifest.files(project, selection).mapNotNull { snapshot(project, it, fingerprints) }
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val directory = Path.of(snapshot.context.root)
@@ -105,7 +116,7 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         return UpdateReport(candidates, notices)
     }
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
-        check(reports.keys.all { isCurrent(project, it) }) { "npm manifests or configuration changed during the check. Run it again." }
+        check(areCurrent(project, reports.keys)) { "npm manifests or configuration changed during the check. Run it again." }
         val edits = mutableListOf<VersionEdit>()
         val skipped = mutableListOf<String>()
         for ((snapshot, report) in reports) {
@@ -124,11 +135,8 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
             report.notices.filter { notice -> report.candidates.none { it.declaration.id == notice.declaration.id } }
                 .forEach { skipped += "${it.declaration.id.file}: ${it.message}" }
         }
-        BulkUpdatePlan(edits, skipped.distinct(), isCurrent = { reports.keys.all { isCurrent(project, it) } },
-            followUp = if (edits.isEmpty()) emptyList() else listOf(
-                "npm updates edit package.json only. After applying, use IntelliJ's npm install action or run npm install " +
-                    "to synchronize lockfiles and installed dependencies."
-            ))
+        BulkUpdatePlan(edits, skipped.distinct(), isCurrent = { areCurrent(project, reports.keys) },
+            followUp = if (edits.isEmpty()) emptyList() else listOf(NpmUpdateGuidance.message))
     }
 
     internal fun workspaceDeclarations(project: Project, snapshot: BuildSnapshot): List<Pair<VersionDeclaration, JsonStringLiteral>> =
@@ -163,12 +171,24 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     private fun findFile(project: Project, path: String): VirtualFile? =
         NpmManifest.files(project, BuildSelection(UpdateScope.CURRENT_FILE, path)).singleOrNull()
 
-    private fun fingerprint(project: Project, file: VirtualFile): BuildFingerprint {
-        // Workspace identities affect whether a dependency is local; include every project manifest.
-        val files = NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT))
-            .associate { it.path to virtualDigest(it) }.toMutableMap()
-        files[file.path] = virtualDigest(file)
-        var ancestor: Path? = Path.of(file.path).parent
+    private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>): Boolean {
+        val fingerprints = mutableMapOf<VirtualFile, BuildFingerprint>()
+        return snapshots.all { snapshot ->
+            val file = findFile(project, snapshot.sourceFile) ?: return@all false
+            val workspace = workspace(project, file)
+            validManifest(project, file) && workspace.root.path == snapshot.context.root &&
+                snapshot.fingerprint == fingerprints.getOrPut(workspace.root) { fingerprint(project, workspace) }
+        }
+    }
+
+    private fun fingerprint(project: Project, workspace: Workspace): BuildFingerprint {
+        // Only this workspace's manifests affect local package identities and workspace-wide edits.
+        val cache = project.service<NpmProjectCache>()
+        val files = cache.manifestDigests(workspace) {
+            workspace.manifests.associate { it.path to virtualDigest(project, it) }
+        }.toMutableMap()
+        // Registry commands run at the workspace root; member-local npmrc files do not configure them.
+        var ancestor: Path? = Path.of(workspace.root.path)
         while (ancestor != null) {
             for (name in listOf(".npmrc", "package.json") + otherManagerFiles) {
                 val path = ancestor.resolve(name)
@@ -176,12 +196,12 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
             }
             ancestor = ancestor.parent
         }
-        var virtualAncestor: VirtualFile? = file.parent
+        var virtualAncestor: VirtualFile? = workspace.root
         while (virtualAncestor != null) {
             for (name in listOf(".npmrc", "package.json") + otherManagerFiles) {
                 val config = virtualAncestor.findChild(name)
                 files["virtual-config:${virtualAncestor.path}/$name"] =
-                    if (name in otherManagerFiles) (config != null).toString() else config?.let(::virtualDigest) ?: "missing"
+                    if (name in otherManagerFiles) (config != null).toString() else config?.let { virtualDigest(project, it) } ?: "missing"
             }
             virtualAncestor = virtualAncestor.parent
         }
@@ -202,39 +222,51 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         val document = virtual?.let { FileDocumentManager.getInstance().getCachedDocument(it) }
         return disk + ":" + document?.takeIf { FileDocumentManager.getInstance().isDocumentUnsaved(it) }?.let { digest(it.text.toByteArray()) }
     }
-    private fun virtualDigest(file: VirtualFile): String =
-        digest((FileDocumentManager.getInstance().getCachedDocument(file)?.text?.toByteArray() ?: file.contentsToByteArray()))
+    private fun virtualDigest(project: Project, file: VirtualFile): String =
+        project.service<NpmProjectCache>().digest(file) {
+            digest(FileDocumentManager.getInstance().getCachedDocument(file)?.text?.toByteArray() ?: file.contentsToByteArray())
+        }
     private fun digest(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
-    private data class Workspace(val root: VirtualFile, val names: Set<String>)
+    internal data class Workspace(val root: VirtualFile, val names: Set<String>, val manifests: List<VirtualFile>)
 
     /** Only declared members share a workspace context; nested independent projects stay separate. */
-    private fun workspace(project: Project, file: VirtualFile): Workspace {
-        val manifests = NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT))
-        var directory: VirtualFile? = file.parent
-        while (directory != null) {
-            val workspaceDirectory = directory
-            val owner = workspaceDirectory.findChild("package.json")?.let { PsiManager.getInstance(project).findFile(it) }
-            val workspaceValue = owner?.let(NpmManifest::root)?.findProperty("workspaces")?.value
-            val workspaces = (workspaceValue as? JsonArray) ?: ((workspaceValue as? JsonObject)?.findProperty("packages")?.value as? JsonArray)
-            val patterns = workspaces?.valueList?.mapNotNull { (it as? JsonStringLiteral)?.value }.orEmpty()
-            fun matches(pattern: String, path: String) = runCatching {
-                FileSystems.getDefault().getPathMatcher("glob:${pattern.removePrefix("./").trimEnd('/')}").matches(Path.of(path))
-            }.getOrDefault(false)
-            fun member(manifest: VirtualFile): Boolean {
-                val relative = VfsUtilCore.getRelativePath(manifest.parent, workspaceDirectory) ?: return false
-                return patterns.filterNot { it.startsWith('!') }.any { matches(it, relative) } &&
-                    patterns.filter { it.startsWith('!') }.none { matches(it.drop(1), relative) }
+    private fun workspace(project: Project, file: VirtualFile): Workspace =
+        project.service<NpmProjectCache>().workspace(file) {
+            val cache = project.service<NpmProjectCache>()
+            var directory: VirtualFile? = file.parent
+            var result: Workspace? = null
+            while (directory != null) {
+                val workspaceDirectory = directory
+                val owner = cache.owner(workspaceDirectory) { workspaceOwner(project, workspaceDirectory) }
+                if (owner != null && file in owner.manifests) {
+                    result = owner
+                    break
+                }
+                directory = directory.parent
             }
-            if (patterns.isNotEmpty() && (file.parent == directory || member(file))) {
-                val names = manifests.filter(::member).mapNotNull { manifest ->
-                    val psi = PsiManager.getInstance(project).findFile(manifest)
-                    (psi?.let(NpmManifest::root)?.findProperty("name")?.value as? JsonStringLiteral)?.value
-                }.toSet()
-                return Workspace(workspaceDirectory, names)
-            }
-            directory = directory.parent
+            result ?: Workspace(file.parent, emptySet(), listOf(file))
         }
-        return Workspace(file.parent, emptySet())
+
+    private fun workspaceOwner(project: Project, directory: VirtualFile): Workspace? {
+        val rootFile = directory.findChild("package.json") ?: return null
+        val owner = PsiManager.getInstance(project).findFile(rootFile)
+        val workspaceValue = owner?.let(NpmManifest::root)?.findProperty("workspaces")?.value
+        val workspaces = (workspaceValue as? JsonArray) ?: ((workspaceValue as? JsonObject)?.findProperty("packages")?.value as? JsonArray)
+        val patterns = workspaces?.valueList?.mapNotNull { (it as? JsonStringLiteral)?.value }.orEmpty()
+        if (patterns.isEmpty()) return null
+        fun matches(pattern: String, path: String) = runCatching {
+            FileSystems.getDefault().getPathMatcher("glob:${pattern.removePrefix("./").trimEnd('/')}").matches(Path.of(path))
+        }.getOrDefault(false)
+        val members = NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).filter { manifest ->
+            val relative = VfsUtilCore.getRelativePath(manifest.parent, directory)
+            relative != null && patterns.filterNot { it.startsWith('!') }.any { matches(it, relative) } &&
+                patterns.filter { it.startsWith('!') }.none { matches(it.drop(1), relative) }
+        }
+        val names = members.mapNotNull { manifest ->
+            val psi = PsiManager.getInstance(project).findFile(manifest)
+            (psi?.let(NpmManifest::root)?.findProperty("name")?.value as? JsonStringLiteral)?.value
+        }.toSet()
+        return Workspace(directory, names, (listOf(rootFile) + members).distinct())
     }
 }

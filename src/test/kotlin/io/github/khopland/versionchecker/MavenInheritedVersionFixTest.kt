@@ -240,6 +240,67 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertEquals("Update version to 4.13.2", options.single().name)
     }
 
+    fun testRetainedLiteralFixRejectsChangedCoordinates() {
+        for (coordinate in listOf("groupId", "artifactId")) {
+            val file = imported("literal-$coordinate", dependency("<version>4.12</version>"))
+            val tag = declaration(file)
+            val fix = fixes(file).single()
+            WriteCommandAction.runWriteCommandAction(project) { tag.findFirstSubTag(coordinate)!!.value.setText("different") }
+            apply(fix, tag)
+            assertEquals("4.12", tag.findFirstSubTag("version")!!.value.trimmedText)
+        }
+    }
+
+    fun testRetainedPropertyFixRejectsReboundReferenceAndChangedSharedConsumers() {
+        val file = imported("properties", "<properties><first>4.12</first><second>4.12</second></properties>" +
+            dependency("<version>\${first}</version>"))
+        val tag = declaration(file)
+        val fix = fixes(file).single()
+        WriteCommandAction.runWriteCommandAction(project) { tag.findFirstSubTag("version")!!.value.setText("\${second}") }
+        apply(fix, tag)
+        assertEquals("4.12", file.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("first")!!.value.trimmedText)
+
+        val shared = imported("shared", "<properties><first>4.12</first></properties>" + dependency("<version>\${first}</version>"))
+        val sharedFix = fixes(shared).single()
+        WriteCommandAction.runWriteCommandAction(project) { declaration(shared).findFirstSubTag("artifactId")!!.value.setText("different") }
+        apply(sharedFix, declaration(shared))
+        assertEquals("4.12", shared.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("first")!!.value.trimmedText)
+    }
+
+    fun testRetainedPluginAndParentFixesRejectChangedCoordinates() {
+        for (kind in listOf(MavenArtifactKind.PLUGIN, MavenArtifactKind.PARENT)) {
+            val body = if (kind == MavenArtifactKind.PLUGIN)
+                "<build><plugins><plugin><groupId>external</groupId><artifactId>plugin</artifactId><version>4.12</version></plugin></plugins></build>"
+            else "<parent><groupId>external</groupId><artifactId>parent</artifactId><version>4.12</version></parent>"
+            val file = imported("kind-$kind", body)
+            val tag = if (kind == MavenArtifactKind.PLUGIN)
+                file.rootTag!!.findFirstSubTag("build")!!.findFirstSubTag("plugins")!!.subTags.single()
+            else file.rootTag!!.findFirstSubTag("parent")!!
+            val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
+                manager.findProject(file.virtualFile)!!,
+                mapOf(DependencyVersion("external", kind.name.lowercase(), "4.12", kind) to "4.13.2"))
+            val fix = analysis.quickFixes(tag, analysis.problem(tag)!!).single()
+            WriteCommandAction.runWriteCommandAction(project) { tag.findFirstSubTag("artifactId")!!.value.setText("different") }
+            apply(fix, tag)
+            assertEquals("4.12", tag.findFirstSubTag("version")!!.value.trimmedText)
+        }
+    }
+
+    fun testLocalFixRejectsChangedMavenSettingsAndUpdatesUnchangedProperty() {
+        val file = imported("local-settings", "<properties><first>4.12</first></properties>" + dependency("<version>\${first}</version>"))
+        val fix = fixes(file).single()
+        val original = manager.generalSettings.isWorkOffline
+        try {
+            manager.generalSettings.isWorkOffline = !original
+            apply(fix, declaration(file))
+            assertEquals("4.12", file.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("first")!!.value.trimmedText)
+        } finally {
+            manager.generalSettings.isWorkOffline = original
+        }
+        apply(fixes(file).single(), declaration(file))
+        assertEquals("4.13.2", file.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("first")!!.value.trimmedText)
+    }
+
     fun testWorkspaceParentIsNotAnUpdateCandidate() {
         imported("parent", management("4.12"))
         val child = imported("child", "", "parent")

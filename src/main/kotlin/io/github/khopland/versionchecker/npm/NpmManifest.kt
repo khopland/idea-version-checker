@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
 import com.intellij.json.psi.*
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbService
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
@@ -26,9 +27,11 @@ internal object NpmManifest {
     fun files(project: Project, selection: BuildSelection): List<VirtualFile> {
         if (selection.scope == UpdateScope.CURRENT_FILE && selection.currentFile == null) return emptyList()
         if (DumbService.isDumb(project)) return emptyList()
-        return FilenameIndex.getVirtualFilesByName("package.json", GlobalSearchScope.projectScope(project))
-            .filter { supported(it) && (selection.scope == UpdateScope.WHOLE_PROJECT || it.path == selection.currentFile) }
-            .sortedBy { it.path }
+        val files = project.service<NpmProjectCache>().files {
+            FilenameIndex.getVirtualFilesByName("package.json", GlobalSearchScope.projectScope(project))
+                .filter(::supported).sortedBy { it.path }
+        }
+        return if (selection.scope == UpdateScope.WHOLE_PROJECT) files else files.filter { it.path == selection.currentFile }
     }
     fun root(file: PsiFile): JsonObject? {
         if (file !is JsonFile || !supported(file.virtualFile ?: return null) ||

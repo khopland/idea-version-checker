@@ -113,15 +113,15 @@ internal class MavenDependencyAnalysis(
     fun quickFixes(tag: XmlTag, problem: DependencyProblem): Array<LocalQuickFix> {
         val latest = problem.latest ?: return emptyArray()
         if (problem.notice != null) return emptyArray()
-        problem.target?.let { return arrayOf(UpdateDependencyVersionFix(it, latest)) }
-        if (problem.coordinate.artifactKind != MavenArtifactKind.DEPENDENCY) return emptyArray()
-        val version = tag.findFirstSubTag("version")
-        // Composite expressions and ranges retain their existing manual-review behavior.
-        if (version != null && versionPropertyName(version.value.trimmedText) == null) return emptyArray()
         val project = tag.project
         val adapter = quickFixAdapter
         val snapshot = quickFixSnapshot ?: return emptyArray()
         val isCurrent = { adapter.isCurrent(project, snapshot) }
+        problem.target?.let { return arrayOf(UpdateDependencyVersionFix(it, latest, isCurrent = isCurrent)) }
+        if (problem.coordinate.artifactKind != MavenArtifactKind.DEPENDENCY) return emptyArray()
+        val version = tag.findFirstSubTag("version")
+        // Composite expressions and ranges retain their existing manual-review behavior.
+        if (version != null && versionPropertyName(version.value.trimmedText) == null) return emptyArray()
         val fixes = mutableListOf<LocalQuickFix>(OverrideDependencyVersionFix(tag, latest, isCurrent))
         val target = sharedVersionTarget(version ?: managingVersion(tag), problem.coordinate.version)
         if (target != null) {

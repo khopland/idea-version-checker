@@ -311,8 +311,10 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             assertEquals(2, standard.results.size)
             assertTrue(standard.results.all { it.highlightType == ProblemHighlightType.WARNING })
 
+            // Use the refreshed descriptor after editor setup has changed the POM's modification stamp.
+            val currentProblem = standard.results.single { !it.descriptionTemplate.contains("Maven plugin") }
             WriteCommandAction.runWriteCommandAction(project) {
-                problem.fixes!!.single().applyFix(project, problem)
+                currentProblem.fixes!!.single().applyFix(project, currentProblem)
             }
             val tags = PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java)
             assertEquals("2.0", tags.single { it.localName == "fixture.version" }.value.trimmedText)

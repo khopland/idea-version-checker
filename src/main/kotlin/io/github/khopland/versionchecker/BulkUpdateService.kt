@@ -55,11 +55,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                             return@invokeLater
                         }
                         FileDocumentManager.getInstance().saveAllDocuments()
-                        if (plan.followUp.isNotEmpty()) {
-                            NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
-                                .createNotification("Versions updated", plan.followUp.joinToString("\n"), NotificationType.INFORMATION)
-                                .notify(project)
-                        }
+                        notifyVersionUpdates(project, plan.followUp)
                         adapters.forEach { adapter ->
                             project.service<VersionCheckService>().refresh(adapter.id, if (updateScope == UpdateScope.CURRENT_FILE) currentFile else null)
                         }

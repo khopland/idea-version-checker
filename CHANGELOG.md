@@ -8,6 +8,10 @@
 
 ### Fixed
 
+- Local Maven literal, property, plugin and parent quick fixes reject stale coordinates, declaration context and Maven configuration.
+- npm project detection accepts object and array forms of `devEngines.packageManager`; mixed, empty or malformed manager declarations remain excluded.
+- npm quick fixes show the lockfile and installed-dependency synchronization reminder after a successful edit.
+- npm discovery and manifest fingerprints are cached between changes, bulk validation shares workspace fingerprints, and edits to independent npm projects no longer invalidate each other.
 - Maven checks no longer fail when the resolver cannot order an artifact's versions ("Comparison method violates its general contract"), for example when a locally installed `0-SNAPSHOT` meets branch-named snapshots. That artifact is resolved from the metadata Maven downloaded, and the remaining dependencies are still checked.
 
 ## [1.0.0] - 2026-10-06

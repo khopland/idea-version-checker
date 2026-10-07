@@ -86,7 +86,7 @@ Gradle, reporting plugins, build extensions, plugin-contained dependencies, tran
 
 Configure a **local Node.js interpreter and npm** in IntelliJ's JavaScript runtime settings, then open a project containing `package.json`. Checks start when IDEA inspects the manifest. The inspection is under **Settings → Editor → Inspections → npm → Newer npm dependency version available**. The same **Tools → Check Versions** and **Tools → Update Versions** actions work for npm, including Current File and Whole Project.
 
-Registry checks execute only read-only `npm view` commands through IntelliJ's configured runtime. npm evaluates project/user `.npmrc`, environment settings, scoped registries and authentication. Workspace members query from their workspace root so they use its registry configuration. Projects declaring pnpm, Yarn or Bun through `packageManager`, `devEngines.packageManager`, or their manager files are excluded. An explicit npm `packageManager` takes precedence over leftover lockfiles. npm does not need to install dependencies to check versions.
+Registry checks execute only read-only `npm view` commands through IntelliJ's configured runtime. npm evaluates project/user `.npmrc`, environment settings, scoped registries and authentication. Workspace members query from their workspace root so they use its registry configuration. Projects declaring pnpm, Yarn or Bun through `packageManager`, `devEngines.packageManager`, or their manager files are excluded. An explicit npm `packageManager` takes precedence over leftover lockfiles. `devEngines.packageManager` supports both an object and an array of objects; every entry must name npm. Empty, mixed-manager or malformed declarations are excluded. npm does not need to install dependencies to check versions.
 
 Automatic updates cover `dependencies`, `devDependencies` and `optionalDependencies`, including scoped packages and npm aliases. Exact versions and simple caret/tilde selectors retain their operator: `^1.2.3` becomes `^1.2.9`, and `npm:@scope/package@~1.2.3` retains the alias. Each update mode finds the highest published stable, non-deprecated version in its numeric branch, even if the registry's `latest` tag points to an older version. For `0.x` packages, minor mode can cross minor branches; it does not guarantee compatibility.
 
@@ -94,11 +94,11 @@ When a dependency can be updated in multiple manifests within one npm workspace,
 
 Comparisons use the **declared version or range floor**, not the installed or locked version. Registry deprecation notices refer to that baseline, and the project deprecation field accepts npm names such as `@scope/package = Use another package`. Explicitly retired packages require replacement review. Complex ranges, tags, Git/file selectors, local workspace dependencies and peer compatibility are listed as needing review. Peer declarations, overrides, scripts and the package's own version are not updated.
 
-The preview applies only `package.json` string edits in one undoable command, preserving declaration categories. Changes to manifests, workspace membership, npm configuration, package-manager selection, runtime selection or deprecation policy invalidate a prepared preview. Generated/vendor directories such as `node_modules`, `dist`, `build`, `vendor` and `.yarn` are excluded.
+The preview applies only `package.json` string edits in one undoable command, preserving declaration categories. Changes to manifests, workspace membership, npm configuration, package-manager selection, runtime selection or deprecation policy invalidate a prepared preview. Workspace discovery and manifest hashes are reused until documents, VFS contents or project roots change. Fingerprints cover the relevant workspace and configuration; edits to an independent npm project do not invalidate its siblings. Generated/vendor directories such as `node_modules`, `dist`, `build`, `vendor` and `.yarn` are excluded.
 
 **Lockfiles and installed dependencies are left to IntelliJ or npm.** After applying manifest edits, use IntelliJ's package-manager action or run npm yourself to synchronize them. The checker never installs packages or regenerates lockfiles.
 
-The bulk-update preview includes this reminder, and a notification repeats it after applying npm updates.
+The bulk-update preview includes this reminder, and a notification repeats it after successful bulk, local or workspace npm updates. A stale quick fix that makes no edit does not show the reminder.
 
 ## Other ecosystems
 

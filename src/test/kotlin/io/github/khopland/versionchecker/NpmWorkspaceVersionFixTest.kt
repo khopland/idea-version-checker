@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import com.intellij.notification.Notification
+import com.intellij.notification.Notifications
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemHighlightType
@@ -44,6 +46,39 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
     }
     private fun selectors(file: PsiFile) = NpmManifest.values(file).mapKeys { it.key.location }.mapValues { it.value.value }
 
+    private fun reminders(): MutableList<Notification> {
+        val notifications = mutableListOf<Notification>()
+        project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
+            override fun notify(notification: Notification) {
+                if (notification.groupId == "Version Checker") notifications += notification
+            }
+        })
+        return notifications
+    }
+    fun testSuccessfulLocalAndWorkspaceFixesShowSynchronizationReminder() {
+        val rootFile = root()
+        val child = child()
+        val notifications = reminders()
+        apply(child, fixes(child)[0])
+        assertEquals(1, notifications.size)
+        assertTrue(notifications.single().content.contains("npm install"))
+        notifications.clear()
+        apply(rootFile, fixes(rootFile)[1])
+        assertEquals(1, notifications.size)
+        assertTrue(notifications.single().content.contains("lockfiles"))
+    }
+    fun testStaleLocalAndWorkspaceFixesDoNotShowReminder() {
+        val root = root()
+        val child = child()
+        val retained = fixes(child)
+        val notifications = reminders()
+        WriteCommandAction.runWriteCommandAction(project) {
+            NpmVersionEdit(NpmManifest.values(root).values.first(), "^1.2.8", "test").apply()
+        }
+        retained.forEach { apply(child, it) }
+        assertTrue(notifications.isEmpty())
+        assertEquals("1.2.3", selectors(child)["dependencies/alpha"])
+    }
     fun testLocalChoiceUpdatesOnlySelectedDeclaration() {
         val root = root()
         val child = child()
