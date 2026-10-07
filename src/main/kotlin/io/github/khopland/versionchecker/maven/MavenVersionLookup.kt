@@ -23,14 +23,22 @@ internal object MavenVersionLookup {
     suspend fun check(manager: MavenProjectsManager, project: MavenProject,
                       mode: UpdateMode = UpdateMode.MAJOR,
                       artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY): Map<DependencyVersion, String> {
-        if (artifactKind == MavenArtifactKind.PLUGIN) {
-            val plugins = readAction {
+        if (artifactKind != MavenArtifactKind.DEPENDENCY) {
+            val declared = readAction {
                 val file = PsiManager.getInstance(manager.project).findFile(project.file) ?: return@readAction emptyList()
                 val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return@readAction emptyList()
                 val analysis = MavenDependencyAnalysis(model, project, emptyMap())
                 PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).mapNotNull(analysis::coordinate)
-                    .filter { it.artifactKind == MavenArtifactKind.PLUGIN && it.version.isNotBlank() }.distinct()
+                    .filter { it.artifactKind == artifactKind && it.version.isNotBlank() }.distinct()
             }
+            if (artifactKind == MavenArtifactKind.PARENT) {
+                val parent = declared.singleOrNull() ?: return emptyMap()
+                val report = execute(manager, project, mode, "display-parent-updates", DependencyUpdateReport.IGNORED_VERSIONS)
+                val latest = DependencyUpdateReport.parseParent(report, parent)
+                    ?.takeIf { MavenVersionSemantics.allows(mode, parent.version, it) } ?: return emptyMap()
+                return mapOf(parent to latest)
+            }
+            val plugins = declared
             val mavenVersion = MavenDistributionsCache.getInstance(manager.project).getMavenDistribution(project.file).version
             return buildMap {
                 // display-plugin-updates has no allowMajor/MinorUpdates options. Limit its version

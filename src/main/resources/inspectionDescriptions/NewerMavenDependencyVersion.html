@@ -13,5 +13,6 @@ or <b>Update parent version</b> to change its controlling version/property in an
 The parent action names the POM it edits and can follow multiple parent levels. Shared consumers inherit that update.
 Changes to POMs or configuration invalidate these fixes. External parent declarations and composite expressions require manual review.</p>
 <p>Build plugins in build/plugins and build/pluginManagement/plugins are supported.
+A <code>&lt;parent&gt;</code> version is updated in place when the parent is not a project in the workspace.
 Snapshots, version ranges, reporting plugins, build extensions and transitive dependencies are outside this inspection's scope.</p>
 </body></html>

@@ -32,6 +32,9 @@ internal fun isProjectDependency(tag: XmlTag): Boolean = tag.localName == "depen
     tag.parentTag?.localName == "dependencies" &&
     tag.parentTag?.parentTag?.localName in setOf("project", "profile", "dependencyManagement")
 
+internal fun isProjectParent(tag: XmlTag): Boolean = tag.localName == "parent" &&
+    tag.parentTag?.localName == "project" && tag.parentTag?.parentTag == null
+
 internal fun isProjectPlugin(tag: XmlTag): Boolean = tag.localName == "plugin" &&
     tag.parentTag?.localName == "plugins" &&
     (tag.parentTag?.parentTag?.localName == "build" ||

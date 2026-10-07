@@ -239,4 +239,13 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertEquals(1, options.size)
         assertEquals("Update version to 4.13.2", options.single().name)
     }
+
+    fun testWorkspaceParentIsNotAnUpdateCandidate() {
+        imported("parent", management("4.12"))
+        val child = imported("child", "", "parent")
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(child)!!,
+            manager.findProject(child.virtualFile)!!, mapOf(DependencyVersion("demo", "parent", "1", MavenArtifactKind.PARENT) to "2"))
+        assertNull(analysis.coordinate(child.rootTag!!.findFirstSubTag("parent")!!))
+        assertTrue(analysis.problems(child).isEmpty())
+    }
 }

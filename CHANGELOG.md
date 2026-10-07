@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Maven `<parent>` version updates for parents outside the workspace. Reactor and snapshot parents are left unchanged.
+
 ## [1.0.0] - 2026-10-06
 
 ### Added

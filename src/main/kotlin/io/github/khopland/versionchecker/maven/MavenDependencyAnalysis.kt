@@ -24,7 +24,11 @@ internal data class DependencyProblem(
     val severity: VersionSeverity,
     val notice: String? = null
 ) {
-    val message: String get() = notice ?: "Newer version of ${if (coordinate.artifactKind == MavenArtifactKind.PLUGIN) "Maven plugin " else ""}${coordinate.groupId}:${coordinate.artifactId} is available: ${coordinate.version} → $latest"
+    val message: String get() = notice ?: "Newer version of ${when (coordinate.artifactKind) {
+        MavenArtifactKind.PLUGIN -> "Maven plugin "
+        MavenArtifactKind.PARENT -> "parent POM "
+        MavenArtifactKind.DEPENDENCY -> ""
+    }}${coordinate.groupId}:${coordinate.artifactId} is available: ${coordinate.version} → $latest"
 }
 
 internal class MavenDependencyAnalysis(
@@ -41,6 +45,7 @@ internal class MavenDependencyAnalysis(
     }
 
     fun coordinate(tag: XmlTag): DependencyVersion? {
+        if (isProjectParent(tag)) return parentCoordinate(tag)
         val artifactKind = when {
             isProjectDependency(tag) -> MavenArtifactKind.DEPENDENCY
             isProjectPlugin(tag) -> MavenArtifactKind.PLUGIN
@@ -68,11 +73,26 @@ internal class MavenDependencyAnalysis(
         return DependencyVersion(resolvedGroup, resolvedArtifact, current, artifactKind)
     }
 
+    private fun parentCoordinate(tag: XmlTag): DependencyVersion? {
+        val group = tag.findFirstSubTag("groupId")?.value?.trimmedText ?: return null
+        val artifact = tag.findFirstSubTag("artifactId")?.value?.trimmedText ?: return null
+        val version = tag.findFirstSubTag("version")?.value?.trimmedText ?: return null
+        if (!DependencyUpdateReport.isFixedVersion(version)) return null
+        // Workspace parents are versioned with the reactor, so their children must not be bumped to a release.
+        if (MavenProjectsManager.getInstance(tag.project).projects.any {
+                it.mavenId.groupId == group && it.mavenId.artifactId == artifact }) return null
+        return DependencyVersion(group, artifact, version, MavenArtifactKind.PARENT)
+    }
+
     fun problem(tag: XmlTag): DependencyProblem? {
         val coordinate = coordinate(tag) ?: return null
         val latest = updates[coordinate]
         val id = "${coordinate.groupId}:${coordinate.artifactId}"
-        val label = if (coordinate.artifactKind == MavenArtifactKind.PLUGIN) "Maven plugin" else "Dependency"
+        val label = when (coordinate.artifactKind) {
+            MavenArtifactKind.PLUGIN -> "Maven plugin"
+            MavenArtifactKind.PARENT -> "Parent POM"
+            MavenArtifactKind.DEPENDENCY -> "Dependency"
+        }
         val notice = relocations[coordinate]?.let { "$label $id:${coordinate.version} has been relocated to $it" }
             ?: deprecated[id]?.let { "$label $id is marked deprecated: $it" }
         if (latest == null && notice == null) return null

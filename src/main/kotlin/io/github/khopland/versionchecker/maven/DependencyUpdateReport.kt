@@ -2,7 +2,7 @@ package io.github.khopland.versionchecker.maven
 
 import io.github.khopland.versionchecker.*
 
-internal enum class MavenArtifactKind { DEPENDENCY, PLUGIN }
+internal enum class MavenArtifactKind { DEPENDENCY, PLUGIN, PARENT }
 
 /** The version is part of the key: an edited or shared dependency must not receive a stale result. */
 
@@ -16,6 +16,14 @@ internal object DependencyUpdateReport {
     private val wrappedVersion = Regex("""^\s*(\S+)\s+->\s+(\S+)\s*$""")
     const val IGNORED_VERSIONS = "(?i).*[.-](alpha|beta|milestone|rc|cr|ea|preview|snapshot|m)[.-]?[0-9]*([.-].*)?"
     private val unstable = Regex(IGNORED_VERSIONS)
+    // display-parent-updates pads to a fixed width, so long coordinates get no dots.
+    private val parentUpdate = Regex("""^\s*(\S+):(\S+)\s+\.*\s*(\S+)\s+->\s+(\S+)\s*$""")
+
+    fun parseParent(report: String, parent: DependencyVersion): String? = report.lineSequence().firstNotNullOfOrNull { line ->
+        val (group, artifact, current, latest) = parentUpdate.matchEntire(line)?.destructured ?: return@firstNotNullOfOrNull null
+        latest.takeIf { group == parent.groupId && artifact == parent.artifactId && current == parent.version &&
+            isFixedVersion(current) && !unstable.matches(latest) && current != latest }
+    }
 
     fun parse(report: String): Map<DependencyVersion, String> = buildMap {
         var pending: Pair<String, String>? = null

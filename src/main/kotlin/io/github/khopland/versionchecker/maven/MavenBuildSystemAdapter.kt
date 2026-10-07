@@ -57,7 +57,8 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
         val manager = MavenProjectsManager.getInstance(project)
         val mavenProject = readAction { findProject(manager, snapshot) } ?: error("Maven POM is no longer imported")
         val versions = MavenVersionLookup.check(manager, mavenProject, mode) +
-            MavenVersionLookup.check(manager, mavenProject, mode, MavenArtifactKind.PLUGIN)
+            MavenVersionLookup.check(manager, mavenProject, mode, MavenArtifactKind.PLUGIN) +
+            MavenVersionLookup.check(manager, mavenProject, mode, MavenArtifactKind.PARENT)
         val relocations = readRelocations(mavenProject, snapshot)
         return UpdateReport(
             snapshot.declarations.mapNotNull { declaration -> versions[declaration.coordinate()]?.let {

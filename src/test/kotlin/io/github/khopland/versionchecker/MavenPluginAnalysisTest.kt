@@ -81,4 +81,33 @@ class MavenPluginAnalysisTest : BasePlatformTestCase() {
         assertTrue(plan.skipped.single().contains("different updates"))
     }
 
+    fun testExternalParentVersionIsUpdatedInPlace() {
+        val file = myFixture.configureByText("pom.xml", """
+            <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+            <parent><groupId>org.example</groupId><artifactId>parent</artifactId><version>5.40.0</version></parent>
+            <artifactId>app</artifactId></project>
+        """.trimIndent())
+        val parent = DependencyVersion("org.example", "parent", "5.40.0", MavenArtifactKind.PARENT)
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile),
+            mapOf(parent to "5.41.0"))
+        val problem = analysis.problems(file).single()
+        assertEquals(parent, problem.coordinate)
+        assertTrue(problem.message.contains("parent POM org.example:parent"))
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
+        assertTrue(plan.apply(project))
+        assertEquals("5.41.0", (file as XmlFile).rootTag!!.findFirstSubTag("parent")!!.findFirstSubTag("version")!!.value.trimmedText)
+    }
+
+    fun testSnapshotAndPropertyParentsAreNotCandidates() {
+        for (version in listOf("0-SNAPSHOT", "${'$'}{revision}")) {
+            val file = myFixture.configureByText("pom.xml", """
+                <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                <parent><groupId>org.example</groupId><artifactId>parent</artifactId><version>$version</version></parent>
+                <artifactId>app</artifactId></project>
+            """.trimIndent())
+            val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile), emptyMap())
+            assertNull(analysis.coordinate((file as XmlFile).rootTag!!.findFirstSubTag("parent")!!))
+        }
+    }
+
 }

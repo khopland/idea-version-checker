@@ -49,4 +49,18 @@ class DependencyUpdateReportTest {
             g:a ... 1.0 ->
         """.trimIndent()).isEmpty())
     }
+
+    @Test fun `parses parent updates with and without padding dots`() {
+        val parent = DependencyVersion("no.example.felles.infrastructure", "infrastructure", "5.40.0", MavenArtifactKind.PARENT)
+        assertEquals("5.41.0", DependencyUpdateReport.parseParent("""
+            The parent project has a newer version:
+              no.example.felles.infrastructure:infrastructure ........ 5.40.0 -> 5.41.0
+        """.trimIndent(), parent))
+        val long = parent.copy(groupId = "no.skatteetaten.fastsetting.formueinntekt.felles.infrastructure")
+        assertEquals("5.41.0", DependencyUpdateReport.parseParent(
+            "  ${long.groupId}:infrastructure  5.40.0 -> 5.41.0", long))
+        assertNull(DependencyUpdateReport.parseParent("The parent project is the latest version:\n  ${parent.groupId}:infrastructure ... 5.40.0", parent))
+        assertNull(DependencyUpdateReport.parseParent("  ${parent.groupId}:infrastructure ... 5.40.0 -> 6.0.0-RC1", parent))
+        assertNull(DependencyUpdateReport.parseParent("  ${parent.groupId}:other ... 5.40.0 -> 5.41.0", parent))
+    }
 }
