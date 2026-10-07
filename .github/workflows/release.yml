@@ -97,7 +97,7 @@ jobs:
 
       # Tests and compatibility checks run without publishing/signing credentials.
       - name: Test, build and verify tagged plugin
-        run: ./gradlew check buildPlugin verifyPlugin --console=plain
+        run: ./gradlew check buildPlugin verifyPlugin -PgradleIntegration=true --console=plain
 
       - name: Collect validation reports
         if: ${{ always() }}
@@ -106,6 +106,7 @@ jobs:
           name: release-validation-reports
           path: |
             build/reports/tests
+            build/test-results/test
             build/reports/pluginVerifier
           if-no-files-found: ignore
 

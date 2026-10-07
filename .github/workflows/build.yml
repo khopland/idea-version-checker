@@ -1,6 +1,6 @@
 # GitHub Actions workflow for building, testing, verifying, and preparing plugin release drafts:
 # - Build the plugin ZIP with the 'buildPlugin' task and upload it as a workflow artifact.
-# - Run the 'check' task and upload test reports on failure.
+# - Run unit and Gradle integration tests and upload test reports.
 # - Run the 'verifyPlugin' task and upload Plugin Verifier reports.
 # - Prepare a draft for a finalized version, pinned to the tested commit.
 #
@@ -70,7 +70,7 @@ jobs:
           path: ./build/distributions/*.zip
           if-no-files-found: error
 
-  # Run tests and upload test reports on failure
+  # Run unit and Gradle integration tests and upload test reports
   test:
     name: Test
     needs: [ build ]
@@ -108,17 +108,18 @@ jobs:
       - name: Test release automation
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 
-      # Run tests
-      - name: Run Tests
-        run: ./gradlew check
+      - name: Run unit and Gradle integration tests
+        run: ./gradlew check -PgradleIntegration=true --console=plain
 
-      # Collect Tests Result of failed tests
-      - name: Collect Tests Result
-        if: ${{ failure() }}
+      - name: Collect test results
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: tests-result
-          path: ${{ github.workspace }}/build/reports/tests
+          path: |
+            build/reports/tests
+            build/test-results/test
+          if-no-files-found: ignore
 
   # Run plugin structure verification along with IntelliJ Plugin Verifier
   verify:
