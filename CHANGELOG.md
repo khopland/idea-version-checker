@@ -6,6 +6,10 @@
 
 - Maven `<parent>` version updates for parents outside the workspace. Reactor and snapshot parents are left unchanged.
 
+### Fixed
+
+- Maven checks no longer fail when the resolver cannot order an artifact's versions ("Comparison method violates its general contract"), for example when a locally installed `0-SNAPSHOT` meets branch-named snapshots. That artifact is resolved from the metadata Maven downloaded, and the remaining dependencies are still checked.
+
 ## [1.0.0] - 2026-10-06
 
 ### Added

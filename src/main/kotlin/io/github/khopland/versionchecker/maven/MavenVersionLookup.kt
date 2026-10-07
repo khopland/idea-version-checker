@@ -24,18 +24,15 @@ internal object MavenVersionLookup {
                       mode: UpdateMode = UpdateMode.MAJOR,
                       artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY): Map<DependencyVersion, String> {
         if (artifactKind != MavenArtifactKind.DEPENDENCY) {
-            val declared = readAction {
-                val file = PsiManager.getInstance(manager.project).findFile(project.file) ?: return@readAction emptyList()
-                val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return@readAction emptyList()
-                val analysis = MavenDependencyAnalysis(model, project, emptyMap())
-                PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).mapNotNull(analysis::coordinate)
-                    .filter { it.artifactKind == artifactKind && it.version.isNotBlank() }.distinct()
-            }
+            val declared = declared(manager, project, artifactKind)
             if (artifactKind == MavenArtifactKind.PARENT) {
                 val parent = declared.singleOrNull() ?: return emptyMap()
-                val report = execute(manager, project, mode, "display-parent-updates", DependencyUpdateReport.IGNORED_VERSIONS)
-                val latest = DependencyUpdateReport.parseParent(report, parent)
-                    ?.takeIf { MavenVersionSemantics.allows(mode, parent.version, it) } ?: return emptyMap()
+                val latest = try {
+                    val report = execute(manager, project, mode, "display-parent-updates", DependencyUpdateReport.IGNORED_VERSIONS)
+                    DependencyUpdateReport.parseParent(report, parent)?.takeIf { MavenVersionSemantics.allows(mode, parent.version, it) }
+                } catch (_: VersionRetrievalFailure) {
+                    MavenRepositoryMetadata.latest(project.localRepositoryPath, parent, mode)
+                } ?: return emptyMap()
                 return mapOf(parent to latest)
             }
             val plugins = declared
@@ -50,12 +47,34 @@ internal object MavenVersionLookup {
                 }
             }
         }
-        val report = execute(manager, project, mode, "display-dependency-updates", DependencyUpdateReport.IGNORED_VERSIONS)
-        return DependencyUpdateReport.parse(report).filter { (dependency, latest) -> MavenVersionSemantics.allows(mode, dependency.version, latest) }
+        // One unsortable artifact aborts the whole goal, so exclude it, rerun, and resolve it from metadata.
+        val excluded = linkedSetOf<String>()
+        var report: String
+        while (true) {
+            try {
+                report = execute(manager, project, mode, "display-dependency-updates", DependencyUpdateReport.IGNORED_VERSIONS, excluded)
+                break
+            } catch (failure: VersionRetrievalFailure) {
+                if (!excluded.add(failure.artifact)) throw failure
+            }
+        }
+        val updates = DependencyUpdateReport.parse(report).filter { (dependency, latest) -> MavenVersionSemantics.allows(mode, dependency.version, latest) }
+        if (excluded.isEmpty()) return updates
+        return updates + declared(manager, project, MavenArtifactKind.DEPENDENCY)
+            .filter { "${it.groupId}:${it.artifactId}" in excluded }
+            .mapNotNull { dependency -> MavenRepositoryMetadata.latest(project.localRepositoryPath, dependency, mode)?.let { dependency to it } }
+    }
+
+    private suspend fun declared(manager: MavenProjectsManager, project: MavenProject, artifactKind: MavenArtifactKind) = readAction {
+        val file = PsiManager.getInstance(manager.project).findFile(project.file) ?: return@readAction emptyList()
+        val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return@readAction emptyList()
+        val analysis = MavenDependencyAnalysis(model, project, emptyMap())
+        PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).mapNotNull(analysis::coordinate)
+            .filter { it.artifactKind == artifactKind && it.version.isNotBlank() }.distinct()
     }
 
     private suspend fun execute(manager: MavenProjectsManager, project: MavenProject, mode: UpdateMode,
-                                goal: String, ignoredVersions: String): String {
+                                goal: String, ignoredVersions: String, excluded: Set<String> = emptySet()): String {
         val output = Files.createTempFile("maven-version-checker-", ".txt")
         // Own the embedder lifetime so a refresh reads settings.xml again and cannot disturb Maven imports.
         val embedders = MavenEmbeddersManager(manager.project)
@@ -78,6 +97,10 @@ internal object MavenVersionLookup {
                 setProperty("processPluginDependencies", "false")
                 setProperty("processPluginDependenciesInPluginManagement", "false")
                 setProperty("displayManagedBy", "false")
+                if (excluded.isNotEmpty()) {
+                    setProperty("dependencyExcludes", excluded.joinToString(","))
+                    setProperty("dependencyManagementExcludes", excluded.joinToString(","))
+                }
             }
             val id = project.mavenId
             // Restrict an aggregator scan to this POM, keeping each module's repository context separate.
@@ -99,7 +122,9 @@ internal object MavenVersionLookup {
             }
             if (results.isEmpty() || results.any { !it.success }) {
                 val details = results.flatMap { it.problems }.mapNotNull { it.description }.joinToString("\n")
-                throw IOException("Maven could not check ${project.path}" + details.takeIf { it.isNotBlank() }?.let { ":\n$it" }.orEmpty())
+                val message = "Maven could not check ${project.path}" + details.takeIf { it.isNotBlank() }?.let { ":\n$it" }.orEmpty()
+                VersionRetrievalFailure.artifact(details)?.let { throw VersionRetrievalFailure(it, message) }
+                throw IOException(message)
             }
             // The goal can remove its output file when a successful module has nothing to report.
             // Empty aggregators and up-to-date modules must not abort a reactor-wide update scan.
@@ -109,5 +134,13 @@ internal object MavenVersionLookup {
             embedders.reset()
             Files.deleteIfExists(output)
         }
+    }
+}
+
+/** versions-maven-plugin reports this when the resolver throws while ordering an artifact's versions. */
+internal class VersionRetrievalFailure(val artifact: String, message: String) : IOException(message) {
+    companion object {
+        private val pattern = Regex("""Unable to retrieve versions for ([^:\s]+):([^:\s]+):""")
+        fun artifact(details: String): String? = pattern.find(details)?.let { "${it.groupValues[1]}:${it.groupValues[2]}" }
     }
 }
