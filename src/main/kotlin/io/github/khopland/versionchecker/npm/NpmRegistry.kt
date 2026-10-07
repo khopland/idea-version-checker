@@ -7,6 +7,7 @@ import com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterManager
 import com.intellij.javascript.nodejs.interpreter.local.NodeJsLocalInterpreter
 import com.intellij.javascript.nodejs.npm.NpmManager
 import com.intellij.javascript.nodejs.npm.NpmUtil
+import com.intellij.javascript.nodejs.util.NodePackage
 import com.intellij.lang.javascript.buildTools.npm.rc.NpmCommand
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
@@ -14,6 +15,7 @@ import io.github.khopland.versionchecker.UpdateMode
 import kotlinx.coroutines.*
 import java.io.IOException
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.coroutines.resume
 
@@ -25,12 +27,31 @@ internal object NpmRegistry {
         val interpreter = NodeJsInterpreterManager.getInstance(project).interpreter
             ?: error("Configure a local Node.js interpreter and npm in IntelliJ's JavaScript runtime settings")
         check(interpreter is NodeJsLocalInterpreter) { "npm checks currently require a local Node.js interpreter" }
-        val npm = NpmManager.getInstance(project).getPackageOrThrow(interpreter)
-        check(NpmManager.getNpmPackagePresentableName(npm) == "npm") { "npm checks currently require npm as IntelliJ's configured package manager" }
+        val configured = NpmManager.getInstance(project).getPackageOrThrow(interpreter)
+        check(NpmManager.getNpmPackagePresentableName(configured) == "npm") { "npm checks currently require npm as IntelliJ's configured package manager" }
+        val npm = packageDirectory(configured) ?: bundledPackage(interpreter, directory) ?: configured
         return NpmUtil.createNpmCommandLine(directory, interpreter, npm, NpmCommand.VIEW,
             parameters + listOf("--json", "--loglevel=error", "--update-notifier=false", "--fetch-retries=0", "--workspaces=false"))
             .withCharset(StandardCharsets.UTF_8)
     }
+    /** Settings often name the npm executable (e.g. /opt/homebrew/bin/npm) instead of the npm package directory. */
+    internal fun packageDirectory(npm: NodePackage): NodePackage? {
+        val path = runCatching { Path.of(npm.systemDependentPath).toRealPath() }.getOrNull() ?: return null
+        val root = if (Files.isDirectory(path)) path else path.parent?.takeIf { it.fileName?.toString() == "bin" }?.parent ?: return null
+        return NodePackage(root).takeIf { isNpmPackage(root) }
+    }
+    /** Version-manager shims (mise, asdf, Volta) only reveal the real Node binary when run. */
+    private fun bundledPackage(interpreter: NodeJsLocalInterpreter, directory: Path): NodePackage? {
+        val output = runCatching {
+            CapturingProcessHandler(GeneralCommandLine(interpreter.interpreterSystemDependentPath, "-p", "process.execPath")
+                .withWorkingDirectory(directory).withCharset(StandardCharsets.UTF_8)).runProcess(10_000)
+        }.getOrNull()?.takeIf { it.exitCode == 0 && !it.isTimeout } ?: return null
+        return runCatching { Path.of(output.stdout.trim()).toRealPath() }.getOrNull()?.let(::bundledPackage)
+    }
+    internal fun bundledPackage(node: Path): NodePackage? =
+        listOfNotNull(node.parent?.parent?.resolve("lib/node_modules/npm"), node.parent?.resolve("node_modules/npm"))
+            .firstOrNull(::isNpmPackage)?.let(::NodePackage)
+    private fun isNpmPackage(root: Path) = Files.isRegularFile(root.resolve("bin").resolve("npm-cli.js"))
     suspend fun metadata(project: Project, directory: Path, name: String): NpmPackageMetadata {
         check(NpmSelector.validName(name)) { "Invalid npm package name" }
         return parseMetadata(view(project, directory, listOf(name, "versions")))

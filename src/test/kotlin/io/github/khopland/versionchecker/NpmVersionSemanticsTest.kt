@@ -1,9 +1,11 @@
 package io.github.khopland.versionchecker
 
+import com.intellij.javascript.nodejs.util.NodePackage
 import io.github.khopland.versionchecker.npm.*
 import io.github.khopland.versionchecker.core.VersionChangeKind
 import org.junit.Assert.*
 import org.junit.Test
+import java.nio.file.Files
 
 class NpmVersionSemanticsTest {
     @Test fun preservesExactCaretTildeAndScopedAliasSelectors() {
@@ -51,5 +53,21 @@ class NpmVersionSemanticsTest {
     }
     @Test fun handlesRegistryMetadataWithOnlyOnePublishedVersion() {
         assertEquals(listOf("1.0.0"), NpmRegistry.parseMetadata("""{"versions":"1.0.0","dist-tags":{"latest":"1.0.0"}}""").versions)
+    }
+    @Test fun resolvesNpmExecutableSymlinkToPackageDirectory() {
+        val root = Files.createTempDirectory("npm-layout").toRealPath()
+        try {
+            val npmPackage = Files.createDirectories(root.resolve("lib/node_modules/npm"))
+            val cli = Files.createFile(Files.createDirectories(npmPackage.resolve("bin")).resolve("npm-cli.js"))
+            val executable = Files.createSymbolicLink(Files.createDirectories(root.resolve("bin")).resolve("npm"), cli)
+            assertEquals(npmPackage.toString(), NpmRegistry.packageDirectory(NodePackage(executable))?.systemDependentPath)
+            assertEquals(npmPackage.toString(), NpmRegistry.packageDirectory(NodePackage(npmPackage))?.systemDependentPath)
+            val shim = Files.createFile(root.resolve("bin/node"))
+            assertNull(NpmRegistry.packageDirectory(NodePackage(shim)))
+            assertEquals(npmPackage.toString(), NpmRegistry.bundledPackage(shim)?.systemDependentPath)
+            assertNull(NpmRegistry.bundledPackage(npmPackage.resolve("bin/npm-cli.js")))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
     }
 }
