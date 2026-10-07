@@ -13,9 +13,10 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.psi.PsiManager
 import com.intellij.util.EnvironmentUtil
+import com.intellij.util.text.minimatch.Minimatch
+import com.intellij.util.text.minimatch.MinimatchOptions
 import io.github.khopland.versionchecker.*
 import io.github.khopland.versionchecker.core.*
-import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -255,18 +256,32 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         val workspaces = (workspaceValue as? JsonArray) ?: ((workspaceValue as? JsonObject)?.findProperty("packages")?.value as? JsonArray)
         val patterns = workspaces?.valueList?.mapNotNull { (it as? JsonStringLiteral)?.value }.orEmpty()
         if (patterns.isEmpty()) return null
-        fun matches(pattern: String, path: String) = runCatching {
-            FileSystems.getDefault().getPathMatcher("glob:${pattern.removePrefix("./").trimEnd('/')}").matches(Path.of(path))
-        }.getOrDefault(false)
+        // npm uses minimatch: a globstar can match zero directory levels, unlike Java's glob matcher.
+        val options = MinimatchOptions(nocomment = true, nonegate = true)
+        fun matchers(pattern: String) = expandBraceAlternatives(pattern.removePrefix("./").trimEnd('/'))
+            .map { Minimatch(it, options) }.toList()
+        val included = patterns.filterNot { it.startsWith('!') }.flatMap(::matchers)
+        val excluded = patterns.filter { it.startsWith('!') }.flatMap { matchers(it.drop(1)) }
         val members = NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).filter { manifest ->
             val relative = VfsUtilCore.getRelativePath(manifest.parent, directory)
-            relative != null && patterns.filterNot { it.startsWith('!') }.any { matches(it, relative) } &&
-                patterns.filter { it.startsWith('!') }.none { matches(it.drop(1), relative) }
+            relative != null && included.any { it.match(relative) } && excluded.none { it.match(relative) }
         }
         val names = members.mapNotNull { manifest ->
             val psi = PsiManager.getInstance(project).findFile(manifest)
             (psi?.let(NpmManifest::root)?.findProperty("name")?.value as? JsonStringLiteral)?.value
         }.toSet()
         return Workspace(directory, names, (listOf(rootFile) + members).distinct())
+    }
+
+    /** The bundled minimatch port leaves brace expansion unimplemented. Expand alternatives first. */
+    private fun expandBraceAlternatives(pattern: String): Sequence<String> = sequence {
+        val group = Regex("""\{([^{}]*,[^{}]*)}""").find(pattern)
+        if (group == null) {
+            yield(pattern)
+        } else {
+            for (alternative in group.groupValues[1].split(',')) {
+                yieldAll(expandBraceAlternatives(pattern.replaceRange(group.range, alternative)))
+            }
+        }
     }
 }

@@ -205,6 +205,29 @@ class NpmAdapterTest : BasePlatformTestCase() {
         assertFalse(prepared.apply(project))
         assertEquals("^1.2.3", NpmManifest.values(file).values.single().value)
     }
+    fun testGlobstarMatchesZeroAndMultipleDirectoriesAndPreservesLocalNames() {
+        val root = myFixture.addFileToProject("glob/package.json", """{"workspaces":["./packages/**/{app,library}/"]}""")
+        myFixture.addFileToProject("glob/packages/library/package.json", """{"name":"@local/library","version":"1.0.0"}""")
+        val members = listOf("packages/app", "packages/nested/app", "packages/nested/deeper/app").map { path ->
+            myFixture.addFileToProject("glob/$path/package.json", """{"dependencies":{"@local/library":"^1.2.3"}}""")
+        }
+        for (member in members) {
+            val snapshot = adapter.snapshot(project, member.virtualFile)!!
+            assertEquals(root.virtualFile.parent.path, snapshot.context.root)
+            assertTrue(snapshot.declarations.single().baseline.isEmpty())
+        }
+        val independent = myFixture.addFileToProject("glob/packages/other/package.json", "{}")
+        assertEquals(independent.virtualFile.parent.path, adapter.snapshot(project, independent.virtualFile)!!.context.root)
+    }
+    fun testGlobstarExclusionsAlsoMatchZeroDirectoryLevels() {
+        val root = myFixture.addFileToProject("glob-exclusion/package.json", """{"workspaces":["packages/**","!packages/**/excluded"]}""")
+        val app = myFixture.addFileToProject("glob-exclusion/packages/app/package.json", "{}")
+        assertEquals(root.virtualFile.parent.path, adapter.snapshot(project, app.virtualFile)!!.context.root)
+        for (path in listOf("packages/excluded", "packages/nested/excluded")) {
+            val excluded = myFixture.addFileToProject("glob-exclusion/$path/package.json", "{}")
+            assertEquals(excluded.virtualFile.parent.path, adapter.snapshot(project, excluded.virtualFile)!!.context.root)
+        }
+    }
     fun testQuickFixPreservesRangeAndRejectsStaleSelectors() {
         val file = myFixture.addFileToProject("fix/package.json", """{"dependencies":{"alpha":"^1.2.3"}}""")
         val value = NpmManifest.values(file).values.single()

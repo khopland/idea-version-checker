@@ -8,6 +8,9 @@
 
 ### Fixed
 
+- Maven bulk updates skip shared properties referenced in XML attributes, including uses in unselected modules.
+- Maven metadata fallbacks only use the current project's effective release repositories and mirrors.
+- npm workspace glob matching recognizes zero-level globstars and uses minimatch semantics for inclusions and exclusions.
 - Local Maven literal, property, plugin and parent quick fixes reject stale coordinates, declaration context and Maven configuration.
 - npm project detection accepts object and array forms of `devEngines.packageManager`; mixed, empty or malformed manager declarations remain excluded.
 - npm quick fixes show the lockfile and installed-dependency synchronization reminder after a successful edit.

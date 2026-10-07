@@ -185,6 +185,11 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val updates = PlatformTestUtil.waitForFuture(future, 120_000)
             assertEquals("2.0", updates[DependencyVersion("example.versionchecker", "fixture", "1.0")])
             assertTrue("Expected authenticated metadata requests through the settings mirror", metadataRequests.get() > 0)
+            val repositories = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { MavenVersionLookup.effectiveRepositoryIds(manager, mavenProject) }
+            })
+            assertEquals("Fallback must use the active settings profile, its mirror, and release policy",
+                setOf("private-fixture"), PlatformTestUtil.waitForFuture(repositories, 120_000))
             for ((mode, expected) in listOf(UpdateMode.PATCH to "1.0.1", UpdateMode.MINOR to "1.1.1")) {
                 val restricted = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                     runBlocking { MavenVersionLookup.check(manager, mavenProject, mode) }

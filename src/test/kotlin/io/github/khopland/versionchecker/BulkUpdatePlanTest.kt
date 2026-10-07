@@ -61,6 +61,19 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
         assertTrue(plan.changes.isEmpty())
     }
+    fun testSkipsPropertyUsedInPluginConfigurationAttributes() {
+        for (configuration in listOf(
+            "<component version=\"\${shared}\"/>",
+            "<component version=\"prefix-\${shared}\"><child/></component>"
+        )) {
+            val plan = plan("<properties><shared>1.0</shared></properties><dependencies>" + dep("a", "\${shared}") +
+                "</dependencies><build><plugins><plugin><groupId>g</groupId><artifactId>generator</artifactId>" +
+                "<version>1.0</version><configuration>$configuration</configuration></plugin></plugins></build>",
+                mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
+            assertTrue(configuration, plan.changes.isEmpty())
+            assertTrue(plan.skipped.single().contains("other uses"))
+        }
+    }
     fun testStalePreviewDoesNotPartiallyApply() {
         val plan = plan("<dependencies>" + dep("a", "1.0") + dep("b", "1.0") + "</dependencies>",
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0", DependencyVersion("g", "b", "1.0") to "2.0"))
@@ -97,5 +110,22 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis), usageFiles = listOf(file, child))
         assertTrue(plan.changes.isEmpty())
         assertTrue(plan.skipped.single().contains("inherited"))
+    }
+    fun testCurrentFilePropertySafetyIncludesAttributesInUnselectedModules() {
+        val file = myFixture.configureByText("pom.xml", """
+            <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+            <groupId>g</groupId><artifactId>parent</artifactId><version>1</version>
+            <properties><shared>1.0</shared></properties><dependencies>${dep("a", "\${shared}")}</dependencies></project>
+        """.trimIndent())
+        val child = myFixture.addFileToProject("child/pom.xml", """
+            <project><build><plugins><plugin><configuration>
+            <component version="${'$'}{shared}"/>
+            </configuration></plugin></plugins></build></project>
+        """.trimIndent())
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile),
+            mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis), usageFiles = listOf(file, child))
+        assertTrue(plan.changes.isEmpty())
+        assertTrue(plan.skipped.single().contains("other uses"))
     }
 }

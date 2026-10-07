@@ -38,12 +38,17 @@ internal object MavenBulkUpdatePlan {
             val latest = versions.single()
             if (target.parentTag?.localName == "properties") {
                 val reference = "\${${target.localName}}"
+                val attributeUsage = usageFiles.any { file ->
+                    PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).any { tag ->
+                        tag.attributes.any { it.value?.contains(reference) == true }
+                    }
+                }
                 val usages = usageFiles.flatMap { file ->
                     PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).filter {
                         it.subTags.isEmpty() && it.value.trimmedText.contains(reference)
                     }
                 }
-                val safe = usages.isNotEmpty() && usages.all { usage ->
+                val safe = !attributeUsage && usages.isNotEmpty() && usages.all { usage ->
                     usage.localName == "version" && usage.value.trimmedText == reference &&
                         findLocalVersionProperty(usage, reference, target.value.trimmedText)?.let(::key) == targetKey &&
                         group.any { it.anchor == usage && it.latest == latest }

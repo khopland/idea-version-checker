@@ -20,7 +20,7 @@ class MavenRepositoryMetadataTest {
         Files.writeString(directory.resolve("maven-metadata-nexus.xml"), metadata("5.40.0", "5.51.2", "5.9.0", "6.0.0-RC5",
             "feature_SPAP_51175-SNAPSHOT", "BUMP_INFORMASJONSMODELL-SNAPSHOT"))
         Files.writeString(directory.resolve("maven-metadata-local.xml"), metadata("0-SNAPSHOT", "99.0.0"))
-        assertEquals("5.51.2", MavenRepositoryMetadata.latest(temp.root.toPath(), dependency, UpdateMode.MAJOR))
+        assertEquals("5.51.2", MavenRepositoryMetadata.latest(temp.root.toPath(), dependency, UpdateMode.MAJOR, setOf("nexus", "local")))
     }
 
     @Test fun `respects update mode and missing artifacts`() {
@@ -29,7 +29,34 @@ class MavenRepositoryMetadataTest {
         assertEquals("5.51.2", MavenRepositoryMetadata.latest(versions, "5.40.0", UpdateMode.MINOR))
         assertEquals("5.40.1", MavenRepositoryMetadata.latest(versions, "5.40.0", UpdateMode.PATCH))
         assertNull(MavenRepositoryMetadata.latest(versions, "6.1.0", UpdateMode.MAJOR))
-        assertNull(MavenRepositoryMetadata.latest(temp.root.toPath(), dependency, UpdateMode.MAJOR))
+        assertNull(MavenRepositoryMetadata.latest(temp.root.toPath(), dependency, UpdateMode.MAJOR, setOf("central")))
+    }
+
+    @Test fun `ignores metadata from inactive repositories including malformed files`() {
+        val directory = Files.createDirectories(temp.root.toPath().resolve("no/example/felles/infrastructure-api-ats"))
+        Files.writeString(directory.resolve("maven-metadata-active-mirror.xml"), metadata("5.51.2"))
+        Files.writeString(directory.resolve("maven-metadata-unrelated-private.xml"), metadata("99.0.0"))
+        Files.writeString(directory.resolve("maven-metadata-old-broken.xml"), "not xml")
+        assertEquals("5.51.2", MavenRepositoryMetadata.latest(temp.root.toPath(), dependency, UpdateMode.MAJOR, setOf("active-mirror")))
+        assertNull(MavenRepositoryMetadata.latest(temp.root.toPath(), dependency, UpdateMode.MAJOR, setOf("central")))
+        assertNull(MavenRepositoryMetadata.latest(temp.root.toPath(), dependency, UpdateMode.MAJOR, emptySet()))
+    }
+
+    @Test fun `reads effective repository policies without including plugin repositories`() {
+        val pom = JDOMUtil.load("""
+            <project xmlns="http://maven.apache.org/POM/4.0.0"><repositories>
+              <repository><id>central</id><url>https://repo.maven.apache.org/maven2</url></repository>
+              <repository><id>snapshots</id><url>https://example.test/snapshots</url>
+                <releases><enabled>false</enabled></releases><snapshots><enabled>true</enabled></snapshots></repository>
+            </repositories><pluginRepositories><pluginRepository><id>plugins-only</id>
+              <url>https://example.test/plugins</url></pluginRepository></pluginRepositories></project>
+        """.trimIndent())
+        val repositories = MavenRepositoryMetadata.repositories(pom)
+        assertEquals(listOf("central", "snapshots"), repositories.map { it.id })
+        assertEquals(true, repositories.first().releasesPolicy?.isEnabled)
+        assertEquals(true, repositories.first().snapshotsPolicy?.isEnabled)
+        assertEquals(false, repositories.last().releasesPolicy?.isEnabled)
+        assertEquals(true, repositories.last().snapshotsPolicy?.isEnabled)
     }
 
     @Test fun `reads namespaced metadata`() {

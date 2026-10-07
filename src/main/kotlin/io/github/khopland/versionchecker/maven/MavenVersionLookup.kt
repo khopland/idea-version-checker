@@ -9,6 +9,7 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.server.MavenGoalExecutionRequest
 import org.jetbrains.idea.maven.server.MavenDistributionsCache
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.psi.PsiManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.xml.XmlTag
@@ -31,7 +32,7 @@ internal object MavenVersionLookup {
                     val report = execute(manager, project, mode, "display-parent-updates", DependencyUpdateReport.IGNORED_VERSIONS)
                     DependencyUpdateReport.parseParent(report, parent)?.takeIf { MavenVersionSemantics.allows(mode, parent.version, it) }
                 } catch (_: VersionRetrievalFailure) {
-                    MavenRepositoryMetadata.latest(project.localRepositoryPath, parent, mode)
+                    MavenRepositoryMetadata.latest(project.localRepositoryPath, parent, mode, effectiveRepositoryIds(manager, project))
                 } ?: return emptyMap()
                 return mapOf(parent to latest)
             }
@@ -60,9 +61,29 @@ internal object MavenVersionLookup {
         }
         val updates = DependencyUpdateReport.parse(report).filter { (dependency, latest) -> MavenVersionSemantics.allows(mode, dependency.version, latest) }
         if (excluded.isEmpty()) return updates
+        val repositoryIds = effectiveRepositoryIds(manager, project)
         return updates + declared(manager, project, MavenArtifactKind.DEPENDENCY)
             .filter { "${it.groupId}:${it.artifactId}" in excluded }
-            .mapNotNull { dependency -> MavenRepositoryMetadata.latest(project.localRepositoryPath, dependency, mode)?.let { dependency to it } }
+            .mapNotNull { dependency -> MavenRepositoryMetadata.latest(project.localRepositoryPath, dependency, mode, repositoryIds)?.let { dependency to it } }
+    }
+
+    internal suspend fun effectiveRepositoryIds(manager: MavenProjectsManager, project: MavenProject): Set<String> {
+        val embedders = MavenEmbeddersManager(manager.project)
+        try {
+            val embedder = embedders.getEmbedder(project, MavenEmbeddersManager.FOR_DEPENDENCIES_RESOLVE)
+            try {
+                val profiles = manager.explicitProfiles
+                val pom = embedder.evaluateEffectivePom(project.file.toNioPath().toFile(), profiles.enabledProfiles, profiles.disabledProfiles)
+                    ?: error("Maven could not determine effective repositories for ${project.path}")
+                val repositories = MavenRepositoryMetadata.repositories(JDOMUtil.load(pom)).filter { it.releasesPolicy?.isEnabled != false }
+                // Let Maven apply the current settings' mirrors rather than matching repository IDs ourselves.
+                return embedder.resolveRepositories(repositories).filter { it.releasesPolicy?.isEnabled != false }.map { it.id }.toSet()
+            } finally {
+                embedders.release(embedder)
+            }
+        } finally {
+            embedders.reset()
+        }
     }
 
     private suspend fun declared(manager: MavenProjectsManager, project: MavenProject, artifactKind: MavenArtifactKind) = readAction {
