@@ -1,5 +1,6 @@
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.changelog.Changelog
+import org.jetbrains.intellij.platform.gradle.tasks.PublishPluginTask
 
 plugins {
     id("org.jetbrains.kotlin.jvm")
@@ -43,11 +44,21 @@ tasks.test {
 intellijPlatform {
     pluginConfiguration {
         changeNotes = provider {
-            changelog.renderItem(changelog.get(project.version.toString()).withHeader(false), Changelog.OutputType.HTML)
+            val entry = changelog.getOrNull(project.version.toString()) ?: changelog.getUnreleased()
+            changelog.renderItem(entry.withHeader(false), Changelog.OutputType.HTML)
         }
         ideaVersion {
             sinceBuild = "253.33813.55"
         }
+    }
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
+        channels = providers.gradleProperty("marketplaceChannel").map { listOf(it) }.orElse(listOf("default"))
+    }
+    signing {
+        privateKey = providers.environmentVariable("PRIVATE_KEY")
+        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
     }
     pluginVerification {
         ides {
@@ -55,4 +66,16 @@ intellijPlatform {
             create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdea, "2026.1.4")
         }
     }
+}
+
+// Publish the exact archive selected by the release workflow, including its signature.
+tasks.named<PublishPluginTask>("publishPlugin") {
+    providers.gradleProperty("releaseArchive").orNull?.let {
+        archiveFiles.setFrom(layout.projectDirectory.file(it))
+    }
+}
+
+// The signature verifier consumes signPlugin's output; declare the dependency for Gradle validation.
+tasks.named("verifyPluginSignature") {
+    dependsOn("signPlugin")
 }

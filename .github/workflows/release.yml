@@ -1,60 +1,150 @@
-# GitHub Actions Workflow created for handling the release process based on the draft release prepared with the Build workflow.
-# Running the publishPlugin task requires all the following secrets to be provided: PUBLISH_TOKEN, PRIVATE_KEY, PRIVATE_KEY_PASSWORD, CERTIFICATE_CHAIN.
-# See https://plugins.jetbrains.com/docs/intellij/plugin-signing.html for more information.
-
 name: Release
 on:
   release:
-    types: [ prereleased, released ]
+    types: [ published ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published GitHub release tag (for recovery)
+        required: true
+        type: string
+      publish_marketplace:
+        description: Upload to Marketplace (disable if this version was already uploaded)
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
-
-  # Prepare and publish the plugin to JetBrains Marketplace repository
   release:
-    name: Publish Plugin
+    name: Validate and publish plugin
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
+      - name: Resolve published GitHub release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          release=$(gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease)
+          if [[ $(jq -r '.isDraft' <<< "$release") != false ]]; then
+            echo 'Publish the GitHub release before running Marketplace delivery.' >&2
+            exit 1
+          fi
+          echo "tag=$(jq -r '.tagName' <<< "$release")" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$(jq -r '.isPrerelease' <<< "$release")" >> "$GITHUB_OUTPUT"
 
-      # Free GitHub Actions Environment Disk Space
-      - name: Maximize Build Space
+      - name: Validate publishing credentials
+        env:
+          PUBLISH_MARKETPLACE: ${{ github.event_name == 'release' || inputs.publish_marketplace }}
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [[ "$PUBLISH_MARKETPLACE" == true && -z "$PUBLISH_TOKEN" ]]; then
+            echo 'Add the PUBLISH_TOKEN GitHub Actions secret from your JetBrains Marketplace account.' >&2
+            exit 1
+          fi
+          if [[ -n "$PRIVATE_KEY" || -n "$CERTIFICATE_CHAIN" || -n "$PRIVATE_KEY_PASSWORD" ]]; then
+            if [[ -z "$PRIVATE_KEY" || -z "$CERTIFICATE_CHAIN" ]]; then
+              echo 'Signing requires both PRIVATE_KEY and CERTIFICATE_CHAIN; PRIVATE_KEY_PASSWORD is optional.' >&2
+              exit 1
+            fi
+          fi
+
+      - name: Maximize build space
         uses: jlumbroso/free-disk-space@v2.0.0
         with:
           tool-cache: false
           large-packages: false
 
-      # Check out the current repository
-      - name: Fetch Sources
+      - name: Fetch tagged sources
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+          persist-credentials: false
 
-      # Set up the Java environment for the next steps
+      - name: Validate tag, version and changelog
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+        run: python3 .github/scripts/release_metadata.py --tag "$RELEASE_TAG" --prerelease "$PRERELEASE"
+
       - name: Setup Java
         uses: actions/setup-java@v6
         with:
           distribution: zulu
           java-version: 21
 
-      # Setup Gradle
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: true
 
-      # Publish the reviewed version and changelog from the release tag.
-      # Finalize CHANGELOG.md before tagging; publishing does not rewrite release notes.
-      - name: Publish Plugin
+      - name: Test release automation
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
+
+      # Tests and compatibility checks run without publishing/signing credentials.
+      - name: Test, build and verify tagged plugin
+        run: ./gradlew check buildPlugin verifyPlugin --console=plain
+
+      - name: Collect validation reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-validation-reports
+          path: |
+            build/reports/tests
+            build/reports/pluginVerifier
+          if-no-files-found: ignore
+
+      - name: Sign plugin when configured
         env:
-          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
           CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
-        run: ./gradlew publishPlugin
+        run: |
+          if [[ -n "$PRIVATE_KEY" && -n "$CERTIFICATE_CHAIN" ]]; then
+            ./gradlew signPlugin verifyPluginSignature --no-configuration-cache --console=plain
+          fi
 
-      # Upload an artifact as a release asset
-      - name: Upload Release Asset
+      - name: Select release archive and checksum
+        id: archive
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.event.release.tag_name }} ./build/distributions/*
+          VERSION: ${{ steps.metadata.outputs.version }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+        run: |
+          archive="build/distributions/version-checker-$VERSION.zip"
+          if [[ -n "$PRIVATE_KEY" ]]; then
+            archive="build/distributions/version-checker-$VERSION-signed.zip"
+          fi
+          test -s "$archive"
+          (cd build/distributions && sha256sum "$(basename "$archive")" > SHA256SUMS)
+          echo "path=$archive" >> "$GITHUB_OUTPUT"
+
+      # Upload assets first so a GitHub upload failure cannot follow a successful Marketplace upload.
+      - name: Upload GitHub release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          ARCHIVE: ${{ steps.archive.outputs.path }}
+        run: gh release upload "$RELEASE_TAG" "$ARCHIVE" build/distributions/SHA256SUMS --clobber
+
+      - name: Publish to JetBrains Marketplace
+        if: github.event_name == 'release' || inputs.publish_marketplace
+        env:
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          CHANNEL: ${{ steps.metadata.outputs.channel }}
+          ARCHIVE: ${{ steps.archive.outputs.path }}
+        run: ./gradlew publishPlugin -PmarketplaceChannel="$CHANNEL" -PreleaseArchive="$ARCHIVE" -x buildPlugin -x signPlugin -x patchChangelog --no-configuration-cache --console=plain

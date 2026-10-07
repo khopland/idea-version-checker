@@ -19,8 +19,8 @@ The parent choice is available only when the controlling declaration can be iden
 
 Requires IntelliJ IDEA **2025.3.6.1 or later**. Enable the bundled Java and Maven plugins for Maven projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2025.3.6.1.
 
-1. Build with `./gradlew buildPlugin` using Java 21 or later. Gradle uses a Java 21 toolchain.
-2. In IDEA, open **Settings → Plugins → gear → Install Plugin from Disk** and select `build/distributions/version-checker-1.0.0.zip`.
+1. In IDEA, open **Settings → Plugins → Marketplace**, search for **Version Checker**, and install it. For a local build, run `./gradlew buildPlugin` using Java 21 or later; Gradle uses a Java 21 toolchain.
+2. If installing a local build, use **Settings → Plugins → gear → Install Plugin from Disk** and select the ZIP in `build/distributions/`.
 3. Open and import a Maven project. Checks start in the background when IDEA inspects an imported POM.
 4. Use **Tools → Check Versions → Current File** to refresh the POM in the editor, or **Whole Project** for all imported modules.
 
@@ -142,6 +142,10 @@ The npm integration test uses IntelliJ's configured Node/npm with an authenticat
 ```
 
 A [small npm workspace demo](src/test/resources/npm-demo/README.md) is also available for hands-on inspection and preview checks.
+
+## Releasing
+
+See the [release pipeline guide](docs/releasing.md) for Marketplace credentials, version preparation, signing, prereleases, and recovery.
 
 ## License
 
