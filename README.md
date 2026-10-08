@@ -124,6 +124,8 @@ Dynamic versions, prereleases, interpolated/shared build-script properties, map 
 
 Save Gradle build files before checking. Results and previews track build scripts, catalogs, properties, wrapper and lock/verification files, user Gradle properties/init scripts, linked project settings, JVM selection and deprecation policy. Unsaved edits or relevant configuration changes invalidate the preview. Updates are one undoable command that changes version text only. **Reload the Gradle project afterward; synchronize dependency locks yourself if the build uses locking.**
 
+Build-file discovery and hashes are shared across checks for a linked Gradle build. Nested linked modules are traversed once, and repeated checks reuse cached directory lists and file hashes between changes. User-home properties and init scripts are read fresh to detect changes outside IntelliJ. Completed Maven, npm and Gradle checks combine nearby highlighting updates and refresh their affected build files.
+
 The [Gradle demo](src/test/resources/gradle-demo/README.md) includes Groovy and Kotlin scripts, a shared catalog, a BOM, and nested subprojects.
 
 ## Other ecosystems
@@ -150,6 +152,12 @@ Java and Maven can be selected through SDKMAN. The Gradle wrapper builds the plu
 ```
 
 Compatibility checks target IDEA 2025.3.6.1 and 2026.1.4.
+
+Local scaling tests exercise discovery, stale-result validation and bulk application with 101 Gradle build files or npm manifests and 10,000 declarations. They print timings without depending on machine-specific time limits:
+
+```bash
+./gradlew test --tests '*GradleSnapshotScalingTest' --tests '*NpmSnapshotScalingTest'
+```
 
 Parser and IntelliJ platform tests cover stable-version filtering, wrapped reports, current-POM/project scopes, plugin Maven prerequisites, Maven configuration properties, stale previews, shared properties, dependency/plugin selection, and POM quick fixes.
 

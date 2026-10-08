@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.npm
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -14,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /** Share discovery and manifest hashing between inspections, scans and write-time validation. */
 @Service(Service.Level.PROJECT)
-internal class NpmProjectCache(private val project: Project) {
+internal class NpmProjectCache(private val project: Project) : Disposable {
     private val documentChanges = AtomicLong()
     private var generation: List<Long> = emptyList()
     private var files: List<VirtualFile>? = null
@@ -27,8 +28,11 @@ internal class NpmProjectCache(private val project: Project) {
         // PSI's counter alone misses uncommitted document edits, which must invalidate fixes too.
         EditorFactory.getInstance().eventMulticaster.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) { documentChanges.incrementAndGet() }
-        }, project)
+        }, this)
     }
+
+    // The platform disposes this service on project close or plugin unload, removing its listener.
+    override fun dispose() = Unit
 
     private fun invalidateIfChanged() {
         val current = listOf(documentChanges.get(), PsiModificationTracker.getInstance(project).modificationCount,

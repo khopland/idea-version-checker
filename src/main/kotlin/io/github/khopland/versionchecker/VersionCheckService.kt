@@ -2,7 +2,6 @@ package io.github.khopland.versionchecker
 
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -97,6 +96,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     private suspend fun refreshNow(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?, scheduled: Boolean = false) {
         if (adapters.isEmpty() || project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled) return
         val scopeLabel = if (currentFile == null) "Whole Project" else "Current File"
+        val affected = mutableSetOf<String>()
+        currentFile?.let { affected += it.path }
         withBackgroundProgress(project, "Checking dependency versions: $scopeLabel", cancellable = true) {
             val selection = BuildSelection(if (currentFile == null) UpdateScope.WHOLE_PROJECT else UpdateScope.CURRENT_FILE, currentFile?.path)
             val unsaved = if (scheduled) readAction {
@@ -104,11 +105,13 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 documents.unsavedDocuments.mapNotNull { documents.getFile(it)?.path }.toSet()
             } else emptySet()
             val scans = adapters.flatMap { adapter ->
-                if (adapter.isOffline(project)) {
-                    notify("${adapter.displayName} is offline. Disable Work offline to check remote versions.", NotificationType.INFORMATION)
-                    emptyList()
-                } else try {
-                    adapter.discover(project, selection)
+                try {
+                    val discovered = adapter.discover(project, selection)
+                    affected += discovered.map { it.sourceFile }
+                    if (adapter.isOffline(project)) {
+                        notify("${adapter.displayName} is offline. Disable Work offline to check remote versions.", NotificationType.INFORMATION)
+                        emptyList()
+                    } else discovered
                         .filter { snapshot -> snapshot.fingerprint.files.keys.none { it in unsaved } }
                         .map { adapter to it }
                 } catch (cancelled: CancellationException) {
@@ -126,12 +129,12 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                         if (scheduled) invalidateSource(adapter.id, snapshot.sourceFile)
                         val token = token(snapshot)
                         pending.putIfAbsent(snapshot.context, token)
-                        scan(adapter, snapshot, token)
+                        if (scan(adapter, snapshot, token)) affected -= snapshot.sourceFile
                     }
                 }
             }
         }
-        restartInspections()
+        affected.forEach { project.service<FileProblemRefresh>().request(it) }
     }
 
     private fun token(snapshot: BuildSnapshot) = ScanToken(snapshot.sourceFile, snapshot.fingerprint, snapshot.declarations, cache.begin(snapshot))
@@ -148,7 +151,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         }
     }
 
-    private suspend fun scan(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false) {
+    private suspend fun scan(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false): Boolean {
         var published = false
         try {
             scanMutexes.computeIfAbsent(adapter.id) { Mutex() }.withLock {
@@ -175,12 +178,9 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             }
         } finally {
             pending.remove(snapshot.context, token)
-            if (published) restartInspections()
+            if (published && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
         }
-    }
-
-    private fun restartInspections() {
-        ApplicationManager.getApplication().invokeLater { if (!project.isDisposed) refreshEditorProblems(project, this) }
+        return published
     }
 
     private fun notify(message: String, type: NotificationType) {

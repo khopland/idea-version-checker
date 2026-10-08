@@ -12,7 +12,6 @@ import io.github.khopland.versionchecker.core.*
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 
 internal class GradleBuildSystemAdapter : BuildSystemAdapter {
     override val id = "gradle"
@@ -34,10 +33,14 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
     }
     private fun files(project: Project, root: String): List<VirtualFile> {
         val settings = GradleSettings.getInstance(project).getLinkedProjectSettings(root)
-        val directories = (listOf(root) + settings?.modules.orEmpty()).distinct()
+        val directories = (listOf(root) + settings?.modules.orEmpty()).distinct().sorted()
+        return project.service<GradleProjectCache>().files(root, directories) { discoverFiles(project, directories) }
+    }
+    private fun discoverFiles(project: Project, directories: List<String>): List<VirtualFile> {
         val result = mutableSetOf<VirtualFile>()
-        for (directory in directories) {
-            val file = find(project, directory) ?: continue
+        val roots = directories.mapNotNull { find(project, it) }.distinct()
+        // Linked modules commonly sit inside the root; walking them again adds no inputs.
+        for (file in roots.filter { candidate -> roots.none { it != candidate && VfsUtilCore.isAncestor(it, candidate, true) } }) {
             VfsUtilCore.iterateChildrenRecursively(file, { it.name !in excluded }) {
                 if (!it.isDirectory && (it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") || it.name.endsWith(".toml") || it.name in setOf("gradle.properties", "gradle-wrapper.properties", "gradle-wrapper.jar", "gradlew", "gradlew.bat", "gradle.lockfile") || it.path.contains("/gradle/dependency-locks/") || it.name == "verification-metadata.xml")) result += it
                 true
@@ -52,21 +55,21 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         UpdateScope.WHOLE_PROJECT -> roots(project).any { root -> files(project, root).any(::supported) }
     }
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
+        return snapshot(project, file, mutableMapOf(), mutableMapOf())
+    }
+    private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<String, BuildFingerprint>, unsaved: MutableMap<String, Boolean>): BuildSnapshot? {
         if (!supported(file)) return null
         val root = owner(project, file) ?: return null
-        val sources = files(project, root)
-        if (sources.any { FileDocumentManager.getInstance().isFileModified(it) }) return null
+        if (unsaved.getOrPut(root) { files(project, root).any { FileDocumentManager.getInstance().isFileModified(it) } }) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
-        return BuildSnapshot(BuildContextId(id, root, file.path), file.path, fingerprint(project, root), GradleDeclarations.parse(file.path, psi.text).map { it.declaration })
+        return BuildSnapshot(BuildContextId(id, root, file.path), file.path, fingerprints.getOrPut(root) { fingerprint(project, root) }, GradleDeclarations.parse(file.path, psi.text).map { it.declaration })
     }
     private fun fingerprint(project: Project, root: String): BuildFingerprint {
-        fun hash(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        fun hash(bytes: ByteArray) = GradleProjectCache.hash(bytes)
         val settings = GradleSettings.getInstance(project)
         val linked = settings.getLinkedProjectSettings(root)
-        val hashes = files(project, root).associate { file ->
-            val text = FileDocumentManager.getInstance().getCachedDocument(file)?.text
-            file.path to hash((text?.toByteArray() ?: file.contentsToByteArray()) + file.contentsToByteArray())
-        }.toMutableMap()
+        val hashes = project.service<GradleProjectCache>().hashes(root, files(project, root)).toMutableMap()
+        // These inputs can change outside IntelliJ's VFS, so always read their current contents.
         val home = Path.of(settings.serviceDirectoryPath ?: System.getenv("GRADLE_USER_HOME") ?: Path.of(System.getProperty("user.home"), ".gradle").toString())
         for (path in listOf(home.resolve("gradle.properties"), home.resolve("init.gradle"), home.resolve("init.gradle.kts"))) hashes[path.toString()] = if (Files.exists(path)) hash(Files.readAllBytes(path)) else "missing"
         val init = home.resolve("init.d")
@@ -75,9 +78,18 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         return BuildFingerprint(hashes, listOf(root, linked?.modules?.sorted(), linked?.gradleJvm, linked?.gradleHome, linked?.distributionType, sdk?.name, sdk?.homePath, settings.serviceDirectoryPath, settings.gradleVmOptions, settings.isOfflineWork, project.service<VersionCheckerSettings>().state.deprecatedDependencies, System.getenv().toSortedMap()).joinToString("|").let { hash(it.toByteArray()) })
     }
     override fun isCurrent(project: Project, snapshot: BuildSnapshot) = find(project, snapshot.sourceFile)?.let { owner(project, it) == snapshot.context.root && snapshot.fingerprint == fingerprint(project, snapshot.context.root) } == true
+    private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>): Boolean {
+        val fingerprints = mutableMapOf<String, BuildFingerprint>()
+        return snapshots.all { snapshot ->
+            find(project, snapshot.sourceFile)?.let { owner(project, it) == snapshot.context.root &&
+                snapshot.fingerprint == fingerprints.getOrPut(snapshot.context.root) { fingerprint(project, snapshot.context.root) } } == true
+        }
+    }
     override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = readAction {
         val files = if (selection.scope == UpdateScope.CURRENT_FILE) listOfNotNull(selection.currentFile?.let { find(project, it) }) else roots(project).flatMap { files(project, it) }.distinct()
-        files.mapNotNull { snapshot(project, it) }
+        val fingerprints = mutableMapOf<String, BuildFingerprint>()
+        val unsaved = mutableMapOf<String, Boolean>()
+        files.mapNotNull { snapshot(project, it, fingerprints, unsaved) }
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val policy = readAction { project.service<VersionCheckerSettings>().state.deprecatedDependencies }.lineSequence().map(String::trim).filter { it.isNotEmpty() && !it.startsWith('#') }.associate { val parts = it.split('=', limit = 2); parts[0].trim() to (parts.getOrNull(1)?.trim() ?: "Deprecated by project policy") }
@@ -96,7 +108,7 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         })
     }
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
-        check(reports.keys.all { isCurrent(project, it) }) { "Gradle build files or settings changed. Run the check again." }
+        check(areCurrent(project, reports.keys)) { "Gradle build files or settings changed. Run the check again." }
         val edits = mutableListOf<VersionEdit>(); val skipped = mutableListOf<String>()
         for ((snapshot, report) in reports) {
             val psi = find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")
@@ -112,6 +124,6 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
             }
             skipped += report.notices.map { "${it.declaration.id.file}: ${it.message}" }
         }
-        BulkUpdatePlan(edits.sortedByDescending { (it as GradleVersionEdit).range.startOffset }, skipped, { reports.keys.all { isCurrent(project, it) } }, if (edits.isEmpty()) emptyList() else listOf("Reload the Gradle project in IntelliJ after updating versions. Update dependency locks yourself if the build uses locking."))
+        BulkUpdatePlan(edits.sortedByDescending { (it as GradleVersionEdit).range.startOffset }, skipped, { areCurrent(project, reports.keys) }, if (edits.isEmpty()) emptyList() else listOf("Reload the Gradle project in IntelliJ after updating versions. Update dependency locks yourself if the build uses locking."))
     }
 }

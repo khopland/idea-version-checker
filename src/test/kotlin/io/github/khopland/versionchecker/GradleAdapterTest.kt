@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -11,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.util.concurrent.Callable
+import java.nio.file.Files
 
 class GradleAdapterTest : BasePlatformTestCase() {
     private val adapter = GradleBuildSystemAdapter()
@@ -119,5 +121,94 @@ class GradleAdapterTest : BasePlatformTestCase() {
         assertEquals(linked.externalProjectPath, snapshot.context.root)
         assertNull(adapter.snapshot(project, unrelated.virtualFile))
         assertFalse(adapter.supports(project, BuildSelection(UpdateScope.CURRENT_FILE, unrelated.virtualFile.path)))
+    }
+
+    fun testWarmInputsAreReusedAndUnrelatedDocumentEditsPreserveFingerprint() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", "dependencies { implementation 'g:alpha:1.2.3' }")
+        val source = myFixture.addFileToProject("gradle-project/src/readme.txt", "original")
+        link()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val cache = project.service<GradleProjectCache>()
+        val root = snapshot.context.root
+        val files = cache.files(root, listOf(root)) { error("Warm discovery traversed the directory again") }
+        val hashes = cache.hashes(root, files)
+        assertSame(files, cache.files(root, listOf(root)) { error("Warm discovery was not reused") })
+        assertSame(hashes, cache.hashes(root, files))
+        assertEquals(snapshot, adapter.snapshot(project, file.virtualFile))
+        WriteCommandAction.runWriteCommandAction(project) {
+            FileDocumentManager.getInstance().getDocument(source.virtualFile)!!.setText("changed")
+        }
+        assertSame(files, cache.files(root, listOf(root)) { error("A content edit triggered rediscovery") })
+        assertTrue(adapter.isCurrent(project, snapshot))
+        assertEquals(snapshot, adapter.snapshot(project, file.virtualFile))
+    }
+
+    fun testCreatedRenamedMovedAndDeletedInputsInvalidateWarmFingerprints() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", "dependencies { implementation 'g:alpha:1.2.3' }")
+        val excluded = myFixture.addFileToProject("gradle-project/build/generated.txt", "generated").virtualFile.parent
+        link()
+        val original = adapter.snapshot(project, file.virtualFile)!!
+        val script = myFixture.addFileToProject("gradle-project/plugin.gradle", "// plugin").virtualFile
+        FileDocumentManager.getInstance().saveAllDocuments()
+        assertFalse(adapter.isCurrent(project, original))
+        val created = adapter.snapshot(project, file.virtualFile)!!
+        WriteCommandAction.runWriteCommandAction(project) { script.rename(this, "plugin.txt") }
+        assertFalse(adapter.isCurrent(project, created))
+        assertTrue(adapter.isCurrent(project, original))
+        WriteCommandAction.runWriteCommandAction(project) { script.rename(this, "plugin.gradle") }
+        val renamed = adapter.snapshot(project, file.virtualFile)!!
+        WriteCommandAction.runWriteCommandAction(project) { script.move(this, excluded) }
+        assertFalse(adapter.isCurrent(project, renamed))
+        assertTrue(adapter.isCurrent(project, original))
+        val input = myFixture.addFileToProject("gradle-project/gradle.properties", "key=value").virtualFile
+        FileDocumentManager.getInstance().saveAllDocuments()
+        val beforeDelete = adapter.snapshot(project, file.virtualFile)!!
+        WriteCommandAction.runWriteCommandAction(project) { input.delete(this) }
+        assertFalse(adapter.isCurrent(project, beforeDelete))
+    }
+
+    fun testWarmCacheTracksSavedChangesAndLinkedModuleSettings() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", "dependencies { implementation 'g:alpha:1.2.3' }")
+        val script = myFixture.addFileToProject("gradle-project/plugin.gradle", "// original").virtualFile
+        val external = myFixture.addFileToProject("external/build.gradle", "dependencies { implementation 'g:beta:1.2.3' }")
+        link()
+        val original = adapter.snapshot(project, file.virtualFile)!!
+        val prepared = plan(original, report(original))
+        WriteCommandAction.runWriteCommandAction(project) { script.setBinaryContent("// changed".toByteArray()) }
+        assertFalse(adapter.isCurrent(project, original))
+        assertFalse(prepared.apply(project))
+        val saved = adapter.snapshot(project, file.virtualFile)!!
+        GradleSettings.getInstance(project).linkedProjectsSettings.single().setModules(setOf(external.virtualFile.parent.path))
+        assertFalse(adapter.isCurrent(project, saved))
+        assertTrue(adapter.snapshot(project, file.virtualFile)!!.fingerprint.files.containsKey(external.virtualFile.path))
+        val linked = adapter.snapshot(project, file.virtualFile)!!
+        GradleSettings.getInstance(project).linkedProjectsSettings.single().gradleJvm = "different-jvm"
+        assertFalse(adapter.isCurrent(project, linked))
+    }
+
+    fun testUserHomeChangesOutsideVfsInvalidateWarmPreviewEvenWithSameFileStamp() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", "dependencies { implementation 'g:alpha:1.2.3' }")
+        link()
+        val settings = GradleSettings.getInstance(project)
+        val previous = settings.serviceDirectoryPath
+        val home = Files.createTempDirectory("version-checker-gradle-home")
+        try {
+            settings.serviceDirectoryPath = home.toString()
+            val init = Files.createDirectories(home.resolve("init.d")).resolve("repositories.gradle")
+            Files.writeString(init, "// original")
+            val original = adapter.snapshot(project, file.virtualFile)!!
+            val prepared = plan(original, report(original))
+            val stamp = Files.getLastModifiedTime(init)
+            Files.writeString(init, "// modified")
+            Files.setLastModifiedTime(init, stamp)
+            assertFalse(adapter.isCurrent(project, original))
+            assertFalse(prepared.apply(project))
+            val changed = adapter.snapshot(project, file.virtualFile)!!
+            Files.writeString(home.resolve("gradle.properties"), "key=value")
+            assertFalse(adapter.isCurrent(project, changed))
+        } finally {
+            settings.serviceDirectoryPath = previous
+            Files.walk(home).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach { Files.delete(it) } }
+        }
     }
 }

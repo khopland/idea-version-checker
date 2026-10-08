@@ -12,9 +12,12 @@
 
 - Maven goals share one fresh server embedder per POM and skip dependency, plugin or parent categories with no supported declarations.
 - Independent npm packages are queried concurrently with a limit of four, sharing metadata and deprecation queries for aliases of the same package.
+- Gradle checks cache build-file discovery and content hashes, traverse nested linked modules once, and share a root fingerprint during discovery and bulk validation. Edits, file moves and linked settings still invalidate stale results and previews.
+- Completed checks combine nearby highlighting updates and restart inspections only for affected build files, reducing repeated project-wide analysis across Maven, npm and Gradle.
 
 ### Fixed
 
+- npm and Gradle document listeners use their cache service as the disposable parent, so listeners are removed on plugin unload as well as project close.
 - Refreshes pick up newly published releases despite Maven's daily metadata cache or npm's cached registry metadata. Maven refreshes only the selected artifacts' effective repository metadata timestamps, retaining downloaded artifacts and local-install metadata.
 - Refresh progress now covers the actual repository checks and resulting inspection updates, instead of finishing after background checks were merely queued.
 
