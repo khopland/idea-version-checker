@@ -1,6 +1,6 @@
 # Maven and npm performance work
 
-The [performance plan, revision 2](https://plan-api.k8r.no/p/uQBB44ZJlfWkuneRIxSpEf51/v/2) now has dependency filtering (M1), combined npm queries (N1), workspace metadata sharing (N2), reusable Maven scan inputs (M2), and profiling hooks implemented. The discovery portion of N3 and pass-local Maven fingerprint reuse (M5) are also implemented. Runtime shim reuse, plugin branch rules (M3) and Maven session experiments (M4) remain follow-up work guided by profiling.
+The [performance plan, revision 2](https://plan-api.k8r.no/p/uQBB44ZJlfWkuneRIxSpEf51/v/2) now has dependency filtering (M1), combined npm queries (N1), workspace metadata sharing (N2), reusable Maven scan inputs (M2), and profiling hooks implemented. Check-scoped runtime and discovery reuse (N3) and pass-local Maven fingerprint reuse (M5) are also implemented. Plugin branch rules (M3) and Maven session experiments (M4) remain follow-up work guided by profiling.
 
 Maven's dependency goal receives both `dependencyIncludes` and `dependencyManagementIncludes`, built from the selected snapshot's resolved group/artifact pairs. The list ignores baseline differences and preserves Maven's native version selection. Empty dependency categories skip the goal. Coordinates that cannot safely be represented as exact inclusion patterns retain the broad query. Retrieval-failure exclusions apply alongside the inclusions, and metadata fallback uses the selected declarations.
 
@@ -22,7 +22,7 @@ The discovery cache now distinguishes manifest content from structural changes. 
 
 Hashes include saved VFS bytes and unsaved document text separately, and are cached by both stamps. A cached saved document cannot hide externally refreshed file contents. npm configuration files are checked independently by their stamps; external disk configuration is still read fresh. SHA-256 values use the JDK's hexadecimal encoder instead of formatting each byte individually.
 
-A repeated source-edit fixture validates one manifest in a workspace of 101 manifests and 10,000 declarations. The original cache rebuilt shared inputs after each source edit; the revised cache retains them. The [before/after record](performance-npm-discovery-2026-10-08.txt) contains five alternating warm/source-edit samples per implementation. These timings cover local currentness validation, not network queries or completed editor highlighting. Runtime shim resolution remains separate N3 work.
+A repeated source-edit fixture validates one manifest in a workspace of 101 manifests and 10,000 declarations. The original cache rebuilt shared inputs after each source edit; the revised cache retains them. The [before/after record](performance-npm-discovery-2026-10-08.txt) contains five alternating warm/source-edit samples per implementation. These timings cover local currentness validation, not network queries or completed editor highlighting.
 
 | Validation path | Before median / p95 | After median / p95 |
 |-----------------|--------------------:|-------------------:|
@@ -30,6 +30,14 @@ A repeated source-edit fixture validates one manifest in a workspace of 101 mani
 | After a source edit | 11.20 / 14.86 ms | 0.83 / 1.10 ms |
 
 The source-edit median fell by about 10.4 ms per validation in this fixture. The full suite passed 210 tests, including native Maven/npm integration and packaged-plugin unload checks. Build, configuration and compatibility checks passed for both supported IDEA versions.
+
+## npm runtime setup during a scan
+
+Compatible checks share lazy runtime resolution by workspace root, configuration digest and refresh generation while any check or metadata worker is active. A metadata worker owns its own session lease: cancelling the initiating check cannot kill setup needed by a surviving caller. Successful resolution is shared across query waves, including legacy deprecation queries. Warm metadata does not resolve or launch Node/npm. Failed setup is not retained, and the last departing lease removes the session. Later scans therefore observe changes behind a version-manager shim without retaining a runtime across scans. Refreshes detach old sessions; project disposal cancels both current and detached workers.
+
+The selected local interpreter still executes npm at the workspace root, preserving shim directory selection and wrapper behavior. Only the npm package directory discovered through `process.execPath` is reused. Both that ten-second probe and the sixty-second registry query use cancellable process handlers; cancellation propagates, and timeout stops the native process before falling back or reporting failure. Sessions span one file check and any overlapping compatible checks, rather than retaining a runtime through sequential project-wide file checks. Shared warm metadata avoids setup entirely for repeated packages in later files. Four independent registry queries may run concurrently as before. The `NPM_RUNTIME_RESOLUTION` debug stage distinguishes one-time runtime setup from individual command construction.
+
+An opt-in native fixture wraps the configured Node interpreter in a POSIX shim. Twelve runtime requests in three waves during one active scan cause one probe; a refresh and a later scan each cause a fresh probe. Separate native cancellation and timeout checks assert that the Node process exits. These are setup-count and lifecycle assertions, not an end-to-end editor latency benchmark.
 
 ## Maven project inputs per read pass
 

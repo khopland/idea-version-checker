@@ -41,6 +41,88 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Opt-in: real IntelliJ-selected Node/npm, with an authenticated local registry and no installs. */
 class NpmRegistryIntegrationTest : BasePlatformTestCase() {
+    fun testRuntimeShimIsSharedDuringAScanAndResolvedAgainAfterwards() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
+        if (com.intellij.openapi.util.SystemInfo.isWindows) return // This fixture emulates POSIX version-manager shims.
+        val node = PathEnvironmentVariableUtil.findInPath("node")!!.toPath().toRealPath()
+        val directory = Files.createTempDirectory("version-checker-npm-shim-").toRealPath()
+        val probes = directory.resolve("probes")
+        fun quote(text: String) = "'" + text.replace("'", "'\\''") + "'"
+        val shim = directory.resolve("node-shim")
+        Files.writeString(shim, """#!/bin/sh
+            if [ "${'$'}1" = "-p" ] && [ "${'$'}2" = "process.execPath" ]; then
+              printf 'probe\n' >> ${quote(probes.toString())}
+            fi
+            exec ${quote(node.toString())} "${'$'}@"
+        """.trimIndent())
+        check(shim.toFile().setExecutable(true))
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString(), node.parent.parent.toString())
+        val interpreterManager = NodeJsInterpreterManager.getInstance(project)
+        val npmManager = NpmManager.getInstance(project)
+        val previousInterpreter = interpreterManager.interpreterRef
+        val previousNpm = npmManager.packageRef
+        try {
+            interpreterManager.setInterpreterRef(NodeJsInterpreterRef.create(NodeJsLocalInterpreter(shim.toString())))
+            npmManager.setPackageRef(NodePackageRef.create(NpmNodePackage(directory.toString())))
+            val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking {
+                    val context = NpmResolutionContext(directory.toString(), "fixture")
+                    val sessions = project.service<NpmMetadataService>().runtimes
+                    val load: suspend () -> NpmRuntime = { NpmRegistry.resolve(project, directory) }
+                    sessions.withSession(context, load) {
+                        repeat(3) {
+                            List(4) { async { sessions.withSession(context, load) { it.await() } } }.awaitAll().forEach { runtime ->
+                                assertEquals(shim.toString(), runtime.interpreter.interpreterSystemDependentPath)
+                                assertTrue(Files.isRegularFile(java.nio.file.Path.of(runtime.npm.systemDependentPath).resolve("bin/npm-cli.js")))
+                            }
+                        }
+                        assertEquals(1, Files.readAllLines(probes).size)
+                        sessions.invalidate()
+                        sessions.withSession(context, load) { it.await() }
+                        assertEquals(2, Files.readAllLines(probes).size)
+                    }
+                    sessions.withSession(context, load) { it.await() }
+                    assertEquals(3, Files.readAllLines(probes).size)
+                    println("version-check benchmark=npm-runtime runtimeRequests=12 shimProbes=1 laterScanProbes=1 refreshProbes=1")
+                }
+            })
+            PlatformTestUtil.waitForFuture(future, 30_000)
+        } finally {
+            interpreterManager.setInterpreterRef(previousInterpreter)
+            npmManager.setPackageRef(previousNpm)
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    fun testNativeRuntimeProbeStopsOnCancellationAndTimeout() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
+        val node = PathEnvironmentVariableUtil.findInPath("node")!!.toPath().toRealPath()
+        val directory = Files.createTempDirectory("version-checker-npm-cancel-").toRealPath()
+        try {
+            val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking {
+                    for (timeout in listOf(false, true)) {
+                        val pidFile = directory.resolve(if (timeout) "timeout.pid" else "cancel.pid")
+                        val script = "require('fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)"
+                        val command = com.intellij.execution.configurations.GeneralCommandLine(node.toString(), "-e", script, pidFile.toString())
+                        val query = async {
+                            if (timeout) withTimeoutOrNull(2_000) { NpmRegistry.execute(command) }
+                            else NpmRegistry.execute(command)
+                        }
+                        try {
+                            withTimeout(10_000) { while (!Files.exists(pidFile)) delay(10) }
+                            val process = ProcessHandle.of(Files.readString(pidFile).toLong()).orElseThrow()
+                            assertTrue(process.isAlive)
+                            if (timeout) assertNull(query.await()) else query.cancelAndJoin()
+                            withTimeout(5_000) { while (process.isAlive) delay(10) }
+                        } finally { query.cancelAndJoin() }
+                    }
+                }
+            })
+            PlatformTestUtil.waitForFuture(future, 30_000)
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
     fun testScopedRegistryWorkspaceModesInspectionsAndManifestOnlyApply() {
         if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
         val node = PathEnvironmentVariableUtil.findInPath("node")!!.toPath().toRealPath()

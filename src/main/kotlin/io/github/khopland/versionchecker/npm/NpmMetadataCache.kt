@@ -103,5 +103,7 @@ internal class NpmMetadataCache(
 @Service(Service.Level.PROJECT)
 internal class NpmMetadataService(scope: CoroutineScope) : Disposable {
     val cache = NpmMetadataCache(scope)
-    override fun dispose() { cache.close() }
+    val runtimes = NpmScanSessions<NpmRuntime>(scope)
+    fun invalidate() { runtimes.invalidate(); cache.invalidate() }
+    override fun dispose() { cache.close(); runtimes.close() }
 }

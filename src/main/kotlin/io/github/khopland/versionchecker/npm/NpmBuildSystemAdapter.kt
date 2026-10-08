@@ -98,22 +98,30 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
             check(root.path == snapshot.context.root) { "npm workspace changed during the check" }
             resolutionContext(project, root)
         }
-        val metadata = project.service<NpmMetadataService>().cache
+        val metadata = project.service<NpmMetadataService>()
         val policy = readAction { project.service<VersionCheckerSettings>().state.deprecatedDependencies }
             .lineSequence().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith('#') }
             .map { it.split('=', limit = 2).map(String::trim) }
             .associate { it[0] to (it.getOrNull(1)?.takeIf(String::isNotBlank) ?: "Deprecated by project policy") }
         val expires = AtomicLong(Long.MAX_VALUE)
-        val report = checkNpmVersions(snapshot.declarations, mode, policy, registrySlots,
-            metadata = { name ->
-                val lease = metadata.getFresh(context, name) { NpmRegistry.metadata(project, directory, name) }
-                expires.updateAndGet { minOf(it, lease.expiresAt) }
-                lease.metadata
-            },
-            deprecated = { name, version -> NpmRegistry.deprecated(project, directory, name, version) })
+        val report = metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory) }) { runtime ->
+            checkNpmVersions(snapshot.declarations, mode, policy, registrySlots,
+                metadata = { name ->
+                    val lease = metadata.cache.getFresh(context, name) {
+                        // The shared metadata worker owns a separate lease. Cancelling the
+                        // initiating check must not stop runtime setup needed by another caller.
+                        metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory) }) {
+                            NpmRegistry.metadata(it.await(), directory, name)
+                        }
+                    }
+                    expires.updateAndGet { minOf(it, lease.expiresAt) }
+                    lease.metadata
+                },
+                deprecated = { name, version -> NpmRegistry.deprecated(runtime.await(), directory, name, version) })
+        }
         return report.copy(validUntilNanos = expires.get().takeUnless { it == Long.MAX_VALUE })
     }
-    override fun invalidateMetadata(project: Project) { project.service<NpmMetadataService>().cache.invalidate() }
+    override fun invalidateMetadata(project: Project) { project.service<NpmMetadataService>().invalidate() }
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
         check(areCurrent(project, reports.keys)) { "npm manifests or configuration changed during the check. Run it again." }
         val edits = mutableListOf<VersionEdit>()
