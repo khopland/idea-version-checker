@@ -1,6 +1,6 @@
 # Release pipeline
 
-Version Checker 1.0.0 has already been published to JetBrains Marketplace. Development now uses `1.0.1-SNAPSHOT`; snapshot builds do not create release drafts. The existing GitHub 1.0.0 draft is left unchanged. Do not use Marketplace publishing to upload 1.0.0 again.
+The next prepared version is `1.2.0`. Its finalized changelog and plugin change notes include the performance and lifecycle work. Existing published versions and tags are preserved; each release uses a new version.
 
 ## One-time setup
 
@@ -12,22 +12,33 @@ Author signing is optional. To enable it, add **`PRIVATE_KEY`** (PEM private key
 
 Publishing and signing secrets are only provided to the release steps that need them. Pull request checks do not receive them. Signing and publishing disable Gradle's configuration cache; release jobs do not write back the Gradle cache.
 
+## Validate locally
+
+```bash
+python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
+python3 .github/scripts/release_metadata.py --tag 1.2.0 --prerelease false
+./gradlew check buildPlugin verifyPluginProjectConfiguration verifyPlugin \
+  -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain
+```
+
+The native npm fixtures need Node/npm on `PATH`; CI uses Node 22.23.1 and its bundled npm. Maven uses IDEA's bundled server. Gradle fixtures download their distribution if needed. All three use authenticated local HTTP repositories; Maven's fixture also checks public demo metadata. Validation needs network access for toolchains and uncached artifacts. Reports are under `build/reports`; the packaged plugin is `build/distributions/version-checker-1.2.0.zip`.
+
 ## Publish a stable version
 
-1. Set `version=1.0.1` in `gradle.properties`.
-2. Move the completed changes from `CHANGELOG.md`'s `Unreleased` section into a dated `## [1.0.1] - YYYY-MM-DD` entry. Leave an empty `Unreleased` section for future work. The release entry needs at least one bullet.
-3. Merge these changes into `main`. The **Build** workflow builds the ZIP, runs `check`, tests the release automation, and runs Plugin Verifier against IDEA 2025.3.6.1 and 2026.1.4.
+1. Set `version=1.2.0` in `gradle.properties`.
+2. Move the completed changes from `CHANGELOG.md`'s `Unreleased` section into a dated `## [1.2.0] - YYYY-MM-DD` entry. Leave an empty `Unreleased` section for future work. The release entry needs at least one bullet.
+3. Merge these changes into `main`. The **Build** workflow builds the ZIP, runs `check` with native Maven/npm/Gradle integration enabled, tests the release automation, and runs Plugin Verifier against IDEA 2025.3.6.1 and 2026.1.4.
 4. After all checks pass, the workflow creates or updates only the matching GitHub draft, attaches the tested ZIP, and pins its target to the checked commit. Review the draft and its release notes in [GitHub Releases](https://github.com/khopland/idea-version-checker/releases). Publish it as a regular release.
 5. The **Release** workflow checks out the release tag, verifies the tag against the project version and finalized changelog, reruns tests and compatibility checks, signs and verifies the signature when configured, and attaches the selected ZIP and `SHA256SUMS`. It uploads that exact ZIP to Marketplace's `default` channel. Marketplace approval can still be required before the update becomes available.
-6. After publishing, set the next development version, for example `version=1.0.2-SNAPSHOT`. Development builds show the `Unreleased` change notes.
+6. After publishing, set the next development version, for example `version=1.2.1-SNAPSHOT`. Development builds show the `Unreleased` change notes.
 
-Draft creation uses bare tags such as `1.0.1`; release validation also accepts `v1.0.1`. Published GitHub releases are never edited by the draft job, existing tags are never moved, and unrelated drafts are preserved. A matching tag that points to a different commit makes draft preparation skip that version. Prepare a new version to release newer code.
+Draft creation uses bare tags such as `1.2.0`; release validation also accepts `v1.2.0`. Published GitHub releases are never edited by the draft job, existing tags are never moved, and unrelated drafts are preserved. A matching tag that points to a different commit makes draft preparation skip that version. Prepare a new version to release newer code.
 
 Publish drafts through the GitHub UI or an authenticated human account. Publishing with a workflow's `GITHUB_TOKEN` does not trigger another workflow's release event. Merely pushing a tag does not start Marketplace delivery.
 
 ## Prereleases
 
-Use a version with a semantic prerelease suffix, such as `1.1.0-rc.1`, and a matching dated changelog entry. The draft is marked as a prerelease. Publishing it uploads to Marketplace's **`eap`** channel. GitHub's prerelease flag must agree with the version suffix. Stable versions publish to `default`; `SNAPSHOT` versions cannot be released.
+Use a version with a semantic prerelease suffix, such as `1.3.0-rc.1`, and a matching dated changelog entry. The draft is marked as a prerelease. Publishing it uploads to Marketplace's **`eap`** channel. GitHub's prerelease flag must agree with the version suffix. Stable versions publish to `default`; `SNAPSHOT` versions cannot be released.
 
 To promote a prerelease, prepare a new stable version and changelog entry, then publish its regular GitHub release. Changing an existing prerelease to stable does not publish it to the stable channel.
 

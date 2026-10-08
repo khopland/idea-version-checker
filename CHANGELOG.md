@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-09
+
 ### Added
 
 - Dynamic plugin support, with packaged-plugin unload/reload tests covering service disposal, cancelled checks and timers, open previews, and class-loader release.
@@ -12,6 +14,8 @@
 ### Changed
 
 - Maven dependency goals receive exact inclusion filters from supported declarations, reducing inherited lookups whose results cannot be reported for the selected POM.
+- Compatible npm checks share lazy Node/npm runtime resolution while active, including version-manager shims. Runtime probes are cancellable, refreshes resolve again, and completed scans retain no runtime session.
+- Build and release validation run authenticated native Maven, npm and Gradle integration tests, with a pinned Node/npm fixture runtime.
 - npm retrieves stable versions and their deprecation notices together, selecting candidates locally and retaining the older query path for incompatible responses.
 - Maven discovery and bulk-preview validation capture shared imported-POM/settings fingerprints once per read pass, reusing ancestor configuration stamps while revalidating all inputs before applying edits. Unsaved settings and `.mvn` configuration changes now reject stale previews too.
 - npm discovery and manifest hashes stay warm across unrelated source edits; manifest content and structure changes still invalidate workspace ownership and prepared edits. Hashes track saved bytes and unsaved text separately.
