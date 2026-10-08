@@ -1,0 +1,48 @@
+npm discovery/source-edit validation: 2026-10-08
+Baseline application: 1af7ce5, with the new measurement scenario added before implementation.
+IDEA 2025.3.6.1; Gradle Java toolchain 21; macOS arm64
+Fixture: 101 manifests, 10,000 declarations; validate one member after ordinary source editing.
+Five alternating warm/source-edit samples per implementation, in separate test JVMs.
+p95 is nearest-rank (maximum for n=5). No timing threshold is asserted.
+Both comparison runs use the same command:
+./gradlew test --tests '*NpmSnapshotScalingTest' -PperformanceTrace=true
+Measurements cover local currentness validation, not registry work or completed editor rendering.
+JIT, filesystem and test-process state can affect comparisons; this is no production speedup claim.
+The revised implementation also replaces per-byte formatting with the JDK hex encoder.
+
+Before:
+version-check benchmark=npm-source-edit path=warm elapsedNs=868375 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=14856583 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm elapsedNs=1482208 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=13405709 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm elapsedNs=651292 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=11199583 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm elapsedNs=595750 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=9829000 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm elapsedNs=526041 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=9305083 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm samples=5 medianNs=651292 p95Ns=1482208
+version-check benchmark=npm-source-edit path=source-edit samples=5 medianNs=11199583 p95Ns=14856583
+npm benchmark: 101 manifests, 10,000 declarations; discovery=293ms, preparation=100ms, individual validation=91ms, application=800ms
+
+After:
+version-check benchmark=npm-source-edit path=warm elapsedNs=786375 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=1095500 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm elapsedNs=664750 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=897083 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm elapsedNs=721958 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=832167 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm elapsedNs=688959 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=651833 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm elapsedNs=500000 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=source-edit elapsedNs=655625 manifests=101 declarations=10000
+version-check benchmark=npm-source-edit path=warm samples=5 medianNs=688959 p95Ns=786375
+version-check benchmark=npm-source-edit path=source-edit samples=5 medianNs=832167 p95Ns=1095500
+npm benchmark: 101 manifests, 10,000 declarations; discovery=209ms, preparation=45ms, individual validation=51ms, application=477ms
+
+Validation: full 210-test suite including native Maven/npm integration, plugin build,
+project configuration verification and IDEA 2025.3.6.1/2026.1.4 compatibility checks.
+Cache regression tests cover source document/PSI/VFS changes, unsaved manifest edits,
+unchanged hash reuse, ownership changes, manifest rename/copy/move/delete and directory renames.
+Native regression verifies hashes observe refreshed saved bytes with a cached document.
+Packaged plugin unload checks verify listeners and class loaders are released.

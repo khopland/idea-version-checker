@@ -1,6 +1,6 @@
 # Maven and npm performance work
 
-The [performance plan, revision 2](https://plan-api.k8r.no/p/uQBB44ZJlfWkuneRIxSpEf51/v/2) now has dependency filtering (M1), combined npm queries (N1), workspace metadata sharing (N2), reusable Maven scan inputs (M2), and profiling hooks implemented. Runtime/discovery reuse and Maven session experiments remain follow-up work guided by profiling.
+The [performance plan, revision 2](https://plan-api.k8r.no/p/uQBB44ZJlfWkuneRIxSpEf51/v/2) now has dependency filtering (M1), combined npm queries (N1), workspace metadata sharing (N2), reusable Maven scan inputs (M2), and profiling hooks implemented. The discovery portion of N3 is also implemented. Runtime shim reuse, shared Maven fingerprints (M5), plugin branch rules (M3) and Maven session experiments (M4) remain follow-up work guided by profiling.
 
 Maven's dependency goal receives both `dependencyIncludes` and `dependencyManagementIncludes`, built from the selected snapshot's resolved group/artifact pairs. The list ignores baseline differences and preserves Maven's native version selection. Empty dependency categories skip the goal. Coordinates that cannot safely be represented as exact inclusion patterns retain the broad query. Retrieval-failure exclusions apply alongside the inclusions, and metadata fallback uses the selected declarations.
 
@@ -15,6 +15,21 @@ Successful responses expire ten minutes after completion. Reports inherit the ea
 Manual refreshes, scheduled scans and bulk previews begin a new generation once per adapter, allowing files in that scan to share fresh responses. Workers already serving callers may finish, but cannot join or populate the new generation. Independent npm roots and changed resolution settings remain isolated. The legacy query fallback can still require per-version deprecation commands when a registry does not supply complete combined metadata.
 
 Maven receives the complete selected coordinates from the captured snapshot, groups them once, reads Maven config properties once and copies explicit profiles once per scan. Legacy lookup callers collect declarations once. Goals, branch retries, metadata expiration and retrieval fallbacks reuse those inputs. Effective repository data is evaluated lazily once and resolved separately for dependency and plugin repositories. Each POM still gets a fresh embedder; no cross-scan Maven session is retained.
+
+## npm discovery during source editing
+
+The discovery cache now distinguishes manifest content from structural changes. Ordinary source document/PSI edits, saved source changes, and source-file creation or renaming retain the discovered manifests, workspace ownership and manifest hashes. Manifest edits rebuild ownership and workspace hash collections while reusing unchanged files' hashes. Manifest creation/copy/move/rename/deletion, directory changes, project-root changes and index availability rebuild discovery conservatively. All listeners are removed on project disposal or plugin unload.
+
+Hashes include saved VFS bytes and unsaved document text separately, and are cached by both stamps. A cached saved document cannot hide externally refreshed file contents. npm configuration files are checked independently by their stamps; external disk configuration is still read fresh. SHA-256 values use the JDK's hexadecimal encoder instead of formatting each byte individually.
+
+A repeated source-edit fixture validates one manifest in a workspace of 101 manifests and 10,000 declarations. The original cache rebuilt shared inputs after each source edit; the revised cache retains them. The [before/after record](performance-npm-discovery-2026-10-08.txt) contains five alternating warm/source-edit samples per implementation. These timings cover local currentness validation, not network queries or completed editor highlighting. Runtime shim resolution remains separate N3 work.
+
+| Validation path | Before median / p95 | After median / p95 |
+|-----------------|--------------------:|-------------------:|
+| Warm inputs | 0.65 / 1.48 ms | 0.69 / 0.79 ms |
+| After a source edit | 11.20 / 14.86 ms | 0.83 / 1.10 ms |
+
+The source-edit median fell by about 10.4 ms per validation in this fixture. The full suite passed 210 tests, including native Maven/npm integration and packaged-plugin unload checks. Build, configuration and compatibility checks passed for both supported IDEA versions.
 
 ## Reproduce the comparisons
 

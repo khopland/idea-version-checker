@@ -13,6 +13,7 @@
 
 - Maven dependency goals receive exact inclusion filters from supported declarations, reducing inherited lookups whose results cannot be reported for the selected POM.
 - npm retrieves stable versions and their deprecation notices together, selecting candidates locally and retaining the older query path for incompatible responses.
+- npm discovery and manifest hashes stay warm across unrelated source edits; manifest content and structure changes still invalidate workspace ownership and prepared edits. Hashes track saved bytes and unsaved text separately.
 - npm workspace manifests share successful raw metadata and in-flight requests with bounded memory, configuration isolation and refresh generations; report expiry retains the original metadata freshness deadline.
 - Maven goals and retrieval fallbacks reuse one captured set of coordinates, config properties, explicit profiles and effective repository data per scan.
 - Optional performance debug traces and authenticated request-count benchmarks cover Maven filtering and the combined npm query.

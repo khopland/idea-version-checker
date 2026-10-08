@@ -19,7 +19,6 @@ import io.github.khopland.versionchecker.*
 import io.github.khopland.versionchecker.core.*
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Semaphore
 import com.google.gson.JsonParser
@@ -281,10 +280,8 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         return disk + ":" + document?.takeIf { FileDocumentManager.getInstance().isDocumentUnsaved(it) }?.let { digest(it.text.toByteArray()) }
     }
     private fun virtualDigest(project: Project, file: VirtualFile): String =
-        project.service<NpmProjectCache>().digest(file) {
-            digest(FileDocumentManager.getInstance().getCachedDocument(file)?.text?.toByteArray() ?: file.contentsToByteArray())
-        }
-    private fun digest(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        project.service<NpmProjectCache>().digest(file)
+    private fun digest(bytes: ByteArray) = NpmProjectCache.hash(bytes)
 
     internal data class Workspace(val root: VirtualFile, val names: Set<String>, val manifests: List<VirtualFile>)
 

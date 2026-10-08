@@ -27,6 +27,30 @@ class NpmSnapshotScalingTest : BasePlatformTestCase() {
         val discoveryMs = (System.nanoTime() - discoveryStart) / 1_000_000
         assertEquals(101, snapshots.size)
         assertEquals(10_000, snapshots.sumOf { it.declarations.size })
+        // Ordinary editing should not repeatedly rebuild the same workspace inputs. Alternate
+        // warm validation and source edits within one fixture, without imposing timing thresholds.
+        val source = myFixture.addFileToProject("large/src/app.js", "export const value = 0;\n")
+        val sourceDocument = FileDocumentManager.getInstance().getDocument(source.virtualFile)!!
+        val selected = snapshots.first { it.declarations.isNotEmpty() }
+        val samples = mutableMapOf<String, MutableList<Long>>()
+        repeat(5) { sample ->
+            assertTrue(adapter.isCurrent(project, selected))
+            for (edited in listOf(false, true)) {
+                if (edited) WriteCommandAction.runWriteCommandAction(project) {
+                    sourceDocument.setText("export const value = ${sample + 1};\n")
+                }
+                val started = System.nanoTime()
+                assertTrue(adapter.isCurrent(project, selected))
+                val elapsed = System.nanoTime() - started
+                val path = if (edited) "source-edit" else "warm"
+                samples.getOrPut(path) { mutableListOf() } += elapsed
+                println("version-check benchmark=npm-source-edit path=$path elapsedNs=$elapsed manifests=101 declarations=10000")
+            }
+        }
+        for ((path, durations) in samples) {
+            val sorted = durations.sorted()
+            println("version-check benchmark=npm-source-edit path=$path samples=5 medianNs=${sorted[2]} p95Ns=${sorted.last()}")
+        }
         val reports = snapshots.associateWith { snapshot ->
             UpdateReport(snapshot.declarations.take(1).map { UpdateCandidate(it, "1.2.9", "^1.2.9") })
         }

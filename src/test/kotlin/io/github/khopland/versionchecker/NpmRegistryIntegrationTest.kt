@@ -136,10 +136,15 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 val externalVirtualRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(externalRoot)!!
                 val externalFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(externalManifest)!!
                 FileDocumentManager.getInstance().getDocument(externalFile)
+                val hashes = project.service<NpmProjectCache>()
+                val originalDigest = hashes.digest(externalFile)
                 val originalContext = nativeAdapter.resolutionContext(project, externalVirtualRoot)
                 Files.writeString(externalManifest, """{"volta":{"node":"24.0.0"}}""")
                 assertFalse("An external runtime-selection edit must change the metadata context",
                     originalContext == nativeAdapter.resolutionContext(project, externalVirtualRoot))
+                com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(false, false, false, externalFile)
+                assertFalse("Manifest hashes must observe refreshed saved bytes despite a cached document",
+                    originalDigest == hashes.digest(externalFile))
             } finally { externalRoot.toFile().deleteRecursively() }
             // Compare the old and combined native queries against exactly the same authenticated
             // fixture. Aliases share each package response; later deprecated candidates are skipped.
