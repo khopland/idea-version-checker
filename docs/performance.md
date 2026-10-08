@@ -1,6 +1,6 @@
 # Maven and npm performance work
 
-The [performance plan, revision 2](https://plan-api.k8r.no/p/uQBB44ZJlfWkuneRIxSpEf51/v/2) now has dependency filtering (M1), combined npm queries (N1), workspace metadata sharing (N2), reusable Maven scan inputs (M2), and profiling hooks implemented. The discovery portion of N3 is also implemented. Runtime shim reuse, shared Maven fingerprints (M5), plugin branch rules (M3) and Maven session experiments (M4) remain follow-up work guided by profiling.
+The [performance plan, revision 2](https://plan-api.k8r.no/p/uQBB44ZJlfWkuneRIxSpEf51/v/2) now has dependency filtering (M1), combined npm queries (N1), workspace metadata sharing (N2), reusable Maven scan inputs (M2), and profiling hooks implemented. The discovery portion of N3 and pass-local Maven fingerprint reuse (M5) are also implemented. Runtime shim reuse, plugin branch rules (M3) and Maven session experiments (M4) remain follow-up work guided by profiling.
 
 Maven's dependency goal receives both `dependencyIncludes` and `dependencyManagementIncludes`, built from the selected snapshot's resolved group/artifact pairs. The list ignores baseline differences and preserves Maven's native version selection. Empty dependency categories skip the goal. Coordinates that cannot safely be represented as exact inclusion patterns retain the broad query. Retrieval-failure exclusions apply alongside the inclusions, and metadata fallback uses the selected declarations.
 
@@ -30,6 +30,23 @@ A repeated source-edit fixture validates one manifest in a workspace of 101 mani
 | After a source edit | 11.20 / 14.86 ms | 0.83 / 1.10 ms |
 
 The source-edit median fell by about 10.4 ms per validation in this fixture. The full suite passed 210 tests, including native Maven/npm integration and packaged-plugin unload checks. Build, configuration and compatibility checks passed for both supported IDEA versions.
+
+## Maven project inputs per read pass
+
+Whole-project discovery and bulk-preview validation now capture the non-ignored imported POMs, saved/unsaved POM stamps and common settings fingerprint once per read pass. Project lookup uses that captured view. Ancestor `.mvn` configuration stays specific to each module, with each shared path read once within the pass. Settings and ancestor configuration stamps now also include unsaved documents; the previous fingerprint only tracked their saved timestamps and sizes. Individual snapshots still contain complete fingerprints, including unselected sibling POMs, so shared-property safety is preserved.
+
+The input view is local to discovery, preparation or validation. Applying a prepared preview captures fresh inputs inside the write command and rejects changed sibling documents, saved or unsaved settings/ancestor configuration, imports/ignores or deprecation policy before making any edits. It is never reused across suspended repository work or a later validation pass. Individual pre/post-native checks still capture fresh project inputs. Each POM retains its fresh native embedder and repository context.
+
+The [before/after record](performance-maven-inputs-2026-10-08.txt) measures a simulated import of 101 POMs with 10,000 declarations, without running Maven goals. Five repeated discovery/collection-validation samples cover DOM traversal and local fingerprints; discovery also includes background scheduling and equality checks. The fixture proposes and applies 100 literal edits and checks unsaved sibling invalidation.
+
+| Local path | Before median / p95 | After median / p95 |
+|------------|--------------------:|-------------------:|
+| Discovery | 136.93 / 168.31 ms | 105.98 / 115.63 ms |
+| Collection validation | 22.90 / 24.13 ms | 4.14 / 5.44 ms |
+
+Collection validation saved about 18.8 ms per pass in this fixture. These are separate test JVMs with warm local inputs; JIT, scheduling and filesystem state affect results. They do not establish a production or native-query speedup. The full suite passed 216 tests, including native Maven/npm integration and packaged-plugin lifecycle tests. Plugin build, configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4 with the existing API notices.
+
+Per-module fingerprint maps still contain the full shared POM stamps; this change removes repeated input collection and filesystem reads rather than every quadratic map copy or comparison.
 
 ## Reproduce the comparisons
 
@@ -78,7 +95,7 @@ Trace entries in `idea.log` contain a fixed stage name, elapsed nanoseconds and 
 version-check stage=MAVEN_DEPENDENCY_GOAL elapsedNs=123456789 count=1
 ```
 
-Stages cover Maven/npm snapshot capture, coordinator lock wait, overall checks, Maven declaration collection/embedder acquisition/effective model/settings/metadata expiration, each dependency/plugin/parent goal, npm command setup and CLI execution, and highlighting restart work. `HIGHLIGHT_QUEUE` includes the batching delay and restart scheduling; it does not measure completion of IDEA's inspection rendering. Goal/session/CLI counts count invocations, metadata expiration counts declarations, and highlighting counts affected files. Stages can overlap or contain other stages, so their durations must not be summed indiscriminately. Failed and cancelled operations can also emit timings.
+Stages cover Maven/npm snapshot capture, coordinator lock wait, overall checks, Maven project-input capture/declaration collection/embedder acquisition/effective model/settings/metadata expiration, each dependency/plugin/parent goal, npm command setup and CLI execution, and highlighting restart work. `HIGHLIGHT_QUEUE` includes the batching delay and restart scheduling; it does not measure completion of IDEA's inspection rendering. Goal/session/CLI counts count invocations, `MAVEN_PROJECT_INPUTS` counts captured non-ignored POMs, metadata expiration counts declarations, and highlighting counts affected files. Stages can overlap or contain other stages, so their durations must not be summed indiscriminately. Failed and cancelled operations can also emit timings.
 
 The trace category records no file paths, coordinates, registry URLs, command arguments, configuration contents or tokens. Disable it after profiling. Compare current-file and whole-project refreshes separately, and record update mode, fresh/warm native caches and runtime versions alongside results. Counting metadata expiration does not prove HTTP revalidation; the local fixtures count requests independently.
 

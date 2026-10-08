@@ -60,7 +60,7 @@ Choose **Tools → Update Versions**, then **Current File** or **Whole Project**
 
 The check queries the newest version within the selected scope; it does not simply discard a latest version outside that scope. Restricted modes require numeric major/minor prefixes.
 
-A preview lists each POM/property change before applying one undoable command. The plugin saves the changed files and refreshes checks. Compatible dependency/plugin updates sharing a property become one edit. It skips inherited/composite version declarations and shared properties with conflicting, unchanged, unselected, or inherited uses. Shared-property safety checks cover all imported POMs even in Current File mode. These cases appear in the preview as needing review. A preview becomes invalid if an imported POM, relevant Maven configuration, or deprecation policy changes before applying it.
+A preview lists each POM/property change before applying one undoable command. The plugin saves the changed files and refreshes checks. Compatible dependency/plugin updates sharing a property become one edit. It skips inherited/composite version declarations and shared properties with conflicting, unchanged, unselected, or inherited uses. Shared-property safety checks cover all imported POMs even in Current File mode. These cases appear in the preview as needing review. A preview becomes invalid if an imported POM, relevant Maven configuration, or deprecation policy changes before applying it. Unsaved settings and ancestor `.mvn` configuration edits invalidate it too.
 
 Successful module checks with an empty or absent Maven report count as having no updates and do not abort the scan. Failures are logged to `idea.log`; a **Show details** notification action displays the cause without changing any versions.
 
@@ -159,10 +159,10 @@ Compatibility checks target IDEA 2025.3.6.1 and 2026.1.4.
 
 The test task builds the distributable ZIP. Lifecycle tests load that ZIP with IDEA's real plugin class loader, exercise repeated unload/reload cycles, and check service disposal, cancellation of active checks and timers, closure of open previews, and class-loader collection. Dialog tests use the platform's headless UI interception; native window behavior can be checked with `runIde`.
 
-Local scaling tests exercise discovery, stale-result validation and bulk application with 101 Gradle build files or npm manifests and 10,000 declarations. They print timings without depending on machine-specific time limits:
+Local scaling tests exercise discovery, stale-result validation and bulk application with 101 Maven POMs, Gradle build files or npm manifests and 10,000 declarations. They print timings without depending on machine-specific time limits:
 
 ```bash
-./gradlew test --tests '*GradleSnapshotScalingTest' --tests '*NpmSnapshotScalingTest'
+./gradlew test --tests '*SnapshotScalingTest'
 ```
 
 Parser and IntelliJ platform tests cover stable-version filtering, wrapped reports, current-POM/project scopes, plugin Maven prerequisites, Maven configuration properties, stale previews, shared properties, dependency/plugin selection, and POM quick fixes.

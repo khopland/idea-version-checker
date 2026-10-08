@@ -1,0 +1,54 @@
+Maven read-pass input validation: 2026-10-08
+Baseline application: c711730, with the measurement test and legacy batch helper added.
+IDEA 2025.3.6.1; Gradle Java toolchain 21; macOS arm64
+Fixture: 101 simulated imported POMs, 10,000 literal declarations; no Maven goals/network queries.
+Five alternating discovery/collection-validation samples per implementation in separate test JVMs.
+p95 is nearest-rank (maximum for n=5). No timing threshold is asserted.
+Discovery includes background scheduling and snapshot equality checks; both paths include local fingerprints.
+JIT, scheduling and filesystem state can affect comparisons. This is no production speedup claim.
+Before command (class contained only the measurement method):
+./gradlew test --tests '*MavenSnapshotScalingTest' -PperformanceTrace=true
+After command (same method selected after adding regression tests):
+./gradlew test --tests '*MavenSnapshotScalingTest.testSharedProjectInputsDiscoveryValidationAndApplication' -PperformanceTrace=true
+
+Before:
+version-check benchmark=maven-inputs path=discovery elapsedNs=168311125 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=22897292 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery elapsedNs=136926500 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=24134041 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery elapsedNs=130094042 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=22391000 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery elapsedNs=140362917 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=23784542 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery elapsedNs=133913000 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=21032375 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery samples=5 medianNs=136926500 p95Ns=168311125
+version-check benchmark=maven-inputs path=validation samples=5 medianNs=22897292 p95Ns=24134041
+
+After:
+version-check benchmark=maven-inputs path=discovery elapsedNs=115633500 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=5435875 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery elapsedNs=110788125 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=4100500 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery elapsedNs=97369250 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=4142542 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery elapsedNs=71406667 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=3992625 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery elapsedNs=105977583 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=validation elapsedNs=4198792 poms=101 declarations=10000
+version-check benchmark=maven-inputs path=discovery samples=5 medianNs=105977583 p95Ns=115633500
+version-check benchmark=maven-inputs path=validation samples=5 medianNs=4142542 p95Ns=5435875
+
+Behavioral fixture: 100 proposed literal edits applied; a later uncommitted sibling change rejects currentness.
+Regression coverage: unselected unsaved siblings, per-module versus shared ancestor configuration,
+external and unsaved settings/configuration edits, newly imported/ignored modules, deprecation policy changes and stale preview rejection.
+Input views are pass-local. Preview application captures a fresh view before making any edits.
+Native goal/session/authentication behavior remains unchanged.
+Unsaved-input regression first failed on settings.xml with the former saved-only stamps,
+then passed for settings.xml, maven.config, jvm.config and wrapper/maven-wrapper.properties.
+The after measurements include those added document checks.
+
+Full validation: 216 tests, 0 failures, 0 errors, 0 skipped, including native Maven/npm integration.
+Plugin build and project configuration verification passed.
+Plugin compatible with IDEA 2025.3.6.1 and 2026.1.4.
+Existing experimental API notices and deprecated API notice on 2026.1.4 remain.
