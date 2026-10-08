@@ -17,6 +17,9 @@ internal interface BuildSystemAdapter {
     fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean
     suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot>
     suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport
+    /** Called under a read action; timers must not resolve against files whose edits are unsaved. */
+    fun hasUnsavedResolutionInputs(project: Project, snapshot: BuildSnapshot, unsavedPaths: Set<String>): Boolean =
+        snapshot.fingerprint.files.keys.any { it in unsavedPaths }
     /** Start a fresh native metadata generation before a manual/scheduled scan or bulk preview. */
     fun invalidateMetadata(project: Project) = Unit
     suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan

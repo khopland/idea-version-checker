@@ -37,6 +37,65 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /** Opt-in: starts IDEA's real Maven server and may download the Versions goal from Maven Central. */
 class MavenSettingsIntegrationTest : BasePlatformTestCase() {
+    fun testActiveProfilePropertyEditsChangeTheNativeEffectiveDependencyVersion() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-maven-property-owner-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
+        project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+        try {
+            for ((index, defaultVersion) in listOf("1.0", "0.5").withIndex()) {
+                val pom = Files.createDirectories(directory.resolve("case-$index")).resolve("pom.xml")
+                Files.writeString(pom, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                    <groupId>example.owner</groupId><artifactId>case-$index</artifactId><version>1</version>
+                    <properties><library.version>$defaultVersion</library.version></properties>
+                    <dependencies><dependency><groupId>example.owner</groupId><artifactId>library</artifactId><version>${'$'}{library.version}</version></dependency></dependencies>
+                    <profiles><profile><id>on</id><activation><activeByDefault>true</activeByDefault></activation>
+                      <properties><library.version>1.0</library.version></properties></profile></profiles></project>""")
+                val virtual = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!
+                val file = PsiManager.getInstance(project).findFile(virtual) as com.intellij.psi.xml.XmlFile
+                val imported = MavenProject(virtual).apply {
+                    updateState(MavenModel().apply {
+                        mavenId = MavenId("example.owner", "case-$index", "1")
+                        setProperties(java.util.Properties().apply { setProperty("library.version", "1.0") })
+                    }, emptyList(), "21", emptyList(), MavenExplicitProfiles(listOf("on")), emptySet(), emptyMap(),
+                        directory.resolve("repository"), false)
+                }
+                manager.projectsTree.putVirtualFileToProjectMapping(imported, imported.mavenId)
+                manager.projectsTree.setIgnoredState(listOf(imported), false)
+                val analysis = MavenDependencyAnalysis(org.jetbrains.idea.maven.dom.MavenDomUtil.getMavenDomProjectModel(file)!!,
+                    imported, mapOf(DependencyVersion("example.owner", "library", "1.0") to "2.0"))
+                val dependency = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags.single()
+                val problem = analysis.problem(dependency)!!
+                if (index == 0) {
+                    val fix = analysis.quickFixes(dependency, problem).single()
+                    val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
+                        problem.anchor, "Newer version", fix, ProblemHighlightType.WARNING, true)
+                    WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+                } else {
+                    val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
+                    assertEquals(1, plan.changes.size)
+                    assertTrue(plan.apply(project))
+                }
+                com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
+                val effective = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                    runBlocking { withMavenCheckSession(manager, imported) {
+                        it.evaluateEffectivePom(pom.toFile(), emptySet(), emptySet())
+                    } }
+                }), 120_000) ?: error("No native effective POM")
+                val root = com.intellij.openapi.util.JDOMUtil.load(effective)
+                assertEquals("2.0", root.getChild("dependencies", root.namespace).getChild("dependency", root.namespace)
+                    .getChildTextTrim("version", root.namespace))
+                assertEquals(defaultVersion, file.rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
+            }
+        } finally {
+            manager.projectsTree.setIgnoredState(manager.projects, true)
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testDependencyFiltersKeepManagedDeclarationsAndReduceNativeRequests() {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
         val directory = Files.createTempDirectory("version-checker-filter-integration-").toRealPath()

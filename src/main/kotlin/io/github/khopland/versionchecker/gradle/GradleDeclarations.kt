@@ -11,16 +11,24 @@ internal data class GradleDeclaration(val declaration: VersionDeclaration, val r
 /** Only fixed, numeric releases can be edited automatically. Gradle orders candidates during resolution. */
 internal object GradleVersions {
     const val STABLE = "(?i)^[0-9]+(?:\\.[0-9]+)*(?:[.-](?:final|ga|release|sp[0-9]*|jre|android))?$"
+    const val SUFFIX = "(?i)[.-](final|ga|release|sp[0-9]*|jre|android)$"
+    private fun qualifier(version: String) = Regex(SUFFIX).find(version)?.groupValues?.get(1)?.lowercase(java.util.Locale.ROOT).orEmpty()
+    private fun channel(version: String) = qualifier(version).takeIf { it == "jre" || it == "android" }.orEmpty()
     fun fixed(version: String) = Regex(STABLE).matches(version)
     fun newer(current: String, latest: String): Boolean {
-        if (!fixed(current) || !fixed(latest)) return false
+        if (!fixed(current) || !fixed(latest) || channel(current) != channel(latest)) return false
         fun numbers(value: String) = Regex("^[0-9]+(?:\\.[0-9]+)*").find(value)!!.value.split('.').map { it.toBigInteger() }
         val old = numbers(current); val next = numbers(latest)
         for (index in 0 until maxOf(old.size, next.size)) {
             val comparison = (next.getOrNull(index) ?: java.math.BigInteger.ZERO).compareTo(old.getOrNull(index) ?: java.math.BigInteger.ZERO)
             if (comparison != 0) return comparison > 0
         }
-        return false
+        val oldQualifier = qualifier(current); val newQualifier = qualifier(latest)
+        val oldPack = oldQualifier.startsWith("sp"); val newPack = newQualifier.startsWith("sp")
+        if (oldPack != newPack) return newPack
+        if (!oldPack) return false // final/ga/release are equivalent stable releases.
+        fun packNumber(value: String) = value.removePrefix("sp").ifEmpty { "0" }.toBigInteger()
+        return packNumber(newQualifier) > packNumber(oldQualifier)
     }
     fun kind(current: String, latest: String): VersionChangeKind {
         fun parts(s: String) = s.substringBefore('-').split('.').take(3).map { it.toIntOrNull() ?: 0 }.let { it + List(3 - it.size) { 0 } }

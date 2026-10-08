@@ -30,6 +30,9 @@
 
 ### Fixed
 
+- Maven property quick fixes and bulk edits select the unique active profile owner, including overrides of root dependency properties. Ambiguous active owners require review; shared edits cannot target a shadowed default property.
+- Scheduled npm checks skip workspaces with unsaved applicable registry or runtime configuration, including ancestor inputs, and resume after save without saving documents from the timer.
+- Gradle stable qualifiers are compared without case differences, JRE/Android variants remain isolated, and service-pack releases advance numerically even with mixed-case qualifiers. Equivalent versions and reverse service-pack updates are not offered.
 - Gradle settings fingerprints use the supported installation-path API on IntelliJ 2026.1 while retaining compatibility with 2025.3.
 - npm and Gradle document listeners use their cache service as the disposable parent, so listeners are removed on plugin unload as well as project close.
 - Refreshes pick up newly published releases despite Maven's daily metadata cache or npm's cached registry metadata. Maven refreshes only the selected artifacts' effective repository metadata timestamps, retaining downloaded artifacts and local-install metadata.

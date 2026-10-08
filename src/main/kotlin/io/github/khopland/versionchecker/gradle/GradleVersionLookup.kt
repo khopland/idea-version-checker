@@ -124,7 +124,6 @@ internal object GradleVersionLookup {
                                         }
                                     }
                                 }
-                                def dep = p.dependencies.create(request.group + ':' + request.name + ':+')
                                 def attributes = [:]
                                 originals.each { original -> original.attributes.keySet().each { key ->
                                     def value = original.attributes.getAttribute(key)
@@ -132,20 +131,63 @@ internal object GradleVersionLookup {
                                         throw new GradleException('Conflicting dependency attributes need review for ' + request.group + ':' + request.name)
                                     attributes[key] = value
                                 } }
-                                dep.attributes { target -> attributes.each { key, value -> target.attribute(key, value) } }
-                                def conf = p.configurations.detachedConfiguration(dep)
-                                conf.transitive = false
+                                def configuration = { version ->
+                                    def dep = p.dependencies.create(request.group + ':' + request.name + ':' + version)
+                                    dep.attributes { target -> attributes.each { key, value -> target.attribute(key, value) } }
+                                    def probe = p.configurations.detachedConfiguration(dep)
+                                    probe.transitive = false
+                                    probe
+                                }
+                                def numbers = { s -> (s =~ /^[0-9]+(?:\.[0-9]+)*/).with { it.find(); it.group().tokenize('.').collect { n -> new BigInteger(n) } } }
+                                def old = numbers(request.current)
+                                def qualifier = { s ->
+                                    def match = s =~ ${literal(GradleVersions.SUFFIX)}
+                                    match.find() ? match.group(1).toLowerCase(Locale.ROOT) : ''
+                                }
+                                def channel = { s -> def q = qualifier(s); q in ['jre', 'android'] ? q : '' }
+                                def servicePacks = qualifier(request.current).startsWith('sp')
+                                def supported = []
+                                def conf = configuration('+')
                                 conf.resolutionStrategy.componentSelection.all { selection ->
                                     def v = selection.candidate.version
-                                    def old = request.current.tokenize('.-')
-                                    def next = v.tokenize('.-')
                                     def stable = v ==~ ${literal(GradleVersions.STABLE)}
-                                    def suffix = { s -> (s =~ /[.-](final|ga|release|sp[0-9]*|jre|android)$/).with { it.find() ? it.group(1).toLowerCase() : '' } }
-                                    if (!stable || suffix(v) != suffix(request.current) ||
+                                    def next = stable ? numbers(v) : []
+                                    if (!stable || channel(v) != channel(request.current) ||
                                         (${literal(mode.name)} != 'MAJOR' && old[0] != next[0]) ||
-                                        (${literal(mode.name)} == 'PATCH' && (old.size() > 1 ? old[1] : '0') != (next.size() > 1 ? next[1] : '0'))) selection.reject('Outside stable update scope')
+                                        (${literal(mode.name)} == 'PATCH' && (old.size() > 1 ? old[1] : BigInteger.ZERO) != (next.size() > 1 ? next[1] : BigInteger.ZERO))) {
+                                        selection.reject('Outside stable update scope')
+                                    } else if (servicePacks) {
+                                        // Gradle orders mixed-case qualifiers differently. Ask its
+                                        // repository resolver for candidates, then order supported
+                                        // service packs numerically and resolve the chosen version.
+                                        supported.add(v)
+                                        selection.reject('Collecting supported service-pack versions')
+                                    }
                                 }
                                 def result = conf.incoming.resolutionResult.root.dependencies.find()
+                                if (servicePacks && !supported.empty) {
+                                    def compare = { a, b ->
+                                        def left = numbers(a); def right = numbers(b)
+                                        for (int i = 0; i < Math.max(left.size(), right.size()); i++) {
+                                            def c = (i < left.size() ? left[i] : BigInteger.ZERO) <=> (i < right.size() ? right[i] : BigInteger.ZERO)
+                                            if (c != 0) return c
+                                        }
+                                        def lq = qualifier(a); def rq = qualifier(b)
+                                        def lp = lq.startsWith('sp'); def rp = rq.startsWith('sp')
+                                        if (lp != rp) return lp ? 1 : -1
+                                        if (lp) {
+                                            def ln = new BigInteger(lq.substring(2) ?: '0'); def rn = new BigInteger(rq.substring(2) ?: '0')
+                                            def c = ln <=> rn
+                                            if (c != 0) return c
+                                        }
+                                        // Prefer the declared spelling for equivalent versions.
+                                        (a == request.current ? 1 : 0) <=> (b == request.current ? 1 : 0)
+                                    }
+                                    def chosen = supported.sort(compare).last()
+                                    result = configuration(chosen).incoming.resolutionResult.root.dependencies.find()
+                                    if (result instanceof ResolvedDependencyResult && result.selected.moduleVersion?.version != chosen)
+                                        throw new GradleException('Version replacement needs manual review for ' + request.group + ':' + request.name)
+                                }
                                 if (result instanceof UnresolvedDependencyResult) throw new GradleException('Could not check ' + request.group + ':' + request.name + ' in ' + p.path, result.failure)
                                 if (!(result instanceof ResolvedDependencyResult) || result.selected.moduleVersion == null ||
                                     result.selected.moduleVersion.group != request.group || result.selected.moduleVersion.name != request.name)

@@ -59,6 +59,11 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
             parent?.let { manager.findProject(MavenId("demo", it, "1"))?.properties }?.let(::putAll)
             file.rootTag!!.findFirstSubTag("properties")?.subTags?.forEach { setProperty(it.localName, it.value.trimmedText) }
         }
+        file.rootTag!!.findFirstSubTag("profiles")?.subTags?.filter {
+            it.findFirstSubTag("id")?.value?.trimmedText in activatedProfiles
+        }?.forEach { profile -> profile.findFirstSubTag("properties")?.subTags?.forEach {
+            effectiveProperties.setProperty(it.localName, it.value.trimmedText)
+        } }
         val parentProject = parent?.let { manager.findProject(MavenId("demo", it, "1")) }
         val managed = if (file.rootTag!!.findFirstSubTag("dependencyManagement") != null)
             listOf(MavenArtifactInfo("junit", "junit", "4.12", "jar", null))
@@ -80,6 +85,47 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
     private fun management(version: String) = """<dependencyManagement><dependencies><dependency>
         <groupId>junit</groupId><artifactId>junit</artifactId><version>$version</version><scope>test</scope>
         </dependency></dependencies></dependencyManagement>"""
+
+    fun testRootPropertyUsesItsActiveProfileOwnerForQuickFixAndBulkEdit() {
+        for ((index, defaultVersion) in listOf("4.12", "4.11").withIndex()) {
+            val file = imported("profile-owner-$index", """<properties><junit.version>$defaultVersion</junit.version></properties>
+                ${dependency("<version>\${junit.version}</version>")}
+                <profiles><profile><id>on</id><activation><activeByDefault>true</activeByDefault></activation>
+                  <properties><junit.version>4.12</junit.version></properties></profile></profiles>""", activatedProfiles = listOf("on"))
+            val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
+                manager.findProject(file.virtualFile)!!, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2"))
+            val problem = analysis.problem(declaration(file))!!
+            val profileProperty = file.rootTag!!.findFirstSubTag("profiles")!!.subTags.single().findFirstSubTag("properties")!!.subTags.single()
+            assertSame(profileProperty, problem.target)
+            val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
+            assertEquals(1, plan.changes.size)
+            apply(analysis.quickFixes(declaration(file), problem).single(), declaration(file))
+            assertEquals("4.13.2", profileProperty.value.trimmedText)
+            assertEquals(defaultVersion, file.rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
+            assertEquals("4.13.2", org.jetbrains.idea.maven.dom.MavenPropertyResolver.resolve("\${junit.version}", MavenDomUtil.getMavenDomProjectModel(file)!!))
+        }
+    }
+
+    fun testMultipleActivePropertyOwnersRequireReviewAndInactiveOverridesDoNotBlockEdits() {
+        val profiles = """<profiles><profile><id>first</id><properties><junit.version>4.12</junit.version></properties></profile>
+            <profile><id>second</id><properties><junit.version>4.12</junit.version></properties></profile></profiles>"""
+        for ((index, active) in listOf(listOf("first", "second"), emptyList()).withIndex()) {
+            val file = imported("ambiguous-$index", "<properties><junit.version>4.12</junit.version></properties>" +
+                dependency("<version>\${junit.version}</version>") + profiles, activatedProfiles = active)
+            val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
+                manager.findProject(file.virtualFile)!!, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2"))
+            val problem = analysis.problem(declaration(file))!!
+            val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
+            if (active.isNotEmpty()) {
+                assertNull(problem.target)
+                assertTrue(plan.changes.isEmpty())
+                assertTrue(analysis.quickFixes(declaration(file), problem).all { it is OverrideDependencyVersionFix })
+            } else {
+                assertSame(file.rootTag!!.findFirstSubTag("properties")!!.subTags.single(), problem.target)
+                assertEquals(1, plan.changes.size)
+            }
+        }
+    }
 
     fun testSnapshotFilterUsesResolvedCoordinatesManagedVersionsActiveProfilesAndBomImports() {
         imported("parent", management("4.12"))

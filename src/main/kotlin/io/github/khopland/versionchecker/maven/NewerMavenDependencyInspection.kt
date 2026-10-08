@@ -13,6 +13,7 @@ import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.XmlElementVisitor
 import com.intellij.psi.xml.XmlTag
 import com.intellij.psi.codeStyle.CodeStyleManager
+import org.jetbrains.idea.maven.project.MavenProjectsManager
 
 class NewerMavenDependencyInspection : LocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
@@ -41,18 +42,31 @@ internal fun isProjectPlugin(tag: XmlTag): Boolean = tag.localName == "plugin" &
         (tag.parentTag?.parentTag?.localName == "pluginManagement" &&
             tag.parentTag?.parentTag?.parentTag?.localName == "build"))
 
-/** Only update an exact property reference declared in this POM; inherited/composite values need review. */
-internal fun findLocalVersionProperty(versionTag: XmlTag, rawVersion: String?, current: String): XmlTag? {
-    val name = rawVersion?.let(::versionPropertyName) ?: return null
-    var parent = versionTag.parentTag
-    while (parent != null) {
-        if (parent.localName == "profile" || parent.localName == "project") {
-            val property = parent.findFirstSubTag("properties")?.findFirstSubTag(name)
-            if (property != null) return property.takeIf { it.value.trimmedText == current }
-        }
-        parent = parent.parentTag
+/** Resolve the global local property owner; profile properties also override root dependencies. */
+internal fun findLocalVersionPropertyOwner(context: XmlTag, name: String,
+    activeProfiles: Collection<String>? = MavenProjectsManager.getInstance(context.project)
+        .findProject(context.containingFile.virtualFile)?.activatedProfilesIds?.enabledProfiles): XmlTag? {
+    val ancestors = generateSequence(context) { it.parentTag }.toList()
+    val root = ancestors.lastOrNull { it.localName == "project" } ?: return null
+    val profiles = root.findFirstSubTag("profiles")?.subTags.orEmpty().filter { it.localName == "profile" }
+    val overrides = profiles.filter { profile ->
+        activeProfiles == null || profile.findFirstSubTag("id")?.value?.trimmedText in activeProfiles
+    }.mapNotNull { profile -> profile.findFirstSubTag("properties")?.findFirstSubTag(name) }
+    if (overrides.isNotEmpty()) {
+        val owner = overrides.singleOrNull() ?: return null
+        // Without an imported model only an enclosing profile establishes local ownership.
+        if (activeProfiles == null && owner.parentTag?.parentTag !in ancestors) return null
+        return owner
     }
-    return null
+    return root.findFirstSubTag("properties")?.findFirstSubTag(name)
+}
+
+/** Only update a literal owner of an exact reference; ambiguous/inherited/composite values need review. */
+internal fun findLocalVersionProperty(versionTag: XmlTag, rawVersion: String?, current: String,
+    activeProfiles: Collection<String>? = MavenProjectsManager.getInstance(versionTag.project)
+        .findProject(versionTag.containingFile.virtualFile)?.activatedProfilesIds?.enabledProfiles): XmlTag? {
+    val name = rawVersion?.let(::versionPropertyName) ?: return null
+    return findLocalVersionPropertyOwner(versionTag, name, activeProfiles)?.takeIf { it.value.trimmedText == current }
 }
 
 internal fun versionPropertyName(raw: String): String? = Regex("""\$\{([^}]+)}""").matchEntire(raw)?.groupValues?.get(1)

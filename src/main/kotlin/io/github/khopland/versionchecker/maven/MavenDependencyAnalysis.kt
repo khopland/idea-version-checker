@@ -104,11 +104,14 @@ internal class MavenDependencyAnalysis(
             notice != null -> null // Replacements need a coordinate/API review, not a version-only edit.
             versionTag == null -> null
             rawVersion == current -> versionTag
-            else -> findLocalVersionProperty(versionTag, rawVersion, current)
+            else -> versionPropertyTarget(versionTag, rawVersion, current)
         }
         return DependencyProblem(coordinate, latest, versionTag ?: tag.findFirstSubTag("artifactId") ?: tag,
             target, kind, kind.severity(options), notice)
     }
+
+    internal fun versionPropertyTarget(versionTag: XmlTag, raw: String?, current: String): XmlTag? =
+        findLocalVersionProperty(versionTag, raw, current, mavenProject.activatedProfilesIds.enabledProfiles)
 
     fun quickFixes(tag: XmlTag, problem: DependencyProblem): Array<LocalQuickFix> {
         val latest = problem.latest ?: return emptyArray()
@@ -153,7 +156,20 @@ internal class MavenDependencyAnalysis(
             val raw = target.value.trimmedText
             if (raw == current) return target
             val property = versionPropertyName(raw) ?: return null
-            target = MavenDomProjectProcessorUtils.searchProperty(property, model, project) ?: return null
+            val root = model.xmlTag ?: return null
+            val active = mavenProject.activatedProfilesIds.enabledProfiles
+            val locallyDeclared = root.findFirstSubTag("properties")?.findFirstSubTag(property) != null ||
+                root.findFirstSubTag("profiles")?.subTags.orEmpty().any {
+                    it.findFirstSubTag("id")?.value?.trimmedText in active &&
+                        it.findFirstSubTag("properties")?.findFirstSubTag(property) != null
+                }
+            val owner = if (locallyDeclared) findLocalVersionPropertyOwner(root, property, active)
+                else MavenDomProjectProcessorUtils.searchProperty(property, model, project)?.let { found ->
+                    // The DOM lookup can return the default property even if its source POM
+                    // has an active override. Never offer that default as a shared edit.
+                    findLocalVersionPropertyOwner(found, property).takeIf { it == found }
+                }
+            target = owner ?: return null
         }
         return null
     }

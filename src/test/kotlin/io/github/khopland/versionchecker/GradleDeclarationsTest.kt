@@ -123,4 +123,23 @@ class GradleDeclarationsTest {
         assertFalse(GradleVersions.newer("2.0.0", "1.9.9"))
         assertFalse(GradleVersions.newer("1.0", "1.0.0"))
     }
+    @Test fun testStableQualifierCaseAndVariantChannels() {
+        assertTrue(GradleVersions.newer("1.0.Final", "1.1.final"))
+        assertTrue(GradleVersions.newer("1.0.GA", "1.1.ga"))
+        assertTrue(GradleVersions.newer("1.0.JRE", "1.1.jre"))
+        assertFalse(GradleVersions.newer("1.0.JRE", "2.0.android"))
+        assertFalse(GradleVersions.newer("1.0.android", "2.0.JRE"))
+        assertFalse(GradleVersions.newer("1.0.Final", "1.0.ga"))
+    }
+
+    @Test fun testServicePackNumbersAdvanceWithoutDowngrades() {
+        for ((current, latest) in listOf("1.0-sp1" to "1.0-sp2", "1.0-sp2" to "1.0-sp10", "1.0-SP1" to "1.0.sp2")) {
+            assertTrue("$current -> $latest", GradleVersions.newer(current, latest))
+            assertFalse("$latest -> $current", GradleVersions.newer(latest, current))
+            assertEquals(io.github.khopland.versionchecker.core.VersionChangeKind.PATCH, GradleVersions.kind(current, latest))
+        }
+        assertTrue(GradleVersions.newer("1.0.Final", "1.0-sp1"))
+        assertFalse(GradleVersions.newer("1.0-sp1", "1.0.Final"))
+    }
+
 }

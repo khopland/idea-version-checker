@@ -157,6 +157,77 @@ class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
         }
     }
 
+    fun testNativeStableQualifierCaseVariantsAndServicePackOrdering() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-gradle-qualifiers-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val settings = GradleSettings.getInstance(project)
+        val previousOffline = settings.isOfflineWork
+        val cases = listOf(
+            Triple("final", "1.0.Final", listOf("1.0.Final", "1.1.final")),
+            Triple("ga", "1.0.GA", listOf("1.0.GA", "1.1.ga")),
+            Triple("jre", "1.0.JRE", listOf("1.0.JRE", "1.1.jre", "9.0.android")),
+            Triple("android", "1.0.android", listOf("1.0.android", "1.1.ANDROID", "9.0-jre")),
+            Triple("pack", "1.0-sp1", listOf("1.0-sp1", "1.0-sp2")),
+            Triple("pack-ten", "1.0-sp2", listOf("1.0-sp1", "1.0-sp2", "1.0-sp10")),
+            Triple("pack-case", "1.0-SP1", listOf("1.0-SP1", "1.0-sp2")),
+            Triple("pack-mixed", "1.0-sp1", listOf("1.0-sp1", "1.0-SP2", "1.0-sp10")),
+            Triple("pack-single", "1-SP1", listOf("1-SP1", "1-sp2")),
+            Triple("reverse", "1.0-sp10", listOf("1.0-sp1", "1.0-sp2", "1.0-sp10"))
+        )
+        try {
+            settings.isOfflineWork = false
+            project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+            for ((artifact, _, versions) in cases) {
+                val publication = Files.createDirectories(directory.resolve("repo/example/versionchecker/$artifact"))
+                Files.writeString(publication.resolve("maven-metadata.xml"), """<metadata><groupId>example.versionchecker</groupId>
+                  <artifactId>$artifact</artifactId><versioning><versions>${versions.joinToString("") { "<version>$it</version>" }}</versions></versioning></metadata>""")
+                for (version in versions) {
+                    val path = Files.createDirectories(publication.resolve(version))
+                    Files.writeString(path.resolve("$artifact-$version.pom"), """<project><modelVersion>4.0.0</modelVersion>
+                      <groupId>example.versionchecker</groupId><artifactId>$artifact</artifactId><version>$version</version></project>""")
+                }
+            }
+            Files.writeString(directory.resolve("settings.gradle"), "rootProject.name = 'qualifier-fixture'\n")
+            Files.writeString(directory.resolve("build.gradle"), """plugins { id 'java' }
+                repositories { maven { url = uri('repo') } }
+                dependencies {
+                    ${cases.joinToString("\n") { (artifact, current, _) -> "implementation 'example.versionchecker:$artifact:$current'" }}
+                }
+            """.trimIndent())
+            val wrapper = Files.createDirectories(directory.resolve("gradle/wrapper"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.properties"), wrapper.resolve("gradle-wrapper.properties"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.jar"), wrapper.resolve("gradle-wrapper.jar"))
+            val root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            VfsUtil.markDirtyAndRefresh(false, true, true, root)
+            settings.linkProject(GradleProjectSettings().apply {
+                externalProjectPath = directory.toString()
+                gradleJvm = "#JAVA_HOME"
+                distributionType = DistributionType.DEFAULT_WRAPPED
+                setModules(setOf(directory.toString()))
+            })
+            val adapter = GradleBuildSystemAdapter()
+            val snapshot = adapter.snapshot(project, root.findChild("build.gradle")!!)!!
+            val report = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { adapter.check(project, snapshot, UpdateMode.MAJOR) }
+            }), 120_000)
+            assertEquals(mapOf("final" to "1.1.final", "ga" to "1.1.ga", "jre" to "1.1.jre", "android" to "1.1.ANDROID",
+                "pack" to "1.0-sp2", "pack-ten" to "1.0-sp10", "pack-case" to "1.0-sp2", "pack-mixed" to "1.0-sp10", "pack-single" to "1-sp2"),
+                report.candidates.associate { it.declaration.artifact.name to it.version })
+            assertTrue(report.candidates.filter { it.declaration.artifact.name.startsWith("pack") }.all { it.kind == VersionChangeKind.PATCH })
+            val patch = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { adapter.check(project, snapshot, UpdateMode.PATCH) }
+            }), 120_000)
+            assertEquals(report.candidates.filter { it.declaration.artifact.name.startsWith("pack") }.associate { it.declaration.artifact.name to it.version },
+                patch.candidates.associate { it.declaration.artifact.name to it.version })
+            assertFalse(Files.exists(directory.resolve("build/classes")))
+        } finally {
+            settings.unlinkExternalProject(directory.toString())
+            settings.isOfflineWork = previousOffline
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testNativeGradleRepositoryAuthenticationCatalogSubprojectsAndModes() {
         if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
         val directory = Files.createTempDirectory("version-checker-gradle-integration-").toRealPath()

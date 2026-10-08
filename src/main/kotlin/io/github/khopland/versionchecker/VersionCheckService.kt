@@ -116,7 +116,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                         notify("${adapter.displayName} is offline. Disable Work offline to check remote versions.", NotificationType.INFORMATION)
                         emptyList()
                     } else discovered
-                        .filter { snapshot -> snapshot.fingerprint.files.keys.none { it in unsaved } }
+                        .filter { snapshot -> !scheduled || !readAction { adapter.hasUnsavedResolutionInputs(project, snapshot, unsaved) } }
                         .map { adapter to it }
                 } catch (cancelled: CancellationException) {
                     throw cancelled

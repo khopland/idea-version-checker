@@ -50,7 +50,7 @@ internal object MavenBulkUpdatePlan {
                 }
                 val safe = !attributeUsage && usages.isNotEmpty() && usages.all { usage ->
                     usage.localName == "version" && usage.value.trimmedText == reference &&
-                        findLocalVersionProperty(usage, reference, target.value.trimmedText)?.let(::key) == targetKey &&
+                        files[usage.containingFile]?.versionPropertyTarget(usage, reference, target.value.trimmedText)?.let(::key) == targetKey &&
                         group.any { it.anchor == usage && it.latest == latest }
                 }
                 if (!safe) {

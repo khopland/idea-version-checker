@@ -33,6 +33,7 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     override fun supports(project: Project, selection: BuildSelection) =
         NpmManifest.files(project, selection).any { validManifest(project, it) }
 
+    private val runtimeConfigurationNames = listOf(".npmrc", ".nvmrc", ".node-version", ".tool-versions", ".mise.toml", "mise.toml", "mise.local.toml")
     private val otherManagerFiles = listOf("pnpm-lock.yaml", "pnpm-workspace.yaml", "yarn.lock", "bun.lock", "bun.lockb")
 
     private fun validManifest(project: Project, file: VirtualFile): Boolean {
@@ -122,6 +123,32 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         return report.copy(validUntilNanos = expires.get().takeUnless { it == Long.MAX_VALUE })
     }
     override fun invalidateMetadata(project: Project) { project.service<NpmMetadataService>().invalidate() }
+    override fun hasUnsavedResolutionInputs(project: Project, snapshot: BuildSnapshot, unsavedPaths: Set<String>): Boolean {
+        if (super.hasUnsavedResolutionInputs(project, snapshot, unsavedPaths)) return true
+        val paths = mutableSetOf<Path>()
+        var ancestor: Path? = Path.of(snapshot.context.root)
+        while (ancestor != null) {
+            for (name in runtimeConfigurationNames + "package.json") paths.add(ancestor.resolve(name))
+            ancestor = ancestor.parent
+        }
+        paths.add(Path.of(System.getProperty("user.home"), ".npmrc"))
+        val environment = EnvironmentUtil.getEnvironmentMap()
+        for (name in listOf("NPM_CONFIG_USERCONFIG", "npm_config_userconfig", "NPM_CONFIG_GLOBALCONFIG", "npm_config_globalconfig")) {
+            environment[name]?.takeIf(String::isNotBlank)?.let { paths.add(Path.of(it)) }
+        }
+        (NodeJsInterpreterManager.getInstance(project).interpreter as? NodeJsLocalInterpreter)?.let {
+            val node = Path.of(it.interpreterSystemDependentPath)
+            paths.add(node)
+            node.parent?.parent?.resolve("etc/npmrc")?.let { config -> paths.add(config) }
+        }
+        runCatching { Path.of(NpmManager.getInstance(project).packageRef.referenceName) }.getOrNull()?.let { configured ->
+            paths.add(configured)
+            paths.add(configured.resolve("package.json"))
+            paths.add(configured.resolve("bin/npm-cli.js"))
+        }
+        return paths.any { it.toAbsolutePath().normalize().toString() in unsavedPaths }
+    }
+
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
         check(areCurrent(project, reports.keys)) { "npm manifests or configuration changed during the check. Run it again." }
         val edits = mutableListOf<VersionEdit>()
@@ -225,7 +252,7 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     /** Hash configuration, never credentials themselves, into a key separate from edit safety. */
     internal fun resolutionContext(project: Project, root: VirtualFile): NpmResolutionContext {
         val inputs = sortedMapOf<String, String>()
-        val configurationNames = listOf(".npmrc", ".nvmrc", ".node-version", ".tool-versions", ".mise.toml", "mise.toml", "mise.local.toml")
+        val configurationNames = runtimeConfigurationNames
         fun manifestConfiguration(text: String): String = runCatching {
             val json = JsonParser.parseString(text).asJsonObject
             listOf("packageManager", "devEngines", "workspaces", "engines", "volta")
