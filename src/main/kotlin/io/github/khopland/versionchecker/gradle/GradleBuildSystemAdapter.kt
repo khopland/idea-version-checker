@@ -9,11 +9,21 @@ import com.intellij.openapi.vfs.*
 import com.intellij.psi.PsiManager
 import io.github.khopland.versionchecker.*
 import io.github.khopland.versionchecker.core.*
+import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.nio.file.Files
 import java.nio.file.Path
 
 internal class GradleBuildSystemAdapter : BuildSystemAdapter {
+    private companion object {
+        // The Path getter was added in 2026.1; retain compatibility with 2025.3's String getter.
+        val gradleHomeGetter = try {
+            GradleProjectSettings::class.java.getMethod("getGradleHomePath")
+        } catch (_: NoSuchMethodException) {
+            GradleProjectSettings::class.java.getMethod("getGradleHome")
+        }
+    }
+
     override val id = "gradle"
     override val displayName = "Gradle"
     override val capabilities = AdapterCapabilities()
@@ -75,7 +85,8 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         val init = home.resolve("init.d")
         if (Files.isDirectory(init)) Files.walk(init).use { paths -> paths.filter(Files::isRegularFile).forEach { hashes[it.toString()] = hash(Files.readAllBytes(it)) } }
         val sdk = ProjectRootManager.getInstance(project).projectSdk
-        return BuildFingerprint(hashes, listOf(root, linked?.modules?.sorted(), linked?.gradleJvm, linked?.gradleHome, linked?.distributionType, sdk?.name, sdk?.homePath, settings.serviceDirectoryPath, settings.gradleVmOptions, settings.isOfflineWork, project.service<VersionCheckerSettings>().state.deprecatedDependencies, System.getenv().toSortedMap()).joinToString("|").let { hash(it.toByteArray()) })
+        val gradleHome = linked?.let { gradleHomeGetter.invoke(it)?.toString() }
+        return BuildFingerprint(hashes, listOf(root, linked?.modules?.sorted(), linked?.gradleJvm, gradleHome, linked?.distributionType, sdk?.name, sdk?.homePath, settings.serviceDirectoryPath, settings.gradleVmOptions, settings.isOfflineWork, project.service<VersionCheckerSettings>().state.deprecatedDependencies, System.getenv().toSortedMap()).joinToString("|").let { hash(it.toByteArray()) })
     }
     override fun isCurrent(project: Project, snapshot: BuildSnapshot) = find(project, snapshot.sourceFile)?.let { owner(project, it) == snapshot.context.root && snapshot.fingerprint == fingerprint(project, snapshot.context.root) } == true
     private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>): Boolean {

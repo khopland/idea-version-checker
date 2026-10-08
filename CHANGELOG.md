@@ -4,12 +4,14 @@
 
 ### Added
 
+- Dynamic plugin support, with packaged-plugin unload/reload tests covering service disposal, cancelled checks and timers, open previews, and class-loader release.
 - **Refresh Dependency Versions** in supported build files' editor context menu, plus clearer **Refresh Current File** and **Refresh Whole Project** menu actions.
 - Cancellable status-bar progress for manual refreshes and automatic inspection checks, with whole-project refresh progress advancing by build file.
 - Optional periodic repository checks in project settings, with a configurable 1–1440 minute interval (30 minutes by default). Checks refresh highlighting while the project is open and skip offline providers, unsaved build files, indexing and active checks.
 
 ### Changed
 
+- Bulk-update previews use non-modal windows owned by the plugin service. Unloading closes them and cancels pending responses before any edits can be applied.
 - Maven goals share one fresh server embedder per POM and skip dependency, plugin or parent categories with no supported declarations.
 - Independent npm packages are queried concurrently with a limit of four, sharing metadata and deprecation queries for aliases of the same package.
 - Gradle checks cache build-file discovery and content hashes, traverse nested linked modules once, and share a root fingerprint during discovery and bulk validation. Edits, file moves and linked settings still invalidate stale results and previews.
@@ -17,6 +19,7 @@
 
 ### Fixed
 
+- Gradle settings fingerprints use the supported installation-path API on IntelliJ 2026.1 while retaining compatibility with 2025.3.
 - npm and Gradle document listeners use their cache service as the disposable parent, so listeners are removed on plugin unload as well as project close.
 - Refreshes pick up newly published releases despite Maven's daily metadata cache or npm's cached registry metadata. Maven refreshes only the selected artifacts' effective repository metadata timestamps, retaining downloaded artifacts and local-install metadata.
 - Refresh progress now covers the actual repository checks and resulting inspection updates, instead of finishing after background checks were merely queued.

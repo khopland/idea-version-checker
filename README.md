@@ -19,6 +19,8 @@ The parent choice is available only when the controlling declaration can be iden
 
 Requires IntelliJ IDEA **2025.3.6.1 or later**. Enable the bundled Java and Maven plugins for Maven projects, the bundled Gradle plugin for Gradle projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2025.3.6.1.
 
+The plugin supports dynamic loading and unloading, allowing IDEA to enable, disable or update it without a restart when the IDE permits it. Unloading cancels background checks and scheduled timers and closes pending update previews. Previews use non-modal windows; build-file changes still invalidate a preview before it can apply edits.
+
 1. In IDEA, open **Settings → Plugins → Marketplace**, search for **Version Checker**, and install it. For a local build, run `./gradlew buildPlugin` using Java 21 or later; Gradle uses a Java 21 toolchain.
 2. If installing a local build, use **Settings → Plugins → gear → Install Plugin from Disk** and select the ZIP in `build/distributions/`.
 3. Open and import a Maven project. Checks start in the background when IDEA inspects an imported POM.
@@ -152,6 +154,8 @@ Java and Maven can be selected through SDKMAN. The Gradle wrapper builds the plu
 ```
 
 Compatibility checks target IDEA 2025.3.6.1 and 2026.1.4.
+
+The test task builds the distributable ZIP. Lifecycle tests load that ZIP with IDEA's real plugin class loader, exercise repeated unload/reload cycles, and check service disposal, cancellation of active checks and timers, closure of open previews, and class-loader collection. Dialog tests use the platform's headless UI interception; native window behavior can be checked with `runIde`.
 
 Local scaling tests exercise discovery, stale-result validation and bulk application with 101 Gradle build files or npm manifests and 10,000 declarations. They print timings without depending on machine-specific time limits:
 

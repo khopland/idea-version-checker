@@ -17,7 +17,7 @@
     <depends optional="true" config-file="version-checker-npm.xml">JavaScript</depends>
     <depends optional="true" config-file="version-checker-gradle.xml">org.jetbrains.plugins.gradle</depends>
     <extensionPoints>
-        <extensionPoint name="buildSystemAdapter" interface="io.github.khopland.versionchecker.core.BuildSystemAdapter" />
+        <extensionPoint name="buildSystemAdapter" interface="io.github.khopland.versionchecker.core.BuildSystemAdapter" dynamic="true" />
     </extensionPoints>
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="io.github.khopland.versionchecker.VersionCheckerStartupActivity" />

@@ -36,6 +36,9 @@ tasks.processResources {
 }
 
 tasks.test {
+    val pluginArchive = tasks.named<Zip>("buildPlugin")
+    dependsOn(pluginArchive)
+    systemProperty("versionchecker.pluginArchive", pluginArchive.get().archiveFile.get().asFile.absolutePath)
     val mavenIntegration = providers.gradleProperty("mavenIntegration").orElse("false").get()
     systemProperty("versionchecker.mavenIntegration", mavenIntegration)
     if (mavenIntegration != "true") exclude("**/MavenSettingsIntegrationTest*")

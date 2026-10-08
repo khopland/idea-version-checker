@@ -211,4 +211,26 @@ class GradleAdapterTest : BasePlatformTestCase() {
             Files.walk(home).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach { Files.delete(it) } }
         }
     }
+
+    fun testGradleInstallationChangesInvalidateSnapshotsAndPreviews() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", "dependencies { implementation 'g:alpha:1.2.3' }")
+        link()
+        val linked = GradleSettings.getInstance(project).linkedProjectsSettings.single()
+        linked.gradleHome = null
+        val original = adapter.snapshot(project, file.virtualFile)!!
+        assertTrue(adapter.isCurrent(project, original))
+
+        linked.gradleHome = "/opt/gradle-first"
+        assertFalse(adapter.isCurrent(project, original))
+        val first = adapter.snapshot(project, file.virtualFile)!!
+        val prepared = plan(first, report(first))
+
+        linked.gradleHome = "/opt/gradle-second"
+        assertFalse(adapter.isCurrent(project, first))
+        assertFalse(prepared.apply(project))
+        assertTrue(file.text.contains("1.2.3"))
+
+        linked.gradleHome = null
+        assertTrue(adapter.isCurrent(project, original))
+    }
 }
