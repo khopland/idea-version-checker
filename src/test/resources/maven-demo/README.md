@@ -6,7 +6,7 @@ A standalone Maven project with intentionally old dependency and build-plugin ve
 
 1. Install the plugin ZIP from `../../build/distributions/` using **Settings → Plugins → gear → Install Plugin from Disk**, then restart if prompted. Alternatively, open this project in the development IDE launched with `./gradlew runIde` from the plugin repository.
 2. Open this directory's **root `pom.xml` as a project**. Reload all Maven projects and wait for dependency import to finish. Use Java 21 or newer as the project SDK and Maven runner JDK.
-3. Open a POM and choose **Tools → Check Versions → Current File**, or **Whole Project** to check all imported modules. Keep Maven online. Checks run in the background, so messages can take a little time to appear on the first run.
+3. Open a POM and choose **Tools → Check Versions → Refresh Current File**, or **Whole Project** to check all imported modules. Keep Maven online. Checks run in the background, so messages can take a little time to appear on the first run.
 
 ## Things to try
 

@@ -6,6 +6,8 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.util.xmlb.XmlSerializer
 import java.awt.Container
 import javax.swing.JComboBox
+import javax.swing.JSpinner
+import com.intellij.ui.components.JBCheckBox
 
 class VersionCheckerSettingsTest : BasePlatformTestCase() {
     fun testSettingsPageAppliesAndResetsIndependentSeverityChoices() {
@@ -18,6 +20,13 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             val selectors = components(panel as Container).filterIsInstance<JComboBox<*>>()
             assertEquals(5, selectors.size)
             assertFalse(configurable.isModified())
+            val schedule = components(panel).filterIsInstance<JBCheckBox>().single { "periodically" in it.text }
+            val interval = components(panel).filterIsInstance<JSpinner>().single()
+            assertFalse(schedule.isSelected)
+            assertFalse(interval.isEnabled)
+            schedule.doClick()
+            assertTrue(interval.isEnabled)
+            interval.value = 15
             selectors[0].selectedItem = VersionSeverity.DISABLED
             selectors[2].selectedItem = VersionSeverity.ERROR
             components(panel).filterIsInstance<JBTextArea>().single().text = "old:library = Use new:library"
@@ -28,6 +37,8 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             assertEquals(VersionSeverity.WARNING, state.minorSeverity)
             assertEquals(VersionSeverity.ERROR, state.majorSeverity)
             assertEquals("old:library = Use new:library", state.deprecatedDependencies)
+            assertTrue(state.scheduledChecks)
+            assertEquals(15, state.checkIntervalMinutes)
             assertFalse(configurable.isModified())
             selectors[2].selectedItem = VersionSeverity.INFORMATION
             configurable.reset()
@@ -36,13 +47,15 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
         } finally {
             configurable.disposeUIResources()
             project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+            project.service<ScheduledVersionChecks>().configure()
         }
     }
 
     fun testSeverityPreferencesSurviveSerialization() {
         val state = VersionCheckerSettings.Options(patchSeverity = VersionSeverity.DISABLED,
             minorSeverity = VersionSeverity.INFORMATION, majorSeverity = VersionSeverity.ERROR,
-            deprecatedSeverity = VersionSeverity.WARNING, deprecatedDependencies = "old:library = Retired")
+            deprecatedSeverity = VersionSeverity.WARNING, deprecatedDependencies = "old:library = Retired",
+            scheduledChecks = true, checkIntervalMinutes = 60)
         assertEquals(state, XmlSerializer.deserialize(XmlSerializer.serialize(state), VersionCheckerSettings.Options::class.java))
     }
 }

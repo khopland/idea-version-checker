@@ -56,9 +56,8 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val manager = MavenProjectsManager.getInstance(project)
         val mavenProject = readAction { findProject(manager, snapshot) } ?: error("Maven POM is no longer imported")
-        val versions = MavenVersionLookup.check(manager, mavenProject, mode) +
-            MavenVersionLookup.check(manager, mavenProject, mode, MavenArtifactKind.PLUGIN) +
-            MavenVersionLookup.check(manager, mavenProject, mode, MavenArtifactKind.PARENT)
+        val kinds = snapshot.declarations.map { it.coordinate().artifactKind }.toSet()
+        val versions = MavenVersionLookup.checkAll(manager, mavenProject, mode, kinds)
         val relocations = readRelocations(mavenProject, snapshot)
         return UpdateReport(
             snapshot.declarations.mapNotNull { declaration -> versions[declaration.coordinate()]?.let {

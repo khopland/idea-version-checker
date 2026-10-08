@@ -22,7 +22,11 @@ Requires IntelliJ IDEA **2025.3.6.1 or later**. Enable the bundled Java and Mave
 1. In IDEA, open **Settings → Plugins → Marketplace**, search for **Version Checker**, and install it. For a local build, run `./gradlew buildPlugin` using Java 21 or later; Gradle uses a Java 21 toolchain.
 2. If installing a local build, use **Settings → Plugins → gear → Install Plugin from Disk** and select the ZIP in `build/distributions/`.
 3. Open and import a Maven project. Checks start in the background when IDEA inspects an imported POM.
-4. Use **Tools → Check Versions → Current File** to refresh the POM in the editor, or **Whole Project** for all imported modules.
+4. Use **Tools → Check Versions → Refresh Current File** to refresh the POM in the editor, or **Refresh Whole Project** for all imported modules.
+
+Version checks show cancellable progress in IDEA's bottom status bar. A manual refresh bypasses the checker's cached results, queries repository metadata again, and refreshes the inspection highlighting when results arrive. Use this after publishing a new library version while the project is open. Right-click a supported build file in the editor and choose **Refresh Dependency Versions**, or find the refresh actions through **Find Action**.
+
+For periodic checks, enable **Check repositories periodically while this project is open** under **Settings → Tools → Version Checker**. The default interval is 30 minutes, configurable from 1 minute to 24 hours; scheduling is off by default. Checks run after each interval without saving files or changing versions. They skip offline build systems, affected unsaved build files, indexing, and checks already in progress. The timer stops when the project closes or checking is disabled, and resumes with the saved settings when the project opens again. Squiggles appear only for supported newer stable versions; republishing an existing version or a snapshot does not create a version-update warning.
 
 The inspection appears under **Settings → Editor → Inspections → Maven → Newer Maven dependency or plugin version available**. You can disable the whole inspection there. Configure severity by update type under **Settings → Tools → Version Checker**. Editor diagnostics do not change Maven's build result.
 
@@ -72,6 +76,8 @@ The [plugin update goal](https://www.mojohaus.org/versions/versions-maven-plugin
 
 Results are cached for ten minutes and invalidated by POM saves, Maven model changes, settings changes in IDEA, or the refresh action. After changing `settings.xml` externally, reload the Maven project or use the refresh action. Checks inspect saved POM contents; version results only apply when the current version still matches.
 
+Each Maven scan shares one fresh server embedder across its dependency, plugin and parent goals and skips artifact categories absent from the POM. Before querying, it expires the selected artifacts' metadata update timestamps for the effective repositories and mirrors. Maven then refreshes the metadata even under a daily cache policy; cached artifact files and local-install metadata are retained.
+
 ## Maven scope
 
 - Maven dependencies and dependency management, including BOM version declarations, in imported POMs and active profiles.
@@ -87,6 +93,8 @@ Reporting plugins, build extensions, plugin-contained dependencies, transitive-o
 Configure a **local Node.js interpreter and npm** in IntelliJ's JavaScript runtime settings, then open a project containing `package.json`. Checks start when IDEA inspects the manifest. The inspection is under **Settings → Editor → Inspections → npm → Newer npm dependency version available**. The same **Tools → Check Versions** and **Tools → Update Versions** actions work for npm, including Current File and Whole Project.
 
 Registry checks execute only read-only `npm view` commands through IntelliJ's configured runtime. npm evaluates project/user `.npmrc`, environment settings, scoped registries and authentication. Workspace members query from their workspace root so they use its registry configuration. Projects declaring pnpm, Yarn or Bun through `packageManager`, `devEngines.packageManager`, or their manager files are excluded. An explicit npm `packageManager` takes precedence over leftover lockfiles. `devEngines.packageManager` supports both an object and an array of objects; every entry must name npm. Empty, mixed-manager or malformed declarations are excluded. npm does not need to install dependencies to check versions.
+
+Independent npm packages are checked concurrently, with at most four package queries active at once. Aliases share metadata and deprecation lookups within a manifest. Queries use npm's `--prefer-online` option to revalidate cached registry metadata, while npm retains control of authentication and offline settings.
 
 Automatic updates cover `dependencies`, `devDependencies` and `optionalDependencies`, including scoped packages and npm aliases. Exact versions and simple caret/tilde selectors retain their operator: `^1.2.3` becomes `^1.2.9`, and `npm:@scope/package@~1.2.3` retains the alias. Each update mode finds the highest published stable, non-deprecated version in its numeric branch, even if the registry's `latest` tag points to an older version. For `0.x` packages, minor mode can cross minor branches; it does not guarantee compatibility.
 

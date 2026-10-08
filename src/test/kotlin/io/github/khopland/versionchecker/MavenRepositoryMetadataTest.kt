@@ -8,11 +8,49 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.nio.file.Files
+import java.util.Properties
 
 class MavenRepositoryMetadataTest {
     @get:Rule val temp = TemporaryFolder()
 
     private val dependency = DependencyVersion("no.example.felles", "infrastructure-api-ats", "5.40.0")
+
+    @Test fun `refresh expires only active remote metadata timestamps and retains cached files`() {
+        val root = temp.root.toPath()
+        val directory = Files.createDirectories(root.resolve("no/example/felles/infrastructure-api-ats"))
+        val status = directory.resolve("resolver-status.properties")
+        val values = Properties().apply {
+            setProperty("maven-metadata-nexus.xml.lastUpdated", "123456")
+            setProperty("maven-metadata-nexus.xml/auth@default-nexus-url.lastUpdated", "234567")
+            setProperty("maven-metadata-nexus.xml.error", "")
+            setProperty("maven-metadata-other.xml.lastUpdated", "345678")
+            setProperty("maven-metadata-local.xml.lastUpdated", "456789")
+            setProperty("library-5.40.0.jar.lastUpdated", "567890")
+        }
+        Files.newOutputStream(status).use { values.store(it, null) }
+        val remote = directory.resolve("maven-metadata-nexus.xml")
+        val local = directory.resolve("maven-metadata-local.xml")
+        Files.writeString(remote, metadata("5.40.0", "5.51.2"))
+        Files.writeString(local, metadata("0-SNAPSHOT"))
+        MavenRepositoryMetadata.expireUpdates(root, listOf(dependency, dependency), setOf("nexus", "local"))
+        val refreshed = Properties().apply { Files.newInputStream(status).use { load(it) } }
+        assertEquals("0", refreshed.getProperty("maven-metadata-nexus.xml.lastUpdated"))
+        assertEquals("0", refreshed.getProperty("maven-metadata-nexus.xml/auth@default-nexus-url.lastUpdated"))
+        for (key in values.stringPropertyNames().filter { !it.startsWith("maven-metadata-nexus.xml") }) {
+            assertEquals(values.getProperty(key), refreshed.getProperty(key))
+        }
+        assertEquals(metadata("5.40.0", "5.51.2"), Files.readString(remote))
+        assertEquals(metadata("0-SNAPSHOT"), Files.readString(local))
+    }
+
+    @Test fun `refresh leaves inactive metadata status files untouched`() {
+        val directory = Files.createDirectories(temp.root.toPath().resolve("no/example/felles/infrastructure-api-ats"))
+        val status = directory.resolve("resolver-status.properties")
+        val text = "maven-metadata-other.xml.lastUpdated=123456\n"
+        Files.writeString(status, text)
+        MavenRepositoryMetadata.expireUpdates(temp.root.toPath(), listOf(dependency), setOf("nexus"))
+        assertEquals(text, Files.readString(status))
+    }
 
     @Test fun `picks the newest stable remote version and ignores local installs`() {
         val directory = temp.root.toPath().resolve("no/example/felles/infrastructure-api-ats")
@@ -57,6 +95,7 @@ class MavenRepositoryMetadataTest {
         assertEquals(true, repositories.first().snapshotsPolicy?.isEnabled)
         assertEquals(false, repositories.last().releasesPolicy?.isEnabled)
         assertEquals(true, repositories.last().snapshotsPolicy?.isEnabled)
+        assertEquals(listOf("plugins-only"), MavenRepositoryMetadata.repositories(pom, plugins = true).map { it.id })
     }
 
     @Test fun `reads namespaced metadata`() {

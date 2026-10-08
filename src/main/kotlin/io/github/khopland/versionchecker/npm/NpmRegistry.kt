@@ -31,7 +31,7 @@ internal object NpmRegistry {
         check(NpmManager.getNpmPackagePresentableName(configured) == "npm") { "npm checks currently require npm as IntelliJ's configured package manager" }
         val npm = packageDirectory(configured) ?: bundledPackage(interpreter, directory) ?: configured
         return NpmUtil.createNpmCommandLine(directory, interpreter, npm, NpmCommand.VIEW,
-            parameters + listOf("--json", "--loglevel=error", "--update-notifier=false", "--fetch-retries=0", "--workspaces=false"))
+            parameters + listOf("--json", "--loglevel=error", "--update-notifier=false", "--fetch-retries=0", "--workspaces=false", "--prefer-online"))
             .withCharset(StandardCharsets.UTF_8)
     }
     /** Settings often name the npm executable (e.g. /opt/homebrew/bin/npm) instead of the npm package directory. */

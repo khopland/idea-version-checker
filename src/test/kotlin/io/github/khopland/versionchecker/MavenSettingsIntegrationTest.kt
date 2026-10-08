@@ -97,6 +97,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         val directory = Files.createTempDirectory("version-checker-integration-")
         VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString(), directory.toRealPath().toString())
         val metadataRequests = AtomicInteger()
+        val publishedVersion = AtomicReference("2.0")
         val expectedAuth = AtomicReference("Basic " + Base64.getEncoder().encodeToString("fixture:password".toByteArray()))
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
@@ -110,7 +111,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                     val body = """
                         <metadata><groupId>example.versionchecker</groupId><artifactId>$artifact</artifactId>
                         <versioning><latest>4.0-SNAPSHOT</latest><release>3.0-RC1</release><versions>
-                        <version>1.0</version><version>1.0.1</version><version>1.1</version><version>1.1.1</version><version>2.0</version><version>3.0-RC1</version><version>4.0-SNAPSHOT</version>
+                        <version>1.0</version><version>1.0.1</version><version>1.1</version><version>1.1.1</version><version>${publishedVersion.get()}</version><version>3.0-RC1</version><version>4.0-SNAPSHOT</version>
                         </versions><lastUpdated>20261005000000</lastUpdated></versioning></metadata>
                     """.trimIndent().toByteArray()
                     exchange.sendResponseHeaders(200, body.size.toLong())
@@ -146,9 +147,9 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                     <repository><id>central</id><url>https://repo.maven.apache.org/maven2</url>
                       <releases><enabled>false</enabled></releases><snapshots><enabled>false</enabled></snapshots></repository>
                     <repository><id>fixture-source</id><url>http://127.0.0.1:1/unmirrored</url>
-                      <releases><updatePolicy>always</updatePolicy></releases></repository>
+                      <releases><updatePolicy>daily</updatePolicy></releases></repository>
                   </repositories><pluginRepositories><pluginRepository><id>fixture-source</id><url>http://127.0.0.1:1/unmirrored</url>
-                    <releases><updatePolicy>always</updatePolicy></releases></pluginRepository></pluginRepositories></profile></profiles>
+                    <releases><updatePolicy>daily</updatePolicy></releases></pluginRepository></pluginRepositories></profile></profiles>
                   <activeProfiles><activeProfile>fixture-profile</activeProfile></activeProfiles>
                 </settings>
             """.trimIndent())
@@ -214,6 +215,17 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             assertEquals("2.0", PlatformTestUtil.waitForFuture(refreshedSettings, 120_000)
                 [DependencyVersion("example.versionchecker", "fixture", "1.0")])
             assertTrue("Each check must pick up externally edited settings credentials", metadataRequests.get() > beforeSettingsChange)
+
+            val beforePublication = metadataRequests.get()
+            publishedVersion.set("2.1")
+            val afterPublication = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { MavenVersionLookup.check(manager, mavenProject) }
+            })
+            assertEquals("A newly published release must bypass Maven's daily metadata cache", "2.1",
+                PlatformTestUtil.waitForFuture(afterPublication, 120_000)
+                    [DependencyVersion("example.versionchecker", "fixture", "1.0")])
+            assertTrue(metadataRequests.get() > beforePublication)
+            publishedVersion.set("2.0")
 
             manager.projectsTree.putVirtualFileToProjectMapping(mavenProject, mavenProject.mavenId)
             manager.projectsTree.putVirtualFileToProjectMapping(childProject, childProject.mavenId)

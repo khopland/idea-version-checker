@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Refresh Dependency Versions** in supported build files' editor context menu, plus clearer **Refresh Current File** and **Refresh Whole Project** menu actions.
+- Cancellable status-bar progress for manual refreshes and automatic inspection checks, with whole-project refresh progress advancing by build file.
+- Optional periodic repository checks in project settings, with a configurable 1–1440 minute interval (30 minutes by default). Checks refresh highlighting while the project is open and skip offline providers, unsaved build files, indexing and active checks.
+
+### Changed
+
+- Maven goals share one fresh server embedder per POM and skip dependency, plugin or parent categories with no supported declarations.
+- Independent npm packages are queried concurrently with a limit of four, sharing metadata and deprecation queries for aliases of the same package.
+
+### Fixed
+
+- Refreshes pick up newly published releases despite Maven's daily metadata cache or npm's cached registry metadata. Maven refreshes only the selected artifacts' effective repository metadata timestamps, retaining downloaded artifacts and local-install metadata.
+- Refresh progress now covers the actual repository checks and resulting inspection updates, instead of finishing after background checks were merely queued.
+
 ## [1.1.0] - 2026-10-07
 
 ### Added

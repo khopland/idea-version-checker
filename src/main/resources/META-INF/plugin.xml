@@ -20,6 +20,7 @@
         <extensionPoint name="buildSystemAdapter" interface="io.github.khopland.versionchecker.core.BuildSystemAdapter" />
     </extensionPoints>
     <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity implementation="io.github.khopland.versionchecker.VersionCheckerStartupActivity" />
         <notificationGroup id="Version Checker" displayType="BALLOON" />
         <projectConfigurable parentId="tools" id="version.checker" displayName="Version Checker" instance="io.github.khopland.versionchecker.VersionCheckerConfigurable" />
     </extensions>
@@ -39,8 +40,10 @@
         </group>
         <group id="VersionChecker.Check" text="Check Versions" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last" />
-            <action id="VersionChecker.RefreshCurrentFile" class="io.github.khopland.versionchecker.CurrentFileRefreshVersionsAction" text="Current File" description="Refresh dependency and build-plugin checks for the current build file" />
-            <action id="VersionChecker.Refresh" class="io.github.khopland.versionchecker.RefreshVersionsAction" text="Whole Project" description="Refresh dependency and build-plugin checks for all supported build files in the project" />
+            <action id="VersionChecker.RefreshCurrentFile" class="io.github.khopland.versionchecker.CurrentFileRefreshVersionsAction" text="Refresh Current File" description="Query fresh dependency and build-plugin versions for the current build file">
+                <add-to-group group-id="EditorPopupMenu" anchor="last" />
+            </action>
+            <action id="VersionChecker.Refresh" class="io.github.khopland.versionchecker.RefreshVersionsAction" text="Refresh Whole Project" description="Query fresh dependency and build-plugin versions for all supported build files in the project" />
         </group>
     </actions>
 </idea-plugin>

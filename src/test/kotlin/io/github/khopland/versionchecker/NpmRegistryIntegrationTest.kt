@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker
 
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.intellij.codeInspection.*
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
 import com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterManager
@@ -34,6 +35,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /** Opt-in: real IntelliJ-selected Node/npm, with an authenticated local registry and no installs. */
 class NpmRegistryIntegrationTest : BasePlatformTestCase() {
@@ -62,6 +64,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 })
             })
         }.toString().toByteArray()
+        val publishedMetadata = AtomicReference(metadata)
         server.createContext("/") { exchange ->
             try {
                 requests += exchange.requestURI.path
@@ -73,8 +76,10 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                     exchange.sendResponseHeaders(401, -1)
                 } else if (exchange.requestURI.path == "/@fixture/alpha") {
                     exchange.responseHeaders.add("Content-Type", "application/json")
-                    exchange.sendResponseHeaders(200, metadata.size.toLong())
-                    exchange.responseBody.write(metadata)
+                    exchange.responseHeaders.add("Cache-Control", "max-age=3600")
+                    val body = publishedMetadata.get()
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.write(body)
                 } else exchange.sendResponseHeaders(404, -1)
             } finally { exchange.close() }
         }
@@ -136,6 +141,19 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             val service = project.service<VersionCheckService>()
             service.updates(adapter, snapshot)
             PlatformTestUtil.waitWithEventsDispatching("npm background check", { service.cached(snapshot) != null }, 120_000)
+            val beforePublication = requests.size
+            val published = JsonParser.parseString(String(metadata)).asJsonObject.apply {
+                getAsJsonObject("versions").add("5.0.0", JsonObject().apply {
+                    addProperty("name", "@fixture/alpha")
+                    addProperty("version", "5.0.0")
+                })
+            }
+            publishedMetadata.set(published.toString().toByteArray())
+            service.refresh(adapter.id, rootFile)
+            PlatformTestUtil.waitWithEventsDispatching("New npm release appears after refresh", {
+                service.cached(snapshot)?.candidates?.all { it.version == "5.0.0" } == true
+            }, 120_000)
+            assertTrue("Refresh must revalidate npm's cached registry metadata", requests.size > beforePublication)
             val psi = PsiManager.getInstance(project).findFile(rootFile)!!
             fun problems(): List<ProblemDescriptor> {
                 val holder = ProblemsHolder(InspectionManager.getInstance(project), psi, true)

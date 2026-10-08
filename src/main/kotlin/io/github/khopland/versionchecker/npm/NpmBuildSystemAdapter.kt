@@ -20,11 +20,13 @@ import io.github.khopland.versionchecker.core.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
+import kotlinx.coroutines.sync.Semaphore
 
 internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     override val id = "npm"
     override val displayName = "npm"
     override val capabilities = AdapterCapabilities()
+    private val registrySlots = Semaphore(4)
     override fun isOffline(project: Project) = false // npm evaluates its own offline/cache configuration.
     override fun supports(project: Project, selection: BuildSelection) =
         NpmManifest.files(project, selection).any { validManifest(project, it) }
@@ -84,37 +86,13 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val directory = Path.of(snapshot.context.root)
-        val candidates = mutableListOf<UpdateCandidate>()
-        val notices = mutableListOf<UpdateNotice>()
-        val metadata = mutableMapOf<String, NpmPackageMetadata>()
-        val deprecations = mutableMapOf<Pair<String, String>, String?>()
-        suspend fun deprecated(name: String, version: String): String? {
-            val key = name to version
-            if (key !in deprecations) deprecations[key] = NpmRegistry.deprecated(project, directory, name, version)
-            return deprecations[key]
-        }
         val policy = readAction { project.service<VersionCheckerSettings>().state.deprecatedDependencies }
             .lineSequence().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith('#') }
             .map { it.split('=', limit = 2).map(String::trim) }
             .associate { it[0] to (it.getOrNull(1)?.takeIf(String::isNotBlank) ?: "Deprecated by project policy") }
-        for (declaration in snapshot.declarations) {
-            val baseline = NpmVersion.parse(declaration.baseline) ?: continue
-            val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector) ?: continue
-            val name = selector.packageName
-            val explicit = policy[name]
-            val versions = if (explicit == null) metadata[name] ?: NpmRegistry.metadata(project, directory, name).also { metadata[name] = it } else null
-            val publishedBaseline = versions?.versions?.firstOrNull { NpmVersion.parse(it) == baseline }
-            val notice = explicit ?: publishedBaseline?.let { deprecated(name, it) }
-            if (notice != null) notices += UpdateNotice(declaration, NoticeKind.DEPRECATED,
-                "npm package $name at ${declaration.selector} is deprecated: $notice")
-            if (explicit != null) continue // An explicitly retired package needs replacement review.
-            for (version in NpmRegistry.eligible(versions!!, baseline, mode)) {
-                if (deprecated(name, version) != null) continue
-                candidates += UpdateCandidate(declaration, version, selector.replace(version), baseline.change(NpmVersion.parse(version)!!))
-                break
-            }
-        }
-        return UpdateReport(candidates, notices)
+        return checkNpmVersions(snapshot.declarations, mode, policy, registrySlots,
+            metadata = { NpmRegistry.metadata(project, directory, it) },
+            deprecated = { name, version -> NpmRegistry.deprecated(project, directory, name, version) })
     }
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
         check(areCurrent(project, reports.keys)) { "npm manifests or configuration changed during the check. Run it again." }

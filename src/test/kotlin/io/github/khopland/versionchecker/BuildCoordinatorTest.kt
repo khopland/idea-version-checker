@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
@@ -13,6 +14,8 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Callable
 
 /** Exercise the real coordinator with a provider having no Maven or XML dependencies. */
@@ -23,7 +26,9 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         var current = true
         var offline = false
         var failure: String? = null
-        val checked = mutableListOf<String>()
+        var version = "1.1"
+        var beforeCheck: suspend () -> Unit = {}
+        val checked = CopyOnWriteArrayList<String>()
         private val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
         private val buildSnapshot = BuildSnapshot(
             BuildContextId(id, file.virtualFile.parent.path, id), file.virtualFile.path,
@@ -39,7 +44,9 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         override suspend fun discover(project: Project, selection: BuildSelection) = listOf(buildSnapshot)
         override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
             checked += snapshot.sourceFile
-            return UpdateReport(listOf(UpdateCandidate(snapshot.declarations.single(), "1.1")), failure = failure)
+            val result = UpdateReport(listOf(UpdateCandidate(snapshot.declarations.single(), version)), failure = failure)
+            beforeCheck()
+            return result
         }
         override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>) =
             BulkUpdatePlan(listOf(object : VersionEdit {
@@ -57,6 +64,98 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             runBlocking { project.service<BulkUpdateService>().createPlan(UpdateMode.PATCH, selection, file) }
         })
         return PlatformTestUtil.waitForFuture(future, 30_000)
+    }
+
+    fun testRefreshRechecksAnUnchangedFileAndRejectsAnOlderInFlightResult() {
+        val file = myFixture.addFileToProject("build.txt", "1.0")
+        val gate = CompletableDeferred<Unit>()
+        val adapter = TestAdapter("refresh-test", file).apply { beforeCheck = { gate.await() } }
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        val service = project.service<VersionCheckService>()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        assertNull(service.updates(adapter, snapshot))
+        PlatformTestUtil.waitWithEventsDispatching("First lookup starts", { adapter.checked.size == 1 }, 10_000)
+        adapter.version = "1.2"
+        service.refresh(adapter.id, file.virtualFile)
+        gate.complete(Unit)
+        PlatformTestUtil.waitWithEventsDispatching("Fresh version published", {
+            service.cached(snapshot)?.candidates?.single()?.version == "1.2"
+        }, 10_000)
+        assertEquals(2, adapter.checked.size)
+        adapter.version = "1.3"
+        service.refresh(adapter.id, file.virtualFile)
+        PlatformTestUtil.waitWithEventsDispatching("Cached version refreshed", {
+            service.cached(snapshot)?.candidates?.single()?.version == "1.3"
+        }, 10_000)
+        assertEquals(3, adapter.checked.size)
+    }
+
+    fun testScheduledRefreshBypassesCacheButSkipsOfflineAndDisabledChecks() {
+        val file = myFixture.addFileToProject("build.txt", "1.0")
+        val adapter = TestAdapter("schedule-test", file)
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        val service = project.service<VersionCheckService>()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        fun refresh() = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+            runBlocking { service.refreshScheduled() }
+        }), 10_000)
+        refresh()
+        assertEquals("1.1", service.cached(snapshot)!!.candidates.single().version)
+        adapter.version = "1.2"
+        refresh()
+        assertEquals("1.2", service.cached(snapshot)!!.candidates.single().version)
+        WriteCommandAction.runWriteCommandAction(project) {
+            FileDocumentManager.getInstance().getDocument(file.virtualFile)!!.setText("unsaved version")
+        }
+        refresh()
+        assertEquals("Scheduled checks must skip unsaved build files", 2, adapter.checked.size)
+        FileDocumentManager.getInstance().saveAllDocuments()
+        adapter.offline = true
+        refresh()
+        assertEquals(2, adapter.checked.size)
+        adapter.offline = false
+        project.service<VersionCheckerSettings>().state.enabled = false
+        try {
+            refresh()
+            assertEquals(2, adapter.checked.size)
+        } finally {
+            project.service<VersionCheckerSettings>().state.enabled = true
+        }
+    }
+
+    fun testCancelledRefreshDoesNotCacheAFailureAndCanBeRetried() {
+        val file = myFixture.addFileToProject("build.txt", "1.0")
+        val gate = CompletableDeferred<Unit>()
+        val adapter = TestAdapter("cancel-test", file).apply { beforeCheck = { gate.await() } }
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        val service = project.service<VersionCheckService>()
+        val job = service.refresh(listOf(adapter))
+        PlatformTestUtil.waitWithEventsDispatching("Lookup starts", { adapter.checked.isNotEmpty() }, 10_000)
+        job.cancel()
+        PlatformTestUtil.waitWithEventsDispatching("Lookup cancelled", { job.isCompleted }, 10_000)
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        assertNull(service.cached(snapshot))
+        gate.complete(Unit)
+        service.refresh(listOf(adapter))
+        PlatformTestUtil.waitWithEventsDispatching("Lookup retried", { service.cached(snapshot) != null }, 10_000)
+        assertTrue(service.cached(snapshot)!!.successful)
+    }
+
+    fun testScheduledRefreshDoesNotInvalidateAnActiveInspectionCheck() {
+        val file = myFixture.addFileToProject("build.txt", "1.0")
+        val gate = CompletableDeferred<Unit>()
+        val adapter = TestAdapter("busy-schedule-test", file).apply { beforeCheck = { gate.await() } }
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        val service = project.service<VersionCheckService>()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        service.updates(adapter, snapshot)
+        PlatformTestUtil.waitWithEventsDispatching("Inspection lookup starts", { adapter.checked.isNotEmpty() }, 10_000)
+        PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+            runBlocking { service.refreshScheduled() }
+        }), 10_000)
+        gate.complete(Unit)
+        PlatformTestUtil.waitWithEventsDispatching("Inspection lookup published", { service.cached(snapshot) != null }, 10_000)
+        assertEquals(1, adapter.checked.size)
     }
 
     fun testWholeProjectCombinesProvidersAndRetainsEveryStalePreviewGuard() {
