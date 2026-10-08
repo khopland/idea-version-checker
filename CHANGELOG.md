@@ -11,6 +11,9 @@
 
 ### Changed
 
+- Maven dependency goals receive exact inclusion filters from supported declarations, reducing inherited lookups whose results cannot be reported for the selected POM.
+- npm retrieves stable versions and their deprecation notices together, selecting candidates locally and retaining the older query path for incompatible responses.
+- Optional performance debug traces and authenticated request-count benchmarks cover Maven filtering and the combined npm query.
 - Bulk-update previews use non-modal windows owned by the plugin service. Unloading closes them and cancels pending responses before any edits can be applied.
 - Maven goals share one fresh server embedder per POM and skip dependency, plugin or parent categories with no supported declarations.
 - Independent npm packages are queried concurrently with a limit of four, sharing metadata and deprecation queries for aliases of the same package.

@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
 import com.google.gson.JsonParser
+import com.google.gson.JsonParseException
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.*
 import com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterManager
@@ -12,6 +13,7 @@ import com.intellij.lang.javascript.buildTools.npm.rc.NpmCommand
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import io.github.khopland.versionchecker.UpdateMode
+import io.github.khopland.versionchecker.CheckPerformance
 import kotlinx.coroutines.*
 import java.io.IOException
 import java.nio.charset.StandardCharsets
@@ -19,7 +21,11 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.coroutines.resume
 
-internal data class NpmPackageMetadata(val versions: List<String>)
+/** A null deprecation map means the older versions-only query needs per-version lookups. */
+internal data class NpmPackageMetadata(
+    val versions: List<String>,
+    val deprecatedByVersion: Map<String, String>? = null
+)
 
 /** Only npm view is executed. npm owns .npmrc, scopes, credentials, proxies and TLS settings. */
 internal object NpmRegistry {
@@ -54,15 +60,59 @@ internal object NpmRegistry {
     private fun isNpmPackage(root: Path) = Files.isRegularFile(root.resolve("bin").resolve("npm-cli.js"))
     suspend fun metadata(project: Project, directory: Path, name: String): NpmPackageMetadata {
         check(NpmSelector.validName(name)) { "Invalid npm package name" }
-        return parseMetadata(view(project, directory, listOf(name, "versions")))
+        return loadMetadata(name) { view(project, directory, it) }
     }
-    fun parseMetadata(json: String): NpmPackageMetadata {
+
+    internal suspend fun loadMetadata(name: String, query: suspend (List<String>) -> String): NpmPackageMetadata {
+        try {
+            // An explicit range includes stable releases beyond the latest tag. Requesting name
+            // alongside version keeps npm from simplifying the response into scalars.
+            return parseMetadata(query(listOf("$name@>=0.0.0", "name", "version", "deprecated")), name)
+        } catch (_: UnsupportedNpmMetadata) {
+            // Older npm/registry responses may not provide complete per-version objects.
+        } catch (failure: NpmViewFailure) {
+            // A package with only prereleases has no match for the stable range. The old query
+            // distinguishes that successful empty result from a missing/inaccessible package.
+            if (failure.code !in setOf("E404", "ETARGET", "ENOVERSIONS")) throw failure
+        }
+        return parseLegacyMetadata(query(listOf(name, "versions")))
+    }
+
+    fun parseMetadata(json: String, name: String): NpmPackageMetadata {
+        val root = try { JsonParser.parseString(json) } catch (_: JsonParseException) { throw UnsupportedNpmMetadata() }
+        val entries = when {
+            root.isJsonObject -> listOf(root)
+            root.isJsonArray -> root.asJsonArray.toList()
+            else -> throw UnsupportedNpmMetadata()
+        }
+        val versions = linkedSetOf<String>()
+        val deprecations = mutableMapOf<String, String>()
+        for (entry in entries) {
+            if (!entry.isJsonObject) throw UnsupportedNpmMetadata()
+            val item = entry.asJsonObject
+            fun string(field: String): String? {
+                val value = item.get(field) ?: return null
+                if (!value.isJsonPrimitive || !value.asJsonPrimitive.isString) throw UnsupportedNpmMetadata()
+                return value.asString
+            }
+            if (string("name") != name) throw UnsupportedNpmMetadata()
+            val version = string("version") ?: throw UnsupportedNpmMetadata()
+            if (NpmVersion.parse(version) == null || !versions.add(version)) throw UnsupportedNpmMetadata()
+            string("deprecated")?.takeIf { it.isNotBlank() }?.let { deprecations[version] = it }
+        }
+        return NpmPackageMetadata(versions.toList(), deprecations.toMap())
+    }
+
+    fun parseLegacyMetadata(json: String): NpmPackageMetadata {
         val root = JsonParser.parseString(json)
         val versions = if (root.isJsonObject) root.asJsonObject.get("versions") else root
         check(versions != null && (versions.isJsonArray || versions.isJsonPrimitive && versions.asJsonPrimitive.isString)) {
             "npm did not return package versions"
         }
-        val values = if (versions.isJsonArray) versions.asJsonArray.map { it.asString } else listOf(versions.asString)
+        val values = if (versions.isJsonArray) versions.asJsonArray.map {
+            check(it.isJsonPrimitive && it.asJsonPrimitive.isString) { "npm returned malformed package versions" }
+            it.asString
+        } else listOf(versions.asString)
         return NpmPackageMetadata(values)
     }
     suspend fun deprecated(project: Project, directory: Path, name: String, version: String): String? {
@@ -76,10 +126,15 @@ internal object NpmRegistry {
             .filter { (_, version) -> baseline.allows(version, mode) }
             .sortedByDescending { it.second }.map { it.first }
     }
-    private suspend fun view(project: Project, directory: Path, parameters: List<String>): String = withContext(Dispatchers.IO) {
+    private suspend fun view(project: Project, directory: Path, parameters: List<String>): String =
+        CheckPerformance.measure(CheckPerformance.Stage.NPM_VIEW) { runView(project, directory, parameters) }
+
+    private suspend fun runView(project: Project, directory: Path, parameters: List<String>): String = withContext(Dispatchers.IO) {
         val output = withTimeoutOrNull(60_000) {
             suspendCancellableCoroutine<ProcessOutput> { continuation ->
-                val handler = OSProcessHandler(command(project, directory, parameters))
+                val handler = OSProcessHandler(CheckPerformance.measure(CheckPerformance.Stage.NPM_COMMAND_SETUP) {
+                    command(project, directory, parameters)
+                })
                 val result = ProcessOutput()
                 handler.addProcessListener(object : ProcessListener {
                     override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
@@ -98,8 +153,11 @@ internal object NpmRegistry {
             // Do not copy stderr/configuration or credentials into a diagnostic or log.
             val code = runCatching { JsonParser.parseString(output.stdout).asJsonObject.getAsJsonObject("error")?.get("code")?.asString }
                 .getOrNull()?.takeIf { Regex("[A-Z0-9_]+").matches(it) }
-            throw IOException("npm view failed for ${parameters.first()} (exit ${output.exitCode}${code?.let { "; $it" }.orEmpty()}). Check Node/npm settings and registry access.")
+            throw NpmViewFailure(code, "npm view failed for ${parameters.first()} (exit ${output.exitCode}${code?.let { "; $it" }.orEmpty()}). Check Node/npm settings and registry access.")
         }
         output.stdout
     }
 }
+
+internal class UnsupportedNpmMetadata : IOException("npm did not return complete stable-version metadata")
+internal class NpmViewFailure(val code: String?, message: String) : IOException(message)

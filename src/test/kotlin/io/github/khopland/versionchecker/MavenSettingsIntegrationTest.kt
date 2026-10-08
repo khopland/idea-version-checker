@@ -10,6 +10,7 @@ import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.components.service
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.psi.PsiManager
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.xml.XmlTag
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -20,6 +21,9 @@ import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.model.MavenId
+import org.jetbrains.idea.maven.model.MavenModel
+import org.jetbrains.idea.maven.model.MavenArtifactInfo
+import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import java.net.InetSocketAddress
@@ -29,9 +33,176 @@ import java.util.Base64
 import java.util.concurrent.Callable
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.CopyOnWriteArrayList
 
 /** Opt-in: starts IDEA's real Maven server and may download the Versions goal from Maven Central. */
 class MavenSettingsIntegrationTest : BasePlatformTestCase() {
+    fun testDependencyFiltersKeepManagedDeclarationsAndReduceNativeRequests() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-filter-integration-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val requests = CopyOnWriteArrayList<String>()
+        val publishedVersion = AtomicReference("1.1")
+        val authorization = "Basic " + Base64.getEncoder().encodeToString("fixture:password".toByteArray())
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { exchange ->
+            try {
+                if (exchange.requestHeaders.getFirst("Authorization") != authorization) {
+                    exchange.responseHeaders.add("WWW-Authenticate", "Basic realm=fixture")
+                    exchange.sendResponseHeaders(401, -1)
+                } else if (exchange.requestURI.path.endsWith("/maven-metadata.xml")) {
+                    requests += exchange.requestURI.path
+                    val artifact = exchange.requestURI.path.substringBeforeLast('/').substringAfterLast('/')
+                    val body = """<metadata><groupId>example.filters</groupId><artifactId>$artifact</artifactId><versioning>
+                        <latest>${publishedVersion.get()}</latest><release>${publishedVersion.get()}</release>
+                        <versions><version>1.0</version><version>${publishedVersion.get()}</version></versions>
+                        <lastUpdated>20261008000000</lastUpdated></versioning></metadata>""".toByteArray()
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.write(body)
+                } else if ("/fixture-bom/" in exchange.requestURI.path && exchange.requestURI.path.endsWith(".pom")) {
+                    val version = exchange.requestURI.path.substringBeforeLast('/').substringAfterLast('/')
+                    val body = """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                        <groupId>example.filters</groupId><artifactId>fixture-bom</artifactId><version>$version</version><packaging>pom</packaging>
+                        <dependencyManagement><dependencies><dependency><groupId>example.filters</groupId><artifactId>artifact-5</artifactId>
+                        <version>1.0</version></dependency></dependencies></dependencyManagement></project>""".toByteArray()
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.write(body)
+                } else exchange.sendResponseHeaders(404, -1)
+            } finally { exchange.close() }
+        }
+        server.start()
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
+        val previousSettings = manager.generalSettings.userSettingsFile
+        try {
+            val repository = Path.of(System.getProperty("user.home"), ".m2", "repository")
+            val settings = directory.resolve("settings.xml")
+            Files.writeString(settings, """<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+                <localRepository>$repository</localRepository>
+                <servers><server><id>filter-mirror</id><username>fixture</username><password>password</password></server></servers>
+                <mirrors><mirror><id>filter-mirror</id><mirrorOf>filter-source</mirrorOf><url>http://127.0.0.1:${server.address.port}/</url></mirror></mirrors>
+                <profiles><profile><id>filter-repositories</id><repositories>
+                  <repository><id>central</id><url>https://repo.maven.apache.org/maven2</url><releases><enabled>false</enabled></releases></repository>
+                  <repository><id>filter-source</id><url>http://127.0.0.1:1/unmirrored</url><releases><updatePolicy>daily</updatePolicy></releases></repository>
+                </repositories></profile></profiles><activeProfiles><activeProfile>filter-repositories</activeProfile></activeProfiles></settings>""")
+            manager.generalSettings.setUserSettingsFile(settings.toString())
+            val allCoordinates = (1..5).map { DependencyVersion("example.filters", "artifact-$it", "1.0") }
+            val parentPom = directory.resolve("pom.xml")
+            Files.writeString(parentPom, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                <groupId>example.filters</groupId><artifactId>parent</artifactId><version>1</version><packaging>pom</packaging>
+                <dependencyManagement><dependencies>${allCoordinates.joinToString("") {
+                    "<dependency><groupId>${it.groupId}</groupId><artifactId>${it.artifactId}</artifactId><version>${it.version}</version></dependency>"
+                }}</dependencies></dependencyManagement></project>""")
+            val childPom = Files.createDirectories(directory.resolve("child")).resolve("pom.xml")
+            Files.writeString(childPom, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                <parent><groupId>example.filters</groupId><artifactId>parent</artifactId><version>1</version></parent>
+                <artifactId>child</artifactId><properties><fixture.group>example.filters</fixture.group><fixture.artifact>artifact-1</fixture.artifact></properties>
+                <dependencies><dependency><groupId>${'$'}{fixture.group}</groupId><artifactId>${'$'}{fixture.artifact}</artifactId></dependency></dependencies></project>""")
+            val parentFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(parentPom)!!
+            val parent = MavenProject(parentFile).apply { updateMavenId(MavenId("example.filters", "parent", "1")) }
+            manager.projectsTree.putVirtualFileToProjectMapping(parent, parent.mavenId)
+            val childFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(childPom)!!
+            val child = MavenProject(childFile).apply {
+                updateState(MavenModel().apply { mavenId = MavenId("example.filters", "child", "1") },
+                    allCoordinates.map { MavenArtifactInfo(it.groupId, it.artifactId, it.version, "jar", null) },
+                    "21", emptyList(), MavenExplicitProfiles.NONE, emptySet(), emptyMap(), repository, false)
+            }
+            manager.projectsTree.putVirtualFileToProjectMapping(child, child.mavenId)
+            val adapter = MavenBuildSystemAdapter()
+            // With transitive management disabled, parent-managed entries alone are already
+            // narrowed by the pinned goal. Verify that case before adding inherited dependencies.
+            val managedOnlyBefore = requests.size
+            val managedOnly = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { MavenVersionLookup.check(manager, child) }
+            })
+            assertEquals("1.1", PlatformTestUtil.waitForFuture(managedOnly, 120_000)[allCoordinates.first()])
+            assertEquals(1, requests.size - managedOnlyBefore)
+            val parentDocument = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(parentFile)!!
+            WriteCommandAction.runWriteCommandAction(project) {
+                parentDocument.setText(parentDocument.text.replace("</project>", "<dependencies>${allCoordinates.drop(1).joinToString("") {
+                    "<dependency><groupId>${it.groupId}</groupId><artifactId>${it.artifactId}</artifactId><version>${it.version}</version></dependency>"
+                }}</dependencies></project>"))
+            }
+            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
+            PsiDocumentManager.getInstance(project).commitAllDocuments()
+            assertTrue(Files.readString(parentPom).contains("<dependencyManagement>"))
+            val snapshot = adapter.snapshot(project, childFile)!!
+            assertEquals(listOf(allCoordinates.first()), snapshot.declarations.map { it.coordinate() })
+            val samples = mutableMapOf<String, MutableList<Long>>()
+            repeat(5) {
+                for (filtered in listOf(false, true)) {
+                    // Force the same freshness boundary for both paths, including inherited entries
+                    // that the child snapshot does not own. Retain native artifacts and metadata.
+                    MavenRepositoryMetadata.expireUpdates(child.localRepositoryPath, allCoordinates, setOf("filter-mirror"))
+                    val before = requests.size
+                    val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                        runBlocking {
+                            val started = System.nanoTime()
+                            val updates = MavenVersionLookup.checkAll(manager, child, UpdateMode.MAJOR,
+                                setOf(MavenArtifactKind.DEPENDENCY), if (filtered) snapshot.declarations.map { it.coordinate() } else null)
+                            updates to (System.nanoTime() - started)
+                        }
+                    })
+                    val (updates, nanos) = PlatformTestUtil.waitForFuture(future, 120_000)
+                    assertEquals("1.1", updates[allCoordinates.first()])
+                    assertEquals(if (filtered) 1 else 5, requests.size - before)
+                    assertEquals(if (filtered) 1 else 5, updates.size)
+                    val label = if (filtered) "filtered" else "broad"
+                    samples.getOrPut(label) { mutableListOf() } += nanos
+                    println("version-check benchmark=maven path=$label elapsedNs=$nanos httpRequests=${requests.size - before}")
+                }
+            }
+            for ((label, nanos) in samples) println("version-check benchmark=maven path=$label samples=${nanos.size} medianNs=${nanos.sorted()[nanos.size / 2]} p95Ns=${nanos.max()}")
+            publishedVersion.set("1.2")
+            val before = requests.size
+            val fresh = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { adapter.check(project, snapshot, UpdateMode.MAJOR) }
+            })
+            assertEquals("1.2", PlatformTestUtil.waitForFuture(fresh, 120_000).candidates.single().version)
+            assertEquals("The filtered path must refresh selected metadata under a daily policy", 1, requests.size - before)
+            val empty = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { MavenVersionLookup.checkAll(manager, child, UpdateMode.MAJOR, setOf(MavenArtifactKind.DEPENDENCY), emptyList()) }
+            })
+            assertTrue(PlatformTestUtil.waitForFuture(empty, 120_000).isEmpty())
+            assertEquals("An empty category must not execute a broad dependency goal", 1, requests.size - before)
+
+            val childDocument = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(childFile)!!
+            WriteCommandAction.runWriteCommandAction(project) {
+                childDocument.setText(childDocument.text.replace("</project>", """<dependencyManagement><dependencies><dependency>
+                    <groupId>example.filters</groupId><artifactId>fixture-bom</artifactId><version>1.0</version><type>pom</type><scope>import</scope>
+                    </dependency></dependencies></dependencyManagement><profiles>
+                    <profile><id>on</id><activation><activeByDefault>true</activeByDefault></activation><dependencies><dependency>
+                      <groupId>example.filters</groupId><artifactId>artifact-2</artifactId><version>1.0</version></dependency></dependencies></profile>
+                    <profile><id>off</id><dependencyManagement><dependencies><dependency><groupId>example.filters</groupId>
+                      <artifactId>artifact-6</artifactId><version>1.0</version></dependency></dependencies></dependencyManagement></profile>
+                    </profiles></project>"""))
+            }
+            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
+            PsiDocumentManager.getInstance(project).commitAllDocuments()
+            child.updateState(MavenModel().apply { mavenId = child.mavenId },
+                allCoordinates.map { MavenArtifactInfo(it.groupId, it.artifactId, it.version, "jar", null) },
+                "21", emptyList(), MavenExplicitProfiles(listOf("on")), emptySet(), emptyMap(), repository, false)
+            val profileSnapshot = adapter.snapshot(project, childFile)!!
+            assertEquals(setOf("example.filters:artifact-1", "example.filters:artifact-2", "example.filters:fixture-bom"),
+                profileSnapshot.declarations.map { it.artifact.name }.toSet())
+            val profileBefore = requests.size
+            val profileCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { adapter.check(project, profileSnapshot, UpdateMode.MAJOR) }
+            })
+            val profileReport = PlatformTestUtil.waitForFuture(profileCheck, 120_000)
+            assertEquals(3, profileReport.candidates.size)
+            assertTrue(profileReport.candidates.all { it.version == "1.2" })
+            assertEquals("Check only declared dependencies, the active profile and the BOM itself", 3, requests.size - profileBefore)
+        } finally {
+            manager.projectsTree.setIgnoredState(manager.projects, true)
+            manager.embeddersManager.reset()
+            manager.generalSettings.setUserSettingsFile(previousSettings)
+            server.stop(0)
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testDemoGlobalActionsAcrossNestedModules() {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
         val directory = Files.createTempDirectory("version-checker-demo-integration-")

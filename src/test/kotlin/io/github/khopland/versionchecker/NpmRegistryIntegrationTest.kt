@@ -4,6 +4,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.codeInspection.*
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
+import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterManager
 import com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterRef
 import com.intellij.javascript.nodejs.interpreter.local.NodeJsLocalInterpreter
@@ -28,6 +29,7 @@ import com.sun.net.httpserver.HttpServer
 import io.github.khopland.versionchecker.core.*
 import io.github.khopland.versionchecker.npm.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.util.concurrent.Callable
@@ -124,12 +126,71 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).size)
             assertNotNull(adapter.snapshot(project, rootFile))
             assertEquals(directory.toString(), adapter.snapshot(project, childFile)!!.context.root)
+            // Compare the old and combined native queries against exactly the same authenticated
+            // fixture. Aliases share each package response; later deprecated candidates are skipped.
+            val benchmarkSnapshot = adapter.snapshot(project, rootFile)!!
+            val samples = mutableMapOf<String, MutableList<Long>>()
+            repeat(5) {
+                for (combined in listOf(false, true)) {
+                    val before = requests.size
+                    val benchmark = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                        runBlocking {
+                            val started = System.nanoTime()
+                            val report = checkNpmVersions(benchmarkSnapshot.declarations, UpdateMode.PATCH, emptyMap(), Semaphore(4),
+                                metadata = { name ->
+                                    if (combined) NpmRegistry.metadata(project, directory, name)
+                                    else {
+                                        val output = CapturingProcessHandler(NpmRegistry.command(project, directory, listOf(name, "versions"))).runProcess(60_000)
+                                        check(output.exitCode == 0 && !output.isTimeout)
+                                        NpmRegistry.parseLegacyMetadata(output.stdout)
+                                    }
+                                }, deprecated = { name, version -> NpmRegistry.deprecated(project, directory, name, version) })
+                            report to (System.nanoTime() - started)
+                        }
+                    })
+                    val (report, nanos) = PlatformTestUtil.waitForFuture(benchmark, 120_000)
+                    assertEquals(listOf("1.2.8", "1.2.8"), report.candidates.map { it.version })
+                    assertEquals(2, report.notices.size)
+                    assertEquals("One response replaces versions, baseline and two candidate-deprecation queries",
+                        if (combined) 1 else 4, requests.size - before)
+                    val label = if (combined) "combined" else "legacy"
+                    samples.getOrPut(label) { mutableListOf() } += nanos
+                    println("version-check benchmark=npm path=$label elapsedNs=$nanos httpRequests=${requests.size - before}")
+                }
+            }
+            for ((label, nanos) in samples) println("version-check benchmark=npm path=$label samples=${nanos.size} medianNs=${nanos.sorted()[nanos.size / 2]} p95Ns=${nanos.max()}")
+            // Exercise real npm's single-object normalization, omitted deprecation fields and
+            // the no-stable-release range error without changing the workspace declarations.
+            val scenarios = listOf(
+                """{"name":"@fixture/alpha","dist-tags":{"latest":"1.2.3"},"versions":{"1.2.3":{"name":"@fixture/alpha","version":"1.2.3"}}}""" to "single",
+                JsonParser.parseString(String(metadata)).asJsonObject.apply {
+                    getAsJsonObject("versions").getAsJsonObject("1.2.3").remove("deprecated")
+                }.toString() to "later-deprecated",
+                """{"name":"@fixture/alpha","dist-tags":{"latest":"3.0.0-beta.1"},"versions":{"3.0.0-beta.1":{"name":"@fixture/alpha","version":"3.0.0-beta.1"}}}""" to "prerelease-only"
+            )
+            for ((body, scenario) in scenarios) {
+                publishedMetadata.set(body.toByteArray())
+                val before = requests.size
+                val query = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                    runBlocking { NpmRegistry.metadata(project, directory, "@fixture/alpha") }
+                })
+                val result = PlatformTestUtil.waitForFuture(query, 120_000)
+                assertEquals(if (scenario == "prerelease-only") 2 else 1, requests.size - before)
+                when (scenario) {
+                    "single" -> { assertEquals(listOf("1.2.3"), result.versions); assertTrue(result.deprecatedByVersion!!.isEmpty()) }
+                    "later-deprecated" -> assertEquals(mapOf("1.2.9" to "Broken release"), result.deprecatedByVersion)
+                    else -> assertTrue(NpmRegistry.eligible(result, NpmVersion(1, 2, 3), UpdateMode.MAJOR).isEmpty())
+                }
+            }
+            publishedMetadata.set(metadata)
             for ((mode, expected) in listOf(UpdateMode.PATCH to "1.2.8", UpdateMode.MINOR to "1.9.0", UpdateMode.MAJOR to "4.0.0")) {
                 for (scope in UpdateScope.entries) {
+                    val before = requests.size
                     val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                         runBlocking { project.service<BulkUpdateService>().createPlan(mode, scope, rootFile) }
                     })
                     val plan = PlatformTestUtil.waitForFuture(future, 120_000)
+                    assertEquals("One combined lookup per manifest's unique package", if (scope == UpdateScope.CURRENT_FILE) 1 else 2, requests.size - before)
                     assertEquals(if (scope == UpdateScope.CURRENT_FILE) 2 else 3, plan.changes.size)
                     assertTrue(plan.changes.all { it.latest.endsWith(expected) })
                     assertTrue(plan.skipped.single().contains("local workspace"))
@@ -154,6 +215,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 service.cached(snapshot)?.candidates?.all { it.version == "5.0.0" } == true
             }, 120_000)
             assertTrue("Refresh must revalidate npm's cached registry metadata", requests.size > beforePublication)
+            assertEquals("Refresh should need only one combined query", 1, requests.size - beforePublication)
             val psi = PsiManager.getInstance(project).findFile(rootFile)!!
             fun problems(): List<ProblemDescriptor> {
                 val holder = ProblemsHolder(InspectionManager.getInstance(project), psi, true)

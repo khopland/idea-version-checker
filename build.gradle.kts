@@ -39,6 +39,9 @@ tasks.test {
     val pluginArchive = tasks.named<Zip>("buildPlugin")
     dependsOn(pluginArchive)
     systemProperty("versionchecker.pluginArchive", pluginArchive.get().archiveFile.get().asFile.absolutePath)
+    if (providers.gradleProperty("performanceTrace").orElse("false").get() == "true") {
+        systemProperty("idea.log.debug.categories", "#io.github.khopland.versionchecker.CheckPerformance")
+    }
     val mavenIntegration = providers.gradleProperty("mavenIntegration").orElse("false").get()
     systemProperty("versionchecker.mavenIntegration", mavenIntegration)
     if (mavenIntegration != "true") exclude("**/MavenSettingsIntegrationTest*")

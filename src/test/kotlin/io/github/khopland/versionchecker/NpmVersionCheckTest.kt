@@ -60,6 +60,31 @@ class NpmVersionCheckTest {
         assertTrue(report.notices.single().message.contains("Replace it"))
     }
 
+    @Test fun `complete metadata supplies baseline notices and candidates for every mode without extra queries`() = runBlocking {
+        val versions = NpmPackageMetadata(listOf("1.0.0", "1.0.1", "1.0.2", "1.2.0", "1.3.0", "2.0.0", "3.0.0"),
+            mapOf("1.0.0" to "Old release", "1.0.2" to "Broken patch", "1.3.0" to "Broken minor", "3.0.0" to "Broken major"))
+        for ((mode, expected) in listOf(UpdateMode.PATCH to "1.0.1", UpdateMode.MINOR to "1.2.0", UpdateMode.MAJOR to "2.0.0")) {
+            var calls = 0
+            val report = checkNpmVersions(listOf(declaration("alpha"), declaration("alias", "npm:alpha@~1.0.0")),
+                mode, emptyMap(), Semaphore(4), metadata = { calls++; versions },
+                deprecated = { _, _ -> error("Complete metadata must not need deprecation queries") })
+            assertEquals(1, calls)
+            assertEquals(listOf(expected, expected), report.candidates.map { it.version })
+            assertEquals(listOf("^$expected", "npm:alpha@~$expected"), report.candidates.map { it.replacementSelector })
+            assertEquals(2, report.notices.size)
+            assertTrue(report.notices.all { "Old release" in it.message })
+        }
+    }
+
+    @Test fun `unpublished baseline and empty stable histories have no invented notices`() = runBlocking {
+        for (versions in listOf(NpmPackageMetadata(emptyList(), emptyMap()), NpmPackageMetadata(listOf("2.0.0"), emptyMap()))) {
+            val report = checkNpmVersions(listOf(declaration("alpha")), UpdateMode.MAJOR, emptyMap(), Semaphore(4),
+                metadata = { versions }, deprecated = { _, _ -> error("Unexpected deprecation query") })
+            assertTrue(report.notices.isEmpty())
+            assertEquals(versions.versions.size, report.candidates.size)
+        }
+    }
+
     @Test fun `cancellation stops all outstanding queries and releases slots`() = runBlocking {
         val started = CompletableDeferred<Unit>()
         val slots = Semaphore(4)

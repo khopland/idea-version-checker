@@ -65,6 +65,10 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? = snapshot(project, file, mutableMapOf())
 
     private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>): BuildSnapshot? {
+        return CheckPerformance.measure(CheckPerformance.Stage.NPM_SNAPSHOT) { captureSnapshot(project, file, fingerprints) }
+    }
+
+    private fun captureSnapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>): BuildSnapshot? {
         if (!NpmManifest.supported(file) || !validManifest(project, file)) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
         val workspace = workspace(project, file)

@@ -28,7 +28,10 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
 
     override fun isOffline(project: Project) = MavenProjectsManager.getInstance(project).generalSettings.isWorkOffline
 
-    override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
+    override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? =
+        CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) { captureSnapshot(project, file) }
+
+    private fun captureSnapshot(project: Project, file: VirtualFile): BuildSnapshot? {
         val manager = MavenProjectsManager.getInstance(project)
         val mavenProject = manager.findProject(file)?.takeUnless { manager.isIgnored(it) } ?: return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
@@ -56,8 +59,10 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val manager = MavenProjectsManager.getInstance(project)
         val mavenProject = readAction { findProject(manager, snapshot) } ?: error("Maven POM is no longer imported")
-        val kinds = snapshot.declarations.map { it.coordinate().artifactKind }.toSet()
-        val versions = MavenVersionLookup.checkAll(manager, mavenProject, mode, kinds)
+        val coordinates = snapshot.declarations.map { it.coordinate() }
+        val kinds = coordinates.map { it.artifactKind }.toSet()
+        val versions = MavenVersionLookup.checkAll(manager, mavenProject, mode, kinds,
+            coordinates.filter { it.artifactKind == MavenArtifactKind.DEPENDENCY })
         val relocations = readRelocations(mavenProject, snapshot)
         return UpdateReport(
             snapshot.declarations.mapNotNull { declaration -> versions[declaration.coordinate()]?.let {

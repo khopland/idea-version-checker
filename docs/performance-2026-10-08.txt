@@ -1,0 +1,49 @@
+Performance fixture run: 2026-10-08
+IDEA 2025.3.6.1; bundled Maven server 3.9.11; Versions Plugin 2.21.0
+Gradle Java toolchain 21; Node 22.23.1; npm 10.9.8; macOS arm64
+Warm native installations; forced metadata revalidation; local authenticated HTTP fixtures
+Five alternating samples per path; p95 is nearest-rank (maximum for n=5).
+Full validation: 190 tests, 0 failures; plugin compatible with IDEA 2025.3.6.1 and 2026.1.4.
+
+Benchmark samples and summaries:
+version-check benchmark=maven path=broad elapsedNs=186688333 httpRequests=5
+version-check benchmark=maven path=filtered elapsedNs=237083417 httpRequests=1
+version-check benchmark=maven path=broad elapsedNs=247701625 httpRequests=5
+version-check benchmark=maven path=filtered elapsedNs=214797500 httpRequests=1
+version-check benchmark=maven path=broad elapsedNs=267136750 httpRequests=5
+version-check benchmark=maven path=filtered elapsedNs=207828666 httpRequests=1
+version-check benchmark=maven path=broad elapsedNs=211378709 httpRequests=5
+version-check benchmark=maven path=filtered elapsedNs=223729625 httpRequests=1
+version-check benchmark=maven path=broad elapsedNs=184536208 httpRequests=5
+version-check benchmark=maven path=filtered elapsedNs=210045666 httpRequests=1
+version-check benchmark=maven path=broad samples=5 medianNs=211378709 p95Ns=267136750
+version-check benchmark=maven path=filtered samples=5 medianNs=214797500 p95Ns=237083417
+version-check benchmark=npm path=legacy elapsedNs=1116233541 httpRequests=4
+version-check benchmark=npm path=combined elapsedNs=135308833 httpRequests=1
+version-check benchmark=npm path=legacy elapsedNs=626732458 httpRequests=4
+version-check benchmark=npm path=combined elapsedNs=146676166 httpRequests=1
+version-check benchmark=npm path=legacy elapsedNs=598572708 httpRequests=4
+version-check benchmark=npm path=combined elapsedNs=133678958 httpRequests=1
+version-check benchmark=npm path=legacy elapsedNs=553913458 httpRequests=4
+version-check benchmark=npm path=combined elapsedNs=145884458 httpRequests=1
+version-check benchmark=npm path=legacy elapsedNs=565844042 httpRequests=4
+version-check benchmark=npm path=combined elapsedNs=132443667 httpRequests=1
+version-check benchmark=npm path=legacy samples=5 medianNs=598572708 p95Ns=1116233541
+version-check benchmark=npm path=combined samples=5 medianNs=135308833 p95Ns=146676166
+
+Representative stage traces from the same validation run (first occurrence of each stage):
+Coordinator stages may use test adapters; profile an isolated integration run or real project for timing conclusions.
+version-check stage=CHECK_QUEUE elapsedNs=293459 count=1
+version-check stage=CHECK elapsedNs=519167 count=1
+version-check stage=HIGHLIGHT_RESTART elapsedNs=13231458 count=1
+version-check stage=HIGHLIGHT_QUEUE elapsedNs=218519667 count=1
+version-check stage=MAVEN_SNAPSHOT elapsedNs=1984875 count=1
+version-check stage=MAVEN_SESSION elapsedNs=357092917 count=1
+version-check stage=MAVEN_MODEL elapsedNs=398628584 count=1
+version-check stage=MAVEN_SETTINGS elapsedNs=786250 count=1
+version-check stage=MAVEN_METADATA_EXPIRATION elapsedNs=453375 count=1
+version-check stage=MAVEN_DEPENDENCY_GOAL elapsedNs=591116042 count=1
+version-check stage=MAVEN_PLUGIN_GOAL elapsedNs=162857791 count=1
+version-check stage=NPM_SNAPSHOT elapsedNs=23622500 count=1
+version-check stage=NPM_COMMAND_SETUP elapsedNs=353708 count=1
+version-check stage=NPM_VIEW elapsedNs=142229209 count=1

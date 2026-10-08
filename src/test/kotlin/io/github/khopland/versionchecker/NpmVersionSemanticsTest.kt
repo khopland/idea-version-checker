@@ -44,15 +44,15 @@ class NpmVersionSemanticsTest {
         assertEquals(NpmVersion(1, 2, 3), NpmVersion.parse("1.2.3+build.01"))
     }
     @Test fun parsesSingleFieldNpmViewOutput() {
-        assertEquals(listOf("1.2.3", "2.0.0"), NpmRegistry.parseMetadata("""["1.2.3","2.0.0"]""").versions)
-        assertEquals(listOf("1.0.0"), NpmRegistry.parseMetadata("\"1.0.0\"").versions)
+        assertEquals(listOf("1.2.3", "2.0.0"), NpmRegistry.parseLegacyMetadata("""["1.2.3","2.0.0"]""").versions)
+        assertEquals(listOf("1.0.0"), NpmRegistry.parseLegacyMetadata("\"1.0.0\"").versions)
     }
     @Test fun registryLatestTagDoesNotLimitEligibleVersions() {
-        val metadata = NpmRegistry.parseMetadata("""{"versions":["1.2.9","2.0.0","4.0.0"],"dist-tags":{"latest":"2.0.0"}}""")
+        val metadata = NpmRegistry.parseLegacyMetadata("""{"versions":["1.2.9","2.0.0","4.0.0"],"dist-tags":{"latest":"2.0.0"}}""")
         assertEquals("4.0.0", NpmRegistry.eligible(metadata, NpmVersion(1, 2, 3), UpdateMode.MAJOR).first())
     }
     @Test fun handlesRegistryMetadataWithOnlyOnePublishedVersion() {
-        assertEquals(listOf("1.0.0"), NpmRegistry.parseMetadata("""{"versions":"1.0.0","dist-tags":{"latest":"1.0.0"}}""").versions)
+        assertEquals(listOf("1.0.0"), NpmRegistry.parseLegacyMetadata("""{"versions":"1.0.0","dist-tags":{"latest":"1.0.0"}}""").versions)
     }
     @Test fun resolvesNpmExecutableSymlinkToPackageDirectory() {
         val root = Files.createTempDirectory("npm-layout").toRealPath()

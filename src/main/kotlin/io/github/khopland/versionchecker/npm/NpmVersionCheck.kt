@@ -25,12 +25,13 @@ internal suspend fun checkNpmVersions(
                 val candidates = mutableListOf<UpdateCandidate>()
                 val notices = mutableListOf<UpdateNotice>()
                 val deprecations = mutableMapOf<String, String?>()
+                val explicit = policy[name]
+                val versions = if (explicit == null) metadata(name) else null
                 suspend fun notice(version: String): String? {
+                    versions?.deprecatedByVersion?.let { return it[version] }
                     if (version !in deprecations) deprecations[version] = deprecated(name, version)
                     return deprecations[version]
                 }
-                val explicit = policy[name]
-                val versions = if (explicit == null) metadata(name) else null
                 for ((declaration, baseline, selector) in usages) {
                     val publishedBaseline = versions?.versions?.firstOrNull { NpmVersion.parse(it) == baseline }
                     val reason = explicit ?: publishedBaseline?.let { notice(it) }

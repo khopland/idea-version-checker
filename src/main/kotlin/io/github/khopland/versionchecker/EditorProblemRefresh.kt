@@ -33,12 +33,17 @@ internal class FileProblemRefreshQueue(
 
     fun request(path: String) = synchronized(lock) {
         paths += path
-        if (worker == null) worker = scope.launch {
-            delay(windowMillis.milliseconds)
-            val batch = synchronized(lock) {
-                paths.toSet().also { paths.clear(); worker = null }
+        if (worker == null) {
+            val queued = System.nanoTime()
+            worker = scope.launch {
+                delay(windowMillis.milliseconds)
+                val batch = synchronized(lock) {
+                    paths.toSet().also { paths.clear(); worker = null }
+                }
+                try {
+                    CheckPerformance.measure(CheckPerformance.Stage.HIGHLIGHT_RESTART, batch.size) { refresh(batch) }
+                } finally { CheckPerformance.record(CheckPerformance.Stage.HIGHLIGHT_QUEUE, queued, batch.size) }
             }
-            refresh(batch)
         }
     }
 }

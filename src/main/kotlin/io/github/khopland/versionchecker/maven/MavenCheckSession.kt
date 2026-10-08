@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.maven
 
+import io.github.khopland.versionchecker.CheckPerformance
 import org.jetbrains.idea.maven.project.MavenEmbeddersManager
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
@@ -11,7 +12,9 @@ internal suspend fun <T> withMavenCheckSession(
 ): T {
     val embedders = MavenEmbeddersManager(manager.project)
     try {
-        val embedder = embedders.getEmbedder(project, MavenEmbeddersManager.FOR_DEPENDENCIES_RESOLVE)
+        val embedder = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SESSION) {
+            embedders.getEmbedder(project, MavenEmbeddersManager.FOR_DEPENDENCIES_RESOLVE)
+        }
         try {
             return action(embedder)
         } finally {

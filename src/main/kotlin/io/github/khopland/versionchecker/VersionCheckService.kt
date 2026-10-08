@@ -41,14 +41,17 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         return entry
     }
 
-    internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport =
-        scanMutexes.computeIfAbsent(adapter.id) { Mutex() }.withLock {
+    internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
+        val queued = System.nanoTime()
+        return scanMutexes.computeIfAbsent(adapter.id) { Mutex() }.withLock {
+            CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
             check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
-            val result = adapter.check(project, snapshot, mode)
+            val result = CheckPerformance.measure(CheckPerformance.Stage.CHECK) { adapter.check(project, snapshot, mode) }
             check(result.successful) { result.failure.orEmpty() }
             result
         }
+    }
 
     fun refresh(adapterId: String, currentFile: VirtualFile? = null) {
         val adapter = BuildSystemAdapter.find(adapterId) ?: return
@@ -153,16 +156,20 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     private suspend fun scan(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false): Boolean {
         var published = false
+        val queued = System.nanoTime()
         try {
             scanMutexes.computeIfAbsent(adapter.id) { Mutex() }.withLock {
+                CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
                 if (project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project) ||
                     cache.revision(snapshot.context) != token.revision || cache.get(snapshot) != null) return@withLock
                 if (!readAction { adapter.isCurrent(project, snapshot) }) return@withLock
-                val report = if (showProgress) {
-                    withBackgroundProgress(project, "Checking ${adapter.displayName} dependency versions", cancellable = true) {
-                        adapter.check(project, snapshot, UpdateMode.MAJOR)
-                    }
-                } else adapter.check(project, snapshot, UpdateMode.MAJOR)
+                val report = CheckPerformance.measure(CheckPerformance.Stage.CHECK) {
+                    if (showProgress) {
+                        withBackgroundProgress(project, "Checking ${adapter.displayName} dependency versions", cancellable = true) {
+                            adapter.check(project, snapshot, UpdateMode.MAJOR)
+                        }
+                    } else adapter.check(project, snapshot, UpdateMode.MAJOR)
+                }
                 if (readAction { !project.isDisposed && adapter.isCurrent(project, snapshot) } && cache.put(snapshot, token.revision, report)) {
                     published = true
                     if (!report.successful) notify("Could not check ${adapter.displayName} versions: ${report.failure}", NotificationType.WARNING)

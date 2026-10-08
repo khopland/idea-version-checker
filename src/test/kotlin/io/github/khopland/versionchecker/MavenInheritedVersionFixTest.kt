@@ -46,7 +46,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         finally { super.tearDown() }
     }
 
-    private fun imported(name: String, body: String, parent: String? = null): XmlFile {
+    private fun imported(name: String, body: String, parent: String? = null, activatedProfiles: List<String> = emptyList()): XmlFile {
         val path = Files.createDirectories(directory.resolve(name)).resolve("pom.xml")
         Files.writeString(path, """
             <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
@@ -69,7 +69,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
             parentProject?.let { setParent(MavenParent(it.mavenId, "../${parent}/pom.xml")) }
         }
         val imported = MavenProject(file.virtualFile).apply {
-            updateState(model, managed, "21", emptyList(), MavenExplicitProfiles.NONE,
+            updateState(model, managed, "21", emptyList(), MavenExplicitProfiles(activatedProfiles),
                 emptySet(), emptyMap(), this@MavenInheritedVersionFixTest.directory.resolve("repository"), false)
         }
         manager.projectsTree.putVirtualFileToProjectMapping(imported, imported.mavenId)
@@ -80,6 +80,24 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
     private fun management(version: String) = """<dependencyManagement><dependencies><dependency>
         <groupId>junit</groupId><artifactId>junit</artifactId><version>$version</version><scope>test</scope>
         </dependency></dependencies></dependencyManagement>"""
+
+    fun testSnapshotFilterUsesResolvedCoordinatesManagedVersionsActiveProfilesAndBomImports() {
+        imported("parent", management("4.12"))
+        val child = imported("child", """<properties><library.group>junit</library.group><library.artifact>junit</library.artifact></properties>
+            <dependencies><dependency><groupId>${'$'}{library.group}</groupId><artifactId>${'$'}{library.artifact}</artifactId></dependency>
+              <dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>4.12</version><type>test-jar</type></dependency></dependencies>
+            <profiles>
+              <profile><id>on</id><dependencyManagement><dependencies><dependency><groupId>bom.group</groupId><artifactId>fixture-bom</artifactId>
+                <version>1.0</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement></profile>
+              <profile><id>off</id><dependencies><dependency><groupId>ignored.group</groupId><artifactId>inactive</artifactId>
+                <version>1.0</version></dependency></dependencies></profile>
+            </profiles>""", "parent", listOf("on"))
+        val snapshot = MavenBuildSystemAdapter().snapshot(project, child.virtualFile)!!
+        val coordinates = snapshot.declarations.map { it.coordinate() }
+        assertEquals(3, coordinates.size)
+        assertEquals(2, coordinates.count { it == DependencyVersion("junit", "junit", "4.12") })
+        assertEquals("bom.group:fixture-bom,junit:junit", MavenDependencyFilters.includes(coordinates))
+    }
 
     private fun dependency(version: String = "") = """<dependencies><dependency>
         <groupId>junit</groupId><artifactId>junit</artifactId>$version<scope>test</scope>
