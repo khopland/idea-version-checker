@@ -32,7 +32,9 @@ internal data class UpdateNotice(val declaration: VersionDeclaration, val kind: 
 /** A failed check is distinct from a successful check with no available updates. */
 internal data class UpdateReport(
     val candidates: List<UpdateCandidate> = emptyList(), val notices: List<UpdateNotice> = emptyList(),
-    val failure: String? = null
+    val failure: String? = null,
+    /** Monotonic deadline of the native metadata used, so report caching cannot extend its freshness. */
+    val validUntilNanos: Long? = null
 ) {
     val successful: Boolean get() = failure == null
 }

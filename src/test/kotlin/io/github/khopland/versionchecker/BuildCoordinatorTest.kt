@@ -29,6 +29,8 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         var version = "1.1"
         var beforeCheck: suspend () -> Unit = {}
         val checked = CopyOnWriteArrayList<String>()
+        var metadataRefreshes = 0
+        override fun invalidateMetadata(project: Project) { metadataRefreshes++ }
         private val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
         private val buildSnapshot = BuildSnapshot(
             BuildContextId(id, file.virtualFile.parent.path, id), file.virtualFile.path,
@@ -77,6 +79,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         PlatformTestUtil.waitWithEventsDispatching("First lookup starts", { adapter.checked.size == 1 }, 10_000)
         adapter.version = "1.2"
         service.refresh(adapter.id, file.virtualFile)
+        assertEquals("Metadata must be invalidated before queued work continues", 1, adapter.metadataRefreshes)
         gate.complete(Unit)
         PlatformTestUtil.waitWithEventsDispatching("Fresh version published", {
             service.cached(snapshot)?.candidates?.single()?.version == "1.2"

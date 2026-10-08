@@ -73,4 +73,17 @@ class VersionResultCacheTest {
         time = java.util.concurrent.TimeUnit.MINUTES.toNanos(11)
         assertNull(cache.get(maven))
     }
+
+    @Test fun `reusing native metadata cannot extend its original freshness deadline`() {
+        var time = 0L
+        val cache = VersionResultCache { time }; val npm = snapshot("npm")
+        val result = report(npm).copy(validUntilNanos = 100)
+        assertTrue(cache.put(npm, cache.revision(npm.context), result))
+        time = 90
+        assertTrue(cache.put(npm, cache.revision(npm.context), result))
+        assertNotNull(cache.get(npm))
+        time = 100
+        assertNull(cache.get(npm))
+        assertFalse(cache.put(npm, cache.revision(npm.context), result))
+    }
 }

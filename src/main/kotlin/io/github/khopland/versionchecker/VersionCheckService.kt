@@ -48,6 +48,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
             check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
             val result = CheckPerformance.measure(CheckPerformance.Stage.CHECK) { adapter.check(project, snapshot, mode) }
+            check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed during the check. Run it again." }
             check(result.successful) { result.failure.orEmpty() }
             result
         }
@@ -60,7 +61,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     internal fun refresh(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile? = null): Job {
         // Invalidate immediately, before an in-flight check can publish a pre-refresh result.
-        adapters.forEach { invalidate(it.id, currentFile) }
+        adapters.forEach { it.invalidateMetadata(project); invalidate(it.id, currentFile) }
         return scope.launch(Dispatchers.IO) {
             refreshMutex.withLock { refreshNow(adapters, currentFile) }
         }
@@ -126,6 +127,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 }
             }
             if (scans.isEmpty()) return@withBackgroundProgress
+            if (scheduled) scans.map { it.first }.distinctBy { it.id }.forEach { it.invalidateMetadata(project) }
             reportProgressScope(scans.size) { reporter ->
                 for ((adapter, snapshot) in scans) {
                     reporter.itemStep("${adapter.displayName}: ${snapshot.sourceFile.substringAfterLast('/')}") {

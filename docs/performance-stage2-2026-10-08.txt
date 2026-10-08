@@ -1,0 +1,23 @@
+Workspace metadata and Maven scan input validation: 2026-10-08
+IDEA 2025.3.6.1; bundled Maven server 3.9.11; Versions Plugin 2.21.0
+Gradle Java toolchain 21; Node 22.23.1; npm 10.9.8; macOS arm64
+Warm native installations; fresh metadata generation; local authenticated HTTP fixture
+One workspace sample; elapsed time includes discovery, checks and edit-plan preparation.
+No median/p95 or production speedup claim for this sample.
+Full validation: 207 tests, 0 failures, 0 errors, 0 skipped.
+Plugin build and project configuration verification passed.
+Plugin compatible with IDEA 2025.3.6.1 and 2026.1.4.
+Existing experimental API notices and deprecated API notice on 2026.1.4 remain.
+Tests were rebuilt after an incremental compiler left stale report constructor calls.
+
+version-check benchmark=npm-workspace manifests=101 declarations=200 elapsedNs=551640333 httpRequests=1
+Native workspace fixture: 100 member manifests plus root, 200 direct/alias declarations,
+one package metadata command and authenticated HTTP request, 200 proposed edits.
+Unit workload: 10,000 package references, 100 unique packages, 100 loads per generation.
+
+Covered cache boundaries: workspace/configuration/package isolation; unsaved and external
+runtime/settings changes; strict edit fingerprints; concurrent callers; individual/last-caller
+cancellation; failed-load retries; old-generation isolation; successful-completion TTL;
+report deadline preservation; LRU/package/version/character bounds; project/plugin disposal.
+Native Maven regression coverage includes fresh publication, settings credentials,
+effective mirrors, profiles, BOMs, parent/dependency/plugin goals and all update modes.

@@ -78,7 +78,7 @@ The [plugin update goal](https://www.mojohaus.org/versions/versions-maven-plugin
 
 Results are cached for ten minutes and invalidated by POM saves, Maven model changes, settings changes in IDEA, or the refresh action. After changing `settings.xml` externally, reload the Maven project or use the refresh action. Checks inspect saved POM contents; version results only apply when the current version still matches.
 
-Each Maven scan shares one fresh server embedder across its dependency, plugin and parent goals and skips artifact categories absent from the POM. Before querying, it expires the selected artifacts' metadata update timestamps for the effective repositories and mirrors. Maven then refreshes the metadata even under a daily cache policy; cached artifact files and local-install metadata are retained.
+Each Maven scan captures its coordinates, Maven config properties and explicit profiles once, shares one fresh server embedder across its dependency, plugin and parent goals, and skips artifact categories absent from the POM. Effective repository information is evaluated once and reused during the scan. Before querying, it expires the selected artifacts' metadata update timestamps for the effective repositories and mirrors. Maven then refreshes the metadata even under a daily cache policy; cached artifact files and local-install metadata are retained.
 
 ## Maven scope
 
@@ -96,7 +96,7 @@ Configure a **local Node.js interpreter and npm** in IntelliJ's JavaScript runti
 
 Registry checks execute only read-only `npm view` commands through IntelliJ's configured runtime. npm evaluates project/user `.npmrc`, environment settings, scoped registries and authentication. Workspace members query from their workspace root so they use its registry configuration. Projects declaring pnpm, Yarn or Bun through `packageManager`, `devEngines.packageManager`, or their manager files are excluded. An explicit npm `packageManager` takes precedence over leftover lockfiles. `devEngines.packageManager` supports both an object and an array of objects; every entry must name npm. Empty, mixed-manager or malformed declarations are excluded. npm does not need to install dependencies to check versions.
 
-Independent npm packages are checked concurrently, with at most four package queries active at once. Aliases share metadata within a manifest. One `npm view` response supplies published stable versions and their deprecation notices; incompatible responses fall back to separate queries. Queries use npm's `--prefer-online` option to revalidate cached registry metadata, while npm retains control of authentication and offline settings.
+Independent npm packages are checked concurrently, with at most four package queries active at once. Aliases and member manifests share raw metadata within one workspace and resolution configuration. Successful metadata is retained for up to ten minutes with bounded memory; manual refreshes, scheduled scans and bulk previews start a fresh generation. Selector edits reuse the raw response while prepared edits still require current manifest fingerprints. One `npm view` response supplies published stable versions and their deprecation notices; incompatible responses fall back to separate queries. Queries use npm's `--prefer-online` option to revalidate cached registry metadata, while npm retains control of authentication and offline settings.
 
 Automatic updates cover `dependencies`, `devDependencies` and `optionalDependencies`, including scoped packages and npm aliases. Exact versions and simple caret/tilde selectors retain their operator: `^1.2.3` becomes `^1.2.9`, and `npm:@scope/package@~1.2.3` retains the alias. Each update mode finds the highest published stable, non-deprecated version in its numeric branch, even if the registry's `latest` tag points to an older version. For `0.x` packages, minor mode can cross minor branches; it does not guarantee compatibility.
 
@@ -147,7 +147,7 @@ Open `examples/maven-demo/pom.xml` as a separate IDEA project. The local `exampl
 
 Java and Maven can be selected through SDKMAN. The Gradle wrapper builds the plugin; Maven is only needed separately if you want to reproduce its goal from a terminal.
 
-The first Maven/npm performance changes restrict dependency goals to supported snapshot coordinates and combine npm metadata queries. See [performance measurements and tracing](docs/performance.md) for request-count benchmarks, timing limits and the remaining work.
+Maven/npm performance changes restrict dependency goals to supported snapshot coordinates, reuse Maven scan inputs, combine npm metadata queries and share responses across workspace manifests. See [performance measurements and tracing](docs/performance.md) for request-count benchmarks, timing limits and the remaining work.
 
 ```bash
 ./gradlew runIde

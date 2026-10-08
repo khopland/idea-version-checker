@@ -126,6 +126,21 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).size)
             assertNotNull(adapter.snapshot(project, rootFile))
             assertEquals(directory.toString(), adapter.snapshot(project, childFile)!!.context.root)
+            // External edits must be detected even if IDEA still has a saved document with the
+            // previous package.json content. Native runtime shims may read fields such as volta.
+            val nativeAdapter = adapter as NpmBuildSystemAdapter
+            val externalRoot = Files.createTempDirectory("version-checker-npm-runtime")
+            try {
+                val externalManifest = externalRoot.resolve("package.json")
+                Files.writeString(externalManifest, "{}")
+                val externalVirtualRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(externalRoot)!!
+                val externalFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(externalManifest)!!
+                FileDocumentManager.getInstance().getDocument(externalFile)
+                val originalContext = nativeAdapter.resolutionContext(project, externalVirtualRoot)
+                Files.writeString(externalManifest, """{"volta":{"node":"24.0.0"}}""")
+                assertFalse("An external runtime-selection edit must change the metadata context",
+                    originalContext == nativeAdapter.resolutionContext(project, externalVirtualRoot))
+            } finally { externalRoot.toFile().deleteRecursively() }
             // Compare the old and combined native queries against exactly the same authenticated
             // fixture. Aliases share each package response; later deprecated candidates are skipped.
             val benchmarkSnapshot = adapter.snapshot(project, rootFile)!!
@@ -190,13 +205,44 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                         runBlocking { project.service<BulkUpdateService>().createPlan(mode, scope, rootFile) }
                     })
                     val plan = PlatformTestUtil.waitForFuture(future, 120_000)
-                    assertEquals("One combined lookup per manifest's unique package", if (scope == UpdateScope.CURRENT_FILE) 1 else 2, requests.size - before)
+                    assertEquals("One combined lookup per workspace's unique package and fresh generation", 1, requests.size - before)
                     assertEquals(if (scope == UpdateScope.CURRENT_FILE) 2 else 3, plan.changes.size)
                     assertTrue(plan.changes.all { it.latest.endsWith(expected) })
                     assertTrue(plan.skipped.single().contains("local workspace"))
                     if (scope == UpdateScope.CURRENT_FILE) assertTrue(plan.changes.all { it.location.startsWith(rootFile.path) })
                 }
             }
+            // A real duplicate workspace exercises context construction, native auth and cache
+            // sharing across files. Keep it independent of the manifests edited below.
+            val scaling = Files.createDirectories(directory.resolve("scaling"))
+            Files.writeString(scaling.resolve("package.json"), """{"private":true,"workspaces":["packages/*"]}""")
+            Files.copy(directory.resolve(".npmrc"), scaling.resolve(".npmrc"))
+            repeat(100) { index ->
+                val member = Files.createDirectories(scaling.resolve("packages/member-$index"))
+                Files.writeString(member.resolve("package.json"), """{"name":"member-$index","dependencies":{
+                    "@fixture/alpha":"^1.2.3","alias":"npm:@fixture/alpha@~1.2.3"}}""")
+            }
+            val scalingRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(scaling)!!
+            com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(false, true, true, scalingRoot)
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
+            val scalingBefore = requests.size
+            val scalingCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking {
+                    val started = System.nanoTime()
+                    val snapshots = adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).filter { it.context.root == scaling.toString() }
+                    check(snapshots.size == 101)
+                    adapter.invalidateMetadata(project)
+                    val reports = snapshots.associateWith { project.service<VersionCheckService>().checkNow(adapter, it, UpdateMode.PATCH) }
+                    adapter.prepareUpdates(project, reports) to (System.nanoTime() - started)
+                }
+            })
+            val (scalingPlan, scalingNanos) = PlatformTestUtil.waitForFuture(scalingCheck, 120_000)
+            assertEquals(200, scalingPlan.changes.size)
+            assertTrue(scalingPlan.changes.all { it.latest.endsWith("1.2.8") })
+            assertEquals("One native package query across 100 workspace manifests and aliases", 1, requests.size - scalingBefore)
+            println("version-check benchmark=npm-workspace manifests=101 declarations=200 elapsedNs=$scalingNanos httpRequests=${requests.size - scalingBefore}")
+            com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) { scalingRoot.delete(this) }
+            adapter.invalidateMetadata(project)
             // Inspection goes through the real asynchronous shared cache and native JSON visitor.
             val snapshot = adapter.snapshot(project, rootFile)!!
             val service = project.service<VersionCheckService>()
@@ -254,6 +300,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             // Registry failures must propagate, without publishing an empty successful plan or touching declarations.
             val beforeFailure = Files.readString(directory.resolve("package.json"))
             rejectAccess.set(true)
+            adapter.invalidateMetadata(project)
             val denied = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking { runCatching { service.checkNow(adapter, updated, UpdateMode.PATCH) }.exceptionOrNull() }
             })

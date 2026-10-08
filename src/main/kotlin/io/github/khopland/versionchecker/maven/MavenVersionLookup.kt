@@ -26,44 +26,44 @@ internal object MavenVersionLookup {
     suspend fun check(manager: MavenProjectsManager, project: MavenProject,
                       mode: UpdateMode = UpdateMode.MAJOR,
                       artifactKind: MavenArtifactKind = MavenArtifactKind.DEPENDENCY): Map<DependencyVersion, String> =
-        withMavenCheckSession(manager, project) {
-            expireMetadata(manager, project, setOf(artifactKind), it)
-            check(manager, project, mode, artifactKind, it)
-        }
+        runScan(manager, project, mode, setOf(artifactKind), null)
 
     suspend fun checkAll(manager: MavenProjectsManager, project: MavenProject, mode: UpdateMode,
-                         kinds: Set<MavenArtifactKind>, dependencies: List<DependencyVersion>? = null): Map<DependencyVersion, String> {
-        val selectedKinds = if (dependencies?.isEmpty() == true) kinds - MavenArtifactKind.DEPENDENCY else kinds
-        return checkAllSelected(manager, project, mode, selectedKinds, dependencies)
-    }
+                         kinds: Set<MavenArtifactKind>, coordinates: List<DependencyVersion>? = null): Map<DependencyVersion, String> =
+        runScan(manager, project, mode, kinds, coordinates)
 
-    private suspend fun checkAllSelected(manager: MavenProjectsManager, project: MavenProject, mode: UpdateMode,
-                                         kinds: Set<MavenArtifactKind>, dependencies: List<DependencyVersion>?): Map<DependencyVersion, String> =
-        if (kinds.isEmpty()) emptyMap() else withMavenCheckSession(manager, project) { embedder ->
-            expireMetadata(manager, project, kinds, embedder)
+    private suspend fun runScan(manager: MavenProjectsManager, project: MavenProject, mode: UpdateMode,
+                                kinds: Set<MavenArtifactKind>, coordinates: List<DependencyVersion>?): Map<DependencyVersion, String> {
+        if (kinds.isEmpty()) return emptyMap()
+        val inputs = MavenScanInputs(coordinates ?: declared(manager, project), kinds,
+            MavenConfigProperties.read(project.file.toNioPath().parent))
+        if (inputs.kinds.isEmpty()) return emptyMap()
+        val profiles = readAction { manager.explicitProfiles.clone() }
+        return withMavenCheckSession(manager, project) { embedder ->
+            val scan = Scan(manager, project, embedder, inputs, profiles, filtered = coordinates != null)
+            expireMetadata(scan)
             buildMap {
-                reportProgressScope(kinds.size) { reporter ->
-                    for (kind in kinds) {
-                        putAll(reporter.itemStep("Maven ${kind.name.lowercase()} versions") {
-                            check(manager, project, mode, kind, embedder, dependencies)
-                        })
+                reportProgressScope(inputs.kinds.size) { reporter ->
+                    for (kind in inputs.kinds) {
+                        putAll(reporter.itemStep("Maven ${kind.name.lowercase()} versions") { check(scan, mode, kind) })
                     }
                 }
             }
         }
+    }
 
-    private suspend fun check(manager: MavenProjectsManager, project: MavenProject, mode: UpdateMode,
-                              artifactKind: MavenArtifactKind, embedder: MavenEmbedderWrapper,
-                              dependencies: List<DependencyVersion>? = null): Map<DependencyVersion, String> {
+    private suspend fun check(scan: Scan, mode: UpdateMode, artifactKind: MavenArtifactKind): Map<DependencyVersion, String> {
+        val manager = scan.manager
+        val project = scan.project
         if (artifactKind != MavenArtifactKind.DEPENDENCY) {
-            val declared = declared(manager, project, artifactKind)
+            val declared = scan.inputs[artifactKind]
             if (artifactKind == MavenArtifactKind.PARENT) {
                 val parent = declared.singleOrNull() ?: return emptyMap()
                 val latest = try {
-                    val report = execute(manager, project, embedder, mode, "display-parent-updates", DependencyUpdateReport.IGNORED_VERSIONS)
+                    val report = execute(scan, mode, "display-parent-updates", DependencyUpdateReport.IGNORED_VERSIONS)
                     DependencyUpdateReport.parseParent(report, parent)?.takeIf { MavenVersionSemantics.allows(mode, parent.version, it) }
                 } catch (_: VersionRetrievalFailure) {
-                    MavenRepositoryMetadata.latest(project.localRepositoryPath, parent, mode, effectiveRepositoryIds(manager, project, embedder))
+                    MavenRepositoryMetadata.latest(project.localRepositoryPath, parent, mode, scan.repositories(plugins = false))
                 } ?: return emptyMap()
                 return mapOf(parent to latest)
             }
@@ -74,7 +74,7 @@ internal object MavenVersionLookup {
                 // search before querying, so patch/minor checks find the latest within each branch.
                 for ((branch, candidates) in plugins.groupBy { MavenPluginUpdates.branch(it.version, mode) }) {
                     if (branch == null) continue
-                    val report = execute(manager, project, embedder, mode, "display-plugin-updates", MavenPluginUpdates.ignoredVersions(branch))
+                    val report = execute(scan, mode, "display-plugin-updates", MavenPluginUpdates.ignoredVersions(branch))
                     putAll(MavenPluginUpdates.parse(report, candidates, mode, mavenVersion))
                 }
             }
@@ -84,7 +84,7 @@ internal object MavenVersionLookup {
         var report: String
         while (true) {
             try {
-                report = execute(manager, project, embedder, mode, "display-dependency-updates", DependencyUpdateReport.IGNORED_VERSIONS, excluded, dependencies)
+                report = execute(scan, mode, "display-dependency-updates", DependencyUpdateReport.IGNORED_VERSIONS, excluded)
                 break
             } catch (failure: VersionRetrievalFailure) {
                 if (!excluded.add(failure.artifact)) throw failure
@@ -92,68 +92,74 @@ internal object MavenVersionLookup {
         }
         val updates = DependencyUpdateReport.parse(report).filter { (dependency, latest) -> MavenVersionSemantics.allows(mode, dependency.version, latest) }
         if (excluded.isEmpty()) return updates
-        val repositoryIds = effectiveRepositoryIds(manager, project, embedder)
-        return updates + (dependencies ?: declared(manager, project, MavenArtifactKind.DEPENDENCY))
+        val repositoryIds = scan.repositories(plugins = false)
+        return updates + scan.inputs[MavenArtifactKind.DEPENDENCY]
             .filter { "${it.groupId}:${it.artifactId}" in excluded }
             .mapNotNull { dependency -> MavenRepositoryMetadata.latest(project.localRepositoryPath, dependency, mode, repositoryIds)?.let { dependency to it } }
     }
 
     internal suspend fun effectiveRepositoryIds(manager: MavenProjectsManager, project: MavenProject): Set<String> =
-        withMavenCheckSession(manager, project) { effectiveRepositoryIds(manager, project, it) }
-
-    private suspend fun effectiveRepositoryIds(manager: MavenProjectsManager, project: MavenProject,
-                                               embedder: MavenEmbedderWrapper): Set<String> {
-        return repositoryIds(embedder, effectivePom(manager, project, embedder), plugins = false)
-    }
-
-    private suspend fun effectivePom(manager: MavenProjectsManager, project: MavenProject, embedder: MavenEmbedderWrapper): org.jdom.Element {
-        val profiles = manager.explicitProfiles
-        val pom = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_MODEL) {
-            embedder.evaluateEffectivePom(project.file.toNioPath().toFile(), profiles.enabledProfiles, profiles.disabledProfiles)
+        withMavenCheckSession(manager, project) { embedder ->
+            Scan(manager, project, embedder, MavenScanInputs(emptyList(), emptySet(), emptyMap()),
+                readAction { manager.explicitProfiles.clone() }, filtered = false).repositories(plugins = false)
         }
-            ?: error("Maven could not determine effective repositories for ${project.path}")
-        return JDOMUtil.load(pom)
+
+    /** Effective repository information stays local to this fresh embedder and source snapshot. */
+    private class Scan(
+        val manager: MavenProjectsManager, val project: MavenProject, val embedder: MavenEmbedderWrapper,
+        val inputs: MavenScanInputs, val profiles: org.jetbrains.idea.maven.model.MavenExplicitProfiles,
+        val filtered: Boolean
+    ) {
+        private var pom: org.jdom.Element? = null
+        private val repositories = mutableMapOf<Boolean, Set<String>>()
+
+        suspend fun repositories(plugins: Boolean): Set<String> {
+            repositories[plugins]?.let { return it }
+            val model = pom ?: CheckPerformance.measure(CheckPerformance.Stage.MAVEN_MODEL) {
+                val text = embedder.evaluateEffectivePom(project.file.toNioPath().toFile(), profiles.enabledProfiles, profiles.disabledProfiles)
+                    ?: error("Maven could not determine effective repositories for ${project.path}")
+                JDOMUtil.load(text)
+            }.also { pom = it }
+            val declared = MavenRepositoryMetadata.repositories(model, plugins).filter { it.releasesPolicy?.isEnabled != false }
+            // Apply current mirrors through Maven, never by matching IDs independently.
+            return embedder.resolveRepositories(declared).filter { it.releasesPolicy?.isEnabled != false }
+                .map { it.id }.toSet().also { repositories[plugins] = it }
+        }
     }
 
-    private fun repositoryIds(embedder: MavenEmbedderWrapper, pom: org.jdom.Element, plugins: Boolean): Set<String> {
-        val repositories = MavenRepositoryMetadata.repositories(pom, plugins).filter { it.releasesPolicy?.isEnabled != false }
-        // Let Maven apply the current settings' mirrors rather than matching repository IDs ourselves.
-        return embedder.resolveRepositories(repositories).filter { it.releasesPolicy?.isEnabled != false }.map { it.id }.toSet()
-    }
-
-    private suspend fun expireMetadata(manager: MavenProjectsManager, project: MavenProject,
-                                       kinds: Set<MavenArtifactKind>, embedder: MavenEmbedderWrapper) {
-        val coordinates = kinds.associateWith { declared(manager, project, it) }.filterValues { it.isNotEmpty() }
-        if (coordinates.isEmpty()) return
-        val pom = effectivePom(manager, project, embedder)
-        // Resolve current settings independently of the imported model and IDEA's shared settings cache.
-        val settings = MavenSettingsCache(manager.project)
+    private suspend fun expireMetadata(scan: Scan) {
+        // One settings reload and one lazy effective model serve all categories and fallback paths.
+        val settings = MavenSettingsCache(scan.manager.project)
         CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SETTINGS) { settings.reloadAsync() }
         val repository = settings.getEffectiveUserLocalRepo()
-        for ((kind, dependencies) in coordinates) {
-            val ids = repositoryIds(embedder, pom, plugins = kind == MavenArtifactKind.PLUGIN)
+        for (kind in scan.inputs.kinds) {
+            val dependencies = scan.inputs[kind]
+            val ids = scan.repositories(plugins = kind == MavenArtifactKind.PLUGIN)
             CheckPerformance.measure(CheckPerformance.Stage.MAVEN_METADATA_EXPIRATION, dependencies.size) {
                 MavenRepositoryMetadata.expireUpdates(repository, dependencies, ids)
             }
         }
     }
 
-    private suspend fun declared(manager: MavenProjectsManager, project: MavenProject, artifactKind: MavenArtifactKind) = readAction {
-        val file = PsiManager.getInstance(manager.project).findFile(project.file) ?: return@readAction emptyList()
-        val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return@readAction emptyList()
-        val analysis = MavenDependencyAnalysis(model, project, emptyMap())
-        PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).mapNotNull(analysis::coordinate)
-            .filter { it.artifactKind == artifactKind && it.version.isNotBlank() }.distinct()
-    }
+    private suspend fun declared(manager: MavenProjectsManager, project: MavenProject) =
+        CheckPerformance.measure(CheckPerformance.Stage.MAVEN_DECLARATIONS) {
+            readAction {
+                val file = PsiManager.getInstance(manager.project).findFile(project.file) ?: return@readAction emptyList()
+                val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return@readAction emptyList()
+                val analysis = MavenDependencyAnalysis(model, project, emptyMap())
+                PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).mapNotNull(analysis::coordinate)
+                    .filter { it.version.isNotBlank() }.distinct()
+            }
+        }
 
-    private suspend fun execute(manager: MavenProjectsManager, project: MavenProject, embedder: MavenEmbedderWrapper, mode: UpdateMode,
-                                goal: String, ignoredVersions: String, excluded: Set<String> = emptySet(),
-                                dependencies: List<DependencyVersion>? = null): String {
+    private suspend fun execute(scan: Scan, mode: UpdateMode, goal: String, ignoredVersions: String,
+                                excluded: Set<String> = emptySet()): String {
+        val project = scan.project
         val output = Files.createTempFile("maven-version-checker-", ".txt")
         try {
             val properties = Properties().apply {
                 // executeGoal replaces the request properties, so preserve Maven config -D values.
-                putAll(MavenConfigProperties.read(project.file.toNioPath().parent))
+                putAll(scan.inputs.properties)
                 setProperty("versions.outputFile", output.toString())
                 setProperty("versions.outputLineWidth", "4096")
                 setProperty("versions.overwriteOutput", "true")
@@ -169,12 +175,12 @@ internal object MavenVersionLookup {
                 setProperty("processPluginDependencies", "false")
                 setProperty("processPluginDependenciesInPluginManagement", "false")
                 setProperty("displayManagedBy", "false")
-                if (goal == "display-dependency-updates") MavenDependencyFilters.apply(this, dependencies, excluded)
+                if (goal == "display-dependency-updates") MavenDependencyFilters.apply(this, if (scan.filtered) scan.inputs[MavenArtifactKind.DEPENDENCY] else null, excluded)
             }
             val id = project.mavenId
             // Restrict an aggregator scan to this POM, keeping each module's repository context separate.
             val request = MavenGoalExecutionRequest(
-                project.file.toNioPath().toFile(), manager.explicitProfiles,
+                project.file.toNioPath().toFile(), scan.profiles,
                 listOf("${id.groupId}:${id.artifactId}"), properties
             )
             val stage = when (goal) {
@@ -184,7 +190,7 @@ internal object MavenVersionLookup {
             }
             val results = CheckPerformance.measure(stage) {
                 withMavenProgress { reporter ->
-                    embedder.executeGoal(
+                    scan.embedder.executeGoal(
                         listOf(request),
                         "org.codehaus.mojo:versions-maven-plugin:2.21.0:$goal",
                         reporter, MavenLogEventHandler

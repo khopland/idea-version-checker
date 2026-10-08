@@ -20,7 +20,10 @@ import io.github.khopland.versionchecker.core.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Semaphore
+import com.google.gson.JsonParser
+import com.intellij.javascript.nodejs.interpreter.local.NodeJsLocalInterpreter
 
 internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     override val id = "npm"
@@ -90,14 +93,28 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val directory = Path.of(snapshot.context.root)
+        val context = readAction {
+            val file = findFile(project, snapshot.sourceFile) ?: error("package.json is no longer available")
+            val root = workspace(project, file).root
+            check(root.path == snapshot.context.root) { "npm workspace changed during the check" }
+            resolutionContext(project, root)
+        }
+        val metadata = project.service<NpmMetadataService>().cache
         val policy = readAction { project.service<VersionCheckerSettings>().state.deprecatedDependencies }
             .lineSequence().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith('#') }
             .map { it.split('=', limit = 2).map(String::trim) }
             .associate { it[0] to (it.getOrNull(1)?.takeIf(String::isNotBlank) ?: "Deprecated by project policy") }
-        return checkNpmVersions(snapshot.declarations, mode, policy, registrySlots,
-            metadata = { NpmRegistry.metadata(project, directory, it) },
+        val expires = AtomicLong(Long.MAX_VALUE)
+        val report = checkNpmVersions(snapshot.declarations, mode, policy, registrySlots,
+            metadata = { name ->
+                val lease = metadata.getFresh(context, name) { NpmRegistry.metadata(project, directory, name) }
+                expires.updateAndGet { minOf(it, lease.expiresAt) }
+                lease.metadata
+            },
             deprecated = { name, version -> NpmRegistry.deprecated(project, directory, name, version) })
+        return report.copy(validUntilNanos = expires.get().takeUnless { it == Long.MAX_VALUE })
     }
+    override fun invalidateMetadata(project: Project) { project.service<NpmMetadataService>().cache.invalidate() }
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
         check(areCurrent(project, reports.keys)) { "npm manifests or configuration changed during the check. Run it again." }
         val edits = mutableListOf<VersionEdit>()
@@ -194,10 +211,68 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
                 .mapNotNull { environment[it]?.takeIf(String::isNotBlank)?.let(Path::of) }) {
             files[path.toString()] = diskDigest(path)
         }
-        val runtime = NodeJsInterpreterManager.getInstance(project).interpreterRef.referenceName + ":" +
-            NpmManager.getInstance(project).packageRef.referenceName
         val policy = project.service<VersionCheckerSettings>().state.deprecatedDependencies
-        return BuildFingerprint(files, digest((runtime + policy + environment.toSortedMap().toString()).toByteArray()))
+        return BuildFingerprint(files, digest((resolutionContext(project, workspace.root).configuration + policy).toByteArray()))
+    }
+
+    /** Hash configuration, never credentials themselves, into a key separate from edit safety. */
+    internal fun resolutionContext(project: Project, root: VirtualFile): NpmResolutionContext {
+        val inputs = sortedMapOf<String, String>()
+        val configurationNames = listOf(".npmrc", ".nvmrc", ".node-version", ".tool-versions", ".mise.toml", "mise.toml", "mise.local.toml")
+        fun manifestConfiguration(text: String): String = runCatching {
+            val json = JsonParser.parseString(text).asJsonObject
+            listOf("packageManager", "devEngines", "workspaces", "engines", "volta")
+                .joinToString("\n") { field -> "$field=${json.get(field)}" }
+        }.getOrElse { text }
+        var ancestor: Path? = Path.of(root.path)
+        while (ancestor != null) {
+            for (name in configurationNames) {
+                val path = ancestor.resolve(name)
+                inputs[path.toString()] = diskDigest(path)
+            }
+            val manifest = ancestor.resolve("package.json")
+            // Saved documents can lag an external edit. Track disk and unsaved VFS inputs
+            // separately so a runtime configuration edit cannot reuse the previous context.
+            val text = manifest.takeIf(Files::isRegularFile)?.let(Files::readString)
+            inputs[manifest.toString()] = text?.let(::manifestConfiguration) ?: "missing"
+            ancestor = ancestor.parent
+        }
+        // Non-local VFS files and unsaved configuration have no reliable disk counterpart.
+        var virtualAncestor: VirtualFile? = root
+        while (virtualAncestor != null) {
+            for (name in configurationNames) {
+                val file = virtualAncestor.findChild(name)
+                inputs["virtual:${virtualAncestor.path}/$name"] = file?.let { virtualDigest(project, it) } ?: "missing"
+            }
+            val manifest = virtualAncestor.findChild("package.json")
+            val text = manifest?.let { FileDocumentManager.getInstance().getCachedDocument(it)?.text ?: String(it.contentsToByteArray(), Charsets.UTF_8) }
+            inputs["virtual:${virtualAncestor.path}/package.json"] = text?.let(::manifestConfiguration) ?: "missing"
+            virtualAncestor = virtualAncestor.parent
+        }
+        val environment = EnvironmentUtil.getEnvironmentMap()
+        val interpreters = NodeJsInterpreterManager.getInstance(project)
+        val npm = NpmManager.getInstance(project)
+        inputs["runtime"] = interpreters.interpreterRef.referenceName + ":" + npm.packageRef.referenceName
+        fun runtimeFile(path: Path) {
+            inputs["runtime:$path"] = if (Files.exists(path)) {
+                val actual = path.toRealPath()
+                "$actual:${Files.getLastModifiedTime(actual)}:${Files.size(actual)}"
+            } else "missing"
+        }
+        (interpreters.interpreter as? NodeJsLocalInterpreter)?.let {
+            val node = Path.of(it.interpreterSystemDependentPath)
+            runtimeFile(node)
+            node.parent?.parent?.resolve("etc/npmrc")?.let { config -> inputs[config.toString()] = diskDigest(config) }
+        }
+        runCatching { Path.of(npm.packageRef.referenceName) }.getOrNull()?.let { configured ->
+            runtimeFile(configured)
+            for (name in listOf("package.json", "bin/npm-cli.js")) runtimeFile(configured.resolve(name))
+        }
+        for (path in listOf(Path.of(System.getProperty("user.home"), ".npmrc")) +
+            listOf("NPM_CONFIG_USERCONFIG", "npm_config_userconfig", "NPM_CONFIG_GLOBALCONFIG", "npm_config_globalconfig")
+                .mapNotNull { environment[it]?.takeIf(String::isNotBlank)?.let(Path::of) }) inputs[path.toString()] = diskDigest(path)
+        inputs["environment"] = environment.toSortedMap().toString()
+        return NpmResolutionContext(root.path, digest(inputs.toString().toByteArray()))
     }
     private fun diskDigest(path: Path): String {
         val virtual = LocalFileSystem.getInstance().findFileByNioFile(path)

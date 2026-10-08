@@ -17,6 +17,8 @@ internal interface BuildSystemAdapter {
     fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean
     suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot>
     suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport
+    /** Start a fresh native metadata generation before a manual/scheduled scan or bulk preview. */
+    fun invalidateMetadata(project: Project) = Unit
     suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan
 
     companion object {

@@ -28,9 +28,12 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
 
     @Synchronized fun put(snapshot: BuildSnapshot, revision: Revision, report: UpdateReport): Boolean {
         if (revision != revision(snapshot.context)) return false
-        sources[snapshot.context] = snapshot.sourceFile
+        val time = now()
         val ttl = TimeUnit.MINUTES.toNanos(if (report.successful) 10 else 1)
-        entries[snapshot.context] = Entry(snapshot.sourceFile, snapshot.fingerprint, snapshot.declarations, revision, now() + ttl, report)
+        val expires = minOf(time + ttl, report.validUntilNanos ?: Long.MAX_VALUE)
+        if (expires <= time) return false
+        sources[snapshot.context] = snapshot.sourceFile
+        entries[snapshot.context] = Entry(snapshot.sourceFile, snapshot.fingerprint, snapshot.declarations, revision, expires, report)
         return true
     }
 

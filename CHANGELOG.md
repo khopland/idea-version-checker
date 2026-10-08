@@ -13,6 +13,8 @@
 
 - Maven dependency goals receive exact inclusion filters from supported declarations, reducing inherited lookups whose results cannot be reported for the selected POM.
 - npm retrieves stable versions and their deprecation notices together, selecting candidates locally and retaining the older query path for incompatible responses.
+- npm workspace manifests share successful raw metadata and in-flight requests with bounded memory, configuration isolation and refresh generations; report expiry retains the original metadata freshness deadline.
+- Maven goals and retrieval fallbacks reuse one captured set of coordinates, config properties, explicit profiles and effective repository data per scan.
 - Optional performance debug traces and authenticated request-count benchmarks cover Maven filtering and the combined npm query.
 - Bulk-update previews use non-modal windows owned by the plugin service. Unloading closes them and cancels pending responses before any edits can be applied.
 - Maven goals share one fresh server embedder per POM and skip dependency, plugin or parent categories with no supported declarations.

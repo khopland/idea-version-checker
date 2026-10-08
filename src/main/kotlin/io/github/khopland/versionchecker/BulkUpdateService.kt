@@ -139,6 +139,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
         val plans = adapters.map { adapter ->
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
             check(mode in adapter.capabilities.updateModes) { "${adapter.displayName} does not support ${mode.label}" }
+            adapter.invalidateMetadata(project)
             val snapshots = adapter.discover(project, BuildSelection(updateScope, currentFile?.path))
             check(snapshots.isNotEmpty()) { "No supported build files found for ${adapter.displayName}" }
             val reports = snapshots.associateWith { service.checkNow(adapter, it, mode) }
