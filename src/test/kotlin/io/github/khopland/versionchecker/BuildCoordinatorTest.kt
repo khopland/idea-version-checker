@@ -161,6 +161,77 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertEquals(1, adapter.checked.size)
     }
 
+    fun testCurrentFileRefreshRunsBetweenProjectModulesWithoutWaitingForTheWholeScan() {
+        val first = myFixture.addFileToProject("priority/first/build.txt", "1.0")
+        val other = myFixture.addFileToProject("priority/other/build.txt", "1.0")
+        val native = TestAdapter("priority-test", first)
+        val firstSnapshot = native.snapshot(project, first.virtualFile)!!
+        val otherSnapshot = firstSnapshot.copy(context = firstSnapshot.context.copy(resolutionId = other.virtualFile.path),
+            sourceFile = other.virtualFile.path)
+        val firstGate = CompletableDeferred<Unit>()
+        val otherGate = CompletableDeferred<Unit>()
+        val checked = CopyOnWriteArrayList<String>()
+        val adapter = object : BuildSystemAdapter by native {
+            override suspend fun discover(project: Project, selection: BuildSelection) =
+                listOf(firstSnapshot, otherSnapshot).filter { selection.scope == UpdateScope.WHOLE_PROJECT || it.sourceFile == selection.currentFile }
+            override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
+                checked += snapshot.sourceFile
+                if (checked.size == 1) firstGate.await()
+                if (snapshot.sourceFile == otherSnapshot.sourceFile) otherGate.await()
+                return UpdateReport(listOf(UpdateCandidate(snapshot.declarations.single(), "1.2")))
+            }
+        }
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        val service = project.service<VersionCheckService>()
+        val whole = service.refresh(listOf(adapter))
+        try {
+            PlatformTestUtil.waitWithEventsDispatching("First project check starts", { checked.size == 1 }, 10_000)
+            val current = service.refresh(listOf(adapter), first.virtualFile)
+            PlatformTestUtil.waitWithEventsDispatching("Current-file check queued", { service.queuedChecks(adapter.id) == 1 }, 10_000)
+            firstGate.complete(Unit)
+            PlatformTestUtil.waitWithEventsDispatching("Current-file check finishes", { current.isCompleted }, 10_000)
+            assertEquals("1.2", service.cached(firstSnapshot)!!.candidates.single().version)
+            assertFalse("The unrelated module remains blocked", whole.isCompleted)
+            assertEquals(listOf(firstSnapshot.sourceFile, firstSnapshot.sourceFile), checked.take(2))
+        } finally {
+            firstGate.complete(Unit); otherGate.complete(Unit)
+            PlatformTestUtil.waitWithEventsDispatching("Whole-project check finishes", { whole.isCompleted }, 10_000)
+        }
+    }
+
+    fun testSupersededInspectionLeavesTheQueueBeforeNativeWorkStarts() {
+        val blocker = myFixture.addFileToProject("superseded/blocker.txt", "1.0")
+        val file = myFixture.addFileToProject("superseded/build.txt", "1.0")
+        val native = TestAdapter("superseded-test", blocker)
+        val blocking = native.snapshot(project, blocker.virtualFile)!!
+        val old = blocking.copy(context = blocking.context.copy(resolutionId = file.virtualFile.path), sourceFile = file.virtualFile.path)
+        var latest = old
+        val gate = CompletableDeferred<Unit>()
+        val checked = CopyOnWriteArrayList<BuildSnapshot>()
+        val adapter = object : BuildSystemAdapter by native {
+            override fun isCurrent(project: Project, snapshot: BuildSnapshot) = snapshot == blocking || snapshot == latest
+            override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
+                checked += snapshot
+                if (snapshot == blocking) gate.await()
+                return UpdateReport()
+            }
+        }
+        val service = project.service<VersionCheckService>()
+        val running = service.refresh(listOf(adapter))
+        try {
+            PlatformTestUtil.waitWithEventsDispatching("Blocking check starts", { checked.size == 1 }, 10_000)
+            service.updates(adapter, old)
+            PlatformTestUtil.waitWithEventsDispatching("Old inspection queued", { service.queuedChecks(adapter.id) == 1 }, 10_000)
+            latest = old.copy(fingerprint = old.fingerprint.copy(configuration = "changed"))
+            service.updates(adapter, latest)
+            PlatformTestUtil.waitWithEventsDispatching("Only the replacement inspection remains", { service.queuedChecks(adapter.id) == 1 }, 10_000)
+            gate.complete(Unit)
+            PlatformTestUtil.waitWithEventsDispatching("Replacement cached", { service.cached(latest) != null }, 10_000)
+            assertEquals(listOf(blocking, latest), checked.toList())
+            assertNull(service.cached(old))
+        } finally { gate.complete(Unit); running.cancel() }
+    }
+
     fun testWholeProjectCombinesProvidersAndRetainsEveryStalePreviewGuard() {
         val first = myFixture.addFileToProject("one/build.txt", "1.0")
         val second = myFixture.addFileToProject("two/build.txt", "1.0")

@@ -78,6 +78,14 @@ Use a clean rebuild after changing internal constructor signatures if incrementa
 
 The complete validation passed 255 plugin tests with no failures, errors or skips, including authenticated native Maven/npm/Gradle integration and packaged-plugin unload coverage. `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed. Both IDEA 2025.3.6.1 and 2026.1.4 remain compatible, with the existing experimental progress API notices and the existing deprecated read-action notice on 2026.1.4. No native editor latency measurement was performed.
 
+## Check scheduling
+
+Each adapter still runs one native check at a time. A cancellable queue gives manual checks priority, then inspections of selected editor files, then background work. The selected-file set is captured on the EDT and updated by a service-owned editor-selection listener; priorities are evaluated at each handoff. Equal priorities keep arrival order. Running native work is not preempted merely because the selected file changes.
+
+Current-file refreshes no longer wait for the whole-project refresh mutex: they can take the next adapter slot between modules. Whole-project refreshes remain serialized, and scheduled checks skip active manual requests and queues. Discovery checks selected files first. Superseded automatic jobs are cancelled, including queued jobs, while scan revisions and currentness checks continue to reject stale output. Cancellation of an npm caller still follows its metadata worker's existing lease rules.
+
+Queue tests cover selection changes, priority order, FIFO, cancellation and handoff. Coordinator tests hold one module open and verify that a current-file refresh finishes while an unrelated module remains blocked; another replaces a queued inspection and verifies that obsolete native work never starts. These checks establish ordering and lifecycle behavior, not remote latency or visible highlighting speed.
+
 ## Reproduce the comparisons
 
 ```bash

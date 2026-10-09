@@ -2,11 +2,16 @@ package io.github.khopland.versionchecker
 
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorManagerEvent
+import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -15,22 +20,44 @@ import com.intellij.platform.util.progress.reportProgressScope
 import io.github.khopland.versionchecker.core.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Shared background coordinator. Only adapters know how a build resolves or declares versions. */
 @Service(Service.Level.PROJECT)
-class VersionCheckService(private val project: Project, private val scope: CoroutineScope) {
+class VersionCheckService(private val project: Project, private val scope: CoroutineScope) : Disposable {
     private data class ScanToken(val sourceFile: String, val fingerprint: BuildFingerprint, val declarations: List<VersionDeclaration>, val revision: VersionResultCache.Revision)
+    private data class PendingScan(val token: ScanToken, val job: Job? = null)
     private val cache = VersionResultCache()
-    private val pending = ConcurrentHashMap<BuildContextId, ScanToken>()
-    private val scanMutexes = ConcurrentHashMap<String, Mutex>()
+    private val pending = ConcurrentHashMap<BuildContextId, PendingScan>()
+    private val scanQueues = ConcurrentHashMap<String, CheckQueue>()
     private val refreshMutex = Mutex()
+    private val manualRefreshes = AtomicInteger()
+    @Volatile private var selectedPaths = emptySet<String>()
+    @Volatile private var disposed = false
     private val log = Logger.getInstance(VersionCheckService::class.java)
+
+    init {
+        project.messageBus.connect(this).subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
+            override fun selectionChanged(event: FileEditorManagerEvent) { captureSelection() }
+        })
+        scope.launch(Dispatchers.EDT) { if (!disposed && !project.isDisposed) captureSelection() }
+    }
+
+    private fun captureSelection() {
+        selectedPaths = FileEditorManager.getInstance(project).selectedFiles.map { it.path }.toSet()
+    }
+
+    override fun dispose() { disposed = true }
+
+    private fun queue(adapterId: String) = scanQueues.computeIfAbsent(adapterId) { CheckQueue { path -> path in selectedPaths } }
+    internal fun queuedChecks(adapterId: String) = scanQueues[adapterId]?.waitingCount ?: 0
 
     internal fun cached(snapshot: BuildSnapshot): UpdateReport? = cache.get(snapshot)
 
@@ -43,7 +70,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val queued = System.nanoTime()
-        return scanMutexes.computeIfAbsent(adapter.id) { Mutex() }.withLock {
+        return queue(adapter.id).withSlot(snapshot.sourceFile, interactive = true) {
             CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
             check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
@@ -62,16 +89,20 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     internal fun refresh(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile? = null): Job {
         // Invalidate immediately, before an in-flight check can publish a pre-refresh result.
         adapters.forEach { it.invalidateMetadata(project); invalidate(it.id, currentFile) }
-        return scope.launch(Dispatchers.IO) {
-            refreshMutex.withLock { refreshNow(adapters, currentFile) }
+        manualRefreshes.incrementAndGet()
+        val job = scope.launch(Dispatchers.IO) {
+            if (currentFile == null) refreshMutex.withLock { refreshNow(adapters, null) }
+            else refreshNow(adapters, currentFile)
         }
+        job.invokeOnCompletion { manualRefreshes.decrementAndGet() }
+        return job
     }
 
     /** A timer must not invalidate work that an editor inspection or manual refresh is already doing. */
     internal suspend fun refreshScheduled() {
         if (!refreshMutex.tryLock()) return
         try {
-            if (project.isDisposed || pending.isNotEmpty() || scanMutexes.values.any { it.isLocked } || DumbService.isDumb(project) ||
+            if (project.isDisposed || manualRefreshes.get() != 0 || pending.isNotEmpty() || scanQueues.values.any { it.isBusy } || DumbService.isDumb(project) ||
                 !project.service<VersionCheckerSettings>().state.enabled) return
             val adapters = readAction { BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
                 .filterNot { it.isOffline(project) }
@@ -85,7 +116,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         if (currentFile == null) {
             // A provider refresh must preserve cached results for other build systems.
             cache.invalidateAdapter(adapterId)
-            pending.keys.filter { it.adapterId == adapterId }.forEach { pending.remove(it) }
+            pending.keys.filter { it.adapterId == adapterId }.forEach { pending.remove(it)?.job?.cancel() }
         } else {
             invalidateSource(adapterId, currentFile.path)
         }
@@ -93,8 +124,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     private fun invalidateSource(adapterId: String, path: String) {
         cache.invalidateSource(adapterId, path)
-        pending.entries.filter { it.key.adapterId == adapterId && it.value.sourceFile == path }
-            .forEach { (context, token) -> pending.remove(context, token) }
+        pending.entries.filter { it.key.adapterId == adapterId && it.value.token.sourceFile == path }
+            .forEach { (context, scan) -> if (pending.remove(context, scan)) scan.job?.cancel() }
     }
 
     private suspend fun refreshNow(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?, scheduled: Boolean = false) {
@@ -125,7 +156,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                     notify("Could not discover ${adapter.displayName} build files. Refresh version checks to retry.", NotificationType.WARNING)
                     emptyList()
                 }
-            }
+            }.sortedByDescending { it.second.sourceFile in selectedPaths }
             if (scans.isEmpty()) return@withBackgroundProgress
             if (scheduled) scans.map { it.first }.distinctBy { it.id }.forEach { it.invalidateMetadata(project) }
             reportProgressScope(scans.size) { reporter ->
@@ -133,8 +164,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                     reporter.itemStep("${adapter.displayName}: ${snapshot.sourceFile.substringAfterLast('/')}") {
                         if (scheduled) invalidateSource(adapter.id, snapshot.sourceFile)
                         val token = token(snapshot)
-                        pending.putIfAbsent(snapshot.context, token)
-                        if (scan(adapter, snapshot, token)) affected -= snapshot.sourceFile
+                        pending.putIfAbsent(snapshot.context, PendingScan(token))
+                        if (scan(adapter, snapshot, token, interactive = currentFile != null)) affected -= snapshot.sourceFile
                     }
                 }
             }
@@ -146,25 +177,38 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     private fun schedule(adapter: BuildSystemAdapter, snapshot: BuildSnapshot) {
         val token = token(snapshot)
-        var claimed = false
+        var job: Job? = null
+        var superseded: Job? = null
         pending.compute(snapshot.context) { _, active ->
-            if (active == token) active else { claimed = true; token }
+            if (active?.token == token) active else {
+                superseded = active?.job
+                val scheduled = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+                    scan(adapter, snapshot, token, showProgress = true)
+                }
+                job = scheduled
+                PendingScan(token, scheduled)
+            }
         }
-        if (!claimed) return
-        scope.launch(Dispatchers.IO) {
-            scan(adapter, snapshot, token, showProgress = true)
+        superseded?.cancel()
+        job?.let { scheduled ->
+            // A lazy job cancelled before it starts never enters scan's finally block.
+            scheduled.invokeOnCompletion {
+                pending.computeIfPresent(snapshot.context) { _, active -> if (active.job === scheduled) null else active }
+            }
+            scheduled.start()
         }
     }
 
-    private suspend fun scan(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false): Boolean {
+    private suspend fun scan(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false,
+                             interactive: Boolean = false): Boolean {
         var published = false
         val queued = System.nanoTime()
         try {
-            scanMutexes.computeIfAbsent(adapter.id) { Mutex() }.withLock {
+            queue(adapter.id).withSlot(snapshot.sourceFile, interactive) {
                 CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
                 if (project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project) ||
-                    cache.revision(snapshot.context) != token.revision || cache.get(snapshot) != null) return@withLock
-                if (!readAction { adapter.canCheckInBackground(project, snapshot) && adapter.isCurrent(project, snapshot) }) return@withLock
+                    cache.revision(snapshot.context) != token.revision || cache.get(snapshot) != null) return@withSlot
+                if (!readAction { adapter.canCheckInBackground(project, snapshot) && adapter.isCurrent(project, snapshot) }) return@withSlot
                 val report = CheckPerformance.measure(CheckPerformance.Stage.CHECK) {
                     if (showProgress) {
                         withBackgroundProgress(project, "Checking ${adapter.displayName} dependency versions", cancellable = true) {
@@ -186,7 +230,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 notify("Could not check ${adapter.displayName} versions for ${snapshot.sourceFile}. Check repository settings, then refresh version checks to retry.", NotificationType.WARNING)
             }
         } finally {
-            pending.remove(snapshot.context, token)
+            pending.computeIfPresent(snapshot.context) { _, active -> if (active.token == token) null else active }
             if (published && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
         }
         return published
