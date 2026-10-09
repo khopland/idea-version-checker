@@ -406,6 +406,17 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             val scalingRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(scaling)!!
             com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(false, true, true, scalingRoot)
             IndexingTestUtil.waitUntilIndexesAreReady(project)
+            val longHistory = JsonParser.parseString(String(metadata)).asJsonObject.apply {
+                repeat(5_000) { index ->
+                    val version = "${5 + index / 500}.${index / 50 % 10}.${index % 50}"
+                    getAsJsonObject("versions").add(version, JsonObject().apply {
+                        addProperty("name", "@fixture/alpha")
+                        addProperty("version", version)
+                        if (index == 4_999) addProperty("deprecated", "Retired latest release")
+                    })
+                }
+            }
+            publishedMetadata.set(longHistory.toString().toByteArray())
             val scalingBefore = requests.size
             val scalingCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking {
@@ -413,16 +424,23 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                     val snapshots = adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).filter { it.context.root == scaling.toString() }
                     check(snapshots.size == 101)
                     adapter.invalidateMetadata(project)
-                    val reports = snapshots.associateWith { project.service<VersionCheckService>().checkNow(adapter, it, UpdateMode.PATCH) }
-                    adapter.prepareUpdates(project, reports) to (System.nanoTime() - started)
+                    val plans = UpdateMode.entries.associateWith { mode ->
+                        val reports = snapshots.associateWith { project.service<VersionCheckService>().checkNow(adapter, it, mode) }
+                        adapter.prepareUpdates(project, reports)
+                    }
+                    plans to (System.nanoTime() - started)
                 }
             })
-            val (scalingPlan, scalingNanos) = PlatformTestUtil.waitForFuture(scalingCheck, 120_000)
-            assertEquals(200, scalingPlan.changes.size)
-            assertTrue(scalingPlan.changes.all { it.latest.endsWith("1.2.8") })
+            val (scalingPlans, scalingNanos) = PlatformTestUtil.waitForFuture(scalingCheck, 120_000)
+            for ((mode, expected) in listOf(UpdateMode.PATCH to "1.2.8", UpdateMode.MINOR to "1.9.0", UpdateMode.MAJOR to "14.9.48")) {
+                val plan = scalingPlans.getValue(mode)
+                assertEquals(200, plan.changes.size)
+                assertTrue(plan.changes.all { it.latest.endsWith(expected) })
+            }
             assertEquals("One native package query across 100 workspace manifests and aliases", 1, requests.size - scalingBefore)
-            println("version-check benchmark=npm-workspace manifests=101 declarations=200 elapsedNs=$scalingNanos httpRequests=${requests.size - scalingBefore}")
+            println("version-check benchmark=npm-workspace manifests=101 declarations=200 versions=5008 modes=3 elapsedNs=$scalingNanos httpRequests=${requests.size - scalingBefore}")
             com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) { scalingRoot.delete(this) }
+            publishedMetadata.set(metadata)
             adapter.invalidateMetadata(project)
             // Inspection goes through the real asynchronous shared cache and native JSON visitor.
             val snapshot = adapter.snapshot(project, rootFile)!!

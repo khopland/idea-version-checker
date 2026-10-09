@@ -30,20 +30,21 @@ internal suspend fun checkNpmVersions(
                 val deprecations = mutableMapOf<String, String?>()
                 val explicit = policy[name]
                 val versions = if (explicit == null) metadata(name) else null
+                val history = versions?.history
                 suspend fun notice(version: String): String? {
                     versions?.deprecatedByVersion?.let { return it[version] }
                     if (version !in deprecations) deprecations[version] = deprecated(name, version)
                     return deprecations[version]
                 }
                 for ((declaration, baseline, selector) in usages) {
-                    val publishedBaseline = versions?.versions?.firstOrNull { NpmVersion.parse(it) == baseline }
+                    val publishedBaseline = history?.publishedBaseline(baseline)
                     val reason = explicit ?: publishedBaseline?.let { notice(it) }
                     if (reason != null) notices += UpdateNotice(declaration, NoticeKind.DEPRECATED,
                         "npm package $name at ${declaration.selector} is deprecated: $reason")
                     if (explicit != null) continue
-                    for (version in NpmRegistry.eligible(versions!!, baseline, mode)) {
-                        if (notice(version) != null) continue
-                        candidates += UpdateCandidate(declaration, version, selector.replace(version), baseline.change(NpmVersion.parse(version)!!))
+                    for ((text, version) in history!!.eligible(baseline, mode)) {
+                        if (notice(text) != null) continue
+                        candidates += UpdateCandidate(declaration, text, selector.replace(text), baseline.change(version))
                         break
                     }
                 }

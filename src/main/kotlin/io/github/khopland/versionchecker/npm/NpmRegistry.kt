@@ -26,7 +26,11 @@ import kotlin.coroutines.resume
 internal data class NpmPackageMetadata(
     val versions: List<String>,
     val deprecatedByVersion: Map<String, String>? = null
-)
+) {
+    val history: NpmVersionHistory by lazy {
+        CheckPerformance.measure(CheckPerformance.Stage.NPM_VERSION_INDEX, versions.size) { NpmVersionHistory(versions) }
+    }
+}
 
 internal data class NpmRuntime(val interpreter: NodeJsLocalInterpreter, val npm: NodePackage)
 
@@ -151,9 +155,7 @@ internal object NpmRegistry {
         return value.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString?.takeIf { it.isNotBlank() }
     }
     fun eligible(metadata: NpmPackageMetadata, baseline: NpmVersion, mode: UpdateMode): List<String> {
-        return metadata.versions.mapNotNull { text -> NpmVersion.parse(text)?.let { text to it } }
-            .filter { (_, version) -> baseline.allows(version, mode) }
-            .sortedByDescending { it.second }.map { it.first }
+        return metadata.history.eligible(baseline, mode).map { it.text }.toList()
     }
     private suspend fun view(runtime: NpmRuntime, directory: Path, parameters: List<String>): String =
         CheckPerformance.measure(CheckPerformance.Stage.NPM_VIEW) { runView(runtime, directory, parameters) }

@@ -167,6 +167,31 @@ class NpmMetadataCacheTest {
         } finally { cache.close() }
     }
 
+    @Test fun `parsed history and baseline entries count against the retained version budget`(): Unit = runBlocking {
+        // Two raw strings, two parsed records and two baseline-map entries consume six slots.
+        for ((budget, expectedLoads) in listOf(5 to 2, 6 to 1)) cached(budget = budget) { cache ->
+            var loads = 0
+            val first = cache.get(context, "pkg") { loads++; data() }
+            val second = cache.get(context, "pkg") { loads++; data() }
+            assertEquals(expectedLoads, loads)
+            if (expectedLoads == 1) assertSame(first.history, second.history)
+        }
+    }
+
+    @Test fun `invalid versions and equal precedence do not add fictitious baseline entries`(): Unit = runBlocking {
+        // Four raw strings + two parsed build spellings + one shared numeric baseline = seven.
+        cached(budget = 7) { cache ->
+            var loads = 0
+            repeat(2) {
+                val metadata = cache.get(context, "pkg") {
+                    loads++; NpmPackageMetadata(listOf("1.0.0+a", "1.0.0+b", "1.0.0-beta.1", "invalid"))
+                }
+                assertEquals("1.0.0+a", metadata.history.publishedBaseline(NpmVersion(1, 0, 0)))
+            }
+            assertEquals(1, loads)
+        }
+    }
+
     @Test fun `disposal stops old and current generation workers and clears retained results`(): Unit = runBlocking {
         val cache = NpmMetadataCache(this)
         try {

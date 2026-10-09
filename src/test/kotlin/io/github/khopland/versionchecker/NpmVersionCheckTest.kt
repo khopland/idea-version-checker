@@ -85,6 +85,22 @@ class NpmVersionCheckTest {
         }
     }
 
+    @Test fun `legacy notices preserve original build spelling and skip deprecated equal precedence candidates`() = runBlocking {
+        val queried = mutableListOf<String>()
+        val report = checkNpmVersions(listOf(declaration("alpha"), declaration("alias", "npm:alpha@~1.0.0")),
+            UpdateMode.MAJOR, emptyMap(), Semaphore(4), metadata = {
+                NpmPackageMetadata(listOf("1.0.0+first", "2.0.0+first", "1.0.0+second", "2.0.0+second"))
+            }, deprecated = { _, version ->
+                queried += version
+                if (version.endsWith("+first")) "Retired spelling" else null
+            })
+        assertTrue(report.successful)
+        assertEquals(listOf("1.0.0+first", "2.0.0+first", "2.0.0+second"), queried)
+        assertEquals(listOf("^2.0.0+second", "npm:alpha@~2.0.0+second"), report.candidates.map { it.replacementSelector })
+        assertEquals(2, report.notices.size)
+        assertTrue(report.notices.all { "Retired spelling" in it.message })
+    }
+
     @Test fun `cancellation stops all outstanding queries and releases slots`() = runBlocking {
         val started = CompletableDeferred<Unit>()
         val slots = Semaphore(4)

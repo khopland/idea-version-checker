@@ -22,7 +22,7 @@ internal class NpmMetadataCache(
     private class Entry(val request: Deferred<NpmMetadataLease>) {
         var callers = 0
         var expires = Long.MAX_VALUE
-        var weight = 0
+        var weight = 0L
         var characters = 0L
     }
     private val lock = Any()
@@ -44,8 +44,12 @@ internal class NpmMetadataCache(
                 lateinit var created: Entry
                 val request = workers.async(start = CoroutineStart.LAZY) {
                     val data = load()
+                    // Prepare outside the cache lock and account for all retained index records
+                    // before the completion TTL starts or another consumer receives this lease.
+                    val weight = data.versions.size.toLong() + data.history.retainedVersionWeight
+                    currentCoroutineContext().ensureActive()
                     synchronized(lock) {
-                        created.weight = data.versions.size
+                        created.weight = weight
                         created.characters = data.versions.sumOf { it.length.toLong() } +
                             data.deprecatedByVersion.orEmpty().entries.sumOf { it.key.length.toLong() + it.value.length }
                         created.expires = now() + ttl
@@ -87,7 +91,7 @@ internal class NpmMetadataCache(
     }
 
     private fun trim() {
-        var weight = entries.values.sumOf { it.weight.toLong() }
+        var weight = entries.values.sumOf { it.weight }
         var characters = entries.values.sumOf { it.characters }
         val iterator = entries.entries.iterator()
         while ((entries.size > capacity || weight > versionBudget || characters > characterBudget) && iterator.hasNext()) {

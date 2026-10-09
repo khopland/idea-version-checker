@@ -51,6 +51,9 @@ tasks.test {
     val gradleIntegration = providers.gradleProperty("gradleIntegration").orElse("false").get()
     systemProperty("versionchecker.gradleIntegration", gradleIntegration)
     if (gradleIntegration != "true") exclude("**/GradleRepositoryIntegrationTest*")
+    if (providers.gradleProperty("npmHistoryBenchmark").orElse("false").get() != "true") {
+        exclude("**/NpmVersionHistoryBenchmarkTest*")
+    }
 }
 
 intellijPlatform {
