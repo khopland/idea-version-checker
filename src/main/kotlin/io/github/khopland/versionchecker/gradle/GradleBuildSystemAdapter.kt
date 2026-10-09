@@ -153,12 +153,13 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         val edits = mutableListOf<VersionEdit>(); val skipped = mutableListOf<String>()
         for ((snapshot, report) in reports) {
             val psi = find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")
-            val declarations = GradleDeclarations.parse(snapshot.sourceFile, psi.text)
+            val original = psi.text
+            val declarations = GradleDeclarations.parse(snapshot.sourceFile, original)
             val candidates = report.candidates.associateBy { it.declaration.id }
             for ((range, consumers) in declarations.groupBy { it.range }) {
                 val updates = consumers.map { candidates[it.declaration.id] }
                 if (range != null && consumers.all { it.reason == null } && updates.all { it != null } && updates.map { it!!.version }.distinct().size == 1) {
-                    edits += GradleVersionEdit(psi, range, updates.first()!!.version, "${psi.virtualFile.path}: ${consumers.joinToString { it.declaration.id.location }}")
+                    edits += GradleVersionEdit(psi, range, updates.first()!!.version, "${psi.virtualFile.path}: ${consumers.joinToString { it.declaration.id.location }}", original)
                 } else if (consumers.any { it.reason != null } || updates.any { it != null }) {
                     skipped += "${psi.virtualFile.path}: ${consumers.joinToString { it.declaration.id.location }}: ${consumers.mapNotNull { it.reason }.firstOrNull() ?: "Shared version has conflicting or unchanged consumers"}"
                 }

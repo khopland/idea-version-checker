@@ -57,6 +57,9 @@ tasks.test {
     if (providers.gradleProperty("npmInspectionBenchmark").orElse("false").get() != "true") {
         exclude("**/NpmInspectionBenchmarkTest*")
     }
+    if (providers.gradleProperty("gradlePreparationBenchmark").orElse("false").get() != "true") {
+        exclude("**/GradlePreparationBenchmarkTest*")
+    }
 }
 
 intellijPlatform {

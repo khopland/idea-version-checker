@@ -10,11 +10,12 @@ import io.github.khopland.versionchecker.*
 import io.github.khopland.versionchecker.core.*
 
 internal class GradleVersionEdit(file: PsiFile, val range: TextRange, override val latest: String,
-                                 override val location: String) : VersionEdit {
+                                 override val location: String, private val original: String) : VersionEdit {
+    constructor(file: PsiFile, range: TextRange, latest: String, location: String) :
+        this(file, range, latest, location, file.text)
     private val pointer = SmartPointerManager.createPointer(file)
     override val element: PsiFile? get() = pointer.element
-    override val expected = range.substring(file.text)
-    private val original = file.text
+    override val expected = range.substring(original)
     override fun isValid() = element?.text == original
     override fun apply() {
         val file = element ?: return
@@ -31,7 +32,8 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
         val snapshot = adapter.inspectionSnapshot(holder.project, file) ?: return PsiElementVisitor.EMPTY_VISITOR
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR
         val options = holder.project.service<VersionCheckerSettings>().state
-        val declarations = GradleDeclarations.parse(file.path, holder.file.text)
+        val original = holder.file.text
+        val declarations = GradleDeclarations.parse(file.path, original)
         // Duplicate candidates remain ambiguous; never choose one arbitrarily for a quick fix.
         val candidatesById = report.candidates.groupBy { it.declaration.id }.mapValues { it.value.singleOrNull() }
         val noticesById = report.notices.withIndex().groupBy { it.value.declaration.id }.mapValues { it.value.first() }
@@ -51,7 +53,7 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
                     }
                     val highlight = kind.severity(options).highlight ?: continue
                     val safe = notice == null && consumers.all { it.reason == null } && candidates.all { it != null } && candidates.map { it!!.version }.distinct().size == 1
-                    val fixes = if (safe) arrayOf<LocalQuickFix>(UpdateGradleVersionFix(GradleVersionEdit(file, range, candidate!!.version, file.name), { adapter.isCurrent(holder.project, snapshot) })) else emptyArray()
+                    val fixes = if (safe) arrayOf<LocalQuickFix>(UpdateGradleVersionFix(GradleVersionEdit(file, range, candidate!!.version, file.name, original), { adapter.isCurrent(holder.project, snapshot) })) else emptyArray()
                     val message = notice?.message ?: "Newer Gradle version of ${candidate!!.declaration.artifact.namespace}:${candidate.declaration.artifact.name} is available: ${candidate.declaration.baseline} → ${candidate.version}" + if (!safe) " (shared version needs review)" else ""
                     holder.registerProblem(file, message, highlight, range, *fixes)
                 }

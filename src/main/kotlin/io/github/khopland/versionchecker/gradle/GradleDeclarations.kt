@@ -119,7 +119,11 @@ internal object GradleDeclarations {
             val version = coordinate[2]
             val range = TextRange(token.start + coordinate[0].length + coordinate[1].length + 2, token.start + token.text.length)
             val expression = tokens.getOrNull(index + 1)?.text in setOf("+", ".")
-            val customized = tokens.drop(index + 1).dropWhile { !it.string && it.text == ")" }.firstOrNull()?.text == "{"
+            // Peek past closing call parentheses without copying the remaining token list for
+            // every dependency. Quoted tokens remain distinct from punctuation.
+            var next = index + 1
+            while (next < tokens.size && !tokens[next].string && tokens[next].text == ")") next++
+            val customized = tokens.getOrNull(next)?.text == "{"
             val fixed = supportedCall && GradleVersions.fixed(version) && !expression && !customized && "constraints" !in blocks
             val declaration = VersionDeclaration(DeclarationId(file, "dependency@${token.start}"), ArtifactId(coordinate[0], coordinate[1]), version, if (fixed) version else "")
             val reason = when {

@@ -4,6 +4,10 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.TextEditor
+import com.intellij.openapi.command.undo.UndoManager
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
@@ -67,6 +71,64 @@ class GradleAdapterTest : BasePlatformTestCase() {
         assertTrue(file.text.contains("g:beta:1.2.9' // keep"))
         assertTrue(file.text.contains("version = '1.2.3'"))
         assertEquals("unchanged", lock.text)
+    }
+
+    fun testCapturedTextGuardRejectsNonVersionChangesWithoutAProviderGuard() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", "dependencies { implementation 'g:alpha:1.2.3' } // original")
+        val original = file.text
+        val range = GradleDeclarations.parse(file.virtualFile.path, original).single().range!!
+        WriteCommandAction.runWriteCommandAction(project) {
+            val document = PsiDocumentManager.getInstance(project).getDocument(file)!!
+            document.setText(original.replace("// original", "// changed"))
+            PsiDocumentManager.getInstance(project).commitDocument(document)
+        }
+        // Even a stale capture supplied to the new constructor retains the whole-file check.
+        val edit = GradleVersionEdit(file, range, "1.2.9", file.name, original)
+        assertEquals("1.2.3", edit.expected)
+        assertFalse(edit.isValid())
+        assertFalse(BulkUpdatePlan(listOf(edit), emptyList()).apply(project))
+        assertEquals(original.replace("// original", "// changed"), file.text)
+    }
+
+    fun testSubsetSelectionRejectsChangesToAnUnselectedGradleLiteral() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", """dependencies {
+            implementation 'g:alpha:1.2.3'
+            implementation 'g:beta:1.2.3'
+        }""".trimIndent())
+        link()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val prepared = plan(snapshot, report(snapshot)).select(setOf(0))
+        WriteCommandAction.runWriteCommandAction(project) {
+            val document = PsiDocumentManager.getInstance(project).getDocument(file)!!
+            document.setText(file.text.replace("g:alpha:1.2.3", "g:alpha:1.2.8"))
+            PsiDocumentManager.getInstance(project).commitDocument(document)
+        }
+        val before = file.text
+        assertFalse(prepared.apply(project))
+        assertEquals(before, file.text)
+        assertTrue(file.text.contains("g:beta:1.2.3"))
+    }
+
+    fun testSelectedEditsWithDifferentLengthsPreserveOffsetsAndUndoTogether() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", """dependencies {
+            implementation 'g:alpha:1.2.3'
+            implementation 'g:beta:1.2.3' // unselected
+            implementation 'g:gamma:1.2.3'
+        }
+        version = '1.2.3'
+        """.trimIndent())
+        link()
+        val original = file.text
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val prepared = plan(snapshot, report(snapshot, listOf("1.20.300", "1.2.9", "20.0.0"))).select(setOf(0, 2))
+        val editor = FileEditorManager.getInstance(project).openFile(file.virtualFile, true).filterIsInstance<TextEditor>().single()
+        assertTrue(prepared.apply(project))
+        assertEquals(original.replace("g:alpha:1.2.3", "g:alpha:1.20.300").replace("g:gamma:1.2.3", "g:gamma:20.0.0"), file.text)
+        val undo = UndoManager.getInstance(project)
+        assertTrue(undo.isUndoAvailable(editor))
+        undo.undo(editor)
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        assertEquals(original, file.text)
     }
     fun testSharedCatalogVersionRequiresEveryConsumerToAgree() {
         val file = myFixture.addFileToProject("gradle-project/gradle/libs.versions.toml", """

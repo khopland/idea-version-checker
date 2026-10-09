@@ -116,6 +116,25 @@ class GradleDeclarationsTest {
         val declarations = GradleDeclarations.parse("build.gradle.kts", text)
         assertEquals(listOf("", "", "1.2.3"), declarations.map { it.declaration.baseline })
     }
+    @Test fun customizationLookaheadPreservesWrappedCallsCommentsAndFollowingStatements() {
+        for (extension in listOf("gradle", "gradle.kts")) {
+            val text = """dependencies {
+                implementation(platform("g:custom-bom:1.2.3")) /* keep */ { because("review") }
+                api(enforcedPlatform("g:plain-bom:1.2.3"));
+                implementation("g:custom:1.2.3")
+                    // The customization block belongs to the preceding call.
+                    { because("review") }
+                implementation("g:plain:1.2.3")
+                println(")") { println("{") }
+                testImplementation 'g:last:1.2.3'
+            }""".trimIndent()
+            val declarations = GradleDeclarations.parse("build.$extension", text)
+            assertEquals(listOf("custom-bom", "plain-bom", "custom", "plain", "last"), declarations.map { it.declaration.artifact.name })
+            assertEquals(listOf("", "1.2.3", "", "1.2.3", "1.2.3"), declarations.map { it.declaration.baseline })
+            assertTrue(declarations.filter { it.declaration.baseline.isEmpty() }.all { it.reason!!.contains("manual review") })
+            assertTrue(declarations.all { it.range!!.substring(text) == "1.2.3" })
+        }
+    }
     @Test fun stableVersionsNeverDowngradeAndKeepPrereleasesForReview() {
         for (version in listOf("1.0-RC1", "2.0-beta", "3.0-SNAPSHOT", "1.+", "latest.release", "[1,2[")) assertFalse(version, GradleVersions.fixed(version))
         assertTrue(GradleVersions.fixed("33.4.0-jre"))
