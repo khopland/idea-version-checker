@@ -67,12 +67,41 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
         return snapshot(project, file, mutableMapOf(), mutableMapOf())
     }
-    private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<String, BuildFingerprint>, unsaved: MutableMap<String, Boolean>): BuildSnapshot? {
+    override fun inspectionSnapshot(project: Project, file: VirtualFile): BuildSnapshot? =
+        snapshot(project, file, mutableMapOf(), mutableMapOf(), allowUnsaved = true)
+
+    override fun canCheckInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
+        files(project, snapshot.context.root).none { FileDocumentManager.getInstance().isFileModified(it) }
+
+    private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<String, BuildFingerprint>, unsaved: MutableMap<String, Boolean>,
+                         allowUnsaved: Boolean = false, inspectionFingerprints: MutableMap<String, BuildFingerprint> = mutableMapOf()): BuildSnapshot? {
         if (!supported(file)) return null
         val root = owner(project, file) ?: return null
-        if (unsaved.getOrPut(root) { files(project, root).any { FileDocumentManager.getInstance().isFileModified(it) } }) return null
+        if (!allowUnsaved && unsaved.getOrPut(root) { files(project, root).any { FileDocumentManager.getInstance().isFileModified(it) } }) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
-        return BuildSnapshot(BuildContextId(id, root, file.path), file.path, fingerprints.getOrPut(root) { fingerprint(project, root) }, GradleDeclarations.parse(file.path, psi.text).map { it.declaration })
+        val fingerprint = fingerprints.getOrPut(root) { fingerprint(project, root) }
+        val inspectionFingerprint = inspectionFingerprints.getOrPut(root) {
+            fingerprint.copy(files = fingerprint.files + project.service<GradleProjectCache>().inspectionHashes(root, files(project, root)))
+        }
+        return BuildSnapshot(BuildContextId(id, root, file.path), file.path, fingerprint,
+            GradleDeclarations.parse(file.path, psi.text).map { it.declaration }, inspectionFingerprint)
+    }
+
+    override fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot): UpdateReport? {
+        if (previous.context != current.context || previous.inspectionFingerprint == null ||
+            previous.inspectionFingerprint != current.inspectionFingerprint) return null
+        // Normalized build text is identical, so declarations retain their order even when offsets move.
+        val declarations = previous.declarations.zip(current.declarations).filter { (old, new) ->
+            old.copy(id = new.id) == new
+        }.toMap()
+        return report.copy(
+            candidates = report.candidates.mapNotNull { candidate ->
+                declarations[candidate.declaration]?.let { candidate.copy(declaration = it) }
+            },
+            notices = report.notices.mapNotNull { notice ->
+                declarations[notice.declaration]?.let { notice.copy(declaration = it) }
+            }
+        )
     }
     private fun fingerprint(project: Project, root: String): BuildFingerprint {
         fun hash(bytes: ByteArray) = GradleProjectCache.hash(bytes)
@@ -100,7 +129,8 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         val files = if (selection.scope == UpdateScope.CURRENT_FILE) listOfNotNull(selection.currentFile?.let { find(project, it) }) else roots(project).flatMap { files(project, it) }.distinct()
         val fingerprints = mutableMapOf<String, BuildFingerprint>()
         val unsaved = mutableMapOf<String, Boolean>()
-        files.mapNotNull { snapshot(project, it, fingerprints, unsaved) }
+        val inspectionFingerprints = mutableMapOf<String, BuildFingerprint>()
+        files.mapNotNull { snapshot(project, it, fingerprints, unsaved, inspectionFingerprints = inspectionFingerprints) }
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }

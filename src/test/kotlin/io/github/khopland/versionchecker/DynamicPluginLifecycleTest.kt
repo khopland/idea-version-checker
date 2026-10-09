@@ -108,7 +108,7 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
             when (method.name) {
                 "getId", "getDisplayName" -> "dynamic-lifecycle-test"
                 "isOffline" -> false
-                "isCurrent" -> true
+                "isCurrent", "canCheckInBackground" -> true
                 "check" -> {
                     @Suppress("UNCHECKED_CAST")
                     (check as Function1<Continuation<Any>, Any?>).invoke(args.last() as Continuation<Any>)
@@ -124,7 +124,8 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         val fingerprintType = loader.loadClass("io.github.khopland.versionchecker.core.BuildFingerprint")
         val fingerprint = fingerprintType.constructors.single { it.parameterCount == 2 }.newInstance(emptyMap<String, String>(), "test")
         val snapshotType = loader.loadClass("io.github.khopland.versionchecker.core.BuildSnapshot")
-        val snapshot = snapshotType.constructors.single { it.parameterCount == 4 }.newInstance(context, "test.build", fingerprint, emptyList<Any>())
+        val snapshot = snapshotType.constructors.single { it.parameterCount == 5 }
+            .newInstance(context, "test.build", fingerprint, emptyList<Any>(), null)
         val checks = service(plugin, "VersionCheckService")
         checks.javaClass.methods.single { it.name.startsWith("updates$") }.invoke(checks, adapter, snapshot)
         PlatformTestUtil.waitWithEventsDispatching("Check starts", { started.isCompleted }, 10)

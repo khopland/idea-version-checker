@@ -37,8 +37,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     internal fun updates(adapter: BuildSystemAdapter, snapshot: BuildSnapshot): UpdateReport? {
         if (!project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project)) return null
         val entry = cache.get(snapshot)
-        if (entry == null) schedule(adapter, snapshot)
-        return entry
+        if (entry == null && adapter.canCheckInBackground(project, snapshot)) schedule(adapter, snapshot)
+        return entry ?: cache.retainedInspectionReport(adapter, snapshot)
     }
 
     internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
@@ -164,7 +164,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
                 if (project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project) ||
                     cache.revision(snapshot.context) != token.revision || cache.get(snapshot) != null) return@withLock
-                if (!readAction { adapter.isCurrent(project, snapshot) }) return@withLock
+                if (!readAction { adapter.canCheckInBackground(project, snapshot) && adapter.isCurrent(project, snapshot) }) return@withLock
                 val report = CheckPerformance.measure(CheckPerformance.Stage.CHECK) {
                     if (showProgress) {
                         withBackgroundProgress(project, "Checking ${adapter.displayName} dependency versions", cancellable = true) {

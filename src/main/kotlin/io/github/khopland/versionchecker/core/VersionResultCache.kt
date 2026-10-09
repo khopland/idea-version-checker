@@ -2,11 +2,10 @@ package io.github.khopland.versionchecker.core
 
 import java.util.concurrent.TimeUnit
 
-/** Provider/context isolation and refresh generations do not depend on a build system or the IDE. */
+/** Provider/context isolation and refresh generations are shared across build systems. */
 internal class VersionResultCache(private val now: () -> Long = System::nanoTime) {
     data class Revision(val global: Long, val adapter: Long, val context: Long)
-    private data class Entry(val sourceFile: String, val fingerprint: BuildFingerprint,
-                             val declarations: List<VersionDeclaration>, val revision: Revision,
+    private data class Entry(val snapshot: BuildSnapshot, val revision: Revision,
                              val expires: Long, val report: UpdateReport)
     private var global = 0L
     private val adapters = mutableMapOf<String, Long>()
@@ -22,9 +21,16 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
     }
 
     @Synchronized fun get(snapshot: BuildSnapshot): UpdateReport? = entries[snapshot.context]?.takeIf {
-        it.fingerprint == snapshot.fingerprint && it.declarations == snapshot.declarations &&
+        it.snapshot.fingerprint == snapshot.fingerprint && it.snapshot.declarations == snapshot.declarations &&
             it.revision == revision(snapshot.context) && it.expires > now()
     }?.report
+
+    @Synchronized fun retainedInspectionReport(adapter: BuildSystemAdapter, snapshot: BuildSnapshot): UpdateReport? {
+        val entry = entries[snapshot.context]?.takeIf {
+            it.revision == revision(snapshot.context) && it.expires > now() && it.report.successful
+        } ?: return null
+        return adapter.retainInspectionReport(entry.snapshot, entry.report, snapshot)
+    }
 
     @Synchronized fun put(snapshot: BuildSnapshot, revision: Revision, report: UpdateReport): Boolean {
         if (revision != revision(snapshot.context)) return false
@@ -33,7 +39,7 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
         val expires = minOf(time + ttl, report.validUntilNanos ?: Long.MAX_VALUE)
         if (expires <= time) return false
         sources[snapshot.context] = snapshot.sourceFile
-        entries[snapshot.context] = Entry(snapshot.sourceFile, snapshot.fingerprint, snapshot.declarations, revision, expires, report)
+        entries[snapshot.context] = Entry(snapshot, revision, expires, report)
         return true
     }
 

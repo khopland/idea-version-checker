@@ -28,7 +28,7 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
         val file = holder.file.virtualFile ?: return PsiElementVisitor.EMPTY_VISITOR
         val adapter = BuildSystemAdapter.find("gradle") as? GradleBuildSystemAdapter ?: return PsiElementVisitor.EMPTY_VISITOR
-        val snapshot = adapter.snapshot(holder.project, file) ?: return PsiElementVisitor.EMPTY_VISITOR
+        val snapshot = adapter.inspectionSnapshot(holder.project, file) ?: return PsiElementVisitor.EMPTY_VISITOR
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR
         val options = holder.project.service<VersionCheckerSettings>().state
         val declarations = GradleDeclarations.parse(file.path, holder.file.text)

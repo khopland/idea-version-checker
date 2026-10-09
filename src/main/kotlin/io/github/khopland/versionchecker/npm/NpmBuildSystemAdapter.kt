@@ -36,8 +36,18 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         val declarations = NpmManifest.declarations(psi).map { declaration ->
             if (declaration.artifact.name in localNames) declaration.copy(baseline = "") else declaration
         }
+        val fingerprint = fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace) }
         return BuildSnapshot(BuildContextId(id, workspace.root.path, file.path), file.path,
-            fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace) }, declarations)
+            fingerprint, declarations, NpmBuildInputs.inspectionFingerprint(workspace, fingerprint))
+    }
+    override fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot): UpdateReport? {
+        if (previous.context != current.context || previous.inspectionFingerprint == null ||
+            previous.inspectionFingerprint != current.inspectionFingerprint) return null
+        val declarations = current.declarations.toSet()
+        return report.copy(
+            candidates = report.candidates.filter { it.declaration in declarations },
+            notices = report.notices.filter { it.declaration in declarations }
+        )
     }
     override fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean {
         val file = findFile(project, snapshot.sourceFile) ?: return false

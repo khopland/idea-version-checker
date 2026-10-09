@@ -80,6 +80,16 @@ internal object NpmBuildInputs {
         return BuildFingerprint(files, digest((resolutionContext(project, workspace.root).configuration + policy).toByteArray()))
     }
 
+    fun inspectionFingerprint(workspace: NpmWorkspace, fingerprint: BuildFingerprint): BuildFingerprint {
+        val manifests = workspace.manifests.map { it.path }.toSet()
+        // Runtime/registry configuration is already separated from dependency selectors in configuration.
+        val files = fingerprint.files.filterKeys { path ->
+            val ancestorManifest = (path.startsWith("disk-config:") || path.startsWith("virtual-config:")) && path.endsWith("/package.json")
+            path !in manifests && !ancestorManifest
+        }
+        return BuildFingerprint(files, "${fingerprint.configuration}:${workspace.names.sorted()}:${manifests.sorted()}")
+    }
+
     /** Hash configuration, never credentials themselves, into a key separate from edit safety. */
     fun resolutionContext(project: Project, root: VirtualFile): NpmResolutionContext {
         val inputs = sortedMapOf<String, String>()

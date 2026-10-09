@@ -14,9 +14,14 @@ internal interface BuildSystemAdapter {
     fun supports(project: Project, selection: BuildSelection): Boolean
     fun isOffline(project: Project): Boolean
     fun snapshot(project: Project, file: VirtualFile): BuildSnapshot?
+    /** Inspections may retain warnings from unsaved editor text while native checks wait for save. */
+    fun inspectionSnapshot(project: Project, file: VirtualFile): BuildSnapshot? = snapshot(project, file)
+    fun canCheckInBackground(project: Project, snapshot: BuildSnapshot): Boolean = true
     fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean
     suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot>
     suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport
+    /** Presentation only; retained warnings must never satisfy a fresh check or bulk-preview guard. */
+    fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot): UpdateReport? = null
     /** Called under a read action; timers must not resolve against files whose edits are unsaved. */
     fun hasUnsavedResolutionInputs(project: Project, snapshot: BuildSnapshot, unsavedPaths: Set<String>): Boolean =
         snapshot.fingerprint.files.keys.any { it in unsavedPaths }

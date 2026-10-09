@@ -19,7 +19,9 @@ internal data class VersionDeclaration(
 internal data class BuildFingerprint(val files: Map<String, String>, val configuration: String)
 internal data class BuildSnapshot(
     val context: BuildContextId, val sourceFile: String, val fingerprint: BuildFingerprint,
-    val declarations: List<VersionDeclaration>
+    val declarations: List<VersionDeclaration>,
+    /** Optional configuration identity for retaining inspection warnings across declaration edits. */
+    val inspectionFingerprint: BuildFingerprint? = null
 )
 internal enum class VersionChangeKind { PATCH, MINOR, MAJOR, OTHER, DEPRECATED }
 internal data class UpdateCandidate(

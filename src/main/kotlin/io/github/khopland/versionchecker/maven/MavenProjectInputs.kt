@@ -12,11 +12,16 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /** A read-pass input view, never retained across repository work or preview application. */
-internal class MavenProjectInputs(manager: MavenProjectsManager) {
+internal class MavenProjectInputs(private val manager: MavenProjectsManager) {
     val projects: List<MavenProject> = manager.nonIgnoredProjects.toList()
     private val byPath = projects.associateBy { it.path }
     private val diskStamps = mutableMapOf<Path, String>()
     private val fingerprints = mutableMapOf<Path, BuildFingerprint>()
+    private val inspectionFingerprints = mutableMapOf<Path, BuildFingerprint>()
+    private val configuration by lazy {
+        val policy = manager.project.service<VersionCheckerSettings>().state.deprecatedDependencies.hashCode()
+        "${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy"
+    }
     private val shared by lazy {
         CheckPerformance.measure(CheckPerformance.Stage.MAVEN_PROJECT_INPUTS, projects.size) {
             val documents = FileDocumentManager.getInstance()
@@ -27,8 +32,7 @@ internal class MavenProjectInputs(manager: MavenProjectsManager) {
             val settings = manager.generalSettings.userSettingsFile.takeIf(String::isNotBlank)
                 ?: Path.of(System.getProperty("user.home"), ".m2", "settings.xml").toString()
             files[settings] = diskStamp(Path.of(settings))
-            val policy = manager.project.service<VersionCheckerSettings>().state.deprecatedDependencies.hashCode()
-            BuildFingerprint(files, "${manager.modificationTracker.modificationCount}:${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy")
+            BuildFingerprint(files, "${manager.modificationTracker.modificationCount}:$configuration")
         }
     }
 
@@ -49,6 +53,13 @@ internal class MavenProjectInputs(manager: MavenProjectsManager) {
             BuildFingerprint(files, shared.configuration)
         }
     }
+
+    /** POM edits trigger a new check but need not hide warnings for unchanged coordinates. */
+    fun inspectionFingerprint(project: MavenProject): BuildFingerprint =
+        inspectionFingerprints.getOrPut(project.file.toNioPath().parent) {
+            BuildFingerprint(fingerprint(project).files.filterKeys { it !in byPath },
+                "$configuration:${project.activatedProfilesIds.hashCode()}")
+        }
 
     private fun diskStamp(path: Path): String = diskStamps.getOrPut(path) {
         val saved = if (Files.exists(path)) "${Files.getLastModifiedTime(path)}:${Files.size(path)}" else "missing"

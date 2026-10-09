@@ -17,6 +17,6 @@ internal class MavenVersionCheckService(private val project: Project) {
     }
     fun relocations(mavenProject: MavenProject): Map<DependencyVersion, String> {
         val snapshot = adapter.snapshot(project, mavenProject.file) ?: return emptyMap()
-        return project.service<VersionCheckService>().cached(snapshot)?.mavenRelocations().orEmpty()
+        return project.service<VersionCheckService>().updates(adapter, snapshot)?.mavenRelocations().orEmpty()
     }
 }

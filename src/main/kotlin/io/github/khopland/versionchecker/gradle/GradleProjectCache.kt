@@ -17,10 +17,12 @@ import java.util.concurrent.atomic.AtomicLong
 /** Reuse build inputs across all files in a linked build, without caching repository results. */
 @Service(Service.Level.PROJECT)
 internal class GradleProjectCache(private val project: Project) : Disposable {
-    private data class Inputs(val directories: List<String>, val files: List<VirtualFile>, var hashes: Map<String, String>? = null)
+    private data class Inputs(val directories: List<String>, val files: List<VirtualFile>, var hashes: Map<String, String>? = null,
+                              var inspectionHashes: Map<String, String>? = null)
     private data class Digest(val fileStamp: Long, val documentStamp: Long?, val value: String)
     private val inputs = mutableMapOf<String, Inputs>()
     private val digests = mutableMapOf<VirtualFile, Digest>()
+    private val inspectionDigests = mutableMapOf<VirtualFile, Digest>()
     private val documentChanges = AtomicLong()
     private var structureGeneration: List<Long> = emptyList()
     private var contentGeneration: List<Long> = emptyList()
@@ -41,11 +43,12 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
             structureGeneration = structure
             inputs.clear()
             digests.clear()
+            inspectionDigests.clear()
         }
         val content = listOf(vfs.modificationCount, documentChanges.get())
         if (content != contentGeneration) {
             contentGeneration = content
-            inputs.values.forEach { it.hashes = null }
+            inputs.values.forEach { it.hashes = null; it.inspectionHashes = null }
         }
     }
 
@@ -62,6 +65,40 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
         invalidateIfChanged()
         val cached = inputs[root]?.takeIf { it.files === files }
         return cached?.hashes ?: files.associate { file -> file.path to digest(file) }.also { cached?.hashes = it }
+    }
+
+    @Synchronized
+    fun inspectionHashes(root: String, files: List<VirtualFile>): Map<String, String> {
+        invalidateIfChanged()
+        val cached = inputs[root]?.takeIf { it.files === files }
+        return cached?.inspectionHashes ?: files.associate { file ->
+            val editable = file.name in setOf("build.gradle", "build.gradle.kts") ||
+                file.name == "libs.versions.toml" && file.parent.name == "gradle"
+            file.path to if (editable) inspectionDigest(file) else digest(file)
+        }.also { cached?.inspectionHashes = it }
+    }
+
+    private fun inspectionDigest(file: VirtualFile): String {
+        val documents = FileDocumentManager.getInstance()
+        val document = documents.getCachedDocument(file)?.takeIf { documents.isFileModified(file) }
+        val fileStamp = file.modificationStamp
+        val documentStamp = document?.modificationStamp
+        val cached = inspectionDigests[file]
+        if (cached != null && cached.fileStamp == fileStamp && cached.documentStamp == documentStamp) return cached.value
+        fun normalized(text: String): String {
+            val ranges = GradleDeclarations.parse(file.path, text).filter { it.reason == null }.mapNotNull { it.range }
+                .distinct().sortedByDescending { it.startOffset }
+            return StringBuilder(text).apply {
+                ranges.forEach { replace(it.startOffset, it.endOffset, "__version__") }
+            }.toString()
+        }
+        // Ignore only supported version values. Repository blocks, calls, catalog consumers and
+        // every other input still invalidate retained warnings, including unsaved configuration.
+        val saved = normalized(String(file.contentsToByteArray(), Charsets.UTF_8))
+        val edited = document?.let { normalized(it.text) } ?: saved
+        val value = hash((if (saved == edited) saved else "$saved|$edited").toByteArray())
+        inspectionDigests[file] = Digest(fileStamp, documentStamp, value)
+        return value
     }
 
     private fun digest(file: VirtualFile): String {

@@ -42,7 +42,26 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
             VersionDeclaration(DeclarationId(file.path, "${coordinate.artifactKind.name}:${tag.textOffset}"), coordinate.artifactId(),
                 tag.findFirstSubTag("version")?.value?.trimmedText ?: coordinate.version, coordinate.version)
         }
-        return BuildSnapshot(BuildContextId(id, file.parent.path, file.path), file.path, inputs.fingerprint(mavenProject), declarations)
+        return BuildSnapshot(BuildContextId(id, file.parent.path, file.path), file.path, inputs.fingerprint(mavenProject), declarations,
+            inputs.inspectionFingerprint(mavenProject))
+    }
+
+    override fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot): UpdateReport? {
+        if (previous.context != current.context || previous.inspectionFingerprint == null ||
+            previous.inspectionFingerprint != current.inspectionFingerprint) return null
+        // XML offsets move when an earlier version changes length. Match the unchanged declaration
+        // by coordinates, kind and selector, then attach the result to its current location.
+        fun VersionDeclaration.key() = copy(id = id.copy(location = coordinate().artifactKind.name))
+        val candidates = report.candidates.associateBy { it.declaration.key() }
+        val notices = report.notices.groupBy { it.declaration.key() }
+        return report.copy(
+            candidates = current.declarations.mapNotNull { declaration ->
+                candidates[declaration.key()]?.copy(declaration = declaration)
+            },
+            notices = current.declarations.flatMap { declaration ->
+                notices[declaration.key()].orEmpty().map { it.copy(declaration = declaration) }
+            }
+        )
     }
 
     override fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean {
