@@ -24,6 +24,7 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
         }
         fun report() = UpdateReport(candidates.values.flatten(), notices.values.flatten(),
             failures.takeIf { it.isNotEmpty() }?.joinToString("\n"), validUntilNanos = expires)
+        fun counts() = candidates.values.sumOf { it.size } to notices.values.sumOf { it.size }
     }
     private var global = 0L
     private val adapters = mutableMapOf<String, Long>()
@@ -69,6 +70,12 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
         return if (entry.snapshot.fingerprint == snapshot.fingerprint && entry.snapshot.declarations == snapshot.declarations) report
         else adapter.retainInspectionReport(entry.snapshot, report, snapshot)
     }
+
+    /** Status counts avoid allocating a complete partial report for every UI refresh. */
+    @Synchronized fun inspectionProgressCounts(snapshot: BuildSnapshot): Triple<Int, Int, Long>? = progress[snapshot.context]?.takeIf {
+        it.revision == revision(snapshot.context) && it.expires > now() &&
+            it.snapshot.fingerprint == snapshot.fingerprint && it.snapshot.declarations == snapshot.declarations
+    }?.let { entry -> entry.counts().let { Triple(it.first, it.second, entry.expires) } }
 
     @Synchronized fun putProgress(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, revision: Revision,
                                   owner: Any, update: InspectionUpdate): Boolean {

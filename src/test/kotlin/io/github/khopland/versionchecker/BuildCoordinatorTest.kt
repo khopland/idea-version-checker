@@ -367,12 +367,16 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         }
         BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
         val service = project.service<VersionCheckService>()
+        assertEquals(CheckPhase.UNCHECKED, service.status(adapter, snapshot).phase)
+        assertEquals("Reading status must not start a native check", 0, checks)
         service.updates(adapter, snapshot)
         try {
             PlatformTestUtil.waitWithEventsDispatching("Early inspection hint published", {
                 service.updates(adapter, snapshot)?.candidates?.singleOrNull()?.version == "1.2"
             }, 10_000)
             assertNull("Only a complete check may populate the preview cache", service.cached(snapshot))
+            assertEquals(CheckPhase.CHECKING, service.status(adapter, snapshot).phase)
+            assertEquals(1, service.status(adapter, snapshot).updates)
             val preview = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking { project.service<BulkUpdateService>().createPlan(UpdateMode.MAJOR, UpdateScope.CURRENT_FILE, file.virtualFile) }
             })
@@ -382,6 +386,91 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             assertEquals(1, PlatformTestUtil.waitForFuture(preview, 10_000).changes.size)
             assertEquals("The preview reuses the final report", 1, checks)
             assertEquals("1.2", service.cached(snapshot)!!.candidates.single().version)
+            PlatformTestUtil.waitWithEventsDispatching("Status becomes complete", {
+                service.status(adapter, snapshot).phase == CheckPhase.CHECKED
+            }, 10)
+        } finally { gate.complete(Unit) }
+    }
+
+    fun testStatusExplainsBlockedChecksAndNeverReusesAChangedSnapshot() {
+        val file = myFixture.addFileToProject("status/build.txt", "1.0")
+        val native = TestAdapter("status-blocked-test", file)
+        var saved = true
+        val adapter = object : BuildSystemAdapter by native {
+            override fun canCheckInBackground(project: Project, snapshot: BuildSnapshot) = saved
+        }
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val service = project.service<VersionCheckService>()
+        assertEquals(CheckPhase.UNCHECKED, service.status(adapter, snapshot).phase)
+        saved = false
+        assertEquals(CheckPhase.SAVE_REQUIRED, service.status(adapter, snapshot).phase)
+        saved = true
+        native.offline = true
+        assertEquals(CheckPhase.OFFLINE, service.status(adapter, snapshot).phase)
+        project.service<VersionCheckerSettings>().state.enabled = false
+        try {
+            assertEquals(CheckPhase.PAUSED, service.status(adapter, snapshot).phase)
+        } finally { project.service<VersionCheckerSettings>().state.enabled = true }
+        native.offline = false
+        assertTrue(native.checked.isEmpty())
+        val refresh = service.refresh(listOf(adapter), file.virtualFile)
+        PlatformTestUtil.waitWithEventsDispatching("Check finishes", { refresh.isCompleted }, 10)
+        assertEquals(CheckPhase.CHECKED, service.status(adapter, snapshot).phase)
+        val edited = snapshot.copy(fingerprint = snapshot.fingerprint.copy(configuration = "edited"))
+        assertEquals(CheckPhase.UNCHECKED, service.status(adapter, edited).phase)
+        service.invalidateForPreview(adapter, file.virtualFile)
+        assertEquals(CheckPhase.UNCHECKED, service.status(adapter, snapshot).phase)
+    }
+
+    fun testFailedStatusCanBeRetriedAndCancellationDoesNotBecomeAFailure() {
+        val file = myFixture.addFileToProject("status-retry/build.txt", "1.0")
+        val adapter = TestAdapter("status-retry-test", file).apply { failure = "private native failure" }
+        val service = project.service<VersionCheckService>()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        fun refresh() {
+            val job = service.refresh(listOf(adapter), file.virtualFile)
+            PlatformTestUtil.waitWithEventsDispatching("Refresh finishes", { job.isCompleted }, 10)
+        }
+        refresh()
+        val failed = service.status(adapter, snapshot)
+        assertEquals(CheckPhase.FAILED, failed.phase)
+        assertFalse("Repository error details stay out of status text", failed.tooltip.contains("private native failure"))
+        adapter.failure = null
+        refresh()
+        assertEquals(CheckPhase.CHECKED, service.status(adapter, snapshot).phase)
+        val gate = CompletableDeferred<Unit>()
+        adapter.beforeCheck = { gate.await() }
+        val job = service.refresh(listOf(adapter), file.virtualFile)
+        try {
+            PlatformTestUtil.waitWithEventsDispatching("Check runs", {
+                service.status(adapter, snapshot).phase == CheckPhase.CHECKING
+            }, 10)
+            job.cancel()
+            PlatformTestUtil.waitWithEventsDispatching("Check cancelled", { job.isCompleted }, 10)
+            assertEquals(CheckPhase.UNCHECKED, service.status(adapter, snapshot).phase)
+        } finally { gate.complete(Unit) }
+    }
+
+    fun testStatusShowsQueuedFileWithoutConfusingItWithAnotherRunningFile() {
+        val blocker = myFixture.addFileToProject("status-queue/blocker.txt", "1.0")
+        val waiting = myFixture.addFileToProject("status-queue/waiting.txt", "1.0")
+        val gate = CompletableDeferred<Unit>()
+        val adapter = TestAdapter("status-queue-test", blocker).apply { beforeCheck = { gate.await() } }
+        val first = adapter.snapshot(project, blocker.virtualFile)!!
+        val second = first.copy(context = first.context.copy(resolutionId = waiting.virtualFile.path), sourceFile = waiting.virtualFile.path)
+        val service = project.service<VersionCheckService>()
+        service.updates(adapter, first)
+        try {
+            PlatformTestUtil.waitWithEventsDispatching("First file checks", {
+                service.status(adapter, first).phase == CheckPhase.CHECKING
+            }, 10)
+            service.updates(adapter, second)
+            assertEquals(CheckPhase.QUEUED, service.status(adapter, second).phase)
+            assertEquals(CheckPhase.CHECKING, service.status(adapter, first).phase)
+            gate.complete(Unit)
+            PlatformTestUtil.waitWithEventsDispatching("Both files finish", {
+                service.status(adapter, first).phase == CheckPhase.CHECKED && service.status(adapter, second).phase == CheckPhase.CHECKED
+            }, 10)
         } finally { gate.complete(Unit) }
     }
 

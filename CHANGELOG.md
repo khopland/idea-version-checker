@@ -4,6 +4,7 @@
 
 ### Added
 
+- A current-file **Versions** status-bar item distinguishes queued/running checks, current results, failures, offline mode and required saves, with direct Refresh, Review and settings actions. It reads existing results in the background and does not trigger repository queries.
 - **Review Dependency Updates…** in supported build files' editor context menu opens a searchable preview with checkboxes, update mode and scope controls, cached-result age, and Refresh. Empty previews retain these controls, and skipped items have a separate Needs review section.
 
 ### Changed

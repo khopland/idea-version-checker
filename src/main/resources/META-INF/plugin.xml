@@ -22,6 +22,7 @@
     <extensions defaultExtensionNs="com.intellij">
         <postStartupActivity implementation="io.github.khopland.versionchecker.VersionCheckerStartupActivity" />
         <notificationGroup id="Version Checker" displayType="BALLOON" />
+        <statusBarWidgetFactory id="VersionChecker.Status" implementation="io.github.khopland.versionchecker.VersionCheckStatusWidgetFactory" />
         <projectConfigurable parentId="tools" id="version.checker" displayName="Version Checker" instance="io.github.khopland.versionchecker.VersionCheckerConfigurable" />
     </extensions>
     <actions>

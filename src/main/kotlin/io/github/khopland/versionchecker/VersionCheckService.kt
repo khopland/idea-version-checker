@@ -36,8 +36,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 class VersionCheckService(private val project: Project, private val scope: CoroutineScope) : Disposable {
     private data class ScanToken(val sourceFile: String, val fingerprint: BuildFingerprint, val declarations: List<VersionDeclaration>, val revision: VersionResultCache.Revision)
     private data class PendingScan(val token: ScanToken, val job: Job? = null)
+    private data class StatusCheck(val context: BuildContextId, val token: ScanToken, val running: Boolean)
     private val cache = VersionResultCache()
     private val pending = ConcurrentHashMap<BuildContextId, PendingScan>()
+    private val statusChecks = ConcurrentHashMap<Any, StatusCheck>()
     private val scanQueues = ConcurrentHashMap<String, CheckQueue>()
     private val refreshMutex = Mutex()
     private val manualRefreshes = AtomicInteger()
@@ -66,6 +68,35 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     internal fun isCachedResultCurrent(snapshot: BuildSnapshot, mode: UpdateMode, result: VersionResultCache.CachedResult) =
         cache.isCurrent(snapshot.context, mode, result)
 
+    /** Passive, called under a background read action. Retained hints never mean a completed check. */
+    internal fun status(adapter: BuildSystemAdapter, snapshot: BuildSnapshot): VersionCheckStatus {
+        if (!project.service<VersionCheckerSettings>().state.enabled) return VersionCheckStatus(CheckPhase.PAUSED)
+        if (adapter.isOffline(project)) return VersionCheckStatus(CheckPhase.OFFLINE)
+        if (!adapter.canCheckInBackground(project, snapshot)) return VersionCheckStatus(CheckPhase.SAVE_REQUIRED)
+        val revision = cache.revision(snapshot.context)
+        fun ScanToken.matches() = sourceFile == snapshot.sourceFile && fingerprint == snapshot.fingerprint &&
+            declarations == snapshot.declarations && this.revision == revision
+        val checks = statusChecks.values.filter { it.context == snapshot.context && it.token.matches() }
+        val phase = when {
+            checks.any { it.running } -> CheckPhase.CHECKING
+            checks.isNotEmpty() || pending[snapshot.context]?.token?.matches() == true -> CheckPhase.QUEUED
+            else -> null
+        }
+        val result = cache.getResult(snapshot, UpdateMode.MAJOR)
+        if (phase != null) {
+            val counts = result?.let { Triple(it.report.candidates.size, it.report.notices.size, it.expiresAtNanos) }
+                ?: cache.inspectionProgressCounts(snapshot)
+            return VersionCheckStatus(phase, counts?.first ?: 0, counts?.second ?: 0, counts?.third)
+        }
+        if (result != null) return VersionCheckStatus(if (result.report.successful) CheckPhase.CHECKED else CheckPhase.FAILED,
+            result.report.candidates.size, result.report.notices.size, result.expiresAtNanos)
+        return VersionCheckStatus(CheckPhase.UNCHECKED)
+    }
+
+    internal fun statusChanged(sourceFile: String? = null) {
+        if (!disposed && !project.isDisposed) project.messageBus.syncPublisher(VersionCheckStatusListener.TOPIC).changed(sourceFile)
+    }
+
     internal fun updates(adapter: BuildSystemAdapter, snapshot: BuildSnapshot): UpdateReport? {
         if (!project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project)) return null
         val entry = cache.get(snapshot)
@@ -81,20 +112,30 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             cache.get(snapshot, mode)?.takeIf { it.successful }?.let { return it }
         }
         val queued = System.nanoTime()
-        return queue(adapter.id).withSlot(snapshot.sourceFile, interactive = true) {
-            CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
-            check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
-            check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
-            if (reuseCached) cache.get(snapshot, mode)?.takeIf { it.successful }?.let { return@withSlot it }
-            val revision = cache.begin(snapshot)
-            runCheck(adapter, snapshot, mode, revision) { result ->
-                check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed during the check. Run it again." }
-                check(cache.revision(snapshot.context) == revision) { "Version checks were refreshed during this check. Run it again." }
-                check(cache.put(snapshot, revision, result, mode)) { "Repository results expired during this check. Run it again." }
-                if (mode == UpdateMode.MAJOR && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
-                if (!result.successful) throw result.failureCause ?: IllegalStateException(result.failure.orEmpty())
-                result
+        val waiting = Any()
+        statusChecks[waiting] = StatusCheck(snapshot.context, token(snapshot), running = false)
+        statusChanged(snapshot.sourceFile)
+        try {
+            return queue(adapter.id).withSlot(snapshot.sourceFile, interactive = true) {
+                statusChecks.remove(waiting)
+                statusChanged(snapshot.sourceFile)
+                CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
+                check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
+                check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
+                if (reuseCached) cache.get(snapshot, mode)?.takeIf { it.successful }?.let { return@withSlot it }
+                val revision = cache.begin(snapshot)
+                runCheck(adapter, snapshot, mode, revision) { result ->
+                    check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed during the check. Run it again." }
+                    check(cache.revision(snapshot.context) == revision) { "Version checks were refreshed during this check. Run it again." }
+                    check(cache.put(snapshot, revision, result, mode)) { "Repository results expired during this check. Run it again." }
+                    if (mode == UpdateMode.MAJOR && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
+                    if (!result.successful) throw result.failureCause ?: IllegalStateException(result.failure.orEmpty())
+                    result
+                }
             }
+        } finally {
+            statusChecks.remove(waiting)
+            statusChanged(snapshot.sourceFile)
         }
     }
 
@@ -103,6 +144,9 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         val owner = Any()
         val started = System.nanoTime()
         val first = AtomicBoolean()
+        statusChecks[owner] = StatusCheck(snapshot.context,
+            ScanToken(snapshot.sourceFile, snapshot.fingerprint, snapshot.declarations, revision), running = true)
+        statusChanged(snapshot.sourceFile)
         try {
             val report = CheckPerformance.measure(CheckPerformance.Stage.CHECK) {
                 if (mode != UpdateMode.MAJOR || !adapter.capabilities.incrementalInspections)
@@ -117,11 +161,14 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                         if (useful > 0 && first.compareAndSet(false, true))
                             CheckPerformance.record(CheckPerformance.Stage.FIRST_INSPECTION_RESULT, started, useful)
                         project.service<FileProblemRefresh>().request(snapshot.sourceFile)
+                        statusChanged(snapshot.sourceFile)
                     }
                 }
             }
             return finish(report)
         } finally {
+            statusChecks.remove(owner)
+            statusChanged(snapshot.sourceFile)
             if (cache.clearProgress(snapshot.context, owner) && !disposed && !project.isDisposed)
                 project.service<FileProblemRefresh>().request(snapshot.sourceFile)
         }
@@ -166,6 +213,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         } else {
             invalidateSource(adapterId, currentFile.path)
         }
+        statusChanged(currentFile?.path)
     }
 
     internal fun invalidateForPreview(adapter: BuildSystemAdapter, currentFile: VirtualFile?) {
@@ -231,6 +279,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                         if (scheduled) invalidateSource(adapter.id, snapshot.sourceFile)
                         val token = token(snapshot)
                         pending.putIfAbsent(snapshot.context, PendingScan(token))
+                        statusChanged(snapshot.sourceFile)
                         if (scan(adapter, snapshot, token, interactive = currentFile != null)) affected -= snapshot.sourceFile
                     }
                 }
@@ -260,8 +309,10 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             // A lazy job cancelled before it starts never enters scan's finally block.
             scheduled.invokeOnCompletion {
                 pending.computeIfPresent(snapshot.context) { _, active -> if (active.job === scheduled) null else active }
+                statusChanged(snapshot.sourceFile)
             }
             scheduled.start()
+            statusChanged(snapshot.sourceFile)
         }
     }
 
@@ -299,6 +350,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             }
         } finally {
             pending.computeIfPresent(snapshot.context) { _, active -> if (active.token == token) null else active }
+            statusChanged(snapshot.sourceFile)
             if (published && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
         }
         return published

@@ -91,6 +91,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         state.deprecatedSeverity = selected(VersionChangeKind.DEPRECATED)
         state.deprecatedDependencies = deprecated!!.text
         project.service<ScheduledVersionChecks>().configure()
+        project.service<VersionCheckService>().statusChanged()
         refreshEditorProblems(project, this)
     }
     override fun reset() {

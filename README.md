@@ -48,6 +48,8 @@ These notices appear even without a newer version. The checker also reads [Maven
 
 Messages use IDEA's standard inspection highlighting, hover tooltips, Problems view, and Alt+Enter quick fixes. Configure their severity under **Settings → Tools → Version Checker**. You can disable automatic checking altogether there, or disable the inspection under **Settings → Editor → Inspections → Maven**.
 
+The **Versions** status-bar item explains the selected build file's check state: unchecked, queued, checking, checked, updates available, needs review, offline, save required, paused or failed. Click it for **Refresh Current File**, **Review Dependency Updates…** and settings. Refresh saves documents before checking; disable the build system's offline setting first when required. “Checked” covers supported declarations only. Partial and retained hints cannot mark a file fully checked, and expired results return to unchecked. Displaying the status does not start repository queries. You can hide the item through IDEA's status-bar widget settings.
+
 If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) can render these standard inspection messages using its own display. No dependency on that plugin is required.
 
 ## Bulk updates and submodules

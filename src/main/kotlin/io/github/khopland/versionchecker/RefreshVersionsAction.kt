@@ -12,7 +12,8 @@ open class RefreshVersionsAction(private val scope: UpdateScope = UpdateScope.WH
             event.presentation.text = if (event.place == ActionPlaces.EDITOR_POPUP) "Refresh Dependency Versions" else "Refresh Current File"
         }
         event.presentation.isEnabledAndVisible = event.project?.let { project ->
-            BuildSystemAdapter.matching(project, BuildSelection(scope, currentBuildFile(event)?.path)).isNotEmpty()
+            project.service<VersionCheckerSettings>().state.enabled &&
+                BuildSystemAdapter.matching(project, BuildSelection(scope, currentBuildFile(event)?.path)).isNotEmpty()
         } == true
     }
     override fun actionPerformed(event: AnActionEvent) {
