@@ -27,30 +27,30 @@ class NpmAdapterTest : BasePlatformTestCase() {
     fun testResolutionContextReusesSelectorEditsButKeepsPreviewOwnershipStrict() {
         val root = myFixture.addFileToProject("metadata/package.json", """{"workspaces":["packages/*"],"dependencies":{"alpha":"^1.2.3"}}""")
         val child = myFixture.addFileToProject("metadata/packages/app/package.json", """{"dependencies":{"alpha":"~1.2.3"}}""")
-        val before = adapter.resolutionContext(project, root.virtualFile.parent)
+        val before = NpmBuildInputs.resolutionContext(project, root.virtualFile.parent)
         val snapshot = adapter.snapshot(project, child.virtualFile)!!
         val document = FileDocumentManager.getInstance().getDocument(root.virtualFile)!!
         WriteCommandAction.runWriteCommandAction(project) { document.setText(document.text.replace("^1.2.3", "^1.2.8")) }
-        assertEquals(before, adapter.resolutionContext(project, root.virtualFile.parent))
+        assertEquals(before, NpmBuildInputs.resolutionContext(project, root.virtualFile.parent))
         assertFalse(adapter.isCurrent(project, snapshot))
         WriteCommandAction.runWriteCommandAction(project) { document.setText(document.text.replace("packages/*", "packages/**")) }
-        assertFalse(before == adapter.resolutionContext(project, root.virtualFile.parent))
+        assertFalse(before == NpmBuildInputs.resolutionContext(project, root.virtualFile.parent))
     }
     fun testResolutionContextIsolatesRootsAndDetectsUnsavedRegistryAndRuntimeConfiguration() {
         val first = myFixture.addFileToProject("contexts/first/package.json", "{}")
         val second = myFixture.addFileToProject("contexts/second/package.json", "{}")
         val config = myFixture.addFileToProject("contexts/first/.npmrc", "registry=https://registry.example/\n//registry.example/:_authToken=private-fixture-token\n")
         val runtime = myFixture.addFileToProject("contexts/first/.nvmrc", "22\n")
-        val before = adapter.resolutionContext(project, first.virtualFile.parent)
-        assertFalse(before == adapter.resolutionContext(project, second.virtualFile.parent))
+        val before = NpmBuildInputs.resolutionContext(project, first.virtualFile.parent)
+        assertFalse(before == NpmBuildInputs.resolutionContext(project, second.virtualFile.parent))
         assertFalse(before.toString().contains("private-fixture-token"))
         val configDocument = FileDocumentManager.getInstance().getDocument(config.virtualFile)!!
         WriteCommandAction.runWriteCommandAction(project) { configDocument.setText("registry=https://other.example/\n") }
-        val changedConfig = adapter.resolutionContext(project, first.virtualFile.parent)
+        val changedConfig = NpmBuildInputs.resolutionContext(project, first.virtualFile.parent)
         assertFalse(before == changedConfig)
         val runtimeDocument = FileDocumentManager.getInstance().getDocument(runtime.virtualFile)!!
         WriteCommandAction.runWriteCommandAction(project) { runtimeDocument.setText("24\n") }
-        assertFalse(changedConfig == adapter.resolutionContext(project, first.virtualFile.parent))
+        assertFalse(changedConfig == NpmBuildInputs.resolutionContext(project, first.virtualFile.parent))
     }
     fun testAllDependencySectionsAndAliasesUpdateOnlyManifestStrings() {
         val file = myFixture.addFileToProject("npm/package.json", """{

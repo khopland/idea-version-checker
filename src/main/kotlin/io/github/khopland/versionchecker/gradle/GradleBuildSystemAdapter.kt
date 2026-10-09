@@ -103,7 +103,7 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         files.mapNotNull { snapshot(project, it, fingerprints, unsaved) }
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
-        val policy = readAction { project.service<VersionCheckerSettings>().state.deprecatedDependencies }.lineSequence().map(String::trim).filter { it.isNotEmpty() && !it.startsWith('#') }.associate { val parts = it.split('=', limit = 2); parts[0].trim() to (parts.getOrNull(1)?.trim() ?: "Deprecated by project policy") }
+        val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }
         val results = GradleVersionLookup.check(project, snapshot.copy(declarations = snapshot.declarations.filter { "${it.artifact.namespace}:${it.artifact.name}" !in policy }), mode)
         return UpdateReport(snapshot.declarations.mapNotNull { declaration ->
             val versions = results[declaration.id.location]?.versions.orEmpty().distinct()

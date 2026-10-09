@@ -29,8 +29,8 @@ internal class NpmProjectCache(private val project: Project) : Disposable {
     private var structureGeneration: List<Long> = emptyList()
     private var contentGeneration = -1L
     private var files: List<VirtualFile>? = null
-    private val owners = mutableMapOf<VirtualFile, NpmBuildSystemAdapter.Workspace?>()
-    private val workspaces = mutableMapOf<VirtualFile, NpmBuildSystemAdapter.Workspace>()
+    private val owners = mutableMapOf<VirtualFile, NpmWorkspace?>()
+    private val workspaces = mutableMapOf<VirtualFile, NpmWorkspace>()
     private val digests = mutableMapOf<VirtualFile, Digest>()
     private val workspaceDigests = mutableMapOf<VirtualFile, Map<String, String>>()
 
@@ -102,13 +102,13 @@ internal class NpmProjectCache(private val project: Project) : Disposable {
     }
 
     @Synchronized
-    fun workspace(file: VirtualFile, compute: () -> NpmBuildSystemAdapter.Workspace): NpmBuildSystemAdapter.Workspace {
+    fun workspace(file: VirtualFile, compute: () -> NpmWorkspace): NpmWorkspace {
         invalidateIfChanged()
         return workspaces.getOrPut(file, compute)
     }
 
     @Synchronized
-    fun owner(directory: VirtualFile, compute: () -> NpmBuildSystemAdapter.Workspace?): NpmBuildSystemAdapter.Workspace? {
+    fun owner(directory: VirtualFile, compute: () -> NpmWorkspace?): NpmWorkspace? {
         invalidateIfChanged()
         if (!owners.containsKey(directory)) owners[directory] = compute()
         return owners[directory]
@@ -131,7 +131,7 @@ internal class NpmProjectCache(private val project: Project) : Disposable {
     }
 
     @Synchronized
-    fun manifestDigests(workspace: NpmBuildSystemAdapter.Workspace, compute: () -> Map<String, String>): Map<String, String> {
+    fun manifestDigests(workspace: NpmWorkspace, compute: () -> Map<String, String>): Map<String, String> {
         invalidateIfChanged()
         return workspaceDigests.getOrPut(workspace.root, compute)
     }

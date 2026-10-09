@@ -30,6 +30,26 @@ class GradleAdapterTest : BasePlatformTestCase() {
     }
     private fun report(snapshot: BuildSnapshot, versions: List<String?> = snapshot.declarations.map { "1.2.9" }) = UpdateReport(snapshot.declarations.zip(versions).mapNotNull { (d, v) -> v?.let { UpdateCandidate(d, it) } })
     private fun plan(snapshot: BuildSnapshot, report: UpdateReport): BulkUpdatePlan = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { adapter.prepareUpdates(project, mapOf(snapshot to report)) } }), 30_000)
+
+    fun testBlankDeprecationMessageProducesANoticeWithoutRemoteLookup() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", "dependencies { implementation 'g:alpha:1.2.3' }")
+        link()
+        val settings = project.service<VersionCheckerSettings>().state
+        val previous = settings.deprecatedDependencies
+        try {
+            settings.deprecatedDependencies = "g:alpha = "
+            val snapshot = adapter.snapshot(project, file.virtualFile)!!
+            val report = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { adapter.check(project, snapshot, UpdateMode.MAJOR) }
+            }), 30_000)
+            assertTrue(report.candidates.isEmpty())
+            assertEquals(NoticeKind.DEPRECATED, report.notices.single().kind)
+            assertEquals("g:alpha is deprecated: Deprecated by project policy", report.notices.single().message)
+        } finally {
+            settings.deprecatedDependencies = previous
+        }
+    }
+
     fun testBuildFileEditsApplyAtomicallyAndPreserveOtherText() {
         val file = myFixture.addFileToProject("gradle-project/build.gradle", """dependencies {
             implementation 'g:alpha:1.2.3'

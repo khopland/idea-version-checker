@@ -220,10 +220,10 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 FileDocumentManager.getInstance().getDocument(externalFile)
                 val hashes = project.service<NpmProjectCache>()
                 val originalDigest = hashes.digest(externalFile)
-                val originalContext = nativeAdapter.resolutionContext(project, externalVirtualRoot)
+                val originalContext = NpmBuildInputs.resolutionContext(project, externalVirtualRoot)
                 Files.writeString(externalManifest, """{"volta":{"node":"24.0.0"}}""")
                 assertFalse("An external runtime-selection edit must change the metadata context",
-                    originalContext == nativeAdapter.resolutionContext(project, externalVirtualRoot))
+                    originalContext == NpmBuildInputs.resolutionContext(project, externalVirtualRoot))
                 com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(false, false, false, externalFile)
                 assertFalse("Manifest hashes must observe refreshed saved bytes despite a cached document",
                     originalDigest == hashes.digest(externalFile))

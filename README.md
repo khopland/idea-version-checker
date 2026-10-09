@@ -147,6 +147,8 @@ Open `examples/maven-demo/pom.xml` as a separate IDEA project. The local `exampl
 
 Java and Maven can be selected through SDKMAN. The Gradle wrapper builds the plugin; Maven is only needed separately if you want to reproduce its goal from a terminal.
 
+The shared coordinator owns scheduling and result caching; build-system adapters own discovery, native checks and edit preparation. npm separates workspace ownership and package-manager selection in `NpmWorkspaces` from registry/runtime fingerprints in `NpmBuildInputs`. `NpmProjectCache` caches those inputs without depending on the adapter. Metadata reuse tracks resolution configuration, while edit safety also tracks workspace manifests. Project deprecation rules share a parser in `core`, with ecosystem-specific name validation in the adapters.
+
 Maven/npm performance changes restrict dependency goals to supported snapshot coordinates, reuse Maven scan inputs, combine npm metadata queries and share responses across workspace manifests. See [performance measurements and tracing](docs/performance.md) for request-count benchmarks, timing limits and the remaining work.
 
 ```bash
