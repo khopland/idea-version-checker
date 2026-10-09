@@ -36,11 +36,99 @@ import java.util.concurrent.Callable
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /** Opt-in: real IntelliJ-selected Node/npm, with an authenticated local registry and no installs. */
 class NpmRegistryIntegrationTest : BasePlatformTestCase() {
+    fun testFastNativeRegistryHintsAppearWhileAnotherResponseIsBlocked() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
+        val node = PathEnvironmentVariableUtil.findInPath("node")!!.toPath().toRealPath()
+        val npm = PathEnvironmentVariableUtil.findInPath("npm")!!.toPath().toRealPath()
+        val directory = Files.createTempDirectory("version-checker-npm-early-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString(), node.parent.toString(), npm.parent.parent.toString())
+        val slowStarted = CountDownLatch(1)
+        val releaseSlow = CountDownLatch(1)
+        val requests = CopyOnWriteArrayList<String>()
+        val executor = Executors.newFixedThreadPool(2)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply { this.executor = executor }
+        server.createContext("/") { exchange ->
+            try {
+                val path = exchange.requestURI.path
+                requests += path
+                if (path == "/@early/slow") { slowStarted.countDown(); releaseSlow.await(30, TimeUnit.SECONDS) }
+                if (exchange.requestHeaders.getFirst("Authorization") != "Bearer fixture-token") exchange.sendResponseHeaders(401, -1)
+                else if (path in setOf("/@early/fast", "/@early/slow")) {
+                    val name = path.removePrefix("/")
+                    val body = """{"name":"$name","dist-tags":{"latest":"1.1.0"},"versions":{"1.0.0":{"name":"$name","version":"1.0.0"},"1.1.0":{"name":"$name","version":"1.1.0"}}}""".toByteArray()
+                    exchange.responseHeaders.add("Content-Type", "application/json")
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.write(body)
+                } else exchange.sendResponseHeaders(404, -1)
+            } finally { exchange.close() }
+        }
+        server.start()
+        val interpreterManager = NodeJsInterpreterManager.getInstance(project)
+        val npmManager = NpmManager.getInstance(project)
+        val previousInterpreter = interpreterManager.interpreterRef
+        val previousNpm = npmManager.packageRef
+        var contentRootAdded = false
+        var scan: Job? = null
+        try {
+            interpreterManager.setInterpreterRef(NodeJsInterpreterRef.create(NodeJsLocalInterpreter(node.toString())))
+            npmManager.setPackageRef(NodePackageRef.create(NpmNodePackage(npm.parent.parent.toString())))
+            Files.writeString(directory.resolve("package.json"), """{"dependencies":{"@early/slow":"^1.0.0","@early/fast":"^1.0.0"}}""")
+            Files.writeString(directory.resolve(".npmrc"), """
+                registry=http://127.0.0.1:9/
+                @early:registry=http://127.0.0.1:${server.address.port}/
+                //127.0.0.1:${server.address.port}/:_authToken=fixture-token
+                fetch-retries=0
+            """.trimIndent())
+            val virtualRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(false, true, true, virtualRoot)
+            ModuleRootModificationUtil.addContentRoot(myFixture.module, directory.toString())
+            contentRootAdded = true
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
+            val file = virtualRoot.findChild("package.json")!!
+            val adapter = BuildSystemAdapter.find("npm")!!
+            val snapshot = adapter.snapshot(project, file)!!
+            val service = project.service<VersionCheckService>()
+            scan = service.refresh(listOf(adapter), file)
+            PlatformTestUtil.waitWithEventsDispatching("Slow native npm request started", { slowStarted.count == 0L }, 20_000)
+            PlatformTestUtil.waitWithEventsDispatching("Fast native npm result is available", {
+                service.updates(adapter, snapshot)?.candidates?.any { it.declaration.artifact.name == "@early/fast" } == true
+            }, 20_000)
+            assertFalse(scan.isCompleted)
+            assertNull("Early hints are inspection-only", service.cached(snapshot))
+            val psi = PsiManager.getInstance(project).findFile(file)!!
+            val holder = ProblemsHolder(InspectionManager.getInstance(project), psi, true)
+            val visitor = NewerNpmDependencyInspection().buildVisitor(holder, true)
+            PsiTreeUtil.collectElements(psi) { true }.forEach { it.accept(visitor) }
+            assertEquals(1, holder.results.size)
+            assertTrue(holder.results.single().descriptionTemplate.contains("@early/fast"))
+            releaseSlow.countDown()
+            PlatformTestUtil.waitWithEventsDispatching("Native npm scan completed", { scan.isCompleted }, 20_000)
+            assertTrue(service.cached(snapshot)!!.successful)
+            assertEquals(2, service.cached(snapshot)!!.candidates.size)
+            assertEquals(setOf("/@early/fast", "/@early/slow"), requests.toSet())
+            assertFalse(Files.exists(directory.resolve("node_modules")))
+            assertFalse(Files.exists(directory.resolve("package-lock.json")))
+        } finally {
+            releaseSlow.countDown()
+            scan?.cancel()
+            scan?.let { PlatformTestUtil.waitWithEventsDispatching("Native early-result scan stopped", { it.isCompleted }, 20_000) }
+            if (contentRootAdded) ModuleRootModificationUtil.updateModel(myFixture.module) { model ->
+                model.contentEntries.filter { it.url == "file://$directory" }.forEach(model::removeContentEntry)
+            }
+            interpreterManager.setInterpreterRef(previousInterpreter)
+            npmManager.setPackageRef(previousNpm)
+            server.stop(0)
+            executor.shutdownNow()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testRuntimeShimIsSharedDuringAScanAndResolvedAgainAfterwards() {
         if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
         if (com.intellij.openapi.util.SystemInfo.isWindows) return // This fixture emulates POSIX version-manager shims.

@@ -158,4 +158,15 @@ class NpmVersionCheckTest {
         assertTrue(updates.single().report.successful)
         assertEquals(4, slots.availablePermits)
     }
+
+    @Test fun `IDE process cancellation propagates instead of becoming a package failure`() = runBlocking {
+        var published = false
+        val failure = runCatching {
+            checkNpmVersions(listOf(declaration("cancelled")), UpdateMode.MAJOR, emptyMap(), Semaphore(4),
+                metadata = { throw com.intellij.openapi.progress.ProcessCanceledException() }, deprecated = { _, _ -> null },
+                publish = { published = true })
+        }.exceptionOrNull()
+        assertTrue(failure is com.intellij.openapi.progress.ProcessCanceledException)
+        assertFalse(published)
+    }
 }

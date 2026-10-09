@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker.npm
 
 import io.github.khopland.versionchecker.UpdateMode
 import io.github.khopland.versionchecker.core.*
+import com.intellij.openapi.progress.ProcessCanceledException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -48,6 +49,8 @@ internal suspend fun checkNpmVersions(
                 }
                 UpdateReport(candidates, notices)
             } } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (cancelled: ProcessCanceledException) {
                 throw cancelled
             } catch (failure: Exception) {
                 UpdateReport(failure = "$name: ${failure.message ?: failure.javaClass.simpleName}", failureCause = failure)

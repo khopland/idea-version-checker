@@ -141,6 +141,14 @@ A gated package fixture proves that a fast package and its alias publish while t
 
 The full suite passed 279 tests with zero failures, errors or skips, including native Maven/npm/Gradle and packaged-plugin lifecycle tests. Plugin build, configuration and verification passed for both supported IDEA versions, retaining the existing API notices.
 
+## Earlier Maven inspection results: 9 October 2026
+
+Incremental Maven checks run dependency, plugin and parent categories in that order within the same fresh embedder per POM. Each finished category supplies a presentation delta for its declarations, with relocation notices read for those coordinates. Metadata expiration, repositories, profiles and Maven configuration remain native. Failed categories are reported separately while independent categories can continue. The final adapter report is unsuccessful if any category failed, so it cannot authorize a complete bulk preview. Coroutine/IDE cancellation and publisher errors propagate and stop later categories. Strict lookup callers retain immediate native failure propagation.
+
+The authenticated native Maven fixture gates execution after the dependency category publishes. It verifies a real dependency inspection warning is available while plugin checking remains blocked, and that the preview cache stays empty until both categories finish. The native npm fixture blocks one authenticated registry response and verifies another package's real inspection warning appears while the scan continues. On release, both fixtures require a complete successful final report with every candidate. Category tests cover failure isolation, strict failure behavior, cancellation and publisher invalidation. These establish earlier availability and completeness guards, without claiming a measured deadline for visible IDEA rendering.
+
+The full suite passed 285 tests with zero failures, errors or skips, enabling native Maven/npm/Gradle and packaged-plugin lifecycle tests. Plugin build, project configuration and compatibility verification passed for IDEA 2025.3.6.1 and 2026.1.4, retaining the existing seven experimental API usages on both and one deprecated API usage on 2026.1.4.
+
 ## Inspect real-project traces
 
 In IDEA, open **Help → Diagnostic Tools → Debug Log Settings** and enable:

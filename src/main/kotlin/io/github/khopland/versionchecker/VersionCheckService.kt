@@ -8,6 +8,7 @@ import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
@@ -287,6 +288,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 } else runCheck(adapter, snapshot, UpdateMode.MAJOR, token.revision, finish)
             }
         } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (cancelled: ProcessCanceledException) {
             throw cancelled
         } catch (failure: Exception) {
             log.warn("${adapter.displayName} version check failed for ${snapshot.sourceFile}", failure)

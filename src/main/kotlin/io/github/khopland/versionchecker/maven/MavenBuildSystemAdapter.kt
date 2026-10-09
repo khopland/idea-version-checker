@@ -16,7 +16,7 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 internal class MavenBuildSystemAdapter : BuildSystemAdapter {
     override val id = "maven"
     override val displayName = "Maven"
-    override val capabilities = AdapterCapabilities()
+    override val capabilities = AdapterCapabilities(incrementalInspections = true)
 
     override fun supports(project: Project, selection: BuildSelection): Boolean {
         val manager = MavenProjectsManager.getInstance(project)
@@ -85,11 +85,37 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
     }
 
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
+        return checkReports(project, snapshot, mode, null)
+    }
+
+    override suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
+                                          publish: suspend (InspectionUpdate) -> Unit): UpdateReport =
+        checkReports(project, snapshot, mode, publish)
+
+    private suspend fun checkReports(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
+                                     publish: (suspend (InspectionUpdate) -> Unit)?): UpdateReport {
         val manager = MavenProjectsManager.getInstance(project)
         val mavenProject = readAction { findProject(manager, snapshot) } ?: error("Maven POM is no longer imported")
         val coordinates = snapshot.declarations.map { it.coordinate() }
         val kinds = coordinates.map { it.artifactKind }.toSet()
-        val versions = MavenVersionLookup.checkAll(manager, mavenProject, mode, kinds, coordinates)
+        val failures = mutableListOf<Exception>()
+        val versions = if (publish == null) MavenVersionLookup.checkAll(manager, mavenProject, mode, kinds, coordinates) else
+            MavenVersionLookup.checkAllIncrementally(manager, mavenProject, mode, kinds, coordinates) { kind, result ->
+                val declarations = snapshot.declarations.filter { it.coordinate().artifactKind == kind }
+                val category = snapshot.copy(declarations = declarations)
+                val failure = result.exceptionOrNull() as? Exception
+                failure?.let(failures::add)
+                val report = versionReport(mavenProject, category, result.getOrNull().orEmpty()).copy(
+                    failure = failure?.let { "${kind.name.lowercase()}: ${it.message ?: it.javaClass.simpleName}" }, failureCause = failure)
+                publish(InspectionUpdate(report, declarations.map { it.id }.toSet()))
+            }
+        return versionReport(mavenProject, snapshot, versions).copy(
+            failure = failures.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.message ?: it.javaClass.simpleName },
+            failureCause = failures.firstOrNull())
+    }
+
+    private fun versionReport(mavenProject: MavenProject, snapshot: BuildSnapshot,
+                              versions: Map<DependencyVersion, String>): UpdateReport {
         val relocations = readRelocations(mavenProject, snapshot)
         return UpdateReport(
             snapshot.declarations.mapNotNull { declaration -> versions[declaration.coordinate()]?.let {

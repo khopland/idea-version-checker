@@ -19,7 +19,7 @@ import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.sun.net.httpserver.HttpServer
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.model.MavenModel
 import org.jetbrains.idea.maven.model.MavenArtifactInfo
@@ -459,6 +459,38 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
 
             manager.projectsTree.putVirtualFileToProjectMapping(mavenProject, mavenProject.mavenId)
             manager.projectsTree.putVirtualFileToProjectMapping(childProject, childProject.mavenId)
+            val native = BuildSystemAdapter.find("maven")!!
+            val snapshot = native.snapshot(project, virtualFile)!!
+            val firstCategory = CompletableDeferred<InspectionUpdate>()
+            val releaseCategories = CompletableDeferred<Unit>()
+            val staged = object : BuildSystemAdapter by native {
+                override suspend fun checkIncrementally(project: com.intellij.openapi.project.Project, snapshot: BuildSnapshot,
+                                                        mode: UpdateMode, publish: suspend (InspectionUpdate) -> Unit): UpdateReport =
+                    native.checkIncrementally(project, snapshot, mode) { update ->
+                        publish(update)
+                        if (firstCategory.complete(update)) releaseCategories.await()
+                    }
+            }
+            val coordinator = project.service<VersionCheckService>()
+            val stagedCheck = coordinator.refresh(listOf(staged), virtualFile)
+            try {
+                PlatformTestUtil.waitWithEventsDispatching("Native Maven dependency hints arrive before plugin checks", { firstCategory.isCompleted }, 120_000)
+                val early = runBlocking { firstCategory.await() }
+                assertTrue(early.completedDeclarations.all { it.location.startsWith("DEPENDENCY:") })
+                assertEquals(listOf("2.0"), early.report.candidates.map { it.version })
+                assertFalse(stagedCheck.isCompleted)
+                assertNull("A partial category cannot authorize a bulk preview", coordinator.cached(snapshot))
+                val earlyFile = PsiManager.getInstance(project).findFile(virtualFile)!!
+                val earlyProblems = ProblemsHolder(InspectionManager.getInstance(project), earlyFile, true)
+                val earlyVisitor = NewerMavenDependencyInspection().buildVisitor(earlyProblems, true)
+                PsiTreeUtil.findChildrenOfType(earlyFile, XmlTag::class.java).forEach { it.accept(earlyVisitor) }
+                assertEquals(1, earlyProblems.results.size)
+                assertFalse(earlyProblems.results.single().descriptionTemplate.contains("Maven plugin"))
+                releaseCategories.complete(Unit)
+                PlatformTestUtil.waitWithEventsDispatching("Native Maven categories complete", { stagedCheck.isCompleted }, 120_000)
+                assertEquals(2, coordinator.cached(snapshot)!!.candidates.size)
+                assertTrue(coordinator.cached(snapshot)!!.successful)
+            } finally { releaseCategories.complete(Unit); stagedCheck.cancel() }
             val bulkCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking {
                     withBackgroundProgress(project, "Checking all modules", cancellable = true) {
@@ -522,6 +554,9 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             assertEquals("Current POM refresh must preserve the other module's cache", "2.0", service.updates(childProject)[childCoordinate])
             PlatformTestUtil.waitWithEventsDispatching("Current POM refresh", {
                 service.updates(mavenProject)[DependencyVersion("example.versionchecker", "fixture", "1.0")] == "2.0"
+            }, 120_000)
+            PlatformTestUtil.waitWithEventsDispatching("Complete Maven dependency and plugin results", {
+                native.snapshot(project, virtualFile)?.let { coordinator.cached(it)?.successful } == true
             }, 120_000)
             val file = PsiManager.getInstance(project).findFile(virtualFile)!!
             val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)

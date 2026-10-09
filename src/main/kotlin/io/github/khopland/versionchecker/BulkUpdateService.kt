@@ -12,6 +12,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.notification.NotificationAction
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.Disposer
@@ -138,6 +139,8 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                     if (!recheck) break
                 }
             } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (cancelled: ProcessCanceledException) {
                 throw cancelled
             } catch (failure: Exception) {
                 log.warn("$buildSystems bulk update check failed (${mode.label})", failure)

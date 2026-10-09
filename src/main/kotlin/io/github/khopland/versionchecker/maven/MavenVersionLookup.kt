@@ -32,8 +32,15 @@ internal object MavenVersionLookup {
                          kinds: Set<MavenArtifactKind>, coordinates: List<DependencyVersion>? = null): Map<DependencyVersion, String> =
         runScan(manager, project, mode, kinds, coordinates)
 
+    /** Keep one embedder per POM; failed categories cannot discard successful earlier categories. */
+    suspend fun checkAllIncrementally(manager: MavenProjectsManager, project: MavenProject, mode: UpdateMode,
+                                     kinds: Set<MavenArtifactKind>, coordinates: List<DependencyVersion>,
+                                     publish: suspend (MavenArtifactKind, Result<Map<DependencyVersion, String>>) -> Unit): Map<DependencyVersion, String> =
+        runScan(manager, project, mode, kinds, coordinates, publish)
+
     private suspend fun runScan(manager: MavenProjectsManager, project: MavenProject, mode: UpdateMode,
-                                kinds: Set<MavenArtifactKind>, coordinates: List<DependencyVersion>?): Map<DependencyVersion, String> {
+                                kinds: Set<MavenArtifactKind>, coordinates: List<DependencyVersion>?,
+                                publish: (suspend (MavenArtifactKind, Result<Map<DependencyVersion, String>>) -> Unit)? = null): Map<DependencyVersion, String> {
         if (kinds.isEmpty()) return emptyMap()
         val inputs = MavenScanInputs(coordinates ?: declared(manager, project), kinds,
             MavenConfigProperties.read(project.file.toNioPath().parent))
@@ -42,11 +49,11 @@ internal object MavenVersionLookup {
         return withMavenCheckSession(manager, project) { embedder ->
             val scan = Scan(manager, project, embedder, inputs, profiles, filtered = coordinates != null)
             expireMetadata(scan)
-            buildMap {
-                reportProgressScope(inputs.kinds.size) { reporter ->
-                    for (kind in inputs.kinds) {
-                        putAll(reporter.itemStep("Maven ${kind.name.lowercase()} versions") { check(scan, mode, kind) })
-                    }
+            reportProgressScope(inputs.kinds.size) { reporter ->
+                val ordered = if (publish == null) inputs.kinds.toList() else
+                    listOf(MavenArtifactKind.DEPENDENCY, MavenArtifactKind.PLUGIN, MavenArtifactKind.PARENT).filter { it in inputs.kinds }
+                checkMavenCategories(ordered, publish) { kind ->
+                    reporter.itemStep("Maven ${kind.name.lowercase()} versions") { check(scan, mode, kind) }
                 }
             }
         }
