@@ -1,4 +1,4 @@
-# Maven and npm performance work
+# Version-check performance work
 
 The [performance plan, revision 2](https://plan-api.k8r.no/p/uQBB44ZJlfWkuneRIxSpEf51/v/2) now has dependency filtering (M1), combined npm queries (N1), workspace metadata sharing (N2), reusable Maven scan inputs (M2), and profiling hooks implemented. Check-scoped runtime and discovery reuse (N3) and pass-local Maven fingerprint reuse (M5) are also implemented. Plugin branch rules (M3) and Maven session experiments (M4) remain follow-up work guided by profiling.
 
@@ -55,6 +55,28 @@ The [before/after record](performance-maven-inputs-2026-10-08.txt) measures a si
 Collection validation saved about 18.8 ms per pass in this fixture. These are separate test JVMs with warm local inputs; JIT, scheduling and filesystem state affect results. They do not establish a production or native-query speedup. The full suite passed 216 tests, including native Maven/npm integration and packaged-plugin lifecycle tests. Plugin build, configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4 with the existing API notices.
 
 Per-module fingerprint maps still contain the full shared POM stamps; this change removes repeated input collection and filesystem reads rather than every quadratic map copy or comparison.
+
+## Editor hint preparation: 9 October 2026
+
+Completed results use a 50 ms fixed highlighting batch for files selected in the editor, while other files retain the 200 ms batch. Selection is read on the EDT. A selected-file request promotes a pending path out of the background batch, and repeated requests do not postpone either batch's deadline. Both workers belong to the project service's coroutine scope and stop on cancellation. These windows control restart scheduling; they do not establish time to a rendered diagnostic or include a busy EDT's dispatch delay.
+
+Maven's inspection bridge now captures one snapshot and report for updates, relocation notices and quick-fix construction. Apply still revalidates the current project inputs, including unselected sibling POMs. Manually constructed analyses retain their lazy snapshot fallback. The regression fixture counts one snapshot for an inspection with both kinds of diagnostic, then changes a sibling and verifies that the retained fix revalidates and refuses to edit.
+
+Gradle inspections group candidates by declaration ID once and index the first notice for each ID. Matching no longer searches the complete candidate list for every declaration. Duplicate candidate IDs remain ambiguous, and shared-version notices retain their original report order. A 1,000-declaration visitor fixture checks all 1,000 diagnostics and fixes while bounding candidate traversal to linear work. Separate cases check duplicate rejection and first-notice ordering.
+
+npm inspections group workspace consumers by artifact once per pass, then build each workspace fix from the matching group. They still preserve selector operators, alias targets, workspace ownership and no-downgrade checks. Grouping avoids scanning unrelated packages for each candidate; repeated aliases of the same package can still repeat matching edit construction. The inspection fixture checks separate alpha/beta groups and applies an alpha workspace fix without changing beta.
+
+The targeted reproduction command is:
+
+```bash
+./gradlew test --tests '*FileProblemRefreshQueueTest' \
+  --tests '*MavenWarningRetentionTest' --tests '*GradleInspectionTest' \
+  --tests '*NpmWorkspaceVersionFixTest'
+```
+
+Use a clean rebuild after changing internal constructor signatures if incremental test bytecode is stale. These tests validate work counts, batching and edit safety, not production editor latency. Measure first visible hints and restart frequency in IDEA before claiming an end-to-end speedup or reducing the active window further. Active-file scan prioritization, incremental result publication and mode-aware cached previews remain follow-up work in the [fast-hints review](fast-hints-ux-review.html).
+
+The complete validation passed 255 plugin tests with no failures, errors or skips, including authenticated native Maven/npm/Gradle integration and packaged-plugin unload coverage. `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed. Both IDEA 2025.3.6.1 and 2026.1.4 remain compatible, with the existing experimental progress API notices and the existing deprecated read-action notice on 2026.1.4. No native editor latency measurement was performed.
 
 ## Reproduce the comparisons
 

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Completed checks refresh selected build files after a 50 ms batch window, while other files keep the 200 ms window. Promoted files are removed from the slower batch.
+- Maven inspections share one snapshot for version updates, relocations and quick-fix construction, retaining fresh validation before edits. Gradle inspections index candidates and notices, and npm inspections group workspace consumers by artifact once per pass.
+
 ### Fixed
 
 - Keep Maven, npm and Gradle warnings for unchanged packages and other build files visible while rechecking after a version edit, so additional updates remain available immediately. Gradle inspections also retain actionable warnings during unsaved version edits while native checks wait for save.

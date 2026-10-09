@@ -5,11 +5,13 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
 import io.github.khopland.versionchecker.maven.*
@@ -21,6 +23,7 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 
 class MavenWarningRetentionTest : BasePlatformTestCase() {
     private lateinit var manager: MavenProjectsManager
@@ -71,6 +74,48 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
         val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
             tag, problem.message, fix, ProblemHighlightType.WARNING, true)
         WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+    }
+
+    fun testInspectionSharesOneSnapshotForUpdatesRelocationsAndFixesButRevalidatesBeforeEditing() {
+        val file = imported("inspection", "<dependencies>${dependency("a")}${dependency("b")}</dependencies>")
+        val sibling = imported("sibling", "<dependencies>${dependency("c")}</dependencies>")
+        val original = snapshot(file)
+        val snapshots = AtomicInteger()
+        val validations = AtomicInteger()
+        val checkingAdapter = object : BuildSystemAdapter by adapter {
+            override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
+                snapshots.incrementAndGet()
+                return adapter.snapshot(project, file)
+            }
+            override fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean {
+                validations.incrementAndGet()
+                return adapter.isCurrent(project, snapshot)
+            }
+            override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) =
+                report(snapshot).copy(notices = listOf(UpdateNotice(snapshot.declarations.last(), NoticeKind.RELOCATED, "replacement:b")))
+        }
+        ExtensionTestUtil.maskExtensions(BuildSystemAdapter.EP, listOf(checkingAdapter), testRootDisposable)
+        val service = project.service<VersionCheckService>()
+        service.updates(checkingAdapter, original)
+        PlatformTestUtil.waitWithEventsDispatching("Inspection report cached", { service.cached(original) != null }, 10_000)
+
+        val analysis = MavenDependencyAnalysis.forFile(file)!!
+        val tags = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags
+        assertEquals("2.0.10", analysis.problem(tags.first())!!.latest)
+        assertTrue(analysis.problem(tags.last())!!.message.contains("replacement:b"))
+        val fix = analysis.quickFixes(tags.first(), analysis.problem(tags.first())!!).single()
+        assertTrue(analysis.quickFixes(tags.last(), analysis.problem(tags.last())!!).isEmpty())
+        assertEquals("Diagnostics and quick-fix construction should share the inspection snapshot", 1, snapshots.get())
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            sibling.rootTag!!.findFirstSubTag("dependencies")!!.subTags.single().findFirstSubTag("version")!!.value.setText("changed")
+        }
+        val checksBeforeApply = validations.get()
+        val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
+            tags.first(), "update", fix, ProblemHighlightType.WARNING, true)
+        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        assertEquals(checksBeforeApply + 1, validations.get())
+        assertEquals("1.0", tags.first().findFirstSubTag("version")!!.value.trimmedText)
     }
 
     fun testOtherDependenciesAndPomsStayActionableWhileRecheckIsBlocked() {

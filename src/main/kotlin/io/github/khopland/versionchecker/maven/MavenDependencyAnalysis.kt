@@ -36,12 +36,15 @@ internal class MavenDependencyAnalysis(
     private val mavenProject: MavenProject,
     private val updates: Map<DependencyVersion, String>,
     private val options: VersionCheckerSettings.Options = VersionCheckerSettings.Options(),
-    private val relocations: Map<DependencyVersion, String> = emptyMap()
+    private val relocations: Map<DependencyVersion, String> = emptyMap(),
+    private val inspection: MavenInspectionResult? = null,
 ) {
     private val deprecated = deprecatedDependencies(options.deprecatedDependencies)
-    private val quickFixAdapter by lazy { MavenBuildSystemAdapter() }
+    private val quickFixAdapter by lazy { inspection?.adapter ?: MavenBuildSystemAdapter() }
     private val quickFixSnapshot by lazy {
-        model.xmlTag?.containingFile?.virtualFile?.let { quickFixAdapter.snapshot(model.manager.project, it) }
+        inspection?.snapshot ?: model.xmlTag?.containingFile?.virtualFile?.let {
+            quickFixAdapter.snapshot(model.manager.project, it)
+        }
     }
 
     fun coordinate(tag: XmlTag): DependencyVersion? {
@@ -182,9 +185,9 @@ internal class MavenDependencyAnalysis(
             if (!file.project.service<VersionCheckerSettings>().state.enabled) return null
             val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return null
             val mavenProject = MavenProjectsManager.getInstance(file.project).findProject(file.virtualFile ?: return null) ?: return null
-            val service = file.project.service<MavenVersionCheckService>()
-            return MavenDependencyAnalysis(model, mavenProject, service.updates(mavenProject),
-                file.project.service<VersionCheckerSettings>().state, service.relocations(mavenProject))
+            val inspection = file.project.service<MavenVersionCheckService>().inspection(mavenProject) ?: return null
+            return MavenDependencyAnalysis(model, mavenProject, inspection.report.mavenUpdates(),
+                file.project.service<VersionCheckerSettings>().state, inspection.report.mavenRelocations(), inspection)
         }
     }
 }

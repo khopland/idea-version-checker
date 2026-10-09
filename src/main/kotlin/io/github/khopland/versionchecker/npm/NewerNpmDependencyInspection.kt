@@ -30,7 +30,9 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
         val candidates = report.candidates.associateBy { it.declaration.id }
         val notices = report.notices.associateBy { it.declaration.id }
         val values = NpmManifest.values(holder.file).entries.associate { it.value to it.key }
-        val workspaceDeclarations by lazy { adapter.workspaceDeclarations(holder.project, snapshot) }
+        val workspaceDeclarationsByArtifact by lazy {
+            adapter.workspaceDeclarations(holder.project, snapshot).groupBy { it.first.artifact }
+        }
         return object : PsiElementVisitor() {
             override fun visitElement(element: PsiElement) {
                 val id = values[element] ?: return
@@ -40,7 +42,10 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
                 val kind = if (notice != null) VersionChangeKind.DEPRECATED else candidate!!.kind
                 val highlight = kind.severity(options).highlight ?: return
                 val message = notice?.message ?: "Newer npm version of ${candidate!!.declaration.artifact.name} is available: ${candidate.declaration.selector} → ${candidate.replacementSelector} (declared range)"
-                val fixes = candidate?.let { adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral, workspaceDeclarations) }.orEmpty()
+                val fixes = candidate?.let {
+                    adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral,
+                        workspaceDeclarationsByArtifact[it.declaration.artifact].orEmpty())
+                }.orEmpty()
                 holder.registerProblem(element, message, highlight, *fixes)
             }
         }

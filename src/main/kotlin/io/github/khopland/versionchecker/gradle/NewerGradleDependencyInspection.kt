@@ -32,12 +32,16 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR
         val options = holder.project.service<VersionCheckerSettings>().state
         val declarations = GradleDeclarations.parse(file.path, holder.file.text)
+        // Duplicate candidates remain ambiguous; never choose one arbitrarily for a quick fix.
+        val candidatesById = report.candidates.groupBy { it.declaration.id }.mapValues { it.value.singleOrNull() }
+        val noticesById = report.notices.withIndex().groupBy { it.value.declaration.id }.mapValues { it.value.first() }
         return object : PsiElementVisitor() {
             override fun visitFile(file: PsiFile) {
                 for ((range, consumers) in declarations.groupBy { it.range }) {
                     if (range == null) continue
-                    val candidates = consumers.map { consumer -> report.candidates.singleOrNull { it.declaration.id == consumer.declaration.id } }
-                    val notice = report.notices.firstOrNull { it.declaration.id in consumers.map { c -> c.declaration.id } }
+                    val candidates = consumers.map { candidatesById[it.declaration.id] }
+                    // Preserve report order when several consumers of a shared version have notices.
+                    val notice = consumers.mapNotNull { noticesById[it.declaration.id] }.minByOrNull { it.index }?.value
                     val candidate = candidates.filterNotNull().firstOrNull()
                     if (candidate == null && notice == null) continue
                     val kind = when (notice?.kind) {

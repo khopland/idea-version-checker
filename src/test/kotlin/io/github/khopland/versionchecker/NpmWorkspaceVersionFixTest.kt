@@ -5,15 +5,23 @@ import com.intellij.notification.Notifications
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemHighlightType
+import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.command.undo.UndoManager
+import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.openapi.project.Project
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.UpdateCandidate
 import io.github.khopland.versionchecker.core.VersionChangeKind
+import io.github.khopland.versionchecker.core.BuildSnapshot
+import io.github.khopland.versionchecker.core.BuildSystemAdapter
+import io.github.khopland.versionchecker.core.UpdateReport
 import io.github.khopland.versionchecker.npm.*
 
 class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
@@ -54,6 +62,34 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
             }
         })
         return notifications
+    }
+
+    fun testInspectionWorkspaceFixesKeepAliasesGroupedByArtifactAndExcludeOtherPackages() {
+        val root = add("package.json", """{"workspaces":["packages/*"],"dependencies":{"alpha":"^1.2.3","beta":"^1.2.3"}}""")
+        val child = add("packages/app/package.json", """{"dependencies":{"alias":"npm:alpha@~1.2.3","beta":"~1.2.3"}}""")
+        val snapshot = adapter.snapshot(project, root.virtualFile)!!
+        val checking = object : BuildSystemAdapter by adapter {
+            override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) =
+                UpdateReport(snapshot.declarations.map {
+                    UpdateCandidate(it, "1.2.9", NpmSelector.parse(it.artifact.name, it.selector)!!.replace("1.2.9"), VersionChangeKind.PATCH)
+                })
+        }
+        val service = project.service<VersionCheckService>()
+        service.updates(checking, snapshot)
+        PlatformTestUtil.waitWithEventsDispatching("npm report cached", { service.cached(snapshot) != null }, 10_000)
+        val holder = ProblemsHolder(InspectionManager.getInstance(project), root, true)
+        val visitor = NewerNpmDependencyInspection().buildVisitor(holder, true)
+        PsiTreeUtil.processElements(root) { element -> element.accept(visitor); true }
+        assertEquals(2, holder.results.size)
+        val alpha = holder.results.first { it.descriptionTemplate.contains("of alpha ") }
+        val beta = holder.results.first { it.descriptionTemplate.contains("of beta ") }
+        assertEquals("Update alpha across workspace to 1.2.9 (2 declarations)", alpha.fixes!![1].name)
+        assertEquals("Update beta across workspace to 1.2.9 (2 declarations)", beta.fixes!![1].name)
+        apply(root, alpha.fixes!![1] as LocalQuickFix)
+        assertEquals("^1.2.9", selectors(root)["dependencies/alpha"])
+        assertEquals("npm:alpha@~1.2.9", selectors(child)["dependencies/alias"])
+        assertEquals("^1.2.3", selectors(root)["dependencies/beta"])
+        assertEquals("~1.2.3", selectors(child)["dependencies/beta"])
     }
     fun testSuccessfulLocalAndWorkspaceFixesShowSynchronizationReminder() {
         val rootFile = root()
