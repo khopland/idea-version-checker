@@ -26,7 +26,7 @@ import io.github.khopland.versionchecker.npm.*
 
 class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
     private val adapter = NpmBuildSystemAdapter()
-    private fun add(path: String, text: String) = myFixture.addFileToProject("workspace/$path", text)
+    private fun add(path: String, text: String) = myFixture.addFileToProject("workspace-$name/$path", text)
     private fun root() = add("package.json", """{
         "packageManager":"npm@11.0.0",
         "workspaces":["packages/*","!packages/excluded"],
@@ -104,7 +104,7 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         assertEquals(1, notifications.size)
         assertTrue(notifications.single().content.contains("lockfiles"))
     }
-    fun testStaleLocalAndWorkspaceFixesDoNotShowReminder() {
+    fun testStaleLocalAndWorkspaceFixesOfferRefreshWithoutSynchronizationReminder() {
         val root = root()
         val child = child()
         val retained = fixes(child)
@@ -113,7 +113,14 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
             NpmVersionEdit(NpmManifest.values(root).values.first(), "^1.2.8", "test").apply()
         }
         retained.forEach { apply(child, it) }
-        assertTrue(notifications.isEmpty())
+        PlatformTestUtil.waitWithEventsDispatching("Stale fixes offer one recovery action", {
+            notifications.any { it.title == "Version update needs a fresh check" }
+        }, 10)
+        PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+        val recovery = notifications.single { it.title == "Version update needs a fresh check" }
+        assertTrue(recovery.actions.any { it.templatePresentation.text == "Refresh This File" })
+        assertTrue(notifications.none { it.content.contains("npm install") })
+        recovery.expire()
         assertEquals("1.2.3", selectors(child)["dependencies/alpha"])
     }
     fun testLocalChoiceUpdatesOnlySelectedDeclaration() {

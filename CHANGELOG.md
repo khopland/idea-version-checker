@@ -9,6 +9,7 @@
 
 ### Changed
 
+- Project refresh failures share one summary with native details and a retry limited to failed files. Automatic failures share a notification per build system. Cancelled checks are excluded, successful cached results survive retry, and actionable notifications expire on plugin unload or project disposal.
 - npm inspections publish finished packages while slower queries continue. Aliases retain their shared lookup, and one package failure preserves other successful hints while rejecting a complete bulk preview. Early results retain freshness, cancellation and refresh guards.
 - Maven inspections publish completed dependency, plugin and parent categories separately, checking dependencies first and retaining one embedder per POM. Failed categories preserve other hints but prevent a complete bulk preview; cancellation stops remaining categories.
 - Bulk previews reuse current, unexpired results for the requested update mode. Refresh still forces native revalidation. Selected edits retain all input and shared-consumer guards, and expired or replaced results require another preview before applying.
@@ -19,6 +20,7 @@
 
 ### Fixed
 
+- Stale Maven, npm and Gradle quick fixes explain rejected edits and offer **Refresh This File**, preserving changed text and atomic workspace/catalog edits. Repeated rejection messages are grouped by file, and recovery actions respect disabled checks.
 - Keep Maven, npm and Gradle warnings for unchanged packages and other build files visible while rechecking after a version edit, so additional updates remain available immediately. Gradle inspections also retain actionable warnings during unsaved version edits while native checks wait for save.
 
 ## [1.2.0] - 2026-10-09

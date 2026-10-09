@@ -163,6 +163,11 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
         preparePreview(mode, updateScope, currentFile,
             readAction { BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path)) }, forceRefresh).plan
 
+    internal fun showDetails(title: String, message: String) {
+        if (disposed || project.isDisposed) return
+        scope.launch { showDialog { BulkUpdateMessageDialog(project, title, message) } }
+    }
+
     internal suspend fun preparePreview(mode: UpdateMode, updateScope: UpdateScope, currentFile: VirtualFile?,
                                         adapters: List<BuildSystemAdapter>, forceRefresh: Boolean): PreparedVersionPreview {
         check(adapters.isNotEmpty()) { "Open a supported build file to update its versions" }

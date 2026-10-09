@@ -50,6 +50,10 @@ Messages use IDEA's standard inspection highlighting, hover tooltips, Problems v
 
 The **Versions** status-bar item explains the selected build file's check state: unchecked, queued, checking, checked, updates available, needs review, offline, save required, paused or failed. Click it for **Refresh Current File**, **Review Dependency Updates…** and settings. Refresh saves documents before checking; disable the build system's offline setting first when required. “Checked” covers supported declarations only. Partial and retained hints cannot mark a file fully checked, and expired results return to unchecked. Displaying the status does not start repository queries. You can hide the item through IDEA's status-bar widget settings.
 
+Project refresh failures produce one summary with **Show Details** and **Retry Failed Checks**. Retry saves documents, refreshes metadata once per affected build system, and checks only the failed files; successful files keep their cached results. If discovery itself failed, retry rediscovers that build system. Automatic failures share one notification per build system. Cancelled work does not produce a failure notification. Recovery notifications expire after a minute or on plugin/project disposal.
+
+When a quick fix rejects changed files or settings, it leaves the files untouched and offers **Refresh This File**. Repeated rejected fixes in the same file share one recovery message. Refresh requires enabled checks; opening details or rejecting a stale fix does not start a repository query.
+
 If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) can render these standard inspection messages using its own display. No dependency on that plugin is required.
 
 ## Bulk updates and submodules

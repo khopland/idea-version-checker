@@ -60,7 +60,10 @@ class UpdateNpmVersionFix internal constructor(value: JsonStringLiteral, latest:
     override fun getName() = actionName ?: "Update declared version to ${edit.latest}"
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = edit.element
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        if (!isCurrent() || !edit.isValid()) return
+        if (!isCurrent() || !edit.isValid()) {
+            notifyStaleVersionFix(project, "npm", descriptor)
+            return
+        }
         edit.apply()
         NpmUpdateGuidance.notify(project)
     }
@@ -74,10 +77,14 @@ internal class UpdateNpmWorkspaceVersionFix(name: String, version: String, priva
     override fun startInWriteAction() = false
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = null
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        if (!isCurrent() || edits.any { !it.isValid() }) return
+        if (!isCurrent() || edits.any { !it.isValid() }) {
+            notifyStaleVersionFix(project, "npm", descriptor)
+            return
+        }
         val elements = edits.mapNotNull { it.element }
         if (!FileModificationService.getInstance().preparePsiElementsForWrite(elements)) return
         val plan = BulkUpdatePlan(edits, emptyList(), isCurrent, followUp = listOf(NpmUpdateGuidance.message))
         if (plan.apply(project)) notifyVersionUpdates(project, plan.followUp)
+        else notifyStaleVersionFix(project, "npm", descriptor)
     }
 }

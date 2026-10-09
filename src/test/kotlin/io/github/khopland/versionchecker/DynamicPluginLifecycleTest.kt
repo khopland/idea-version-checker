@@ -4,6 +4,8 @@ import com.intellij.ide.plugins.DynamicPlugins
 import com.intellij.ide.plugins.PluginMainDescriptor
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.cl.PluginClassLoader
+import com.intellij.notification.Notification
+import com.intellij.notification.Notifications
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.ApplicationManager
@@ -203,8 +205,24 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         val metadata = service(plugin, "npm.NpmMetadataService") as Disposable
         val gradle = service(plugin, "gradle.GradleProjectCache") as Disposable
         val previews = service(plugin, "BulkUpdateService") as Disposable
+        val feedback = service(plugin, "VersionCheckFeedback") as Disposable
+        val notifications = mutableListOf<Notification>()
+        val connection = project.messageBus.connect()
+        connection.subscribe(Notifications.TOPIC, object : Notifications {
+            override fun notify(notification: Notification) {
+                if (notification.title == "Version update needs a fresh check") notifications += notification
+            }
+        })
+        val targetType = plugin.pluginClassLoader!!.loadClass("io.github.khopland.versionchecker.VersionCheckTarget")
+        val target = targetType.getConstructor(String::class.java, String::class.java).newInstance("maven", "test.build")
+        feedback.javaClass.methods.single { it.name.startsWith("staleFix") }.invoke(feedback, target)
+        PlatformTestUtil.waitWithEventsDispatching("Packaged recovery notification", { notifications.size == 1 }, 10)
+        val recovery = notifications.single()
+        connection.disconnect()
+        notifications.clear()
+        assertFalse(recovery.isExpired)
         var disposedServices = 0
-        listOf(npm, metadata, gradle, previews).forEach { Disposer.register(it) { disposedServices++ } }
+        listOf(npm, metadata, gradle, previews, feedback).forEach { Disposer.register(it) { disposedServices++ } }
         val previousLoader = WeakReference(plugin.pluginClassLoader!!)
         assertNotNull(ActionManager.getInstance().getAction("VersionChecker.Refresh"))
         val adapters = ApplicationManager.getApplication().extensionArea.getExtensionPoint<Any>(BuildSystemAdapter.EP.name)
@@ -213,7 +231,8 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         assertNull(DynamicPlugins.checkCanUnloadWithoutRestart(plugin))
         assertTrue(DynamicPlugins.unloadPlugin(plugin, DynamicPlugins.UnloadPluginOptions(disable = false, save = false)))
         // DynamicPlugins clears disposal traces, so observe cleanup rather than calling isDisposed.
-        assertEquals(4, disposedServices)
+        assertEquals(5, disposedServices)
+        assertTrue("Unload expires actionable notifications", recovery.isExpired)
         assertFalse(project.isDisposed)
         assertNull(ActionManager.getInstance().getAction("VersionChecker.Refresh"))
         assertNull(ApplicationManager.getApplication().extensionArea.getExtensionPointIfRegistered<Any>(BuildSystemAdapter.EP.name))

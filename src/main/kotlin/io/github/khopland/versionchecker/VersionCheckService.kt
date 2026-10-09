@@ -1,7 +1,5 @@
 package io.github.khopland.versionchecker
 
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
@@ -179,13 +177,29 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         refresh(listOf(adapter), currentFile)
     }
 
-    internal fun refresh(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile? = null): Job {
+    internal fun refresh(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile? = null): Job =
+        startRefresh(adapters, currentFile)
+
+    internal fun retryFailed(targets: Set<VersionCheckTarget>): Job {
+        val files = targets.groupBy { it.adapterId }.mapValues { (_, targets) ->
+            if (targets.any { it.sourceFile == null }) null else targets.mapNotNull { it.sourceFile }.toSet()
+        }
+        return startRefresh(files.keys.mapNotNull(BuildSystemAdapter::find), null, files)
+    }
+
+    private fun startRefresh(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?,
+                             retryFiles: Map<String, Set<String>?>? = null): Job {
         // Invalidate immediately, before an in-flight check can publish a pre-refresh result.
-        adapters.forEach { it.invalidateMetadata(project); invalidate(it.id, currentFile) }
+        adapters.forEach { adapter ->
+            adapter.invalidateMetadata(project)
+            val files = retryFiles?.get(adapter.id)
+            if (files == null) invalidate(adapter.id, currentFile)
+            else files.forEach { invalidateSource(adapter.id, it); statusChanged(it) }
+        }
         manualRefreshes.incrementAndGet()
         val job = scope.launch(Dispatchers.IO) {
-            if (currentFile == null) refreshMutex.withLock { refreshNow(adapters, null) }
-            else refreshNow(adapters, currentFile)
+            if (currentFile == null && retryFiles == null) refreshMutex.withLock { refreshNow(adapters, null) }
+            else refreshNow(adapters, currentFile, retryFiles = retryFiles)
         }
         job.invokeOnCompletion { manualRefreshes.decrementAndGet() }
         return job
@@ -222,17 +236,25 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     }
 
     internal fun recheckAfterEdits(adapters: List<BuildSystemAdapter>, selection: BuildSelection): Job = scope.launch(Dispatchers.IO) {
-        for (adapter in adapters) {
-            if (adapter.isOffline(project)) continue
-            try {
-                val snapshots = adapter.discover(project, selection)
-                readAction { snapshots.forEach { updates(adapter, it) } }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                log.warn("${adapter.displayName} version discovery failed after edits", failure)
-                notify("Versions were updated, but ${adapter.displayName} could not recheck them. Refresh version checks to retry.", NotificationType.WARNING)
+        val failures = VersionCheckFailures()
+        try {
+            for (adapter in adapters) {
+                if (adapter.isOffline(project)) continue
+                try {
+                    val snapshots = adapter.discover(project, selection)
+                    readAction { snapshots.forEach { updates(adapter, it) } }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (cancelled: ProcessCanceledException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    log.warn("${adapter.displayName} version discovery failed after edits", failure)
+                    failures.add(VersionCheckTarget(adapter.id, selection.currentFile), adapter.displayName,
+                        "Versions were updated, but build files could not be rediscovered.", failure)
+                }
             }
+        } finally {
+            if (!disposed && !project.isDisposed && !failures.isEmpty) project.service<VersionCheckFeedback>().report(failures)
         }
     }
 
@@ -242,50 +264,68 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             .forEach { (context, scan) -> if (pending.remove(context, scan)) scan.job?.cancel() }
     }
 
-    private suspend fun refreshNow(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?, scheduled: Boolean = false) {
+    private suspend fun refreshNow(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?, scheduled: Boolean = false,
+                                   retryFiles: Map<String, Set<String>?>? = null) {
         if (adapters.isEmpty() || project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled) return
-        val scopeLabel = if (currentFile == null) "Whole Project" else "Current File"
+        val scopeLabel = if (retryFiles != null) "Failed Checks" else if (currentFile == null) "Whole Project" else "Current File"
         val affected = mutableSetOf<String>()
+        val failures = VersionCheckFailures()
         currentFile?.let { affected += it.path }
-        withBackgroundProgress(project, "Checking dependency versions: $scopeLabel", cancellable = true) {
-            val selection = BuildSelection(if (currentFile == null) UpdateScope.WHOLE_PROJECT else UpdateScope.CURRENT_FILE, currentFile?.path)
-            val unsaved = if (scheduled) readAction {
-                val documents = FileDocumentManager.getInstance()
-                documents.unsavedDocuments.mapNotNull { documents.getFile(it)?.path }.toSet()
-            } else emptySet()
-            val scans = adapters.flatMap { adapter ->
-                try {
-                    val discovered = adapter.discover(project, selection)
-                    affected += discovered.map { it.sourceFile }
-                    if (adapter.isOffline(project)) {
-                        notify("${adapter.displayName} is offline. Disable Work offline to check remote versions.", NotificationType.INFORMATION)
+        try {
+            withBackgroundProgress(project, "Checking dependency versions: $scopeLabel", cancellable = true) {
+                val selection = BuildSelection(if (currentFile == null) UpdateScope.WHOLE_PROJECT else UpdateScope.CURRENT_FILE, currentFile?.path)
+                val unsaved = if (scheduled) readAction {
+                    val documents = FileDocumentManager.getInstance()
+                    documents.unsavedDocuments.mapNotNull { documents.getFile(it)?.path }.toSet()
+                } else emptySet()
+                val scans = adapters.flatMap { adapter ->
+                    try {
+                        val wanted = retryFiles?.get(adapter.id)
+                        val discovered = adapter.discover(project, selection).filter { wanted == null || it.sourceFile in wanted }
+                        wanted?.minus(discovered.map { it.sourceFile }.toSet())?.forEach { path ->
+                            failures.add(VersionCheckTarget(adapter.id, path), adapter.displayName,
+                                "Build file is no longer available or supported. Import or reload the build project before retrying.")
+                        }
+                        affected += discovered.map { it.sourceFile }
+                        if (adapter.isOffline(project)) {
+                            failures.offline(adapter.displayName)
+                            emptyList()
+                        } else discovered
+                            .filter { snapshot -> !scheduled || !readAction { adapter.hasUnsavedResolutionInputs(project, snapshot, unsaved) } }
+                            .map { adapter to it }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (cancelled: ProcessCanceledException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        log.warn("${adapter.displayName} version discovery failed", failure)
+                        val targets = retryFiles?.get(adapter.id)?.map { VersionCheckTarget(adapter.id, it) }
+                            ?: listOf(VersionCheckTarget(adapter.id, currentFile?.path))
+                        targets.forEach { failures.add(it, adapter.displayName, "Could not discover build files.", failure) }
                         emptyList()
-                    } else discovered
-                        .filter { snapshot -> !scheduled || !readAction { adapter.hasUnsavedResolutionInputs(project, snapshot, unsaved) } }
-                        .map { adapter to it }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Exception) {
-                    log.warn("${adapter.displayName} version discovery failed", failure)
-                    notify("Could not discover ${adapter.displayName} build files. Refresh version checks to retry.", NotificationType.WARNING)
-                    emptyList()
-                }
-            }.sortedByDescending { it.second.sourceFile in selectedPaths }
-            if (scans.isEmpty()) return@withBackgroundProgress
-            if (scheduled) scans.map { it.first }.distinctBy { it.id }.forEach { it.invalidateMetadata(project) }
-            reportProgressScope(scans.size) { reporter ->
-                for ((adapter, snapshot) in scans) {
-                    reporter.itemStep("${adapter.displayName}: ${snapshot.sourceFile.substringAfterLast('/')}") {
-                        if (scheduled) invalidateSource(adapter.id, snapshot.sourceFile)
-                        val token = token(snapshot)
-                        pending.putIfAbsent(snapshot.context, PendingScan(token))
-                        statusChanged(snapshot.sourceFile)
-                        if (scan(adapter, snapshot, token, interactive = currentFile != null)) affected -= snapshot.sourceFile
+                    }
+                }.sortedByDescending { it.second.sourceFile in selectedPaths }
+                if (scans.isEmpty()) return@withBackgroundProgress
+                if (scheduled) scans.map { it.first }.distinctBy { it.id }.forEach { it.invalidateMetadata(project) }
+                reportProgressScope(scans.size) { reporter ->
+                    for ((adapter, snapshot) in scans) {
+                        reporter.itemStep("${adapter.displayName}: ${snapshot.sourceFile.substringAfterLast('/')}") {
+                            if (scheduled) invalidateSource(adapter.id, snapshot.sourceFile)
+                            val token = token(snapshot)
+                            pending.putIfAbsent(snapshot.context, PendingScan(token))
+                            statusChanged(snapshot.sourceFile)
+                            if (scan(adapter, snapshot, token, interactive = currentFile != null || retryFiles != null, failures = failures))
+                                affected -= snapshot.sourceFile
+                        }
                     }
                 }
             }
+        } finally {
+            if (!disposed && !project.isDisposed) {
+                if (!failures.isEmpty) project.service<VersionCheckFeedback>().report(failures)
+                affected.forEach { project.service<FileProblemRefresh>().request(it) }
+            }
         }
-        affected.forEach { project.service<FileProblemRefresh>().request(it) }
     }
 
     private fun token(snapshot: BuildSnapshot) = ScanToken(snapshot.sourceFile, snapshot.fingerprint, snapshot.declarations, cache.begin(snapshot))
@@ -317,7 +357,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     }
 
     private suspend fun scan(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false,
-                             interactive: Boolean = false): Boolean {
+                             interactive: Boolean = false, failures: VersionCheckFailures? = null): Boolean {
         var published = false
         val queued = System.nanoTime()
         try {
@@ -329,7 +369,9 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 val finish: suspend (UpdateReport) -> Unit = { report ->
                     if (readAction { !project.isDisposed && adapter.isCurrent(project, snapshot) } && cache.put(snapshot, token.revision, report)) {
                         published = true
-                        if (!report.successful) notify("Could not check ${adapter.displayName} versions: ${report.failure}", NotificationType.WARNING)
+                        if (!report.successful) recordFailure(adapter, snapshot, report.failure.orEmpty(), report.failureCause, failures)
+                        else project.getServiceIfCreated(VersionCheckFeedback::class.java)
+                            ?.checked(VersionCheckTarget(adapter.id, snapshot.sourceFile))
                     }
                 }
                 if (showProgress) {
@@ -346,7 +388,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             log.warn("${adapter.displayName} version check failed for ${snapshot.sourceFile}", failure)
             if (cache.put(snapshot, token.revision, UpdateReport(failure = failure.message ?: failure.javaClass.simpleName))) {
                 published = true
-                notify("Could not check ${adapter.displayName} versions for ${snapshot.sourceFile}. Check repository settings, then refresh version checks to retry.", NotificationType.WARNING)
+                recordFailure(adapter, snapshot, failure.message ?: failure.javaClass.simpleName, failure, failures)
             }
         } finally {
             pending.computeIfPresent(snapshot.context) { _, active -> if (active.token == token) null else active }
@@ -356,8 +398,12 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         return published
     }
 
-    private fun notify(message: String, type: NotificationType) {
-        if (!project.isDisposed) NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
-            .createNotification("Version Checker", message, type).notify(project)
+    private fun recordFailure(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, message: String, cause: Exception?,
+                              failures: VersionCheckFailures?) {
+        val target = VersionCheckTarget(adapter.id, snapshot.sourceFile)
+        if (failures != null) failures.add(target, adapter.displayName, message, cause)
+        else if (!disposed && !project.isDisposed)
+            project.service<VersionCheckFeedback>().automaticFailure(target, adapter.displayName, message, cause)
     }
+
 }

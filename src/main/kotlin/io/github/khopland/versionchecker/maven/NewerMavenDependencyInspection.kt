@@ -14,6 +14,7 @@ import com.intellij.psi.XmlElementVisitor
 import com.intellij.psi.xml.XmlTag
 import com.intellij.psi.codeStyle.CodeStyleManager
 import org.jetbrains.idea.maven.project.MavenProjectsManager
+import io.github.khopland.versionchecker.notifyStaleVersionFix
 
 class NewerMavenDependencyInspection : LocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
@@ -80,8 +81,12 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
     override fun getName(): String = actionName ?: "Update ${pointer.element?.localName ?: "version"} to $latest"
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = pointer.element
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        val tag = pointer.element ?: return
-        if (isCurrent() && tag.value.trimmedText == expected) tag.value.setText(latest)
+        val tag = pointer.element
+        if (tag == null || !isCurrent() || tag.value.trimmedText != expected) {
+            notifyStaleVersionFix(project, "maven", descriptor)
+            return
+        }
+        tag.value.setText(latest)
     }
 }
 
@@ -93,8 +98,11 @@ class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: Strin
     override fun getName() = "Override version locally with $latest"
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = pointer.element
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        val dependency = pointer.element ?: return
-        if (!isCurrent() || dependency.text != expected) return
+        val dependency = pointer.element
+        if (dependency == null || !isCurrent() || dependency.text != expected) {
+            notifyStaleVersionFix(project, "maven", descriptor)
+            return
+        }
         val version = dependency.findFirstSubTag("version")
         if (version != null) version.value.setText(latest)
         else {
