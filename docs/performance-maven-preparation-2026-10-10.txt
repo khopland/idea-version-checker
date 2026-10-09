@@ -1,0 +1,49 @@
+Maven shared-property preview preparation — 10 October 2026
+Implementation: b8d1226; original production baseline: 49733f5.
+Environment: macOS arm64; IDEA 2025.3.6.1; Gradle Java 21 toolchain.
+Full validation: 325 tests, zero failures/errors/skips; build/configuration checks passed.
+Plugin verification: IDEA 2025.3.6.1 and 2026.1.4 compatible; existing API notices only.
+
+Full command:
+./gradlew test -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true -PnpmHistoryBenchmark=true -PnpmInspectionBenchmark=true -PgradlePreparationBenchmark=true -PmavenPreparationBenchmark=true check buildPlugin verifyPluginProjectConfiguration verifyPlugin --console=plain
+
+Fixture command:
+./gradlew test --tests '*MavenPreparationBenchmarkTest' -PmavenPreparationBenchmark=true
+
+Actual MavenBulkUpdatePlan.create() using IDEA XML PSI and Maven DOM property resolution.
+One POM per workload; independent literal properties with compatible dependency consumers.
+Timing includes problem/coordinate/property resolution, use safety checks and edit construction.
+Snapshot/current-input capture in the adapter, report/cache setup, native Maven/repository work,
+background scheduling, preview dialog construction/rendering and application are excluded.
+Two warmups and five measured samples per workload; no elapsed-time threshold.
+Assertions check every property edit, order, exact expected/target literals and empty skipped results.
+Before/after measurements use separate JVMs; maximum is the largest of five samples,
+not a production percentile. JIT, GC, indexing and scheduling affect elapsed time.
+
+Original repeated per-property XML traversals:
+maven-preparation properties=10 consumersPerProperty=2 samplesMs=[4.837458, 4.719125, 3.881792, 3.973333, 4.214292] medianMs=4.214292 maxMs=4.837458
+maven-preparation properties=100 consumersPerProperty=2 samplesMs=[54.929708, 62.474417, 55.4265, 55.041708, 48.924375] medianMs=55.041708 maxMs=62.474417
+maven-preparation properties=500 consumersPerProperty=2 samplesMs=[1105.555584, 1071.457875, 1182.814084, 989.690292, 1009.760291] medianMs=1071.457875 maxMs=1182.814084
+maven-preparation properties=1 consumersPerProperty=1000 samplesMs=[13.445209, 13.422542, 14.563584, 14.415542, 13.545458] medianMs=13.545458 maxMs=14.563584
+
+One property-use index per preparation pass (targeted 49-test JVM):
+maven-preparation properties=10 consumersPerProperty=2 samplesMs=[0.982416, 0.928, 0.922542, 0.866583, 0.9355] medianMs=0.928 maxMs=0.982416
+maven-preparation properties=100 consumersPerProperty=2 samplesMs=[6.685625, 6.599542, 7.386625, 8.373667, 8.210459] medianMs=7.386625 maxMs=8.373667
+maven-preparation properties=500 consumersPerProperty=2 samplesMs=[37.712625, 28.759084, 30.122042, 27.99525, 27.882208] medianMs=28.759084 maxMs=37.712625
+maven-preparation properties=1 consumersPerProperty=1000 samplesMs=[13.497458, 16.830042, 13.037208, 12.086667, 11.8045] medianMs=13.037208 maxMs=16.830042
+
+Final full 325-test validation JVM:
+maven-preparation properties=10 consumersPerProperty=2 samplesMs=[0.85025, 0.896667, 0.847458, 0.885917, 1.148833] medianMs=0.885917 maxMs=1.148833
+maven-preparation properties=100 consumersPerProperty=2 samplesMs=[6.054125, 5.498583, 5.435917, 5.266167, 5.214167] medianMs=5.435917 maxMs=6.054125
+maven-preparation properties=500 consumersPerProperty=2 samplesMs=[30.587625, 30.49525, 31.890584, 32.855084, 27.7165] medianMs=30.587625 maxMs=32.855084
+maven-preparation properties=1 consumersPerProperty=1000 samplesMs=[15.570166, 15.640709, 18.67275, 14.900791, 12.370959] medianMs=15.570166 maxMs=18.67275
+
+The many-property workloads show reduced local plan preparation. The single-property workload
+has no demonstrated elapsed-time improvement; targeted and full values vary around the baseline.
+The index includes every supplied usage file, attributes on all tags, and leaf text containing
+an exact candidate reference, including composite/repeated/nested references. Per-use local
+property ownership, active-profile handling, complete covered consumers and compatible latest
+versions are still required. Conflicts and uncovered/inherited uses remain manual-review cases.
+The index is local to create(), with no retained PSI index, new report cache or changed native query.
+Atomic apply, current-input validation, expected-value guards and undo remain unchanged.
+Visible IDEA hints, dialog latency and apply time are unmeasured.

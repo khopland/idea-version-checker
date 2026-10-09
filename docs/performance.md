@@ -247,6 +247,31 @@ Reproduce the fixture with:
 
 It is excluded by default. Full validation enabled all three preparation benchmarks and all three native integration suites: 320 tests passed with zero failures, errors or skips. New regressions cover wrapped customization blocks, stale captured text despite unchanged version literals, changes to unselected declarations, different-length selected replacements and one-command undo. Existing shared-catalog, native-resolution, atomicity, recovery and packaged-plugin unload checks passed. Build, configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4 with the existing API notices only.
 
+## Maven shared-property preview preparation: 10 October 2026
+
+The Maven plan builder now traverses the supplied usage POMs once to index references to candidate version properties. Previously it traversed every POM twice for each property, reading attributes and leaf values repeatedly. The index records exact reference containment, including composite, repeated and nested markers, and stays local to one preparation pass. Compatible consumers are matched through an anchor set after confirming they all request the same target version.
+
+Each indexed use still needs the existing exact version reference, local property ownership and covered-consumer checks. Attributes, unselected modules, inactive-profile consumers and other uses still prevent automatic shared-property edits. Conflicting updates stay in Needs review. Provider input validation, stale-edit guards, atomic application and one-command undo are unchanged; no native Maven query or cache behavior changed.
+
+The opt-in fixture measures the actual `MavenBulkUpdatePlan.create()` with IDEA XML PSI and Maven DOM property resolution. After two warmups, five samples cover problem discovery, resolution, use checks and edit construction in one POM. Every proposed edit, its order and exact versions are asserted. Snapshot/current-input capture in the adapter, native Maven/repository work, background scheduling, dialog construction/rendering and apply are excluded. See the [raw before/after samples](performance-maven-preparation-2026-10-10.txt).
+
+| Properties / consumers per property | Original median / maximum | Final median / maximum |
+|------------------------------------|--------------------------:|-----------------------:|
+| 10 / 2 | 4.21 / 4.84 ms | 0.89 / 1.15 ms |
+| 100 / 2 | 55.04 / 62.47 ms | 5.44 / 6.05 ms |
+| 500 / 2 | 1,071.46 / 1,182.81 ms | 30.59 / 32.86 ms |
+| 1 / 1,000 | 13.55 / 14.56 ms | 15.57 / 18.67 ms |
+
+The benefit is clearest with many independent properties. The single-property fixture has no demonstrated elapsed-time improvement: the targeted final run measured 13.04 ms median, while the full run measured 15.57 ms. These are separate JVMs; JIT, allocation, GC, DOM/index state and scheduling affect elapsed values. Five-sample maxima do not establish production p95. This change does not establish faster visible hints or complete dialog interaction.
+
+Reproduce the fixture with:
+
+```sh
+./gradlew test --tests '*MavenPreparationBenchmarkTest' -PmavenPreparationBenchmark=true
+```
+
+It is excluded by default. Full validation enabled all four opt-in benchmarks and native Maven/npm/Gradle integration: 325 tests passed with zero failures, errors or skips. New regressions cover nested/composite/repeated references, independent similarly named properties, per-property review decisions and inactive-profile uses. Existing unselected-module, attributes, shared dependency/plugin properties, inherited versions, stale apply, undo and packaged-plugin lifecycle checks passed. Build, configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4 with the existing API notices only.
+
 ## Inspect real-project traces
 
 In IDEA, open **Help → Diagnostic Tools → Debug Log Settings** and enable:
