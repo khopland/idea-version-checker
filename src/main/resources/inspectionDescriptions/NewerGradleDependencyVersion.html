@@ -1,0 +1,17 @@
+<html><body>
+<p>Reports Gradle library and BOM dependencies with a newer stable version available from the linked project's Gradle repositories.
+Checks use IntelliJ IDEA's linked Gradle project, wrapper and JVM configuration.</p>
+<p>Supports fixed numeric stable versions in <code>build.gradle</code> and <code>build.gradle.kts</code>,
+and literal library versions or simple <code>version.ref</code> entries in the default local <code>gradle/libs.versions.toml</code> catalog.
+Comparisons use declared versions, not installed, locked or platform-selected versions.</p>
+<p>Use <b>Settings → Tools → Version Checker</b> to configure highlighting for version changes and project deprecation rules.
+Available updates are warnings by default; dependencies marked deprecated by project rules are errors by default.</p>
+<p>The quick fix updates the declared version. A shared catalog version can be updated only when every library using it
+has an update to the same version. Unchanged, unsupported or conflicting consumers, and references shared with catalog plugins,
+require manual review. A catalog version change affects every consumer of that version.</p>
+<p>Save Gradle build files before checking. Use <b>Tools → Check Versions → Refresh Current File</b> or <b>Refresh Whole Project</b>
+to refresh results. <b>Tools → Update Versions → Current File / Whole Project</b> previews patch, minor or major updates.</p>
+<p>Dynamic versions, prereleases, interpolated or shared build-script properties, map notation, dependency customization blocks,
+constraints, plugin versions and custom or published catalogs require manual review.</p>
+<p>Updates change version declarations only. Reload the Gradle project afterward and synchronize dependency locks if the build uses locking.</p>
+</body></html>
