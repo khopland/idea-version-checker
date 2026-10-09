@@ -19,20 +19,35 @@
 <div class="eyebrow">Version Checker / Performance &amp; experience review</div>
 <h1>Fast hints.<br>Fewer steps.</h1>
 <p class="lead">Make the useful result appear sooner, keep it visible while new checks run, and let the developer act without navigating through menus or repeating repository work.</p>
-<p class="metadata">9 October 2026 · Source reviewed: <code>4f27b42</code> · Maven, npm &amp; Gradle · “Hint” means the editor inspection and its Alt+Enter quick fix.</p>
-<nav aria-label="Report sections"><a href="#recommendation">Start here</a><a href="#findings">Code findings</a><a href="#experience">Proposed experience</a><a href="#measure">Speed targets</a><a href="#delivery">Delivery order</a></nav>
+<p class="metadata">9 October 2026 · Original review: <code>4f27b42</code> · Implementation validated: <code>f30ec56</code> · Maven, npm &amp; Gradle · “Hint” means the editor inspection and its Alt+Enter quick fix.</p>
+<nav aria-label="Report sections"><a href="#recommendation">Start here</a><a href="#implemented">Delivered changes</a><a href="#findings">Original findings</a><a href="#experience">Experience sketch</a><a href="#measure">Speed targets</a><a href="#delivery">Next steps</a></nav>
 </header>
 
 <div class="callout" id="recommendation">
 <div class="eyebrow">My recommendation</div>
 <h2>Optimize the path from opening a file to applying one update.</h2>
-<p>First remove repeated inspection work and shorten the highlighting delay for the active editor. Then prioritize its checks, publish results as they arrive, and build a preview from valid cached data. These changes directly reduce waiting and decision time.</p>
-<p class="muted">The code confirms the work described below. The size of the real-world speedup still needs an end-to-end editor measurement; the existing benchmarks stop before visible highlighting.</p>
+<p>The first implementation removes repeated inspection work, shortens the selected editor’s highlighting batch, prioritizes interactive checks, and opens selectable previews from valid cached results. Repository checks, shared-version safety and undo remain native.</p>
+<p class="muted">All 271 tests passed, including native Maven, npm and Gradle integration and packaged-plugin unload/reload checks. Both supported IDEA versions passed compatibility verification. Actual time to a visible hint still needs an end-to-end editor measurement.</p>
 </div>
+
+<section id="implemented">
+<div class="eyebrow">Implementation status · 9 October 2026</div>
+<h2>The first delivery is implemented and verified.</h2>
+<div class="table-wrap"><table><thead><tr><th>Change</th><th>Delivered behavior</th><th>Validation</th></tr></thead><tbody>
+<tr><td>Selected-file highlighting</td><td>50 ms fixed batch for selected files, 200 ms for other files. Promoted requests leave the slower batch; repeated requests do not postpone deadlines.</td><td>Promotion, deduplication, continuous requests and disposal fixtures.</td></tr>
+<tr><td>Less inspection work</td><td>One Maven snapshot per inspection for updates, relocation and fix preparation. Indexed Gradle candidates/notices and npm workspace consumers.</td><td>Duplicate-ID rejection, shared-consumer checks, aliases and existing quick-fix regressions.</td></tr>
+<tr><td>Interactive scheduling</td><td>Manual checks go first, selected-file inspections next, remaining checks last. Current-file refresh can run between project modules. Superseded automatic jobs are cancelled.</td><td>Priority/FIFO/cancellation tests and a blocked-project fixture proving current-file refresh finishes first.</td></tr>
+<tr><td>Warm previews</td><td>Reuse exact-mode, current and unexpired results. Refresh forces revalidation. Report identity, generations, freshness and all adapter input guards protect apply.</td><td>Native npm fixture confirms zero registry requests for repeated warm previews; mode, refresh and stale-result tests pass.</td></tr>
+<tr><td>Shorter update flow</td><td>Editor context menu → preview. Scope/mode controls, sortable checkbox rows, literal filtering, visible/hidden selection counts, Refresh and separate Needs review details. Shared edits remain atomic.</td><td>Headless platform UI tests cover mode/Refresh transitions, sorted selections, empty previews and disabled apply with no selection.</td></tr>
+<tr><td>After apply</td><td>Keep unchanged hints available, recheck changed declarations and show synchronization guidance only for selected providers. Repeated invocations focus the existing preview.</td><td>Provider-specific guidance and retained-warning regressions; native integration and lifecycle suites passed.</td></tr>
+</tbody></table></div>
+<p class="source">Local implementation commits: <code>cb4eabd</code> inspection/highlighting, <code>149d04f</code> scheduling, <code>f30ec56</code> cached/selectable previews. These commits have not been pushed. Verification passed for IDEA 2025.3.6.1 and 2026.1.4; existing experimental/deprecated API notices remain.</p>
+<div class="grid two" style="margin-top:22px"><article class="card"><h3>Next: measure actual waiting</h3><p>Run real IDEA sessions on representative Maven, npm and Gradle projects. Record selected-file queue wait, first visible hint and warm-preview readiness. The targets below remain targets; the 50 ms batching window is not a measured rendering deadline.</p></article><article class="card"><h3>Keep native experiments conditional</h3><p>Per-package/category incremental publication, Gradle root batching, npm sorted-history reuse and Maven session changes remain follow-ups. Incremental results need explicit pending/failure and freshness semantics; broader native changes need candidate parity and representative latency evidence.</p></article></div>
+</section>
 
 <div class="grid" aria-label="Proposed performance goals">
 <article class="card"><div class="label">Warm editor hint</div><div class="stat">≤ 100 ms</div><p>Proposed p95 goal from a supported file becoming active to its cached diagnostic becoming visible.</p><small>A target, not a measured result.</small></article>
-<article class="card"><div class="label">Result → refresh request</div><div class="stat">≤ 50 ms</div><p>Proposed active-file target after an accepted repository result. The current queue waits 200 ms before scheduling its batch.</p><small>IDE rendering adds further time.</small></article>
+<article class="card"><div class="label">Selected-file batch</div><div class="stat">50 ms</div><p>Implemented coalescing window after an accepted result for a selected file. Other files keep the 200 ms window.</p><small>Dispatch and IDE rendering add further time.</small></article>
 <article class="card"><div class="label">One dependency update</div><div class="stat">1 action</div><p>Keep the existing Alt+Enter fix. It should apply a valid known result without another repository request.</p><small>Shared changes clearly identify affected files.</small></article>
 </div>
 
@@ -48,8 +63,8 @@
 
 <section id="findings">
 <div class="eyebrow">Prioritized code review</div>
-<h2>What I would improve next</h2>
-<p class="muted">Priority reflects relevance to fast hints and short interactions. Effort is relative: small = local change; medium = several connected paths; large = adapter or coordinator redesign.</p>
+<h2>The findings that guided implementation</h2>
+<p class="muted">The observations below describe the original <code>4f27b42</code> baseline. See Delivered changes above for current behavior. Findings 01–03 and 06 are delivered; the core of 04 and 08 is delivered. Incremental publication, broader status UI and native experiments remain follow-ups. Effort is relative: small = local change; medium = several connected paths; large = adapter or coordinator redesign.</p>
 
 <article class="finding" id="f1"><div class="number">01</div><div><span class="badge priority">First · small / medium</span><h3>Refresh the active editor sooner.</h3><p><strong>Observed:</strong> <code>FileProblemRefreshQueue</code> uses a fixed 200 ms window for every file, including the file the user is reading. This intentionally batches completions, but also delays the result-triggered restart.</p><p><strong>Change:</strong> Give the selected editor a 0–50 ms coalescing window; keep the 200 ms batch for other files. Deduplicate requests and limit restart frequency during bursts. Compare 0, 25 and 50 ms in IDEA before choosing the default.</p><p><strong>Verify:</strong> Measure accepted-result-to-visible-highlight time and daemon restart count. Retain the existing guarantees for continuous completions and cancellation. A shorter queue alone does not guarantee a faster finished inspection.</p><p class="source">Evidence: <a href="https://github.com/khopland/idea-version-checker/blob/4f27b42/src/main/kotlin/io/github/khopland/versionchecker/EditorProblemRefresh.kt#L25">EditorProblemRefresh.kt:25–45</a>; FileProblemRefreshQueueTest covers batching and cancellation.</p></div></article>
 
@@ -73,7 +88,7 @@
 </section>
 
 <section id="experience">
-<div class="eyebrow">Proposed interaction · illustrative, not implemented</div>
+<div class="eyebrow">Original design sketch · delivered preview uses native IDEA controls</div>
 <h2>Stay in the editor. Act on the result.</h2>
 <div class="grid two">
 <article><div class="editor"><div class="label">package.json · 3 updates · checked 2 min ago</div><pre>"dependencies": {
@@ -103,10 +118,10 @@
 <div class="eyebrow">Practical delivery order</div>
 <h2>Ship measurable improvements in small steps.</h2>
 <div class="table-wrap"><table><thead><tr><th>Step</th><th>Scope</th><th>Exit condition</th></tr></thead><tbody><tr><td>1 · Establish baseline</td><td>End-to-end editor/preview timings, active-file queue wait and Gradle native invocation counts.</td><td>Reproducible warm/cold results on both supported IDEA versions. Existing debug traces alone are insufficient.</td></tr><tr><td>2 · Local quick wins</td><td>Findings 01–03: active-editor refresh, one Maven snapshot, indexed candidate/consumer matching.</td><td>Lower result-to-hint time and inspection work; no restart storm or safety regression.</td></tr><tr><td>3 · Faster interaction</td><td>Finding 06 and 08–09: mode-aware warm previews, editor entry, selectable rows, clear status and retry.</td><td>Warm same-mode previews avoid native work; selected updates preserve shared-consumer checks.</td></tr><tr><td>4 · Faster first results</td><td>Findings 04–05: priority queue, obsolete-job ownership and incremental publication.</td><td>Active-file results precede unrelated background completion, with correct pending/failure handling.</td></tr><tr><td>5 · Native experiments</td><td>Findings 07 and 10: Gradle root batching, npm sorted metadata, Maven branch/session work if traces justify it.</td><td>Candidate parity, cancellation and lifecycle tests pass; measured latency improves on representative projects.</td></tr></tbody></table></div>
-<div class="callout"><div class="eyebrow">Best starting implementation</div><h2>One snapshot, indexed matches, faster active-file refresh.</h2><p>These changes have clear source evidence and a narrower scope than native resolution redesign. Pair them with visible-hint measurement, then move on to a warm preview and active-file scheduling.</p></div>
+<div class="callout"><div class="eyebrow">Next validation gate</div><h2>Measure visible hints before expanding native resolution.</h2><p>Inspection reuse, selected-file batching, priority scheduling and cached/selectable previews are implemented. Use real-project traces and IDEA usability sessions to choose the next change. Add incremental publication when a deliberately slow package or Maven category demonstrates blocked useful hints; investigate root/session batching only when repeated setup dominates.</p></div>
 </section>
 
-<footer><p><strong>Review scope:</strong> Read-only review of coordinator, result cache, all three inspections/adapters, native lookup paths, settings, actions, preview UI, relevant tests and recorded performance/release notes at <code>4f27b42</code>. No plugin implementation was changed, and no new benchmark or native IDEA usability session was run. Code-backed observations are separated from proposed targets and profiling-dependent experiments.</p><p>The repository’s release note records 233 passing plugin tests on 9 October; that is prior validation, not a new test run for this review. Source links point to the reviewed Git revision and require access to the repository.</p></footer>
+<footer><p><strong>Review scope:</strong> The original review covered coordinator, result cache, all three inspections/adapters, native lookup paths, settings, actions, preview UI, relevant tests and recorded performance/release notes at <code>4f27b42</code>. Implementation status reflects local code through <code>f30ec56</code> and a new full run of 271 passing tests, with zero failures, errors or skips.</p><p>Command: <code>./gradlew test -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true check buildPlugin verifyPluginProjectConfiguration verifyPlugin</code>. No new end-to-end visible-hint benchmark or native-window usability timing was run. Original source links point to the reviewed baseline and require repository access.</p></footer>
 </main>
 </body>
 </html>
