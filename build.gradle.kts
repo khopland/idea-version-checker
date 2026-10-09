@@ -60,6 +60,9 @@ tasks.test {
     if (providers.gradleProperty("gradlePreparationBenchmark").orElse("false").get() != "true") {
         exclude("**/GradlePreparationBenchmarkTest*")
     }
+    if (providers.gradleProperty("mavenPreparationBenchmark").orElse("false").get() != "true") {
+        exclude("**/MavenPreparationBenchmarkTest*")
+    }
 }
 
 intellijPlatform {

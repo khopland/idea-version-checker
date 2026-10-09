@@ -74,6 +74,51 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
             assertTrue(plan.skipped.single().contains("other uses"))
         }
     }
+    fun testSkipsCompositeRepeatedAndNestedPropertyUses() {
+        for (configuration in listOf(
+            "<value>prefix-\${shared}-suffix</value>",
+            "<value>\${other}-\${shared}-\${shared}</value>",
+            "<value>\${outer-\${shared}}</value>",
+            "<value>\${unfinished-\${shared}</value>",
+            "<component first=\"\${other}\" second=\"\${outer-\${shared}}\"><child/></component>"
+        )) {
+            val plan = plan("<properties><shared>1.0</shared></properties><dependencies>" + dep("a", "\${shared}") +
+                "</dependencies><build><plugins><plugin><groupId>g</groupId><artifactId>generator</artifactId>" +
+                "<version>1.0</version><configuration>$configuration</configuration></plugin></plugins></build>",
+                mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
+            assertTrue(configuration, plan.changes.isEmpty())
+            assertTrue(plan.skipped.single().contains("other uses"))
+        }
+    }
+
+    fun testSimilarlyNamedReferencesDoNotBlockAnIndependentProperty() {
+        val plan = plan("<properties><shared>1.0</shared><shared.extra>unchanged</shared.extra></properties>" +
+            "<dependencies>" + dep("a", "\${shared}") + "</dependencies>" +
+            "<build><plugins><plugin><configuration><value>\${shared.extra}-\${shared-prefix}</value>" +
+            "<component version=\"\${shared.extra}\"/></configuration></plugin></plugins></build>",
+            mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
+        assertEquals(1, plan.changes.size)
+        assertTrue(plan.skipped.isEmpty())
+    }
+
+    fun testEachPropertyKeepsItsOwnConsumersAndReviewDecision() {
+        val plan = plan("<properties><safe>1.0</safe><blocked>1.0</blocked></properties><dependencies>" +
+            dep("a", "\${safe}") + dep("b", "\${safe}") + dep("c", "\${blocked}") +
+            "</dependencies><description>\${blocked}</description>",
+            mapOf(DependencyVersion("g", "a", "1.0") to "2.0", DependencyVersion("g", "b", "1.0") to "2.0",
+                DependencyVersion("g", "c", "1.0") to "3.0"))
+        assertEquals(listOf("2.0"), plan.changes.map { it.latest })
+        assertEquals("safe", (plan.changes.single().element as com.intellij.psi.xml.XmlTag).localName)
+        assertTrue(plan.skipped.single().startsWith("blocked:"))
+    }
+
+    fun testPropertyUsesInInactiveProfilesStillNeedReview() {
+        val plan = plan("<properties><shared>1.0</shared></properties><dependencies>" + dep("a", "\${shared}") +
+            "</dependencies><profiles><profile><id>inactive</id><dependencies>" + dep("b", "\${shared}") +
+            "</dependencies></profile></profiles>", mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
+        assertTrue(plan.changes.isEmpty())
+        assertTrue(plan.skipped.single().contains("other uses"))
+    }
     fun testStalePreviewDoesNotPartiallyApply() {
         val plan = plan("<dependencies>" + dep("a", "1.0") + dep("b", "1.0") + "</dependencies>",
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0", DependencyVersion("g", "b", "1.0") to "2.0"))
