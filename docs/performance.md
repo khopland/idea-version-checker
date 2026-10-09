@@ -149,6 +149,16 @@ The authenticated native Maven fixture gates execution after the dependency cate
 
 The full suite passed 285 tests with zero failures, errors or skips, enabling native Maven/npm/Gradle and packaged-plugin lifecycle tests. Plugin build, project configuration and compatibility verification passed for IDEA 2025.3.6.1 and 2026.1.4, retaining the existing seven experimental API usages on both and one deprecated API usage on 2026.1.4.
 
+## Current-file status: 9 October 2026
+
+The optional **Versions** status-bar widget reports the selected build file's queued/running state, current complete results, failures, offline mode, required saves, disabled checks and unavailable build information. Its popup reuses the current-file Refresh and Review actions and opens plugin settings. “Checked” describes supported declarations only; retained warnings and partial reports cannot produce it. Failure tooltips give recovery steps without copying native repository error details.
+
+Coordinator events, editor selection, build-input document/VFS changes, project roots, indexing and plugin settings request coalesced background reads. Selection clears the preceding file's result immediately, and a second selection check prevents publishing a result into a different editor. Snapshot work stays off the EDT even when the factory receives an EDT scope. Displaying status neither calls `updates()` nor schedules a native check. Partial-result counts read declaration-indexed maps without constructing a full presentation report.
+
+Complete and partial counts keep their original monotonic expiry deadlines. A deadline can clear the displayed result while native work continues; it never triggers another repository query. Project/widget disposal cancels the child scope and removes owned listeners. Platform fixtures cover passive reads, queued versus running files, partial/final transitions, blocked checks, retry, cancellation, changed inputs, selection, expiry and disposal. Native-window rendering and usability timing still require a real IDEA session. Whole-project error grouping and stale quick-fix recovery messages remain follow-up UX work.
+
+The full suite passed 291 tests with zero failures, errors or skips, including native Maven/npm/Gradle and packaged-plugin lifecycle checks. Plugin build, configuration and compatibility verification passed for IDEA 2025.3.6.1 and 2026.1.4, with no new verifier warnings: the existing seven experimental API usages on both versions and one deprecated usage on 2026.1.4 remain.
+
 ## Inspect real-project traces
 
 In IDEA, open **Help → Diagnostic Tools → Debug Log Settings** and enable:
