@@ -1,0 +1,60 @@
+Gradle preparation validation — 10 October 2026
+Implementation: 6b5a882; original baseline production code: 722bc81.
+Environment: macOS arm64; IDEA 2025.3.6.1; Gradle Java 21 toolchain.
+Full validation: 320 tests, zero failures/errors/skips; build/configuration checks passed.
+Plugin verification: IDEA 2025.3.6.1 and 2026.1.4 compatible; existing API notices only.
+
+Full command:
+./gradlew test -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true -PnpmHistoryBenchmark=true -PnpmInspectionBenchmark=true -PgradlePreparationBenchmark=true check buildPlugin verifyPluginProjectConfiguration verifyPlugin --console=plain
+
+Fixture command:
+./gradlew test --tests '*GradlePreparationBenchmarkTest' -PgradlePreparationBenchmark=true
+
+Real Gradle inspection visitor and adapter prepareUpdates on current complete cached reports.
+One linked build file per workload; fixed literal dependencies with preserved comments.
+Inspection timing includes snapshot capture, declaration parsing, candidate indexing, edit creation
+and problem registration. Preview timing includes full-input validation, parsing and plan creation.
+Initial cache/report setup, native Gradle/repository work, dialog construction/rendering and apply are excluded.
+Two warmups and five samples per workload; inspection/preview order alternates.
+Separate before/after JVMs; p95 is the maximum of five samples, not a production percentile.
+Assertions check declaration/warning/edit counts, fix labels, exact expected/target strings,
+empty skipped results and descending edit offsets. No elapsed-time threshold.
+
+Original implementation (9 October; 100 and 1000 declarations only):
+gradle-preparation declarations=100 path=inspection samplesMs=[3.150917, 2.775291, 2.653375, 2.422666, 7.030083] medianMs=2.775291 p95Ms=7.030083
+gradle-preparation declarations=100 path=preview samplesMs=[2.041791, 1.921792, 1.644833, 1.690542, 1.996541] medianMs=1.921792 p95Ms=2.041791
+gradle-preparation declarations=1000 path=inspection samplesMs=[37.375833, 33.6025, 33.670625, 24.982542, 24.527209] medianMs=33.6025 p95Ms=37.375833
+gradle-preparation declarations=1000 path=preview samplesMs=[24.982083, 29.339541, 21.062834, 16.156583, 20.00075] medianMs=21.062834 p95Ms=29.339541
+
+Shared file text only, still copying token suffixes (9 October; includes 10000 declarations):
+gradle-preparation declarations=100 path=inspection samplesMs=[1.636291, 1.63725, 1.618917, 1.614416, 1.590875] medianMs=1.618917 p95Ms=1.63725
+gradle-preparation declarations=100 path=preview samplesMs=[1.106708, 0.975667, 1.075958, 0.957167, 0.919459] medianMs=0.975667 p95Ms=1.106708
+gradle-preparation declarations=1000 path=inspection samplesMs=[24.871083, 29.026917, 26.600167, 23.6135, 25.78225] medianMs=25.78225 p95Ms=29.026917
+gradle-preparation declarations=1000 path=preview samplesMs=[16.461, 15.77425, 12.681292, 12.293833, 11.994958] medianMs=12.681292 p95Ms=16.461
+gradle-preparation declarations=10000 path=inspection samplesMs=[1592.057625, 1593.776209, 2123.379709, 1863.138959, 1826.48575] medianMs=1826.48575 p95Ms=2123.379709
+gradle-preparation declarations=10000 path=preview samplesMs=[798.907, 796.642, 950.180333, 847.433834, 1050.64525] medianMs=847.433834 p95Ms=1050.64525
+
+Shared text plus indexed token lookahead (targeted JVM, 9 October):
+gradle-preparation declarations=100 path=inspection samplesMs=[1.601542, 1.6445, 1.587292, 1.649208, 1.534334] medianMs=1.601542 p95Ms=1.649208
+gradle-preparation declarations=100 path=preview samplesMs=[1.566375, 1.16825, 1.09375, 1.098458, 0.989833] medianMs=1.098458 p95Ms=1.566375
+gradle-preparation declarations=1000 path=inspection samplesMs=[11.255542, 14.442667, 11.336042, 11.004208, 10.29725] medianMs=11.255542 p95Ms=14.442667
+gradle-preparation declarations=1000 path=preview samplesMs=[6.941583, 6.755541, 6.273583, 6.169, 4.730041] medianMs=6.273583 p95Ms=6.941583
+gradle-preparation declarations=10000 path=inspection samplesMs=[57.392917, 52.388, 46.458458, 51.938625, 46.482334] medianMs=51.938625 p95Ms=57.392917
+gradle-preparation declarations=10000 path=preview samplesMs=[41.397083, 29.412666, 26.889834, 27.883584, 27.515041] medianMs=27.883584 p95Ms=41.397083
+
+Final full validation JVM (10 October):
+gradle-preparation declarations=100 path=inspection samplesMs=[1.113709, 1.167333, 1.137, 1.08825, 1.2495] medianMs=1.137 p95Ms=1.2495
+gradle-preparation declarations=100 path=preview samplesMs=[1.101334, 0.907625, 0.732375, 0.802542, 0.785167] medianMs=0.802542 p95Ms=1.101334
+gradle-preparation declarations=1000 path=inspection samplesMs=[8.442958, 7.997125, 10.453625, 7.323458, 7.486334] medianMs=7.997125 p95Ms=10.453625
+gradle-preparation declarations=1000 path=preview samplesMs=[6.271709, 4.834917, 5.483333, 5.384166, 7.8075] medianMs=5.483333 p95Ms=7.8075
+gradle-preparation declarations=10000 path=inspection samplesMs=[107.038583, 63.612833, 75.140792, 57.84525, 52.187] medianMs=63.612833 p95Ms=107.038583
+gradle-preparation declarations=10000 path=preview samplesMs=[30.886584, 28.449792, 29.021417, 27.955041, 37.735166] medianMs=29.021417 p95Ms=37.735166
+
+The 10000-declaration comparison begins AFTER file-text sharing was implemented;
+it measures token-suffix copy removal without claiming a measured fully-original large baseline.
+Original values are shared only within each file preparation pass, with no project-level cache.
+Full-file text equality, provider fingerprints, atomic prevalidation and descending edit order remain.
+Application still validates each edit and commits its document as before; apply latency is unmeasured.
+Regressions cover customization after wrapped calls/comments, stale captures/non-version edits,
+unselected literal changes, different-length selected replacements and one-command undo.
+JIT, GC, project/index state and scheduling affect results. Visible IDEA latency is unmeasured.

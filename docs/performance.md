@@ -220,6 +220,33 @@ Reproduce the fixture with:
 
 It is excluded by default. Full validation enabled both npm benchmarks and all three native integration suites: 315 tests passed with zero failures, errors or skips. New platform fixtures cover action sharing within one pass, independent local aliases, pass/version/artifact isolation, stale siblings and newer-member exclusions. Existing atomicity, undo, ownership, recovery and packaged-plugin unload checks also passed. Build, configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4 with no new verifier warnings.
 
+## Gradle inspection and preview preparation: 10 October 2026
+
+Gradle's script parser now looks ahead by index after a dependency literal, skipping closing call parentheses to detect customization blocks. Previously, `drop()` and `dropWhile()` copied the remaining token list for every declaration. The new walk preserves quoted-token handling, wrapped calls, comments, constraints and manual-review decisions without allocating those suffixes. It changes local parsing only; native resolution boundaries are unchanged.
+
+Inspection and bulk-plan preparation also capture the complete file text once and share that immutable string with the file's edits. Expected literals come from the same text used to parse their ranges. The four-argument edit constructor remains available for individual callers. Every edit still checks exact current whole-file text before apply, and provider/report guards remain intact. The capture is confined to the preparation pass; it has no project-level cache or new freshness policy.
+
+An opt-in fixture measures the real Gradle inspection visitor and adapter plan builder with current complete cached reports. Inspection includes snapshot capture, parsing, candidate indexing, edit construction and problem registration. Plan preparation includes full-input validation, parsing and edit creation. After two warmups, five samples alternate inspection/preview order. Assertions check all warnings, labels, expected/target literals and descending ranges. See the [raw original, intermediate and final runs](performance-gradle-preparation-2026-10-10.txt).
+
+| Declarations / path | Original median / p95 | Final median / p95 |
+|---------------------|----------------------:|-------------------:|
+| 100 / inspection | 2.78 / 7.03 ms | 1.14 / 1.25 ms |
+| 100 / plan preparation | 1.92 / 2.04 ms | 0.80 / 1.10 ms |
+| 1,000 / inspection | 33.60 / 37.38 ms | 8.00 / 10.45 ms |
+| 1,000 / plan preparation | 21.06 / 29.34 ms | 5.48 / 7.81 ms |
+
+The 10,000-declaration workload was added after file-text sharing. With the old token-copying parser still present, inspection took 1,826.49 / 2,123.38 ms median / p95 and plan preparation took 847.43 / 1,050.65 ms. Removing the suffix copies reduced those measurements to 63.61 / 107.04 ms and 29.02 / 37.74 ms respectively in the final validation run. This comparison begins from the intermediate implementation; no fully original 10,000-declaration baseline was measured. A targeted final run recorded 51.94 ms inspection and 27.88 ms plan-preparation medians.
+
+These are separate JVMs, and JIT, allocation, GC, index state and scheduling affect elapsed values. Five-sample p95 values are maxima. Native Gradle/repository work, preview-dialog construction, editor rendering and apply are excluded. Apply still validates each edit and commits its document as before; this change does not establish faster application or visible hints.
+
+Reproduce the fixture with:
+
+```sh
+./gradlew test --tests '*GradlePreparationBenchmarkTest' -PgradlePreparationBenchmark=true
+```
+
+It is excluded by default. Full validation enabled all three preparation benchmarks and all three native integration suites: 320 tests passed with zero failures, errors or skips. New regressions cover wrapped customization blocks, stale captured text despite unchanged version literals, changes to unselected declarations, different-length selected replacements and one-command undo. Existing shared-catalog, native-resolution, atomicity, recovery and packaged-plugin unload checks passed. Build, configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4 with the existing API notices only.
+
 ## Inspect real-project traces
 
 In IDEA, open **Help → Diagnostic Tools → Debug Log Settings** and enable:
