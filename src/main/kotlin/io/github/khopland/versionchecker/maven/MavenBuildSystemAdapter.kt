@@ -41,6 +41,11 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
             val coordinate = analysis.coordinate(tag) ?: return@mapNotNull null
             VersionDeclaration(DeclarationId(file.path, "${coordinate.artifactKind.name}:${tag.textOffset}"), coordinate.artifactId(),
                 tag.findFirstSubTag("version")?.value?.trimmedText ?: coordinate.version, coordinate.version)
+        } + analysis.propertyConsumers.filter { it.tag.containingFile != psi }.map { consumer ->
+            val coordinate = consumer.coordinate
+            VersionDeclaration(DeclarationId(file.path,
+                "${coordinate.artifactKind.name}:property:${consumer.target.textOffset}:${consumer.tag.containingFile.virtualFile.path}:${consumer.tag.textOffset}"),
+                coordinate.artifactId(), consumer.target.value.trimmedText, coordinate.version)
         }
         return BuildSnapshot(BuildContextId(id, file.parent.path, file.path), file.path, inputs.fingerprint(mavenProject), declarations,
             inputs.inspectionFingerprint(mavenProject))

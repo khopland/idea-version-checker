@@ -8,6 +8,10 @@ are errors by default, including when no version update is available.</p>
 Use <b>Tools → Check Versions → Current File</b> or <b>Whole Project</b> to refresh them.</p>
 <p>The quick fix updates a literal version or an exact property reference declared in the same POM.
 Updating a shared property affects every declaration using it.</p>
+<p>Version properties are also highlighted under <code>&lt;properties&gt;</code>, including child overrides
+used by dependencies or plugins declared in parent POMs. Checks use the child's effective property value.
+The property quick fix edits the child override when its consumers agree on an update;
+conflicting or unchanged consumers require review. Bulk previews list inherited property consumers under <b>Needs review</b>.</p>
 <p>For inherited dependency versions, choose <b>Override version locally</b> to add or replace the child dependency's version,
 or <b>Update parent version</b> to change its controlling version/property in an imported, non-ignored parent POM.
 The parent action names the POM it edits and can follow multiple parent levels. Shared consumers inherit that update.

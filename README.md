@@ -8,6 +8,8 @@ For example, a dependency using `junit:junit:4.12` gets this inspection message:
 
 Use **Alt+Enter → Update version to 4.13.2** to update a literal version. For a simple `${junit.version}` reference declared in the same POM, the quick fix updates the property instead. A shared property change affects every dependency using it.
 
+Version properties also show diagnostics under `<properties>`, including child overrides used by dependencies or plugins declared in a parent POM. Checks resolve those declarations with the child's effective properties, even when the child has no dependency declaration. The property quick fix updates the child override when its consumers agree on an update; conflicting or unchanged consumers require review. Inherited property consumers appear under **Needs review** in bulk previews.
+
 For a dependency whose version is managed by a parent POM in this project, Alt+Enter offers two choices:
 
 - **Override version locally with 4.13.2:** add or replace `<version>` on this dependency in the current POM.

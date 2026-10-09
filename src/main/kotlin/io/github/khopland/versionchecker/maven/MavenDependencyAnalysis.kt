@@ -40,6 +40,11 @@ internal class MavenDependencyAnalysis(
     private val inspection: MavenInspectionResult? = null,
 ) {
     private val deprecated = deprecatedDependencies(options.deprecatedDependencies)
+    private val versionProperties by lazy {
+        MavenVersionProperties(model, mavenProject.activatedProfilesIds.enabledProfiles, ::coordinate)
+    }
+    internal val propertyConsumers by lazy { versionProperties.consumers() }
+    private val propertyConsumersByTarget by lazy { propertyConsumers.groupBy { it.target } }
     private val quickFixAdapter by lazy { inspection?.adapter ?: MavenBuildSystemAdapter() }
     private val quickFixSnapshot by lazy {
         inspection?.snapshot ?: model.xmlTag?.containingFile?.virtualFile?.let {
@@ -105,7 +110,7 @@ internal class MavenDependencyAnalysis(
         val current = coordinate.version
         val target = when {
             notice != null -> null // Replacements need a coordinate/API review, not a version-only edit.
-            versionTag == null -> null
+            versionTag == null -> managingVersion(tag)?.let { versionProperties.target(it, current) }
             rawVersion == current -> versionTag
             else -> versionPropertyTarget(versionTag, rawVersion, current)
         }
@@ -115,6 +120,21 @@ internal class MavenDependencyAnalysis(
 
     internal fun versionPropertyTarget(versionTag: XmlTag, raw: String?, current: String): XmlTag? =
         findLocalVersionProperty(versionTag, raw, current, mavenProject.activatedProfilesIds.enabledProfiles)
+
+    internal fun propertyProblems(): List<DependencyProblem> = propertyConsumers.mapNotNull { consumer ->
+        val problem = problem(consumer.tag) ?: return@mapNotNull null
+        problem.copy(anchor = consumer.target, target = consumer.target.takeIf { problem.notice == null })
+    }.distinctBy { it.anchor to it.coordinate }
+
+    internal fun propertyQuickFixes(property: XmlTag): Array<LocalQuickFix> {
+        val consumers = propertyConsumersByTarget[property].orEmpty()
+        val problems = consumers.map { problem(it.tag) }
+        val latest = problems.map { it?.latest }.distinct().singleOrNull() ?: return emptyArray()
+        if (problems.any { it?.notice != null }) return emptyArray()
+        val snapshot = quickFixSnapshot ?: return emptyArray()
+        return arrayOf(UpdateDependencyVersionFix(property, latest,
+            isCurrent = { quickFixAdapter.isCurrent(property.project, snapshot) }))
+    }
 
     fun quickFixes(tag: XmlTag, problem: DependencyProblem): Array<LocalQuickFix> {
         val latest = problem.latest ?: return emptyArray()

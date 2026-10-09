@@ -19,7 +19,14 @@ internal data class MavenVersionEdit(
 internal object MavenBulkUpdatePlan {
     fun create(files: Map<PsiFile, MavenDependencyAnalysis>,
                usageFiles: Collection<PsiFile> = files.keys, isCurrent: () -> Boolean = { true }): BulkUpdatePlan {
-        val problems = files.flatMap { (file, analysis) -> analysis.problems(file) }
+        val problems = files.flatMap { (file, analysis) ->
+            val declarations = analysis.problems(file)
+            val coordinates = declarations.mapTo(hashSetOf()) { it.coordinate }
+            declarations + analysis.propertyProblems().filter { it.coordinate !in coordinates }.map {
+                it.copy(target = null, notice = it.notice ?:
+                    "${it.anchor.localName}: inherited property consumers need review (${it.coordinate.groupId}:${it.coordinate.artifactId})")
+            }
+        }
         val skipped = mutableListOf<String>()
         val candidates = problems.filter { problem ->
             if (problem.target == null || problem.latest == null) {

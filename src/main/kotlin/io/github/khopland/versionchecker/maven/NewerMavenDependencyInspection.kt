@@ -19,8 +19,15 @@ import io.github.khopland.versionchecker.notifyStaleVersionFix
 class NewerMavenDependencyInspection : LocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
         val analysis = MavenDependencyAnalysis.forFile(holder.file) ?: return PsiElementVisitor.EMPTY_VISITOR
+        val propertyProblems = analysis.propertyProblems().groupBy { it.anchor }
         return object : XmlElementVisitor() {
             override fun visitXmlTag(tag: XmlTag) {
+                val problems = propertyProblems[tag].orEmpty()
+                val propertyFixes = if (problems.isEmpty()) emptyArray() else analysis.propertyQuickFixes(tag)
+                for (problem in problems) {
+                    val highlight = problem.severity.highlight ?: continue
+                    holder.registerProblem(tag, problem.message, highlight, *propertyFixes)
+                }
                 val problem = analysis.problem(tag) ?: return
                 val highlight = problem.severity.highlight ?: return
                 val fixes = analysis.quickFixes(tag, problem)

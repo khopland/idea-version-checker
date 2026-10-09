@@ -3,7 +3,10 @@ package io.github.khopland.versionchecker
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemHighlightType
+import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.components.service
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
@@ -12,8 +15,12 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
+import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.testFramework.ExtensionTestUtil
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.maven.*
+import io.github.khopland.versionchecker.core.*
 import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.model.MavenModel
@@ -86,6 +93,149 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         <groupId>junit</groupId><artifactId>junit</artifactId><version>$version</version><scope>test</scope>
         </dependency></dependencies></dependencyManagement>"""
 
+    private fun inspect(file: XmlFile, updates: Map<DependencyVersion, String>): ProblemsHolder {
+        val adapter = MavenBuildSystemAdapter()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val checking = object : BuildSystemAdapter by adapter {
+            override val capabilities = adapter.capabilities.copy(incrementalInspections = false)
+            override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) =
+                UpdateReport(snapshot.declarations.mapNotNull { declaration ->
+                    updates[declaration.coordinate()]?.let { UpdateCandidate(declaration, it,
+                        kind = MavenVersionSemantics.between(declaration.baseline, it)) }
+                })
+        }
+        ExtensionTestUtil.maskExtensions(BuildSystemAdapter.EP, listOf(checking), testRootDisposable)
+        val service = project.service<VersionCheckService>()
+        service.updates(checking, snapshot)
+        PlatformTestUtil.waitWithEventsDispatching("Maven property report cached", { service.cached(snapshot) != null }, 10_000)
+        val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
+        val visitor = NewerMavenDependencyInspection().buildVisitor(holder, true)
+        PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(visitor) }
+        return holder
+    }
+
+    fun testInspectionHighlightsLocalVersionPropertyAndFixPreservesReference() {
+        val file = imported("local-property", "<properties><junit.version>4.12</junit.version></properties>" +
+            dependency("<version>\${junit.version}</version>"))
+        val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val problems = inspect(file, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results
+        val warning = problems.single { it.psiElement == property }
+        assertEquals(ProblemHighlightType.WARNING, warning.highlightType)
+        apply(warning.fixes!!.single() as LocalQuickFix, property)
+        assertEquals("4.13.2", property.value.trimmedText)
+        assertEquals("\${junit.version}", declaration(file).findFirstSubTag("version")!!.value.trimmedText)
+    }
+
+    fun testChildPropertyOverrideWarnsWithoutAnyChildDependencyDeclaration() {
+        val parent = imported("property-parent", "<properties><junit.version>4.11</junit.version></properties>" +
+            management("\${junit.version}"))
+        val child = imported("property-child", "<properties><junit.version>4.12</junit.version></properties>", "property-parent")
+        val parentText = parent.text
+        val property = child.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val snapshot = MavenBuildSystemAdapter().snapshot(project, child.virtualFile)!!
+        assertEquals(listOf(DependencyVersion("junit", "junit", "4.12")), snapshot.declarations.map { it.coordinate() })
+        val warning = inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results.single()
+        assertSame(property, warning.psiElement)
+        assertTrue(warning.descriptionTemplate.contains("4.12 → 4.13.2"))
+        apply(warning.fixes!!.single() as LocalQuickFix, property)
+        assertEquals("4.13.2", property.value.trimmedText)
+        assertEquals(parentText, parent.text)
+    }
+
+    fun testInheritedPropertyConsumersAppearInBulkNeedsReview() {
+        imported("review-property-parent", "<properties><junit.version>4.11</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("review-property-child", "<properties><junit.version>4.12</junit.version></properties>", "review-property-parent")
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(child)!!,
+            manager.findProject(child.virtualFile)!!, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2"))
+        val plan = MavenBulkUpdatePlan.create(mapOf(child to analysis))
+        assertTrue(plan.changes.isEmpty())
+        assertTrue(plan.skipped.single().contains("inherited property consumers"))
+    }
+
+    fun testRedeclaredDependencyWithoutVersionStillUsesParentProperty() {
+        imported("redeclared-parent", "<properties><junit.version>4.11</junit.version></properties>" +
+            dependency("<version>\${junit.version}</version>"))
+        val child = imported("redeclared-child", "<properties><junit.version>4.12</junit.version></properties>" +
+            dependency(), "redeclared-parent")
+        val property = child.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val warning = inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results.single()
+        assertSame(property, warning.psiElement)
+    }
+
+    fun testPluginWithInheritanceDisabledDoesNotWarnOnChildProperty() {
+        imported("non-inherited-parent", """<properties><plugin.version>1.0</plugin.version></properties>
+            <build><plugins><plugin><groupId>g</groupId><artifactId>p</artifactId>
+              <version>${'$'}{plugin.version}</version><inherited>false</inherited></plugin></plugins></build>""")
+        val child = imported("non-inherited-child", "<properties><plugin.version>1.1</plugin.version></properties>", "non-inherited-parent")
+        assertTrue(inspect(child, mapOf(DependencyVersion("g", "p", "1.1", MavenArtifactKind.PLUGIN) to "1.2")).results.isEmpty())
+    }
+
+    fun testUnchangedSharedConsumerPreventsPropertyQuickFix() {
+        val file = imported("unchanged-shared-consumer", """<properties><shared.version>1.0</shared.version></properties>
+            <dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>${'$'}{shared.version}</version></dependency>
+              <dependency><groupId>g</groupId><artifactId>b</artifactId><version>${'$'}{shared.version}</version></dependency></dependencies>""")
+        val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val warning = inspect(file, mapOf(DependencyVersion("g", "a", "1.0") to "1.1")).results.single { it.psiElement == property }
+        assertTrue(warning.fixes.isNullOrEmpty())
+    }
+
+    fun testChildManagedDependencyFixUpdatesChildPropertyOverride() {
+        val parent = imported("managed-property-parent", "<properties><junit.version>4.11</junit.version></properties>" +
+            management("\${junit.version}"))
+        val child = imported("managed-property-child", "<properties><junit.version>4.12</junit.version></properties>" +
+            dependency(), "managed-property-parent")
+        val property = child.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(child)!!,
+            manager.findProject(child.virtualFile)!!, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2"))
+        assertSame(property, analysis.problem(declaration(child))!!.target)
+        apply(analysis.quickFixes(declaration(child), analysis.problem(declaration(child))!!).single(), declaration(child))
+        assertEquals("4.13.2", property.value.trimmedText)
+        assertNull(declaration(child).findFirstSubTag("version"))
+        assertEquals("4.11", parent.rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
+    }
+
+    fun testInheritedPluginPropertyAndPropertyChainAreCheckedInChildContext() {
+        imported("plugin-property-root", """<properties><plugin.version>${'$'}{shared.version}</plugin.version><shared.version>1.0</shared.version></properties>
+            <build><plugins><plugin><groupId>g</groupId><artifactId>p</artifactId><version>${'$'}{plugin.version}</version></plugin></plugins></build>""")
+        imported("plugin-property-middle", "", "plugin-property-root")
+        val child = imported("plugin-property-child", "<properties><shared.version>1.1</shared.version></properties>", "plugin-property-middle")
+        val property = child.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val warning = inspect(child, mapOf(DependencyVersion("g", "p", "1.1", MavenArtifactKind.PLUGIN) to "1.2")).results.single()
+        assertSame(property, warning.psiElement)
+        assertTrue(warning.descriptionTemplate.contains("Maven plugin g:p"))
+        assertEquals(1, warning.fixes!!.size)
+    }
+
+    fun testParentDeclarationsShadowedByNearerVersionsAndUnrelatedPropertiesHaveNoWarnings() {
+        imported("shadowed-root", "<properties><junit.version>4.11</junit.version></properties>" + management("\${junit.version}"))
+        imported("shadowed-middle", management("4.13.2"), "shadowed-root")
+        val child = imported("shadowed-child", "<properties><junit.version>4.12</junit.version><unused.version>4.12</unused.version></properties>", "shadowed-middle")
+        assertTrue(MavenBuildSystemAdapter().snapshot(project, child.virtualFile)!!.declarations.isEmpty())
+        assertTrue(inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results.isEmpty())
+    }
+
+    fun testOnlyActiveProfilePropertyOverrideIsHighlighted() {
+        imported("active-property-parent", "<properties><junit.version>4.11</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("active-property-child", """<properties><junit.version>4.11</junit.version></properties>
+            <profiles><profile><id>on</id><properties><junit.version>4.12</junit.version></properties></profile>
+              <profile><id>off</id><properties><junit.version>4.12</junit.version></properties></profile></profiles>""",
+            "active-property-parent", listOf("on"))
+        val property = child.rootTag!!.findFirstSubTag("profiles")!!.subTags.first().findFirstSubTag("properties")!!.subTags.single()
+        val warning = inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results.single()
+        assertSame(property, warning.psiElement)
+    }
+
+    fun testConflictingSharedPropertyUpdatesWarnWithoutPropertyQuickFix() {
+        val file = imported("conflicting-properties", """<properties><shared.version>1.0</shared.version></properties>
+            <dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>${'$'}{shared.version}</version></dependency></dependencies>
+            <build><plugins><plugin><groupId>g</groupId><artifactId>p</artifactId><version>${'$'}{shared.version}</version></plugin></plugins></build>""")
+        val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val warnings = inspect(file, mapOf(DependencyVersion("g", "a", "1.0") to "1.1",
+            DependencyVersion("g", "p", "1.0", MavenArtifactKind.PLUGIN) to "1.2")).results.filter { it.psiElement == property }
+        assertEquals(2, warnings.size)
+        assertTrue(warnings.all { it.fixes.isNullOrEmpty() })
+    }
+
     fun testRootPropertyUsesItsActiveProfileOwnerForQuickFixAndBulkEdit() {
         for ((index, defaultVersion) in listOf("4.12", "4.11").withIndex()) {
             val file = imported("profile-owner-$index", """<properties><junit.version>$defaultVersion</junit.version></properties>
@@ -118,6 +268,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
             val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
             if (active.isNotEmpty()) {
                 assertNull(problem.target)
+                assertTrue(analysis.propertyProblems().isEmpty())
                 assertTrue(plan.changes.isEmpty())
                 assertTrue(analysis.quickFixes(declaration(file), problem).all { it is OverrideDependencyVersionFix })
             } else {
