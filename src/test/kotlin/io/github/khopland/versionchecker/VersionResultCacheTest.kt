@@ -4,6 +4,8 @@ import io.github.khopland.versionchecker.core.*
 import io.github.khopland.versionchecker.UpdateMode
 import org.junit.Assert.*
 import org.junit.Test
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 
 class VersionResultCacheTest {
     private fun snapshot(adapter: String = "maven", root: String = "/one", selector: String = "1.0") = BuildSnapshot(
@@ -11,6 +13,21 @@ class VersionResultCacheTest {
         listOf(VersionDeclaration(DeclarationId("$root/manifest", "dependency"), ArtifactId("npm", "@scope/package"), selector, "1.0", "1.1"))
     )
     private fun report(snapshot: BuildSnapshot, version: String = "2.0") = UpdateReport(listOf(UpdateCandidate(snapshot.declarations.single(), version)))
+    private val presentationAdapter = object : BuildSystemAdapter {
+        override val id = "npm"
+        override val displayName = "test"
+        override val capabilities = AdapterCapabilities()
+        override fun supports(project: Project, selection: BuildSelection) = true
+        override fun isOffline(project: Project) = false
+        override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? = null
+        override fun isCurrent(project: Project, snapshot: BuildSnapshot) = true
+        override suspend fun discover(project: Project, selection: BuildSelection) = emptyList<BuildSnapshot>()
+        override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) = error("Not used")
+        override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>) = error("Not used")
+        override fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot) =
+            report.copy(candidates = report.candidates.filter { it.declaration in current.declarations },
+                notices = report.notices.filter { it.declaration in current.declarations })
+    }
 
     @Test fun `same artifact in different repositories and providers keeps independent results`() {
         val cache = VersionResultCache()
@@ -117,5 +134,72 @@ class VersionResultCacheTest {
         val last = cache.getResult(snapshot, UpdateMode.PATCH)!!
         time = 100
         assertFalse(cache.isCurrent(snapshot.context, UpdateMode.PATCH, last))
+    }
+
+    @Test fun `early hints cannot satisfy a complete check and expire with their original metadata`() {
+        var time = 0L
+        val cache = VersionResultCache { time }
+        val snapshot = snapshot("npm")
+        val owner = Any()
+        val revision = cache.begin(snapshot)
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner,
+            InspectionUpdate(report(snapshot).copy(validUntilNanos = 100), snapshot.declarations.map { it.id }.toSet())))
+        assertEquals("2.0", cache.inspectionProgress(presentationAdapter, snapshot)!!.candidates.single().version)
+        assertNull(cache.get(snapshot))
+        assertNull(cache.getResult(snapshot, UpdateMode.MAJOR))
+        time = 90
+        cache.putProgress(presentationAdapter, snapshot, revision, owner,
+            InspectionUpdate(report(snapshot), snapshot.declarations.map { it.id }.toSet()))
+        time = 100
+        assertNull(cache.inspectionProgress(presentationAdapter, snapshot))
+    }
+
+    @Test fun `finished up to date declarations replace old hints while unprocessed declarations retain theirs`() {
+        val cache = VersionResultCache()
+        val base = snapshot("npm")
+        val second = base.declarations.single().copy(id = DeclarationId(base.sourceFile, "second"), artifact = ArtifactId("npm", "second"))
+        val snapshot = base.copy(declarations = base.declarations + second)
+        cache.put(snapshot, cache.begin(snapshot), UpdateReport(snapshot.declarations.map { UpdateCandidate(it, "2.0") }))
+        val changed = snapshot.copy(fingerprint = snapshot.fingerprint.copy(files = mapOf(base.sourceFile to "changed")))
+        val owner = Any()
+        cache.putProgress(presentationAdapter, changed, cache.begin(changed), owner,
+            InspectionUpdate(UpdateReport(), setOf(snapshot.declarations.first().id)))
+        assertEquals(listOf(second), cache.inspectionProgress(presentationAdapter, changed)!!.candidates.map { it.declaration })
+        cache.putProgress(presentationAdapter, changed, cache.begin(changed), owner,
+            InspectionUpdate(UpdateReport(listOf(UpdateCandidate(second, "3.0"))), setOf(second.id)))
+        assertEquals("3.0", cache.inspectionProgress(presentationAdapter, changed)!!.candidates.single().version)
+        cache.put(changed, cache.begin(changed), UpdateReport())
+        assertNull(cache.inspectionProgress(presentationAdapter, changed))
+    }
+
+    @Test fun `refresh and cancellation reject obsolete progress without clearing replacement owners`() {
+        val cache = VersionResultCache()
+        val snapshot = snapshot("npm")
+        val revision = cache.begin(snapshot)
+        val first = Any()
+        val second = Any()
+        val update = InspectionUpdate(report(snapshot), snapshot.declarations.map { it.id }.toSet())
+        cache.putProgress(presentationAdapter, snapshot, revision, first, update)
+        cache.putProgress(presentationAdapter, snapshot, revision, second, update)
+        assertFalse(cache.clearProgress(snapshot.context, first))
+        assertNotNull(cache.inspectionProgress(presentationAdapter, snapshot))
+        assertTrue(cache.clearProgress(snapshot.context, second))
+        assertNull(cache.inspectionProgress(presentationAdapter, snapshot))
+        cache.putProgress(presentationAdapter, snapshot, revision, first, update)
+        cache.invalidateSource("npm", snapshot.sourceFile)
+        assertFalse(cache.putProgress(presentationAdapter, snapshot, revision, first, update))
+        assertNull(cache.inspectionProgress(presentationAdapter, snapshot))
+    }
+
+    @Test fun `a newer partial check stops an older complete report authorizing a preview`() {
+        val cache = VersionResultCache()
+        val snapshot = snapshot("npm")
+        cache.put(snapshot, cache.begin(snapshot), report(snapshot), UpdateMode.MAJOR)
+        val prepared = cache.getResult(snapshot, UpdateMode.MAJOR)!!
+        cache.putProgress(presentationAdapter, snapshot, cache.begin(snapshot), Any(),
+            InspectionUpdate(report(snapshot, "3.0"), snapshot.declarations.map { it.id }.toSet()))
+        assertNull(cache.get(snapshot))
+        assertFalse(cache.isCurrent(snapshot.context, UpdateMode.MAJOR, prepared))
+        assertEquals("3.0", cache.inspectionProgress(presentationAdapter, snapshot)!!.candidates.single().version)
     }
 }

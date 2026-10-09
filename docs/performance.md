@@ -131,6 +131,16 @@ The native npm fixture asserts zero registry requests for repeated same-mode/cur
 
 The full suite passed 271 tests with no failures, errors or skips, enabling all three native integration suites and packaged-plugin lifecycle checks. Plugin build, project configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4. The verifier retained the existing seven experimental API usages on both versions and one deprecated API usage on 2026.1.4.
 
+## Earlier npm inspection results: 9 October 2026
+
+npm publishes one inspection update after each package and its aliases finish. Independent packages retain the four-query limit, shared raw metadata and runtime worker ownership. Package failures are collected without cancelling unrelated queries; the final report remains unsuccessful if any package failed, and interactive checks preserve the native exception type/details. A successful empty package result removes that declaration's older hint.
+
+Early reports live in a separate presentation cache. They cannot satisfy complete-check reuse or bulk-preview lineage. Each update validates current build inputs and the refresh generation before publication. Previously valid hints for unprocessed declarations are retained conservatively, and partial expiry is capped by retained/native metadata deadlines. Once new progress starts, an older complete major-mode report stops authorizing edits. Progress accumulates in declaration-indexed maps; deltas update only completed declarations, and lists are materialized when an inspection reads them. Cancelled jobs clear only their own progress, without clearing a replacement owner's entry. Final publication replaces progress with the complete report.
+
+A gated package fixture proves that a fast package and its alias publish while the slow package remains blocked. A coordinator fixture proves the inspection sees the early result while a bulk preview waits for the complete check, then reuses the final report without another native query. Failure, expiry, retained-hint replacement, cancellation, refresh and packaged-plugin unload tests cover the same path. These are ordering and safety assertions, not measured native-window rendering latency.
+
+The full suite passed 279 tests with zero failures, errors or skips, including native Maven/npm/Gradle and packaged-plugin lifecycle tests. Plugin build, configuration and verification passed for both supported IDEA versions, retaining the existing API notices.
+
 ## Inspect real-project traces
 
 In IDEA, open **Help → Diagnostic Tools → Debug Log Settings** and enable:
@@ -150,5 +160,7 @@ Stages cover Maven/npm snapshot capture, coordinator lock wait, overall checks, 
 The trace category records no file paths, coordinates, registry URLs, command arguments, configuration contents or tokens. Disable it after profiling. Compare current-file and whole-project refreshes separately, and record update mode, fresh/warm native caches and runtime versions alongside results. Counting metadata expiration does not prove HTTP revalidation; the local fixtures count requests independently.
 
 ## Measurement limits
+
+`FIRST_INSPECTION_RESULT` measures time from a check starting to its first accepted incremental update containing a candidate or notice. Its count is the number of candidates/notices in that delta. It excludes queue wait and does not measure IDEA rendering; compare it with overall `CHECK` and highlighting stages separately.
 
 These are small local fixtures with warm native installations and forced metadata revalidation. Maven server startup, setup and OS caches can affect the first sample; npm registry/cache startup can do the same. Five samples are sufficient to catch changed work counts, not to establish a reliable production p95 or a general speed multiplier. Large project workloads, cold installations, private remote repository latency and time to visible editor diagnostics still require measurement before choosing broader session or concurrency changes.

@@ -69,6 +69,7 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         val child = add("packages/app/package.json", """{"dependencies":{"alias":"npm:alpha@~1.2.3","beta":"~1.2.3"}}""")
         val snapshot = adapter.snapshot(project, root.virtualFile)!!
         val checking = object : BuildSystemAdapter by adapter {
+            override val capabilities = adapter.capabilities.copy(incrementalInspections = false)
             override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) =
                 UpdateReport(snapshot.declarations.map {
                     UpdateCandidate(it, "1.2.9", NpmSelector.parse(it.artifact.name, it.selector)!!.replace("1.2.9"), VersionChangeKind.PATCH)

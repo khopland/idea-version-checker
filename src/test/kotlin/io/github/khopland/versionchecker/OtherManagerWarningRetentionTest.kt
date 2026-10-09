@@ -69,6 +69,7 @@ class OtherManagerWarningRetentionTest : BasePlatformTestCase() {
         val checked = CopyOnWriteArrayList<BuildSnapshot>()
         var gate = CompletableDeferred<Unit>().apply { complete(Unit) }
         val checkingAdapter = object : BuildSystemAdapter by adapter {
+            override val capabilities = adapter.capabilities.copy(incrementalInspections = false)
             override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
                 checked += snapshot
                 gate.await()

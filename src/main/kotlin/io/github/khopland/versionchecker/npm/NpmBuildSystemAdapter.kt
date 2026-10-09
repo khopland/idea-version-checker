@@ -16,7 +16,7 @@ import kotlinx.coroutines.sync.Semaphore
 internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     override val id = "npm"
     override val displayName = "npm"
-    override val capabilities = AdapterCapabilities()
+    override val capabilities = AdapterCapabilities(incrementalInspections = true)
     private val registrySlots = Semaphore(4)
     override fun isOffline(project: Project) = false // npm evaluates its own offline/cache configuration.
     override fun supports(project: Project, selection: BuildSelection) =
@@ -58,7 +58,11 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         val fingerprints = mutableMapOf<VirtualFile, BuildFingerprint>()
         NpmManifest.files(project, selection).mapNotNull { snapshot(project, it, fingerprints) }
     }
-    override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
+    override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport =
+        checkIncrementally(project, snapshot, mode) {}
+
+    override suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
+                                          publish: suspend (InspectionUpdate) -> Unit): UpdateReport {
         val directory = Path.of(snapshot.context.root)
         val context = readAction {
             val file = findFile(project, snapshot.sourceFile) ?: error("package.json is no longer available")
@@ -82,7 +86,9 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
                     expires.updateAndGet { minOf(it, lease.expiresAt) }
                     lease.metadata
                 },
-                deprecated = { name, version -> NpmRegistry.deprecated(runtime.await(), directory, name, version) })
+                deprecated = { name, version -> NpmRegistry.deprecated(runtime.await(), directory, name, version) },
+                publish = { update -> publish(update.copy(report = update.report.copy(
+                    validUntilNanos = expires.get().takeUnless { it == Long.MAX_VALUE }))) })
         }
         return report.copy(validUntilNanos = expires.get().takeUnless { it == Long.MAX_VALUE })
     }

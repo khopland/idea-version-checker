@@ -83,6 +83,7 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
         val snapshots = AtomicInteger()
         val validations = AtomicInteger()
         val checkingAdapter = object : BuildSystemAdapter by adapter {
+            override val capabilities = adapter.capabilities.copy(incrementalInspections = false)
             override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
                 snapshots.incrementAndGet()
                 return adapter.snapshot(project, file)
@@ -124,6 +125,7 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
         val checked = CopyOnWriteArrayList<BuildSnapshot>()
         var gate = CompletableDeferred<Unit>().apply { complete(Unit) }
         val checkingAdapter = object : BuildSystemAdapter by adapter {
+            override val capabilities = adapter.capabilities.copy(incrementalInspections = false)
             override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
                 checked += snapshot
                 gate.await()

@@ -96,4 +96,66 @@ class NpmVersionCheckTest {
         job.cancelAndJoin()
         assertEquals(4, slots.availablePermits)
     }
+
+    @Test fun `finished package and aliases publish before an unrelated slow package`() = runBlocking {
+        val slow = CompletableDeferred<Unit>()
+        val first = CompletableDeferred<InspectionUpdate>()
+        val declarations = listOf(declaration("slow"), declaration("fast"), declaration("alias", "npm:fast@~1.0.0"))
+        val scan = async {
+            checkNpmVersions(declarations, UpdateMode.MAJOR, emptyMap(), Semaphore(4),
+                metadata = { name ->
+                    if (name == "slow") slow.await()
+                    NpmPackageMetadata(listOf("1.0.0", "1.1.0"), emptyMap())
+                }, deprecated = { _, _ -> error("Unexpected lookup") }, publish = { first.complete(it) })
+        }
+        try {
+            val update = withTimeout(5_000) { first.await() }
+            assertEquals(setOf(declarations[1].id, declarations[2].id), update.completedDeclarations)
+            assertEquals(listOf("^1.1.0", "npm:fast@~1.1.0"), update.report.candidates.map { it.replacementSelector })
+            assertFalse("The slow query is still running", scan.isCompleted)
+            slow.complete(Unit)
+            val report = withTimeout(5_000) { scan.await() }
+            assertTrue(report.successful)
+            assertEquals(declarations, report.candidates.map { it.declaration })
+        } finally { slow.complete(Unit); scan.cancelAndJoin() }
+    }
+
+    @Test fun `package failure preserves successful hints without reporting a successful complete check`() = runBlocking {
+        val healthy = CompletableDeferred<Unit>()
+        val failure = CompletableDeferred<InspectionUpdate>()
+        val declarations = listOf(declaration("broken"), declaration("healthy"))
+        val scan = async {
+            checkNpmVersions(declarations, UpdateMode.MAJOR, emptyMap(), Semaphore(4),
+                metadata = { name ->
+                    if (name == "broken") error("Registry unavailable")
+                    healthy.await()
+                    NpmPackageMetadata(listOf("1.1.0"), emptyMap())
+                }, deprecated = { _, _ -> null }, publish = { if (!it.report.successful) failure.complete(it) })
+        }
+        try {
+            assertFalse(withTimeout(5_000) { failure.await() }.report.successful)
+            assertFalse("Failure must not cancel the other package", scan.isCompleted)
+            healthy.complete(Unit)
+            val report = withTimeout(5_000) { scan.await() }
+            assertFalse(report.successful)
+            assertTrue(report.failure!!.contains("broken: Registry unavailable"))
+            assertEquals(listOf(declarations[1]), report.candidates.map { it.declaration })
+        } finally { healthy.complete(Unit); scan.cancelAndJoin() }
+    }
+
+    @Test fun `cancelling after an early hint neither publishes unfinished packages nor caches a failure`() = runBlocking {
+        val first = CompletableDeferred<Unit>()
+        val updates = mutableListOf<InspectionUpdate>()
+        val slots = Semaphore(4)
+        val scan = launch {
+            checkNpmVersions(listOf(declaration("fast"), declaration("slow")), UpdateMode.MAJOR, emptyMap(), slots,
+                metadata = { name -> if (name == "slow") awaitCancellation() else NpmPackageMetadata(listOf("1.1.0"), emptyMap()) },
+                deprecated = { _, _ -> null }, publish = { updates += it; first.complete(Unit) })
+        }
+        withTimeout(5_000) { first.await() }
+        scan.cancelAndJoin()
+        assertEquals(1, updates.size)
+        assertTrue(updates.single().report.successful)
+        assertEquals(4, slots.availablePermits)
+    }
 }

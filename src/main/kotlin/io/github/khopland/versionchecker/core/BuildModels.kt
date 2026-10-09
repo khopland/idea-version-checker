@@ -8,7 +8,8 @@ internal data class ArtifactId(val namespace: String, val name: String)
 enum class UpdateScope(val label: String) { CURRENT_FILE("Current File"), WHOLE_PROJECT("Whole Project") }
 internal data class BuildSelection(val scope: UpdateScope, val currentFile: String? = null)
 internal data class AdapterCapabilities(
-    val updateModes: Set<UpdateMode> = UpdateMode.entries.toSet()
+    val updateModes: Set<UpdateMode> = UpdateMode.entries.toSet(),
+    val incrementalInspections: Boolean = false
 )
 internal data class BuildContextId(val adapterId: String, val root: String, val resolutionId: String)
 internal data class DeclarationId(val file: String, val location: String)
@@ -36,7 +37,13 @@ internal data class UpdateReport(
     val candidates: List<UpdateCandidate> = emptyList(), val notices: List<UpdateNotice> = emptyList(),
     val failure: String? = null,
     /** Monotonic deadline of the native metadata used, so report caching cannot extend its freshness. */
-    val validUntilNanos: Long? = null
+    val validUntilNanos: Long? = null,
+    /** Preserve the native failure type/details when a complete interactive check is rejected. */
+    val failureCause: Exception? = null
 ) {
     val successful: Boolean get() = failure == null
 }
+
+/** One finished unit of a running check, for inspection presentation only. */
+internal data class InspectionUpdate(val report: UpdateReport, val completedDeclarations: Set<DeclarationId>)
+

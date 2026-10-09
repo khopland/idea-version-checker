@@ -5,7 +5,7 @@ import com.intellij.openapi.diagnostic.Logger
 /** Opt-in debug traces contain only fixed stage names, durations and counts, never build settings. */
 internal object CheckPerformance {
     enum class Stage {
-        MAVEN_SNAPSHOT, NPM_SNAPSHOT, CHECK_QUEUE, CHECK,
+        MAVEN_SNAPSHOT, NPM_SNAPSHOT, CHECK_QUEUE, CHECK, FIRST_INSPECTION_RESULT,
         MAVEN_PROJECT_INPUTS, MAVEN_DECLARATIONS, MAVEN_SESSION, MAVEN_MODEL, MAVEN_SETTINGS, MAVEN_METADATA_EXPIRATION,
         MAVEN_DEPENDENCY_GOAL, MAVEN_PLUGIN_GOAL, MAVEN_PARENT_GOAL,
         NPM_RUNTIME_RESOLUTION, NPM_COMMAND_SETUP, NPM_VIEW, HIGHLIGHT_QUEUE, HIGHLIGHT_RESTART

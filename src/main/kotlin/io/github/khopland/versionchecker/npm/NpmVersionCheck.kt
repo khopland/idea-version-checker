@@ -5,6 +5,7 @@ import io.github.khopland.versionchecker.core.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
@@ -12,7 +13,8 @@ import kotlinx.coroutines.sync.withPermit
 internal suspend fun checkNpmVersions(
     declarations: List<VersionDeclaration>, mode: UpdateMode, policy: Map<String, String>, slots: Semaphore,
     metadata: suspend (String) -> NpmPackageMetadata,
-    deprecated: suspend (String, String) -> String?
+    deprecated: suspend (String, String) -> String?,
+    publish: suspend (InspectionUpdate) -> Unit = {}
 ): UpdateReport = coroutineScope {
     val packages = declarations.mapNotNull { declaration ->
         val baseline = NpmVersion.parse(declaration.baseline) ?: return@mapNotNull null
@@ -21,7 +23,7 @@ internal suspend fun checkNpmVersions(
     }.groupBy { it.third.packageName }
     val reports = packages.map { (name, usages) ->
         async {
-            slots.withPermit {
+            val report = try { slots.withPermit {
                 val candidates = mutableListOf<UpdateCandidate>()
                 val notices = mutableListOf<UpdateNotice>()
                 val deprecations = mutableMapOf<String, String?>()
@@ -45,10 +47,18 @@ internal suspend fun checkNpmVersions(
                     }
                 }
                 UpdateReport(candidates, notices)
+            } } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                UpdateReport(failure = "$name: ${failure.message ?: failure.javaClass.simpleName}", failureCause = failure)
             }
+            publish(InspectionUpdate(report, usages.map { it.first.id }.toSet()))
+            report
         }
     }.awaitAll()
     val order = declarations.mapIndexed { index, declaration -> declaration.id to index }.toMap()
     UpdateReport(reports.flatMap { it.candidates }.sortedBy { order[it.declaration.id] },
-        reports.flatMap { it.notices }.sortedBy { order[it.declaration.id] })
+        reports.flatMap { it.notices }.sortedBy { order[it.declaration.id] },
+        failure = reports.mapNotNull { it.failure }.takeIf { it.isNotEmpty() }?.joinToString("\n"),
+        failureCause = reports.firstNotNullOfOrNull { it.failureCause })
 }

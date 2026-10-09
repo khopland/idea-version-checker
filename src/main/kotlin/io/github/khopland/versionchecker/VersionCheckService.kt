@@ -28,6 +28,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Shared background coordinator. Only adapters know how a build resolves or declares versions. */
 @Service(Service.Level.PROJECT)
@@ -68,7 +69,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         if (!project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project)) return null
         val entry = cache.get(snapshot)
         if (entry == null && adapter.canCheckInBackground(project, snapshot)) schedule(adapter, snapshot)
-        return entry ?: cache.retainedInspectionReport(adapter, snapshot)
+        return entry ?: cache.inspectionProgress(adapter, snapshot) ?: cache.retainedInspectionReport(adapter, snapshot)
     }
 
     internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode,
@@ -85,13 +86,43 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
             if (reuseCached) cache.get(snapshot, mode)?.takeIf { it.successful }?.let { return@withSlot it }
             val revision = cache.begin(snapshot)
-            val result = CheckPerformance.measure(CheckPerformance.Stage.CHECK) { adapter.check(project, snapshot, mode) }
-            check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed during the check. Run it again." }
-            check(result.successful) { result.failure.orEmpty() }
-            check(cache.revision(snapshot.context) == revision) { "Version checks were refreshed during this check. Run it again." }
-            check(cache.put(snapshot, revision, result, mode)) { "Repository results expired during this check. Run it again." }
-            if (mode == UpdateMode.MAJOR && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
-            result
+            runCheck(adapter, snapshot, mode, revision) { result ->
+                check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed during the check. Run it again." }
+                check(cache.revision(snapshot.context) == revision) { "Version checks were refreshed during this check. Run it again." }
+                check(cache.put(snapshot, revision, result, mode)) { "Repository results expired during this check. Run it again." }
+                if (mode == UpdateMode.MAJOR && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
+                if (!result.successful) throw result.failureCause ?: IllegalStateException(result.failure.orEmpty())
+                result
+            }
+        }
+    }
+
+    private suspend fun <T> runCheck(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode,
+                                    revision: VersionResultCache.Revision, finish: suspend (UpdateReport) -> T): T {
+        val owner = Any()
+        val started = System.nanoTime()
+        val first = AtomicBoolean()
+        try {
+            val report = CheckPerformance.measure(CheckPerformance.Stage.CHECK) {
+                if (mode != UpdateMode.MAJOR || !adapter.capabilities.incrementalInspections)
+                    return@measure adapter.check(project, snapshot, mode)
+                adapter.checkIncrementally(project, snapshot, mode) { update ->
+                    val valid = readAction {
+                        !disposed && !project.isDisposed && project.service<VersionCheckerSettings>().state.enabled &&
+                            !adapter.isOffline(project) && adapter.isCurrent(project, snapshot)
+                    }
+                    if (valid && cache.putProgress(adapter, snapshot, revision, owner, update)) {
+                        val useful = update.report.candidates.size + update.report.notices.size
+                        if (useful > 0 && first.compareAndSet(false, true))
+                            CheckPerformance.record(CheckPerformance.Stage.FIRST_INSPECTION_RESULT, started, useful)
+                        project.service<FileProblemRefresh>().request(snapshot.sourceFile)
+                    }
+                }
+            }
+            return finish(report)
+        } finally {
+            if (cache.clearProgress(snapshot.context, owner) && !disposed && !project.isDisposed)
+                project.service<FileProblemRefresh>().request(snapshot.sourceFile)
         }
     }
 
@@ -243,17 +274,17 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 if (project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project) ||
                     cache.revision(snapshot.context) != token.revision || cache.get(snapshot) != null) return@withSlot
                 if (!readAction { adapter.canCheckInBackground(project, snapshot) && adapter.isCurrent(project, snapshot) }) return@withSlot
-                val report = CheckPerformance.measure(CheckPerformance.Stage.CHECK) {
-                    if (showProgress) {
-                        withBackgroundProgress(project, "Checking ${adapter.displayName} dependency versions", cancellable = true) {
-                            adapter.check(project, snapshot, UpdateMode.MAJOR)
-                        }
-                    } else adapter.check(project, snapshot, UpdateMode.MAJOR)
+                val finish: suspend (UpdateReport) -> Unit = { report ->
+                    if (readAction { !project.isDisposed && adapter.isCurrent(project, snapshot) } && cache.put(snapshot, token.revision, report)) {
+                        published = true
+                        if (!report.successful) notify("Could not check ${adapter.displayName} versions: ${report.failure}", NotificationType.WARNING)
+                    }
                 }
-                if (readAction { !project.isDisposed && adapter.isCurrent(project, snapshot) } && cache.put(snapshot, token.revision, report)) {
-                    published = true
-                    if (!report.successful) notify("Could not check ${adapter.displayName} versions: ${report.failure}", NotificationType.WARNING)
-                }
+                if (showProgress) {
+                    withBackgroundProgress(project, "Checking ${adapter.displayName} dependency versions", cancellable = true) {
+                        runCheck(adapter, snapshot, UpdateMode.MAJOR, token.revision, finish)
+                    }
+                } else runCheck(adapter, snapshot, UpdateMode.MAJOR, token.revision, finish)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled

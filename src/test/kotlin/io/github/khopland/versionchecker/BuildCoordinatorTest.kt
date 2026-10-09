@@ -348,6 +348,43 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertEquals(3, shown)
     }
 
+    fun testEarlyInspectionHintsDoNotAuthorizeAPreviewWhileTheCheckIsStillRunning() {
+        val file = myFixture.addFileToProject("early-hints/build.txt", "1.0")
+        val native = TestAdapter("early-hints-test", file)
+        val snapshot = native.snapshot(project, file.virtualFile)!!
+        val early = UpdateReport(listOf(UpdateCandidate(snapshot.declarations.single(), "1.2")))
+        val gate = CompletableDeferred<Unit>()
+        var checks = 0
+        val adapter = object : BuildSystemAdapter by native {
+            override val capabilities = AdapterCapabilities(incrementalInspections = true)
+            override suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
+                                                    publish: suspend (InspectionUpdate) -> Unit): UpdateReport {
+                checks++
+                publish(InspectionUpdate(early, snapshot.declarations.map { it.id }.toSet()))
+                gate.await()
+                return early
+            }
+        }
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        val service = project.service<VersionCheckService>()
+        service.updates(adapter, snapshot)
+        try {
+            PlatformTestUtil.waitWithEventsDispatching("Early inspection hint published", {
+                service.updates(adapter, snapshot)?.candidates?.singleOrNull()?.version == "1.2"
+            }, 10_000)
+            assertNull("Only a complete check may populate the preview cache", service.cached(snapshot))
+            val preview = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { project.service<BulkUpdateService>().createPlan(UpdateMode.MAJOR, UpdateScope.CURRENT_FILE, file.virtualFile) }
+            })
+            PlatformTestUtil.waitWithEventsDispatching("Preview waits for the complete check", { service.queuedChecks(adapter.id) == 1 }, 10_000)
+            assertFalse(preview.isDone)
+            gate.complete(Unit)
+            assertEquals(1, PlatformTestUtil.waitForFuture(preview, 10_000).changes.size)
+            assertEquals("The preview reuses the final report", 1, checks)
+            assertEquals("1.2", service.cached(snapshot)!!.candidates.single().version)
+        } finally { gate.complete(Unit) }
+    }
+
     fun testCurrentFileSelectionAndVersionModesReachTheAdapterUnchanged() {
         val first = myFixture.addFileToProject("one/package.json", "old")
         val other = myFixture.addFileToProject("two/package.json", "old")

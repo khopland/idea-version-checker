@@ -20,6 +20,9 @@ internal interface BuildSystemAdapter {
     fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean
     suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot>
     suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport
+    /** Deltas can display individually checked hints; only the final return value authorizes a preview. */
+    suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
+                                   publish: suspend (InspectionUpdate) -> Unit): UpdateReport = check(project, snapshot, mode)
     /** Presentation only; retained warnings must never satisfy a fresh check or bulk-preview guard. */
     fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot): UpdateReport? = null
     /** Called under a read action; timers must not resolve against files whose edits are unsaved. */

@@ -104,14 +104,29 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
             try { awaitCancellation() } finally { cancelled.complete(Unit) }
         }
         val adapterType = loader.loadClass("io.github.khopland.versionchecker.core.BuildSystemAdapter")
+        val capabilitiesType = loader.loadClass("io.github.khopland.versionchecker.core.AdapterCapabilities")
+        val defaults = capabilitiesType.getConstructor().newInstance()
+        val capabilities = capabilitiesType.constructors.single { it.parameterCount == 2 }
+            .newInstance(capabilitiesType.getMethod("getUpdateModes").invoke(defaults), true)
         val adapter = Proxy.newProxyInstance(loader, arrayOf(adapterType)) { proxy, method, args ->
             when (method.name) {
                 "getId", "getDisplayName" -> "dynamic-lifecycle-test"
+                "getCapabilities" -> capabilities
                 "isOffline" -> false
                 "isCurrent", "canCheckInBackground" -> true
                 "check" -> {
                     @Suppress("UNCHECKED_CAST")
                     (check as Function1<Continuation<Any>, Any?>).invoke(args.last() as Continuation<Any>)
+                }
+                "checkIncrementally" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val publish = args[3] as (suspend (Any) -> Unit)
+                    val report = loader.loadClass("io.github.khopland.versionchecker.core.UpdateReport").getConstructor().newInstance()
+                    val update = loader.loadClass("io.github.khopland.versionchecker.core.InspectionUpdate")
+                        .constructors.single { it.parameterCount == 2 }.newInstance(report, emptySet<Any>())
+                    val incremental: suspend () -> Any = { publish(update); check() }
+                    @Suppress("UNCHECKED_CAST")
+                    (incremental as Function1<Continuation<Any>, Any?>).invoke(args.last() as Continuation<Any>)
                 }
                 "hashCode" -> System.identityHashCode(proxy)
                 "equals" -> proxy === args[0]

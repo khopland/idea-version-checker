@@ -25,6 +25,7 @@ class NpmScheduledChecksTest : BasePlatformTestCase() {
         val native = NpmBuildSystemAdapter()
         val queried = CopyOnWriteArrayList<String>()
         val adapter = object : BuildSystemAdapter by native {
+            override val capabilities = native.capabilities.copy(incrementalInspections = false)
             override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
                 queried += snapshot.context.root
                 return UpdateReport()
