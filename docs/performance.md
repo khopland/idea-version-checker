@@ -64,7 +64,7 @@ Maven's inspection bridge now captures one snapshot and report for updates, relo
 
 Gradle inspections group candidates by declaration ID once and index the first notice for each ID. Matching no longer searches the complete candidate list for every declaration. Duplicate candidate IDs remain ambiguous, and shared-version notices retain their original report order. A 1,000-declaration visitor fixture checks all 1,000 diagnostics and fixes while bounding candidate traversal to linear work. Separate cases check duplicate rejection and first-notice ordering.
 
-npm inspections group workspace consumers by artifact once per pass, then build each workspace fix from the matching group. They still preserve selector operators, alias targets, workspace ownership and no-downgrade checks. Grouping avoids scanning unrelated packages for each candidate; repeated aliases of the same package can still repeat matching edit construction. The inspection fixture checks separate alpha/beta groups and applies an alpha workspace fix without changing beta.
+npm inspections group workspace consumers by artifact once per pass, then build each workspace fix from the matching group. They preserve selector operators, alias targets, workspace ownership and no-downgrade checks. Grouping avoids scanning unrelated packages for each candidate. Later work also shares prepared workspace actions for repeated aliases within that pass; see the measured workspace-fix section below. The inspection fixture checks separate alpha/beta groups and applies an alpha workspace fix without changing beta.
 
 The targeted reproduction command is:
 
@@ -74,7 +74,7 @@ The targeted reproduction command is:
   --tests '*NpmWorkspaceVersionFixTest'
 ```
 
-Use a clean rebuild after changing internal constructor signatures if incremental test bytecode is stale. These tests validate work counts, batching and edit safety, not production editor latency. Measure first visible hints and restart frequency in IDEA before claiming an end-to-end speedup or reducing the active window further. Active-file scan prioritization, incremental result publication and mode-aware cached previews remain follow-up work in the [fast-hints review](fast-hints-ux-review.html).
+Use a clean rebuild after changing internal constructor signatures if incremental test bytecode is stale. These tests validate work counts, batching and edit safety, not production editor latency. Measure first visible hints and restart frequency in IDEA before claiming an end-to-end speedup or reducing the active window further. Active-file scan prioritization, incremental result publication and mode-aware cached previews were subsequently delivered; see their sections below and the [fast-hints review](fast-hints-ux-review.html).
 
 The complete validation passed 255 plugin tests with no failures, errors or skips, including authenticated native Maven/npm/Gradle integration and packaged-plugin unload coverage. `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed. Both IDEA 2025.3.6.1 and 2026.1.4 remain compatible, with the existing experimental progress API notices and the existing deprecated read-action notice on 2026.1.4. No native editor latency measurement was performed.
 
@@ -196,6 +196,29 @@ Reproduce the isolated CPU fixture with:
 ```
 
 The benchmark is excluded by default. The full validation run explicitly enabled it alongside all three native integration suites: 310 tests passed with zero failures, errors or skips. Mixed/invalid histories, equal precedence, safe numeric limits, legacy notices, concurrent index sharing, cache budgets and packaged-plugin unload checks passed. Plugin build, configuration and compatibility verification passed for IDEA 2025.3.6.1 and 2026.1.4 with the existing API notices only.
+
+## Shared npm workspace fixes: 9 October 2026
+
+An npm inspection now prepares one workspace action per artifact and exact target-version string within that visitor. Equivalent alias warnings reuse its guarded edit list; every local action still owns its declaration's edit and selector. Absent workspace actions are cached too, avoiding repeated preparation when only one manifest has eligible declarations. Separate versions, packages and inspection passes keep separate actions. This cache has no project-level lifetime or repository data.
+
+The workspace action retains its existing full-input fingerprint, expected-selector checks, writable-file preparation and final atomic write validation. Newer consumers, peer/manual/local dependencies, excluded/nested workspaces and unsupported package managers keep their existing exclusions. Changing a sibling invalidates every alias's shared action. The action still applies one undoable command with the same impact count, operator/alias preservation and synchronization guidance.
+
+An opt-in fixture runs the real visitor against complete cached reports in a 100-member workspace with 10,000 declarations: each member has 100 aliases of one package. The selected file produces 100 warnings, each offering a local and workspace fix. After two warmups, five samples cover snapshot capture, report/consumer indexing, PSI traversal, edit construction and problem registration. Initial report preparation, native registry queries and editor rendering are excluded. Before and after samples use separate JVMs; see the [raw baseline, targeted and full validation runs](performance-npm-inspection-2026-10-09.txt).
+
+| Workspace declarations / selected-file warnings | Before median / p95 | After median / p95 | Distinct workspace actions |
+|------------------------------------------------|--------------------:|-------------------:|---------------------------:|
+| 4 / 2 | 1.64 / 1.83 ms | 0.59 / 0.61 ms | 2 → 1 |
+| 10,000 / 100 | 1,512.10 / 1,535.07 ms | 68.46 / 73.90 ms | 100 → 1 |
+
+The first registered problem's median was 49.33 ms before and 68.13 ms in the final validation run. Sharing removes the repeated work after that first problem; it does not demonstrate faster first-problem preparation. Earlier targeted after-runs took about 51–53 ms for the complete large visitor. The work-count reduction is stable, while elapsed values vary with JIT, GC, project/index state and scheduling. Five-sample p95 values are maxima, and these headless timings do not establish time to a visible IDEA hint.
+
+Reproduce the fixture with:
+
+```sh
+./gradlew test --tests '*NpmInspectionBenchmarkTest' -PnpmInspectionBenchmark=true
+```
+
+It is excluded by default. Full validation enabled both npm benchmarks and all three native integration suites: 315 tests passed with zero failures, errors or skips. New platform fixtures cover action sharing within one pass, independent local aliases, pass/version/artifact isolation, stale siblings and newer-member exclusions. Existing atomicity, undo, ownership, recovery and packaged-plugin unload checks also passed. Build, configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4 with no new verifier warnings.
 
 ## Inspect real-project traces
 

@@ -1,0 +1,46 @@
+npm workspace inspection validation — 9 October 2026
+Implementation: 722bc81 (baseline production code: e4c6631)
+Environment: macOS arm64; IDEA 2025.3.6.1; Gradle Java 21 toolchain.
+Full validation: 315 tests, zero failures/errors/skips; build/configuration checks passed.
+Plugin verification: IDEA 2025.3.6.1 and 2026.1.4 compatible; existing API notices only.
+
+Full command:
+./gradlew test -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true -PnpmHistoryBenchmark=true -PnpmInspectionBenchmark=true check buildPlugin verifyPluginProjectConfiguration verifyPlugin --console=plain
+
+Fixture command:
+./gradlew test --tests '*NpmInspectionBenchmarkTest' -PnpmInspectionBenchmark=true
+
+Fixture: real NewerNpmDependencyInspection visitor on a current, complete cached report.
+Workspace: 2 manifests / 4 declarations or 100 manifests / 10000 declarations.
+Each member has 2 or 100 aliases of the same npm package, proposing one patch target.
+The selected member produces 2 or 100 warnings with local and workspace choices.
+Timing includes visitor setup (snapshot capture, report/consumer indexing), all PSI traversal,
+workspace edit construction and problem registration. Initial cache/report setup is excluded.
+First-problem timing ends at the first registration observed by the traversal wrapper.
+It does not measure completed IDEA inspection publication or rendered diagnostics.
+Two warmups, five samples per workload; separate before/after JVMs.
+p95 is the maximum of five samples, not a reliable production percentile.
+No native npm process, HTTP request, install, editor window or timing assertion.
+Each sample checks warning count, selector-preserving action labels and declared impact.
+After-change fixtures assert one distinct workspace action per pass.
+
+Baseline (isolated fixture JVM):
+npm-inspection manifests=2 declarations=4 warnings=2 samplesMs=[1.83125, 1.779709, 1.639958, 1.550584, 1.478042] medianMs=1.639958 p95Ms=1.83125 firstProblemSamplesMs=[1.683125, 1.62275, 1.527166, 1.446709, 1.384875] firstProblemMedianMs=1.527166 distinctWorkspaceFixes=[2, 2, 2, 2, 2]
+npm-inspection manifests=100 declarations=10000 warnings=100 samplesMs=[1512.097375, 1514.571375, 1511.123791, 1508.897458, 1535.07275] medianMs=1512.097375 p95Ms=1535.07275 firstProblemSamplesMs=[51.384625, 52.891334, 49.328416, 47.821166, 45.094334] firstProblemMedianMs=49.328416 distinctWorkspaceFixes=[100, 100, 100, 100, 100]
+
+After implementation (targeted test JVM):
+npm-inspection manifests=2 declarations=4 warnings=2 samplesMs=[1.925708, 2.036083, 3.064667, 2.05925, 2.894541] medianMs=2.05925 p95Ms=3.064667 firstProblemSamplesMs=[1.888958, 1.992042, 3.031334, 2.026875, 2.857916] firstProblemMedianMs=2.026875 distinctWorkspaceFixes=[1, 1, 1, 1, 1]
+npm-inspection manifests=100 declarations=10000 warnings=100 samplesMs=[55.987125, 53.387459, 45.911083, 47.161167, 66.899083] medianMs=53.387459 p95Ms=66.899083 firstProblemSamplesMs=[55.643791, 53.075334, 45.615416, 46.909125, 66.70125] firstProblemMedianMs=53.075334 distinctWorkspaceFixes=[1, 1, 1, 1, 1]
+
+After implementation (full validation JVM):
+npm-inspection manifests=2 declarations=4 warnings=2 samplesMs=[0.607833, 0.588833, 0.58875, 0.581791, 0.589291] medianMs=0.588833 p95Ms=0.607833 firstProblemSamplesMs=[0.598833, 0.579833, 0.579584, 0.572375, 0.580708] firstProblemMedianMs=0.579833 distinctWorkspaceFixes=[1, 1, 1, 1, 1]
+npm-inspection manifests=100 declarations=10000 warnings=100 samplesMs=[73.896584, 69.662875, 67.472667, 68.457458, 67.520791] medianMs=68.457458 p95Ms=73.896584 firstProblemSamplesMs=[73.48675, 69.281625, 67.124209, 68.130958, 67.193083] firstProblemMedianMs=68.130958 distinctWorkspaceFixes=[1, 1, 1, 1, 1]
+
+Primary work reduction: 100 equivalent workspace actions/edit lists become one.
+Local edit objects remain separate for each warning. Caching is confined to one visitor.
+Distinct artifacts or exact version strings keep distinct workspace plans.
+Negative results are cached too, preserving single-local-fix behavior.
+Full-suite regressions cover stale siblings, alias prefixes, scope exclusions, no downgrades,
+atomic final write validation, undo, independent local choices and packaged-plugin unload.
+First-problem timing did not improve; repeated preparation after that problem was removed.
+JIT, GC, project/index state and scheduling affect elapsed values; real IDEA latency is unmeasured.
