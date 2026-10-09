@@ -1,0 +1,40 @@
+npm version-history validation — 9 October 2026
+Implementation: e4c6631
+Environment: macOS arm64; IDEA 2025.3.6.1; Gradle Java 21 toolchain.
+Full validation: 310 tests, zero failures/errors/skips; build/configuration checks passed.
+Plugin verification: IDEA 2025.3.6.1 and 2026.1.4 compatible; existing API notices only.
+
+Command:
+./gradlew test -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true -PnpmHistoryBenchmark=true check buildPlugin verifyPluginProjectConfiguration verifyPlugin --console=plain
+
+CPU fixture: one shared raw response per run, first index preparation included.
+100 or 5000 shuffled stable versions; 2 or 200 direct/alias consumers in 1 or 100 manifests.
+Each sample checks all three update modes. Complete deprecation metadata; no npm process/HTTP/editor.
+Three warmups; five alternating samples per path; every report checked for candidate/notice parity.
+Original path reproduces per-declaration baseline lookup, parsing/filtering/sorting and deprecation selection.
+Current path uses real checkNpmVersions across manifests. The reference excludes coroutine/report-merge overhead.
+p95 is nearest-rank p95 (the maximum with only five samples), not a production percentile.
+
+Before implementation (separate test JVM):
+npm-history versions=100 consumers=2 modes=3 path=original samplesMs=[0.754833, 0.653666, 0.637125, 0.618083, 0.60325] medianMs=0.637125 p95Ms=0.754833
+npm-history versions=100 consumers=2 modes=3 path=current samplesMs=[1.435083, 1.220542, 1.129917, 1.102541, 1.078125] medianMs=1.129917 p95Ms=1.435083
+npm-history versions=100 consumers=200 modes=3 path=original samplesMs=[25.406875, 26.612625, 25.027625, 25.263708, 25.964625] medianMs=25.406875 p95Ms=26.612625
+npm-history versions=100 consumers=200 modes=3 path=current samplesMs=[30.893833, 28.527791, 29.498666, 27.475208, 27.740125] medianMs=28.527791 p95Ms=30.893833
+npm-history versions=5000 consumers=200 modes=3 path=original samplesMs=[1299.109292, 1242.149458, 1149.420417, 1074.489, 1104.699208] medianMs=1149.420417 p95Ms=1299.109292
+npm-history versions=5000 consumers=200 modes=3 path=current samplesMs=[1158.797833, 1138.192125, 1065.338166, 1065.515292, 1069.393208] medianMs=1069.393208 p95Ms=1158.797833
+
+After implementation (full validation JVM):
+npm-history versions=100 consumers=2 modes=3 path=original samplesMs=[0.552666, 0.544125, 0.53525, 0.614958, 0.560333] medianMs=0.552666 p95Ms=0.614958
+npm-history versions=100 consumers=2 modes=3 path=current samplesMs=[0.18075, 0.111209, 0.123208, 0.108208, 0.184125] medianMs=0.123208 p95Ms=0.184125
+npm-history versions=100 consumers=200 modes=3 path=original samplesMs=[44.690417, 44.403166, 32.730541, 33.173667, 35.119167] medianMs=35.119167 p95Ms=44.690417
+npm-history versions=100 consumers=200 modes=3 path=current samplesMs=[5.014041, 4.371417, 2.991417, 2.585667, 2.761833] medianMs=2.991417 p95Ms=5.014041
+npm-history versions=5000 consumers=200 modes=3 path=original samplesMs=[1441.988541, 2319.291, 1621.609875, 1525.8835, 1578.917417] medianMs=1578.917417 p95Ms=2319.291
+npm-history versions=5000 consumers=200 modes=3 path=current samplesMs=[5.328292, 4.771875, 5.626333, 4.887375, 6.157292] medianMs=5.328292 p95Ms=6.157292
+version-check benchmark=npm-workspace manifests=101 declarations=200 versions=5008 modes=3 elapsedNs=940242625 httpRequests=1
+
+Native workspace fixture: configured Node/npm with authenticated local HTTP registry, no installs.
+101 manifests; 200 direct/alias declarations; 5008 published versions including one prerelease.
+One metadata command/HTTP request across all three modes and files in a fresh generation.
+Expected candidates: PATCH 1.2.8, MINOR 1.9.0, MAJOR 14.9.48 (14.9.49 deprecated).
+Native elapsed time is a single work-count check, not a before/after latency comparison.
+Excluded from all measurements: completed IDEA rendering and native-window usability.

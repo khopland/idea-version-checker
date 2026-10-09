@@ -10,7 +10,7 @@ npm normally executes `npm view '<name>@>=0.0.0' name version deprecated --json`
 
 The project-scoped npm cache shares successful raw metadata and in-flight requests by workspace root, configuration digest, package name and refresh generation. Configuration includes project/ancestor/user npm settings, environment, selected Node/npm runtime, known runtime-manager files and package-manager/workspace/runtime fields in `package.json`. Dependency selector edits reuse raw metadata; strict edit fingerprints still include the complete workspace manifests and deprecation policy. Credentials enter only the digest, never the cache key or traces.
 
-Successful responses expire ten minutes after completion. Reports inherit the earliest metadata deadline, so creating another report from a warm response cannot extend its freshness. Completed entries use LRU eviction with limits of 512 packages, 100,000 versions and 8,000,000 characters of version/deprecation data. Oversized histories serve their current callers but are not retained. Failures and cancellations are not retained. Cancelling one caller preserves a request needed by another; cancelling its last caller stops the native worker. Project disposal or plugin unload stops all workers, including older generations.
+Successful responses expire ten minutes after completion. Reports inherit the earliest metadata deadline, so creating another report from a warm response cannot extend its freshness. Completed entries use LRU eviction with limits of 512 packages, 100,000 version slots and 8,000,000 characters of version/deprecation data. The version-slot budget includes raw strings, parsed records and baseline-map entries; parsed history shares the original strings. Oversized histories serve their current callers but are not retained. Failures and cancellations are not retained. Cancelling one caller preserves a request needed by another; cancelling its last caller stops the native worker. Project disposal or plugin unload stops all workers, including older generations.
 
 Manual refreshes, scheduled scans and bulk previews begin a new generation once per adapter, allowing files in that scan to share fresh responses. Workers already serving callers may finish, but cannot join or populate the new generation. Independent npm roots and changed resolution settings remain isolated. The legacy query fallback can still require per-version deprecation commands when a registry does not supply complete combined metadata.
 
@@ -171,6 +171,32 @@ Actionable recovery notifications expire after one minute and are removed when e
 
 The full suite passed 302 tests with zero failures, errors or skips, including all three native integration suites and packaged-plugin lifecycle checks. Plugin build, project configuration and compatibility verification passed for IDEA 2025.3.6.1 and 2026.1.4 with no new warnings; the existing experimental API notices and one deprecated API usage on 2026.1.4 remain.
 
+## Shared npm version histories: 9 October 2026
+
+Each npm metadata response now owns one thread-safe, lazily prepared stable-version index. The native metadata cache prepares it outside its lock before issuing a lease, accounts for its retained records and baseline-map entries, and starts the completion TTL afterwards. Consumers share it across workspace files, aliases and update modes for the lifetime of that response. Refresh, configuration isolation, expiry, cancellation and disposal retain their existing metadata ownership rules.
+
+Baseline notices use a numeric-version map preserving the first original registry spelling, including build metadata. Candidates keep stable descending precedence and the original order among equal versions. Patch/minor selection uses a binary search to skip newer groups, then stops at the baseline; major selection starts at the highest release. Deprecation checks stop at the first eligible nondeprecated candidate without allocating a complete candidate list or reparsing its version. Legacy notice queries, alias prefixes, unsupported selectors, zero-major rules and unpublished baselines retain their existing behavior.
+
+An opt-in CPU fixture compares the original per-declaration selection algorithm with the real checker across manifests. Each sample checks all three modes against one shared raw response, including its first index preparation. It uses shuffled histories, direct selectors, aliases and complete deprecation metadata. Every sample asserts complete candidate/notice parity. After three warmups, five samples alternate between paths. The original reference excludes the new path's coroutine/report-merge overhead; neither path launches npm, sends HTTP requests or renders an editor. See the [raw baseline and validation samples](performance-npm-history-2026-10-09.txt).
+
+| Stable versions / consumers | Original median / p95 | Shared index median / p95 |
+|----------------------------|----------------------:|--------------------------:|
+| 100 / 2 | 0.55 / 0.61 ms | 0.12 / 0.18 ms |
+| 100 / 200 | 35.12 / 44.69 ms | 2.99 / 5.01 ms |
+| 5,000 / 200 | 1,578.92 / 2,319.29 ms | 5.33 / 6.16 ms |
+
+The long-history fixture demonstrates meaningful repeated local CPU work and its removal. These five-sample p95 values are the maximum sample, not reliable production percentiles or a general speed multiplier. JIT, allocation and GC costs vary between runs; the record includes an earlier separate-JVM baseline. End-to-end visible-hint and preview timing still requires a real IDEA session.
+
+The authenticated native npm fixture checks 101 manifests with 200 direct/alias declarations and 5,008 published versions, including one prerelease. All three modes share one metadata command and one HTTP request in a fresh generation. It preserves patch/minor candidates and skips the deprecated highest major release, selecting 14.9.48. The single 940 ms native workload timing is a work-count check, without a corresponding old-path comparison.
+
+Reproduce the isolated CPU fixture with:
+
+```sh
+./gradlew test --tests '*NpmVersionHistoryBenchmarkTest' -PnpmHistoryBenchmark=true
+```
+
+The benchmark is excluded by default. The full validation run explicitly enabled it alongside all three native integration suites: 310 tests passed with zero failures, errors or skips. Mixed/invalid histories, equal precedence, safe numeric limits, legacy notices, concurrent index sharing, cache budgets and packaged-plugin unload checks passed. Plugin build, configuration and compatibility verification passed for IDEA 2025.3.6.1 and 2026.1.4 with the existing API notices only.
+
 ## Inspect real-project traces
 
 In IDEA, open **Help → Diagnostic Tools → Debug Log Settings** and enable:
@@ -185,7 +211,7 @@ Trace entries in `idea.log` contain a fixed stage name, elapsed nanoseconds and 
 version-check stage=MAVEN_DEPENDENCY_GOAL elapsedNs=123456789 count=1
 ```
 
-Stages cover Maven/npm snapshot capture, coordinator lock wait, overall checks, Maven project-input capture/declaration collection/embedder acquisition/effective model/settings/metadata expiration, each dependency/plugin/parent goal, npm command setup and CLI execution, and highlighting restart work. `HIGHLIGHT_QUEUE` includes the batching delay and restart scheduling; it does not measure completion of IDEA's inspection rendering. Goal/session/CLI counts count invocations, `MAVEN_PROJECT_INPUTS` counts captured non-ignored POMs, metadata expiration counts declarations, and highlighting counts affected files. Stages can overlap or contain other stages, so their durations must not be summed indiscriminately. Failed and cancelled operations can also emit timings.
+Stages cover Maven/npm snapshot capture, coordinator lock wait, overall checks, Maven project-input capture/declaration collection/embedder acquisition/effective model/settings/metadata expiration, each dependency/plugin/parent goal, npm command setup and CLI execution, npm version indexing, and highlighting restart work. `NPM_VERSION_INDEX` counts raw version entries supplied to the index and measures its one-time preparation per response. `HIGHLIGHT_QUEUE` includes the batching delay and restart scheduling; it does not measure completion of IDEA's inspection rendering. Goal/session/CLI counts count invocations, `MAVEN_PROJECT_INPUTS` counts captured non-ignored POMs, metadata expiration counts declarations, and highlighting counts affected files. Stages can overlap or contain other stages, so their durations must not be summed indiscriminately. Failed and cancelled operations can also emit timings.
 
 The trace category records no file paths, coordinates, registry URLs, command arguments, configuration contents or tokens. Disable it after profiling. Compare current-file and whole-project refreshes separately, and record update mode, fresh/warm native caches and runtime versions alongside results. Counting metadata expiration does not prove HTTP revalidation; the local fixtures count requests independently.
 
