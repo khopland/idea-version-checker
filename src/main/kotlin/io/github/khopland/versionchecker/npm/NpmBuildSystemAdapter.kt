@@ -134,9 +134,21 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     internal fun quickFixes(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
                             value: JsonStringLiteral,
                             declarations: List<Pair<VersionDeclaration, JsonStringLiteral>> = workspaceDeclarations(project, snapshot)): Array<LocalQuickFix> {
+        return quickFixes(project, snapshot, candidate, value, workspaceFix(project, snapshot, candidate, declarations))
+    }
+
+    /** Local edits belong to their declaration; a prepared workspace action may be shared by a pass. */
+    internal fun quickFixes(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
+                            value: JsonStringLiteral, workspaceFix: LocalQuickFix?): Array<LocalQuickFix> {
         val current = { isCurrent(project, snapshot) }
-        val local = UpdateNpmVersionFix(value, candidate.replacementSelector, isCurrent = current)
-        val latest = NpmVersion.parse(candidate.version) ?: return arrayOf(local)
+        if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, isCurrent = current))
+        return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, "Update locally to ${candidate.replacementSelector}", current),
+            workspaceFix)
+    }
+
+    internal fun workspaceFix(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
+                              declarations: List<Pair<VersionDeclaration, JsonStringLiteral>>): LocalQuickFix? {
+        val latest = NpmVersion.parse(candidate.version) ?: return null
         val edits = declarations.mapNotNull { (declaration, target) ->
             if (declaration.artifact != candidate.declaration.artifact || declaration.baseline.isEmpty()) return@mapNotNull null
             val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector) ?: return@mapNotNull null
@@ -144,11 +156,8 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
             if (selector.baseline >= latest) return@mapNotNull null
             NpmVersionEdit(target, selector.replace(candidate.version), "${declaration.id.file}: ${declaration.id.location}")
         }
-        if (edits.mapNotNull { it.element?.containingFile?.virtualFile?.path }.distinct().size < 2) return arrayOf(local)
-        return arrayOf(
-            UpdateNpmVersionFix(value, candidate.replacementSelector, "Update locally to ${candidate.replacementSelector}", current),
-            UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits, current)
-        )
+        if (edits.mapNotNull { it.element?.containingFile?.virtualFile?.path }.distinct().size < 2) return null
+        return UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits) { isCurrent(project, snapshot) }
     }
     private fun findFile(project: Project, path: String): VirtualFile? =
         NpmManifest.files(project, BuildSelection(UpdateScope.CURRENT_FILE, path)).singleOrNull()

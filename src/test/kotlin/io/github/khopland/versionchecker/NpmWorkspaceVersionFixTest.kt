@@ -6,6 +6,7 @@ import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
+import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.command.undo.UndoManager
 import com.intellij.openapi.components.service
@@ -64,26 +65,105 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         return notifications
     }
 
-    fun testInspectionWorkspaceFixesKeepAliasesGroupedByArtifactAndExcludeOtherPackages() {
-        val root = add("package.json", """{"workspaces":["packages/*"],"dependencies":{"alpha":"^1.2.3","beta":"^1.2.3"}}""")
-        val child = add("packages/app/package.json", """{"dependencies":{"alias":"npm:alpha@~1.2.3","beta":"~1.2.3"}}""")
-        val snapshot = adapter.snapshot(project, root.virtualFile)!!
+    private fun inspect(file: PsiFile, versions: Map<String, String> = emptyMap()): List<ProblemDescriptor> {
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
         val checking = object : BuildSystemAdapter by adapter {
             override val capabilities = adapter.capabilities.copy(incrementalInspections = false)
             override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) =
-                UpdateReport(snapshot.declarations.map {
-                    UpdateCandidate(it, "1.2.9", NpmSelector.parse(it.artifact.name, it.selector)!!.replace("1.2.9"), VersionChangeKind.PATCH)
+                UpdateReport(snapshot.declarations.filter { it.baseline.isNotEmpty() }.map {
+                    val latest = versions[it.id.location] ?: "1.2.9"
+                    UpdateCandidate(it, latest, NpmSelector.parse(it.artifact.name, it.selector)!!.replace(latest), VersionChangeKind.PATCH)
                 })
         }
         val service = project.service<VersionCheckService>()
         service.updates(checking, snapshot)
-        PlatformTestUtil.waitWithEventsDispatching("npm report cached", { service.cached(snapshot) != null }, 10_000)
-        val holder = ProblemsHolder(InspectionManager.getInstance(project), root, true)
+        PlatformTestUtil.waitWithEventsDispatching("npm report cached", { service.cached(snapshot) != null }, 10)
+        val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
         val visitor = NewerNpmDependencyInspection().buildVisitor(holder, true)
-        PsiTreeUtil.processElements(root) { element -> element.accept(visitor); true }
-        assertEquals(2, holder.results.size)
-        val alpha = holder.results.first { it.descriptionTemplate.contains("of alpha ") }
-        val beta = holder.results.first { it.descriptionTemplate.contains("of beta ") }
+        PsiTreeUtil.processElements(file) { element -> element.accept(visitor); true }
+        return holder.results
+    }
+
+    private fun apply(problem: ProblemDescriptor, index: Int) {
+        val fix = problem.fixes!![index] as LocalQuickFix
+        if (fix.startInWriteAction()) WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, problem) }
+        else fix.applyFix(project, problem)
+    }
+
+    fun testInspectionSharesWorkspaceActionButKeepsLocalAliasesAndPassesSeparate() {
+        val root = root()
+        val child = child()
+        val problems = inspect(root)
+        assertEquals(2, problems.size)
+        assertSame(problems[0].fixes!![1], problems[1].fixes!![1])
+        assertNotSame(problems[0].fixes!![0], problems[1].fixes!![0])
+        assertNotSame("Prepared edits must stay within their inspection pass", problems[0].fixes!![1], inspect(root)[0].fixes!![1])
+        val alias = problems.single { "npm:alpha@~1.2.3" in it.psiElement.text }
+        apply(alias, 0)
+        assertEquals("npm:alpha@~1.2.9", selectors(root)["devDependencies/alias"])
+        assertEquals("^1.2.3", selectors(root)["dependencies/alpha"])
+        assertEquals("1.2.3", selectors(child)["dependencies/alpha"])
+        assertEquals("npm:alpha@^1.2.3", selectors(child)["optionalDependencies/alpha-alias"])
+    }
+
+    fun testInspectionKeepsDifferentTargetsAndArtifactsSeparate() {
+        val root = add("package.json", """{"workspaces":["packages/*"],"dependencies":{
+            "one":"npm:alpha@^1.2.3","two":"npm:alpha@~1.2.3","beta":"^1.2.3"}}""")
+        val child = add("packages/app/package.json", """{"dependencies":{"alpha":"1.2.3","beta":"~1.2.3"}}""")
+        val problems = inspect(root, mapOf("dependencies/one" to "1.2.9", "dependencies/two" to "1.3.0"))
+        val lower = problems.single { "npm:alpha@^" in it.psiElement.text }
+        val higher = problems.single { "npm:alpha@~" in it.psiElement.text }
+        val beta = problems.single { it.descriptionTemplate.contains("of beta ") }
+        assertNotSame(lower.fixes!![1], higher.fixes!![1])
+        assertNotSame(lower.fixes!![1], beta.fixes!![1])
+        assertEquals("Update alpha across workspace to 1.2.9 (3 declarations)", lower.fixes!![1].name)
+        assertEquals("Update alpha across workspace to 1.3.0 (3 declarations)", higher.fixes!![1].name)
+        assertEquals("Update beta across workspace to 1.2.9 (2 declarations)", beta.fixes!![1].name)
+        apply(higher, 1)
+        assertEquals("npm:alpha@^1.3.0", selectors(root)["dependencies/one"])
+        assertEquals("npm:alpha@~1.3.0", selectors(root)["dependencies/two"])
+        assertEquals("1.3.0", selectors(child)["dependencies/alpha"])
+        assertEquals("^1.2.3", selectors(root)["dependencies/beta"])
+        assertEquals("~1.2.3", selectors(child)["dependencies/beta"])
+    }
+
+    fun testSharedInspectionWorkspaceActionRejectsChangedSiblingForEveryAlias() {
+        val root = root()
+        val child = child()
+        val problems = inspect(root)
+        assertSame(problems[0].fixes!![1], problems[1].fixes!![1])
+        WriteCommandAction.runWriteCommandAction(project) {
+            val value = NpmManifest.values(child).entries.single { it.key.location == "dependencies/alpha" }.value
+            NpmVersionEdit(value, "1.2.8", "test").apply()
+        }
+        val before = listOf(root.text, child.text)
+        problems.forEach { apply(it, 1) }
+        assertEquals(before, listOf(root.text, child.text))
+    }
+
+    fun testInspectionKeepsSingleLocalActionsWhenOtherMembersAlreadyUseNewerVersions() {
+        val root = root()
+        val newer = add("packages/newer/package.json", """{"dependencies":{"alpha":"2.0.0"},
+            "devDependencies":{"alias":"npm:alpha@^1.2.10"}}""")
+        val before = newer.text
+        val problems = inspect(root)
+        assertEquals(2, problems.size)
+        assertTrue(problems.all { it.fixes!!.size == 1 })
+        val alias = problems.single { "npm:alpha@~1.2.3" in it.psiElement.text }
+        assertEquals("Update declared version to npm:alpha@~1.2.9", alias.fixes!!.single().name)
+        apply(alias, 0)
+        assertEquals("npm:alpha@~1.2.9", selectors(root)["devDependencies/alias"])
+        assertEquals("^1.2.3", selectors(root)["dependencies/alpha"])
+        assertEquals(before, newer.text)
+    }
+
+    fun testInspectionWorkspaceFixesKeepAliasesGroupedByArtifactAndExcludeOtherPackages() {
+        val root = add("package.json", """{"workspaces":["packages/*"],"dependencies":{"alpha":"^1.2.3","beta":"^1.2.3"}}""")
+        val child = add("packages/app/package.json", """{"dependencies":{"alias":"npm:alpha@~1.2.3","beta":"~1.2.3"}}""")
+        val problems = inspect(root)
+        assertEquals(2, problems.size)
+        val alpha = problems.first { it.descriptionTemplate.contains("of alpha ") }
+        val beta = problems.first { it.descriptionTemplate.contains("of beta ") }
         assertEquals("Update alpha across workspace to 1.2.9 (2 declarations)", alpha.fixes!![1].name)
         assertEquals("Update beta across workspace to 1.2.9 (2 declarations)", beta.fixes!![1].name)
         apply(root, alpha.fixes!![1] as LocalQuickFix)

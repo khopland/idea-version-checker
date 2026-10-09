@@ -33,6 +33,9 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
         val workspaceDeclarationsByArtifact by lazy {
             adapter.workspaceDeclarations(holder.project, snapshot).groupBy { it.first.artifact }
         }
+        // Pass-local ownership keeps PSI/edit guards tied to this snapshot. Cache absent actions
+        // too: a standalone package or a single eligible manifest must not repeat preparation.
+        val workspaceFixes = mutableMapOf<Pair<ArtifactId, String>, LocalQuickFix?>()
         return object : PsiElementVisitor() {
             override fun visitElement(element: PsiElement) {
                 val id = values[element] ?: return
@@ -43,8 +46,10 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
                 val highlight = kind.severity(options).highlight ?: return
                 val message = notice?.message ?: "Newer npm version of ${candidate!!.declaration.artifact.name} is available: ${candidate.declaration.selector} → ${candidate.replacementSelector} (declared range)"
                 val fixes = candidate?.let {
-                    adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral,
+                    val key = it.declaration.artifact to it.version
+                    if (key !in workspaceFixes) workspaceFixes[key] = adapter.workspaceFix(holder.project, snapshot, it,
                         workspaceDeclarationsByArtifact[it.declaration.artifact].orEmpty())
+                    adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral, workspaceFixes[key])
                 }.orEmpty()
                 holder.registerProblem(element, message, highlight, *fixes)
             }
