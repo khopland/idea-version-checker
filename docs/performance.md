@@ -119,6 +119,18 @@ Maven's request reduction did not produce a median elapsed-time improvement in t
 
 The native npm fixture also checks 100 member manifests plus the workspace root, with 200 declarations of one scoped package through direct selectors and aliases. A fresh generation requires one native metadata command and one authenticated registry HTTP request for all 101 snapshots, preserving all 200 proposed edits. A unit workload checks 10,000 references to 100 packages and requires 100 loads per generation. See the [workspace validation record](performance-stage2-2026-10-08.txt). The single workspace timing is a work-count check, not a production latency comparison. The full suite passed 207 tests, and plugin build, configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4, retaining the existing API notices.
 
+## Cached, selectable previews: 9 October 2026
+
+Report caching now keys successful checks by build context and update mode. Opening a preview uses an exact fingerprint/declaration match and an unexpired report for that mode, with current-input validation before reuse. A second check inside the interactive queue avoids repeating a check completed while the request was waiting. Retained inspection-only reports cannot authorize preview edits. npm continues to reuse raw metadata across modes while deriving candidates locally; Maven and Gradle need a report for the requested mode or perform a native check.
+
+Refresh invalidates the selected provider/source across modes and its native metadata before checking again. Preview guards retain the exact report identity, generation and original freshness deadline, plus the adapter's complete input and shared-consumer validation. Expired, refreshed or replaced results reject apply before any edit. The displayed age is time since report preparation; it does not extend underlying repository metadata expiry or imply a new HTTP request.
+
+The preview includes filtering, sortable checkbox rows, scope/mode controls, Refresh and a collapsed Needs review section. Filtering preserves selections and explicitly counts selected hidden rows. Select visible adds visible rows; Clear selection removes all selections. Applying selects atomic declaration/property/catalog edits in their original order, with every original plan guard retained. Shared edits remain indivisible. Only the selected providers' post-apply synchronization guidance is shown. Empty previews retain Refresh and mode/scope controls instead of requiring another menu trip. The editor context menu opens a patch preview directly, and repeated invocations focus an existing preview.
+
+The native npm fixture asserts zero registry requests for repeated same-mode/current-input previews after a fresh check. Coordinator and UI fixtures check mode isolation, forced refresh, mode/refresh dialog transitions, sorted-row selection, hidden selections, empty previews, stale-input rejection and provider-specific guidance. These are work-count and behavior checks; no end-to-end visible-hint or native IDEA usability timing is claimed.
+
+The full suite passed 271 tests with no failures, errors or skips, enabling all three native integration suites and packaged-plugin lifecycle checks. Plugin build, project configuration and compatibility checks passed for IDEA 2025.3.6.1 and 2026.1.4. The verifier retained the existing seven experimental API usages on both versions and one deprecated API usage on 2026.1.4.
+
 ## Inspect real-project traces
 
 In IDEA, open **Help → Diagnostic Tools → Debug Log Settings** and enable:

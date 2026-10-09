@@ -289,7 +289,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 for (scope in UpdateScope.entries) {
                     val before = requests.size
                     val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
-                        runBlocking { project.service<BulkUpdateService>().createPlan(mode, scope, rootFile) }
+                        runBlocking { project.service<BulkUpdateService>().createPlan(mode, scope, rootFile, forceRefresh = true) }
                     })
                     val plan = PlatformTestUtil.waitForFuture(future, 120_000)
                     assertEquals("One combined lookup per workspace's unique package and fresh generation", 1, requests.size - before)
@@ -297,6 +297,12 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                     assertTrue(plan.changes.all { it.latest.endsWith(expected) })
                     assertTrue(plan.skipped.single().contains("local workspace"))
                     if (scope == UpdateScope.CURRENT_FILE) assertTrue(plan.changes.all { it.location.startsWith(rootFile.path) })
+                    val warmBefore = requests.size
+                    val warm = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                        runBlocking { project.service<BulkUpdateService>().createPlan(mode, scope, rootFile) }
+                    }), 120_000)
+                    assertEquals("Warm same-mode previews must not query the registry", warmBefore, requests.size)
+                    assertEquals(plan.changes.map { it.latest }, warm.changes.map { it.latest })
                 }
             }
             // A real duplicate workspace exercises context construction, native auth and cache

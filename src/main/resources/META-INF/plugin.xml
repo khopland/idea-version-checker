@@ -25,6 +25,9 @@
         <projectConfigurable parentId="tools" id="version.checker" displayName="Version Checker" instance="io.github.khopland.versionchecker.VersionCheckerConfigurable" />
     </extensions>
     <actions>
+        <action id="VersionChecker.ReviewCurrentFile" class="io.github.khopland.versionchecker.ReviewCurrentFileUpdatesAction" text="Review Dependency Updates…" description="Review and select dependency version changes in this build file">
+            <add-to-group group-id="EditorPopupMenu" anchor="last" />
+        </action>
         <group id="VersionChecker.Updates" text="Update Versions" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last" />
             <group id="VersionChecker.Updates.CurrentFile" text="Current File" popup="true">

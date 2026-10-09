@@ -34,6 +34,9 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import javax.swing.JComponent
 
+internal data class PreparedVersionPreview(val plan: BulkUpdatePlan, val checkedAtNanos: Long,
+                                          val reusedReports: Int, val totalReports: Int)
+
 @Service(Service.Level.PROJECT)
 class BulkUpdateService(private val project: Project, private val scope: CoroutineScope) : Disposable {
     private val running = AtomicBoolean()
@@ -81,33 +84,58 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
         val adapters = BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path))
         if (adapters.isEmpty()) return
         val buildSystems = adapters.joinToString { it.displayName }
-        val scopeLabel = updateScope.label
-        if (!running.compareAndSet(false, true)) return
+        if (!running.compareAndSet(false, true)) {
+            scope.launch(Dispatchers.EDT) { activeDialogs.lastOrNull()?.takeUnless { it.isDisposed }?.toFront() }
+            return
+        }
         scope.launch(Dispatchers.IO) {
             try {
-                val plan = withBackgroundProgress(project, "Checking $buildSystems versions: $scopeLabel — ${mode.label}", cancellable = true) {
-                    createPlan(mode, updateScope, currentFile, adapters)
-                }
-                withContext(Dispatchers.EDT) {
-                    if (disposed || project.isDisposed) return@withContext
-                    if (plan.changes.isEmpty()) {
-                        showDialog { BulkUpdateMessageDialog(project, "Version Checker", "No automatic updates available for ${mode.label}." +
-                            plan.skipped.takeIf { it.isNotEmpty() }?.joinToString("\n", "\n\nNeeds review:\n").orEmpty()) }
-                    } else if (showDialog { BulkUpdateDialog(project, mode, scopeLabel, buildSystems, plan) }) {
-                        val targets = plan.changes.mapNotNull { it.element }
-                        if (!FileModificationService.getInstance().preparePsiElementsForWrite(targets)) return@withContext
-                        currentCoroutineContext().ensureActive()
-                        if (disposed) return@withContext
-                        if (!plan.apply(project)) {
-                            showDialog { BulkUpdateMessageDialog(project, "Version Checker", "A build file or configuration changed after the preview. Run the update check again.") }
-                            return@withContext
+                var selectedMode = mode
+                var selectedScope = updateScope
+                var forceRefresh = false
+                while (isActive && !disposed) {
+                    val matching = readAction { BuildSystemAdapter.matching(project, BuildSelection(selectedScope, currentFile?.path)) }
+                    val currentAvailable = currentFile != null && readAction {
+                        BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
+                    }
+                    val prepared = withBackgroundProgress(project, "Checking versions: ${selectedScope.label} — ${selectedMode.label}", cancellable = true) {
+                        preparePreview(selectedMode, selectedScope, currentFile, matching, forceRefresh)
+                    }
+                    var recheck = false
+                    withContext(Dispatchers.EDT) {
+                        if (disposed || project.isDisposed) return@withContext
+                        var dialog: BulkUpdateDialog? = null
+                        val accepted = showDialog {
+                            BulkUpdateDialog(project, selectedMode, selectedScope.label, matching.joinToString { it.displayName }, prepared.plan).also {
+                                dialog = it; it.configure(prepared, currentAvailable)
+                            }
                         }
-                        FileDocumentManager.getInstance().saveAllDocuments()
-                        notifyVersionUpdates(project, plan.followUp)
-                        adapters.forEach { adapter ->
-                            project.service<VersionCheckService>().refresh(adapter.id, if (updateScope == UpdateScope.CURRENT_FILE) currentFile else null)
+                        val shown = dialog ?: return@withContext
+                        if (!accepted && shown.exitCode == BulkUpdateDialog.RECHECK_EXIT_CODE && !disposed) {
+                            selectedMode = shown.modeSelector.selectedItem as UpdateMode
+                            selectedScope = shown.scopeSelector.selectedItem as UpdateScope
+                            forceRefresh = shown.refreshRequested
+                            recheck = true
+                        } else if (accepted) {
+                            val plan = shown.selectedPlan()
+                            if (plan.changes.isEmpty()) return@withContext
+                            val targets = plan.changes.mapNotNull { it.element }
+                            if (!FileModificationService.getInstance().preparePsiElementsForWrite(targets)) return@withContext
+                            currentCoroutineContext().ensureActive()
+                            if (disposed) return@withContext
+                            if (!plan.apply(project)) {
+                                showDialog { BulkUpdateMessageDialog(project, "Version Checker", "Build files, settings or version results changed after the preview. Review refreshed results before applying.") }
+                                recheck = !disposed
+                                forceRefresh = true
+                                return@withContext
+                            }
+                            FileDocumentManager.getInstance().saveAllDocuments()
+                            notifyVersionUpdates(project, plan.followUp)
+                            project.service<VersionCheckService>().recheckAfterEdits(matching,
+                                BuildSelection(selectedScope, currentFile?.path))
                         }
                     }
+                    if (!recheck) break
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -128,24 +156,36 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
     }
 
     internal suspend fun createPlan(mode: UpdateMode, updateScope: UpdateScope = UpdateScope.WHOLE_PROJECT,
-                                   currentFile: VirtualFile? = null): BulkUpdatePlan =
-        createPlan(mode, updateScope, currentFile,
-            readAction { BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path)) })
+                                   currentFile: VirtualFile? = null, forceRefresh: Boolean = false): BulkUpdatePlan =
+        preparePreview(mode, updateScope, currentFile,
+            readAction { BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path)) }, forceRefresh).plan
 
-    private suspend fun createPlan(mode: UpdateMode, updateScope: UpdateScope, currentFile: VirtualFile?,
-                                   adapters: List<BuildSystemAdapter>): BulkUpdatePlan {
+    internal suspend fun preparePreview(mode: UpdateMode, updateScope: UpdateScope, currentFile: VirtualFile?,
+                                        adapters: List<BuildSystemAdapter>, forceRefresh: Boolean): PreparedVersionPreview {
         check(adapters.isNotEmpty()) { "Open a supported build file to update its versions" }
         val service = project.service<VersionCheckService>()
+        val results = mutableListOf<Pair<BuildSnapshot, VersionResultCache.CachedResult>>()
+        var reused = 0
         val plans = adapters.map { adapter ->
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
             check(mode in adapter.capabilities.updateModes) { "${adapter.displayName} does not support ${mode.label}" }
-            adapter.invalidateMetadata(project)
+            if (forceRefresh) service.invalidateForPreview(adapter, if (updateScope == UpdateScope.CURRENT_FILE) currentFile else null)
             val snapshots = adapter.discover(project, BuildSelection(updateScope, currentFile?.path))
             check(snapshots.isNotEmpty()) { "No supported build files found for ${adapter.displayName}" }
-            val reports = snapshots.associateWith { service.checkNow(adapter, it, mode) }
+            val reports = snapshots.associateWith { snapshot ->
+                if (service.cached(snapshot, mode)?.successful == true) reused++
+                val report = service.checkNow(adapter, snapshot, mode, reuseCached = true)
+                val result = service.cachedResult(snapshot, mode) ?: error("Repository results expired. Refresh version checks to retry.")
+                check(result.report === report) { "Version results changed during preparation. Refresh the preview." }
+                results += snapshot to result
+                report
+            }
             adapter.prepareUpdates(project, reports)
         }
-        return BulkUpdatePlan.combine(plans)
+        val plan = BulkUpdatePlan.combine(plans).guardedBy {
+            results.all { (snapshot, result) -> service.isCachedResultCurrent(snapshot, mode, result) }
+        }
+        return PreparedVersionPreview(plan, results.minOf { it.second.checkedAtNanos }, reused, results.size)
     }
 
 }
@@ -161,18 +201,3 @@ private class BulkUpdateMessageDialog(project: Project, title: String, private v
     }).apply { preferredSize = Dimension(620, 260) }
 }
 
-private class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: String,
-                               buildSystem: String, private val plan: BulkUpdatePlan) : DialogWrapper(project) {
-    init {
-        title = "Update $buildSystem versions — $scopeLabel — ${mode.label}"
-        setOKButtonText("Update ${plan.changes.size} version declarations")
-        init()
-    }
-    override fun createCenterPanel(): JComponent {
-        val reminder = plan.followUp.takeIf { it.isNotEmpty() }?.joinToString("\n\n", postfix = "\n\n").orEmpty()
-        val preview = reminder + plan.changes.joinToString("\n\n") { "${it.location}\n${it.expected} → ${it.latest}" } +
-            plan.skipped.takeIf { it.isNotEmpty() }?.joinToString("\n", "\n\nSkipped — needs review:\n").orEmpty()
-        return JBScrollPane(JBTextArea(preview).apply { isEditable = false; lineWrap = true; wrapStyleWord = true })
-            .apply { preferredSize = Dimension(760, 440) }
-    }
-}

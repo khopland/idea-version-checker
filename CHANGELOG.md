@@ -2,8 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Review Dependency Updates…** in supported build files' editor context menu opens a searchable preview with checkboxes, update mode and scope controls, cached-result age, and Refresh. Empty previews retain these controls, and skipped items have a separate Needs review section.
+
 ### Changed
 
+- Bulk previews reuse current, unexpired results for the requested update mode. Refresh still forces native revalidation. Selected edits retain all input and shared-consumer guards, and expired or replaced results require another preview before applying.
+- Bulk apply preserves valid warnings while rechecking changed declarations, and shows npm/Gradle synchronization guidance only for selected build systems.
 - Current-file refreshes can run between whole-project module checks. Manual checks and selected-file inspections take priority over queued background checks, and superseded automatic inspections are cancelled.
 - Completed checks refresh selected build files after a 50 ms batch window, while other files keep the 200 ms window. Promoted files are removed from the slower batch.
 - Maven inspections share one snapshot for version updates, relocations and quick-fix construction, retaining fresh validation before edits. Gradle inspections index candidates and notices, and npm inspections group workspace consumers by artifact once per pass.

@@ -12,11 +12,14 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.UiInterceptors
 import io.github.khopland.versionchecker.core.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Callable
+import java.awt.event.ActionEvent
 
 /** Exercise the real coordinator with a provider having no Maven or XML dependencies. */
 class BuildCoordinatorTest : BasePlatformTestCase() {
@@ -34,7 +37,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         private val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
         private val buildSnapshot = BuildSnapshot(
             BuildContextId(id, file.virtualFile.parent.path, id), file.virtualFile.path,
-            BuildFingerprint(mapOf(file.virtualFile.path to "1"), id),
+            BuildFingerprint(mapOf(file.virtualFile.path to "1"), "$id:${System.identityHashCode(this)}"),
             listOf(VersionDeclaration(DeclarationId(file.virtualFile.path, "version"),
                 ArtifactId(id, "library"), "1.0", "1.0"))
         )
@@ -279,6 +282,70 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertEquals("Registry unavailable", result.exceptionOrNull()?.message)
         assertEquals("1.0", first.text)
         assertEquals("1.0", second.text)
+    }
+
+    fun testWarmPreviewsReuseOnlyTheirModeAndExplicitRefreshInvalidatesOlderPlans() {
+        val file = myFixture.addFileToProject("cached/build.txt", "1.0")
+        val adapter = TestAdapter("cached-test", file)
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        val service = project.service<BulkUpdateService>()
+        fun preview(mode: UpdateMode, fresh: Boolean = false) = PlatformTestUtil.waitForFuture(
+            ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { service.createPlan(mode, UpdateScope.CURRENT_FILE, file.virtualFile, fresh) }
+            }), 10_000)
+        val initial = preview(UpdateMode.PATCH)
+        preview(UpdateMode.PATCH)
+        assertEquals(1, adapter.checked.size)
+        assertEquals("Ordinary previews reuse results and metadata", 0, adapter.metadataRefreshes)
+        preview(UpdateMode.MINOR)
+        assertEquals("Patch results cannot answer a minor request", 2, adapter.checked.size)
+        preview(UpdateMode.MINOR)
+        assertEquals(2, adapter.checked.size)
+        preview(UpdateMode.PATCH, fresh = true)
+        assertEquals(3, adapter.checked.size)
+        assertEquals(1, adapter.metadataRefreshes)
+        assertFalse("A refresh invalidates the older preview before editing", initial.apply(project))
+        assertEquals("1.0", file.text)
+        preview(UpdateMode.MINOR)
+        assertEquals("Current-file refresh invalidates all modes", 4, adapter.checked.size)
+    }
+
+    fun testPreviewModeAndRefreshControlsRebuildBeforeApplying() {
+        val file = myFixture.addFileToProject("preview-controls/build.txt", "1.0")
+        val adapter = TestAdapter("preview-controls-test", file)
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        var shown = 0
+        fun intercept(action: (BulkUpdateDialog) -> Unit) {
+            UiInterceptors.registerPossible(testRootDisposable,
+                object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
+                    override fun doIntercept(component: DialogWrapper) {
+                        shown++
+                        action(component as BulkUpdateDialog)
+                    }
+                })
+        }
+        intercept { patch ->
+            assertEquals(UpdateMode.PATCH, patch.modeSelector.selectedItem)
+            assertEquals("1.0", file.text)
+            intercept { minor ->
+                assertEquals(UpdateMode.MINOR, minor.modeSelector.selectedItem)
+                assertEquals(2, adapter.checked.size)
+                assertEquals(0, adapter.metadataRefreshes)
+                intercept { refreshed ->
+                    assertEquals(UpdateMode.MINOR, refreshed.modeSelector.selectedItem)
+                    assertEquals(3, adapter.checked.size)
+                    assertEquals(1, adapter.metadataRefreshes)
+                    assertEquals("1.0", file.text)
+                    refreshed.performOKAction()
+                }
+                minor.refreshAction.actionPerformed(ActionEvent(minor, ActionEvent.ACTION_PERFORMED, "Refresh"))
+            }
+            patch.modeSelector.selectedItem = UpdateMode.MINOR
+        }
+        project.service<BulkUpdateService>().preview(UpdateMode.PATCH, UpdateScope.CURRENT_FILE, file.virtualFile)
+        val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
+        PlatformTestUtil.waitWithEventsDispatching("Refreshed preview applied", { document.text == "1.1" }, 10_000)
+        assertEquals(3, shown)
     }
 
     fun testCurrentFileSelectionAndVersionModesReachTheAdapterUnchanged() {

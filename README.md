@@ -52,7 +52,7 @@ If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) c
 
 ## Bulk updates and submodules
 
-Choose **Tools → Update Versions**, then **Current File** or **Whole Project**. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven, npm and Gradle are implemented adapters; a mixed project gets one combined preview. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
+Right-click a supported build file in the editor and choose **Review Dependency Updates…** to start with patch updates for that file. You can change scope and update mode inside the preview. **Tools → Update Versions → Current File / Whole Project** also opens the preview. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven, npm and Gradle are implemented adapters; a mixed project gets one combined preview. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
 
 - **Patch only:** keep the current major and minor version numbers.
 - **Minor + patch:** keep the current major version number.
@@ -60,7 +60,9 @@ Choose **Tools → Update Versions**, then **Current File** or **Whole Project**
 
 The check queries the newest version within the selected scope; it does not simply discard a latest version outside that scope. Restricted modes require numeric major/minor prefixes.
 
-A preview lists each POM/property change before applying one undoable command. The plugin saves the changed files and refreshes checks. Compatible dependency/plugin updates sharing a property become one edit. It skips inherited/composite version declarations and shared properties with conflicting, unchanged, unselected, or inherited uses. Shared-property safety checks cover all imported POMs even in Current File mode. These cases appear in the preview as needing review. A preview becomes invalid if an imported POM, relevant Maven configuration, or deprecation policy changes before applying it. Unsaved settings and ancestor `.mvn` configuration edits invalidate it too.
+A preview lists changes in sortable rows with checkboxes and a text filter. All proposed changes start selected. Filtering keeps selections and counts selected rows hidden by the filter; **Clear selection** removes every selection, and **Select visible** selects the filtered rows. **Update selected declarations** applies one undoable command. Compatible dependency/plugin updates sharing a property become one indivisible edit affecting every listed consumer. It skips inherited/composite version declarations and shared properties with conflicting, unchanged, unselected, or inherited uses. Shared-property safety checks cover all imported POMs even in Current File mode. These cases appear under **Needs review**.
+
+Previews reuse current, unexpired results for the selected mode and show their age. **Refresh** forces another native check. A cached major result cannot answer a patch request. Applying revalidates all relevant build inputs and rejects expired, refreshed or replaced results before editing. Imported POM, relevant Maven configuration and deprecation-policy changes invalidate a preview, including unsaved settings and ancestor `.mvn` edits. The plugin saves updated files, keeps remaining valid hints available and rechecks changed declarations.
 
 Successful module checks with an empty or absent Maven report count as having no updates and do not abort the scan. Failures are logged to `idea.log`; a **Show details** notification action displays the cause without changing any versions.
 
@@ -112,7 +114,7 @@ The preview applies only `package.json` string edits in one undoable command, pr
 
 **Lockfiles and installed dependencies are left to IntelliJ or npm.** After applying manifest edits, use IntelliJ's package-manager action or run npm yourself to synchronize them. The checker never installs packages or regenerates lockfiles.
 
-The bulk-update preview includes this reminder, and a notification repeats it after successful bulk, local or workspace npm updates. A stale quick fix that makes no edit does not show the reminder.
+A notification shows this reminder after successful bulk, local or workspace npm updates. Selective bulk updates show it only when npm declarations were selected. A stale quick fix that makes no edit does not show the reminder.
 
 ## Gradle projects
 

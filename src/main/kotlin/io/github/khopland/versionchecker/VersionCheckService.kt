@@ -59,7 +59,10 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     private fun queue(adapterId: String) = scanQueues.computeIfAbsent(adapterId) { CheckQueue { path -> path in selectedPaths } }
     internal fun queuedChecks(adapterId: String) = scanQueues[adapterId]?.waitingCount ?: 0
 
-    internal fun cached(snapshot: BuildSnapshot): UpdateReport? = cache.get(snapshot)
+    internal fun cached(snapshot: BuildSnapshot, mode: UpdateMode = UpdateMode.MAJOR): UpdateReport? = cache.get(snapshot, mode)
+    internal fun cachedResult(snapshot: BuildSnapshot, mode: UpdateMode) = cache.getResult(snapshot, mode)
+    internal fun isCachedResultCurrent(snapshot: BuildSnapshot, mode: UpdateMode, result: VersionResultCache.CachedResult) =
+        cache.isCurrent(snapshot.context, mode, result)
 
     internal fun updates(adapter: BuildSystemAdapter, snapshot: BuildSnapshot): UpdateReport? {
         if (!project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project)) return null
@@ -68,15 +71,26 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         return entry ?: cache.retainedInspectionReport(adapter, snapshot)
     }
 
-    internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
+    internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode,
+                                  reuseCached: Boolean = false): UpdateReport {
+        if (reuseCached) {
+            check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
+            check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
+            cache.get(snapshot, mode)?.takeIf { it.successful }?.let { return it }
+        }
         val queued = System.nanoTime()
         return queue(adapter.id).withSlot(snapshot.sourceFile, interactive = true) {
             CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
             check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
+            if (reuseCached) cache.get(snapshot, mode)?.takeIf { it.successful }?.let { return@withSlot it }
+            val revision = cache.begin(snapshot)
             val result = CheckPerformance.measure(CheckPerformance.Stage.CHECK) { adapter.check(project, snapshot, mode) }
             check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed during the check. Run it again." }
             check(result.successful) { result.failure.orEmpty() }
+            check(cache.revision(snapshot.context) == revision) { "Version checks were refreshed during this check. Run it again." }
+            check(cache.put(snapshot, revision, result, mode)) { "Repository results expired during this check. Run it again." }
+            if (mode == UpdateMode.MAJOR && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
             result
         }
     }
@@ -119,6 +133,26 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             pending.keys.filter { it.adapterId == adapterId }.forEach { pending.remove(it)?.job?.cancel() }
         } else {
             invalidateSource(adapterId, currentFile.path)
+        }
+    }
+
+    internal fun invalidateForPreview(adapter: BuildSystemAdapter, currentFile: VirtualFile?) {
+        adapter.invalidateMetadata(project)
+        invalidate(adapter.id, currentFile)
+    }
+
+    internal fun recheckAfterEdits(adapters: List<BuildSystemAdapter>, selection: BuildSelection): Job = scope.launch(Dispatchers.IO) {
+        for (adapter in adapters) {
+            if (adapter.isOffline(project)) continue
+            try {
+                val snapshots = adapter.discover(project, selection)
+                readAction { snapshots.forEach { updates(adapter, it) } }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                log.warn("${adapter.displayName} version discovery failed after edits", failure)
+                notify("Versions were updated, but ${adapter.displayName} could not recheck them. Refresh version checks to retry.", NotificationType.WARNING)
+            }
         }
     }
 

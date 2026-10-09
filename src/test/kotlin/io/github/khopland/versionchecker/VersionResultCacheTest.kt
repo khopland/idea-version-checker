@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker
 
 import io.github.khopland.versionchecker.core.*
+import io.github.khopland.versionchecker.UpdateMode
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -85,5 +86,36 @@ class VersionResultCacheTest {
         time = 100
         assertNull(cache.get(npm))
         assertFalse(cache.put(npm, cache.revision(npm.context), result))
+    }
+
+    @Test fun `modes are isolated and source refresh invalidates every mode`() {
+        val cache = VersionResultCache()
+        val snapshot = snapshot()
+        for ((mode, version) in listOf(UpdateMode.PATCH to "1.0.9", UpdateMode.MINOR to "1.9.0", UpdateMode.MAJOR to "2.0.0")) {
+            cache.put(snapshot, cache.begin(snapshot), report(snapshot, version), mode)
+        }
+        assertEquals("1.0.9", cache.get(snapshot, UpdateMode.PATCH)!!.candidates.single().version)
+        assertEquals("1.9.0", cache.get(snapshot, UpdateMode.MINOR)!!.candidates.single().version)
+        assertEquals("2.0.0", cache.get(snapshot)!!.candidates.single().version)
+        cache.invalidateSource(snapshot.context.adapterId, snapshot.sourceFile)
+        assertTrue(UpdateMode.entries.all { cache.get(snapshot, it) == null })
+    }
+
+    @Test fun `preview lineage expires and cannot follow a replaced result even at the same clock tick`() {
+        var time = 0L
+        val cache = VersionResultCache { time }
+        val snapshot = snapshot()
+        cache.put(snapshot, cache.begin(snapshot), report(snapshot).copy(validUntilNanos = 100), UpdateMode.PATCH)
+        val prepared = cache.getResult(snapshot, UpdateMode.PATCH)!!
+        assertTrue(cache.isCurrent(snapshot.context, UpdateMode.PATCH, prepared))
+        cache.put(snapshot, cache.begin(snapshot), report(snapshot, "3.0"), UpdateMode.PATCH)
+        assertFalse(cache.isCurrent(snapshot.context, UpdateMode.PATCH, prepared))
+        val replaced = cache.getResult(snapshot, UpdateMode.PATCH)!!
+        cache.invalidateSource(snapshot.context.adapterId, snapshot.sourceFile)
+        assertFalse(cache.isCurrent(snapshot.context, UpdateMode.PATCH, replaced))
+        cache.put(snapshot, cache.begin(snapshot), report(snapshot).copy(validUntilNanos = 100), UpdateMode.PATCH)
+        val last = cache.getResult(snapshot, UpdateMode.PATCH)!!
+        time = 100
+        assertFalse(cache.isCurrent(snapshot.context, UpdateMode.PATCH, last))
     }
 }
