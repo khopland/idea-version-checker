@@ -3,7 +3,8 @@
 Small Maven cases ran in native IDEA windows with the packaged plugin. Both IDEA
 2025.3.6.1 and 2026.1.4 now have at least 100 completed samples for each measured
 endpoint. The full plan's performance and usability matrix is still incomplete.
-A small warm Gradle preview case has also completed 100 repetitions in 2026.1.4.
+Small warm Gradle editor and preview cases have also completed 100 repetitions
+each in 2026.1.4.
 
 **Native npm validation is blocked.** JavaScript/Node support is disabled in the
 available IDEA sandbox. No usable licensed profile was supplied or verified, and
@@ -140,10 +141,11 @@ session, which mixes modes/scopes and is separate from performance samples.
 These cases verify native interaction and trace boundaries in 2026.1 only. They
 do not complete the remaining failure, keyboard, large-project or typing cases.
 
-## Native Gradle preview, IDEA 2026.1.4
+## Native Gradle editor and preview, IDEA 2026.1.4
 
 | Endpoint | Completed samples | Median | Nearest-rank p95 | Evidence |
 |----------|------------------:|-------:|-----------------:|----------|
+| Cached current-file Major editor diagnostic | 100 | 3.08 ms | 9.82 ms | [Report](idea-2026.1.4-gradle-small-editor.json), [trace](idea-2026.1.4-gradle-small-editor.log) |
 | Cached current-file Patch preview, 3 rows | 100 | 31.35 ms | 44.28 ms | [Report](idea-2026.1.4-gradle-small-preview.json), [trace](idea-2026.1.4-gradle-small-preview.log) |
 
 The same isolated IDEA 2026.1.4 process imported one Java Gradle project with
@@ -160,7 +162,7 @@ back to build.gradle. All 100 interactions have a ready endpoint and no
 incomplete previews. No native Gradle invocation belongs to, starts within, or
 overlaps these preview intervals; the entire capture contains no native query.
 This meets the preview target for this condition only. It does not establish
-Gradle editor/fix latency, large-project behavior, Kotlin/catalog performance,
+Gradle fix latency, large-project behavior, Kotlin/catalog performance,
 cold setup, repository failures or behavior in IDEA 2025.3.
 
 This native session also exposed declaration labels containing only script
@@ -178,6 +180,17 @@ Only beta changed to 1.0.1; alpha and gamma remained 1.0.0. One undo and save
 restored beta. This is a usability check, separate from the earlier warm timing
 capture. The sandbox reported a bundled Groovy GrabDependencies service-in-class-
 initializer error on startup; the log attributes it to the Groovy plugin.
+
+The corrected archive also supplied the warm editor capture. Direct tab clicks
+alternated build.gradle and Fixture.java 100 times. The three build-file hints
+were in the viewport, and each build-file activation has a completed diagnostic
+endpoint. All 100 source-file activations lack a Version Checker diagnostic and
+remain counted as incomplete in the anonymous report, rather than becoming
+latency samples. There are no native invocations in this capture. The ordinary
+source tab showed Project JDK is not defined; the imported Gradle project and
+native resolution used the configured Gradle JVM above. The build file also had
+three unrelated Groovy warnings alongside the three Version Checker warnings.
+The measured endpoints require Version Checker inspection markup specifically.
 
 ## Reproduction and remaining work
 

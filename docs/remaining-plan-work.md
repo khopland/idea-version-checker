@@ -23,15 +23,15 @@ The [native record and sanitized traces](native-validation-2026-10-10/README.md)
 
 **Native npm validation is blocked:** JavaScript/Node support is disabled in the available IDEA sandbox. No usable licensed profile was supplied or verified; the user requested recording this blocker. Passing headless npm integration tests do not replace native validation.
 
-IDEA 2026.1.4 also completed 100 small warm current-file Gradle Patch previews: median 31.35 ms, p95 44.28 ms, no incomplete previews or native queries. A packaged Maven follow-up verified committed mode/scope navigation, Refresh, bulk apply/undo, focus of an existing preview and stale-plan rejection/recovery with distinct trace origins. These results and archive identities are recorded in the native record; they cover those conditions only.
+IDEA 2026.1.4 also completed 100 small warm current-file Gradle endpoints each for Major editor diagnostics (median 3.08 ms, p95 9.82 ms) and Patch previews (median 31.35 ms, p95 44.28 ms), with no native queries. There are no incomplete previews; the editor report retains 100 source-tab activations without Version Checker diagnostics as incomplete and excludes them from latency samples. A packaged Maven follow-up verified committed mode/scope navigation, Refresh, bulk apply/undo, focus of an existing preview and stale-plan rejection/recovery with distinct trace origins. These results and archive identities are recorded in the native record; they cover those conditions only.
 
 | Native work | Status |
 |-------------|--------|
 | Small warm Maven editor/preview/literal fix, 2025.3.6.1 | Sample counts and latency recorded; globally idle fix capture remains to confirm |
 | Small warm Maven editor/preview/literal fix, 2026.1.4 | 100 completed samples per endpoint; no native queries in editor/preview captures or overlapping fixes |
 | Large Maven, roughly 100 modules / 10,000 declarations | Reproducible fixture generated and checked; native measurements pending |
-| Small warm Gradle preview, 2026.1.4 | 100 completed samples; p95 44.28 ms; no native queries |
-| Remaining Gradle cases, both IDEA versions | Editor/fix, large/cold/failure and 2025.3 native measurements pending; reproducible Groovy/Kotlin/catalog fixtures available |
+| Small warm Gradle editor/preview, 2026.1.4 | 100 completed samples each; p95 9.82 / 44.28 ms; no native queries |
+| Remaining Gradle cases, both IDEA versions | Fix, large/cold/failure and 2025.3 native measurements pending; reproducible Groovy/Kotlin/catalog fixtures available |
 | npm, both IDEA versions | Blocked by disabled JavaScript/Node support in available sandbox |
 | Cold/setup, delayed/offline/authentication, shared fixes and typing profiler | Pending |
 | Remaining native keyboard/focus and recovery cases | 2026.1 committed selectors, Refresh, existing-preview focus and stale rejection/recovery verified; failure cases and remaining per-version matrix pending |
