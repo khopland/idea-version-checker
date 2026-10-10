@@ -42,6 +42,7 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
 
     private fun entry(snapshot: BuildSnapshot, mode: UpdateMode): Entry? = entries[Key(snapshot.context, mode)]?.takeIf {
         it.snapshot.fingerprint == snapshot.fingerprint && it.snapshot.declarations == snapshot.declarations &&
+            it.snapshot.coverageDescription == snapshot.coverageDescription &&
             it.revision == revision(snapshot.context) && it.expires > now()
     }
 

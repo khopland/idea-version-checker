@@ -25,6 +25,8 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             val interval = spinners.first()
             val mavenWorkers = spinners.last()
             val platformFirst = components(panel).filterIsInstance<JBCheckBox>().single { "BOMs" in it.text }
+            val fastMaven = components(panel).filterIsInstance<JBCheckBox>().single { "faster Maven" in it.text }
+            assertFalse(fastMaven.isSelected)
             assertFalse(platformFirst.isSelected)
             assertEquals(2, mavenWorkers.value)
             assertFalse(schedule.isSelected)
@@ -33,6 +35,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             assertTrue(interval.isEnabled)
             interval.value = 15
             platformFirst.isSelected = true
+            fastMaven.isSelected = true
             mavenWorkers.value = 4
             selectors[0].selectedItem = VersionSeverity.DISABLED
             selectors[2].selectedItem = VersionSeverity.ERROR
@@ -49,6 +52,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             assertTrue(state.scheduledChecks)
             assertEquals(15, state.checkIntervalMinutes)
             assertTrue(state.mavenPlatformFirst)
+            assertTrue(state.mavenFastEditorChecks)
             assertEquals(4, state.mavenMetadataThreads)
             assertFalse(configurable.isModified())
             selectors[2].selectedItem = VersionSeverity.INFORMATION
@@ -67,7 +71,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             minorSeverity = VersionSeverity.INFORMATION, majorSeverity = VersionSeverity.ERROR,
             deprecatedSeverity = VersionSeverity.WARNING, deprecatedDependencies = "old:library = Retired",
             scheduledChecks = true, checkIntervalMinutes = 60, ignoredVersions = "maven g:a = 2.0",
-            mavenPlatformFirst = true, mavenMetadataThreads = 4)
+            mavenPlatformFirst = true, mavenMetadataThreads = 4, mavenFastEditorChecks = true)
         assertEquals(state, XmlSerializer.deserialize(XmlSerializer.serialize(state), VersionCheckerSettings.Options::class.java))
     }
 }

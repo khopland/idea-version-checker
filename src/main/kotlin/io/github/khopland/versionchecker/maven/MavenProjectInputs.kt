@@ -20,7 +20,8 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager) {
     private val inspectionFingerprints = mutableMapOf<Path, BuildFingerprint>()
     private val configuration by lazy {
         val policy = manager.project.service<VersionCheckerSettings>().state.deprecatedDependencies.hashCode()
-        "${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy"
+        val fastScope = manager.project.service<VersionCheckerSettings>().state.mavenFastEditorChecks
+        "${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy:$fastScope"
     }
     private val shared by lazy {
         CheckPerformance.measure(CheckPerformance.Stage.MAVEN_PROJECT_INPUTS, projects.size) {

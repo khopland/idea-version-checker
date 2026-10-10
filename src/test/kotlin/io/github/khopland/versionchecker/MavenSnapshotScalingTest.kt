@@ -12,6 +12,8 @@ import io.github.khopland.versionchecker.core.*
 import io.github.khopland.versionchecker.maven.MavenBuildSystemAdapter
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.model.MavenId
+import org.jetbrains.idea.maven.model.MavenModel
+import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import java.nio.file.Files
@@ -45,7 +47,9 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
             <version>1</version>$body</project>""")
         val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)!!
         return MavenProject(file).apply {
-            updateMavenId(MavenId("scaling", name.substringAfterLast('/'), "1"))
+            updateState(MavenModel().apply { mavenId = MavenId("scaling", name.substringAfterLast('/'), "1") },
+                emptyList(), "21", emptyList(), MavenExplicitProfiles.NONE, emptySet(), emptyMap(),
+                this@MavenSnapshotScalingTest.directory.resolve("repository"), false)
             manager.projectsTree.putVirtualFileToProjectMapping(this, mavenId)
         }
     }
@@ -54,6 +58,96 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
         ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { action() } }), 60_000)
 
     private val dependency = "<dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>1.2.3</version></dependency></dependencies>"
+
+    fun testFastEditorScopeIsExplicitPartialAndCannotSatisfyAFullAudit() {
+        val platform = imported("platform", """<dependencyManagement><dependencies>
+            <dependency><groupId>g</groupId><artifactId>used</artifactId><version>1.0</version></dependency>
+            <dependency><groupId>g</groupId><artifactId>unused</artifactId><version>1.0</version></dependency>
+            <dependency><groupId>g</groupId><artifactId>platform-bom</artifactId><version>1.0</version><type>pom</type><scope>import</scope></dependency>
+            </dependencies></dependencyManagement>""")
+        imported("consumer", """<dependencies><dependency><groupId>g</groupId><artifactId>used</artifactId><version>1.0</version></dependency></dependencies>""")
+        val settings = project.service<VersionCheckerSettings>().state
+        val previous = settings.mavenFastEditorChecks
+        val adapter = MavenBuildSystemAdapter()
+        try {
+            settings.mavenFastEditorChecks = false
+            val original = adapter.snapshot(project, platform.file)!!
+            assertEquals(3, original.declarations.size)
+            settings.mavenFastEditorChecks = true
+            assertFalse(adapter.isCurrent(project, original))
+            val fast = adapter.snapshot(project, platform.file)!!
+            assertEquals(setOf("g:used", "g:platform-bom"), fast.declarations.map { it.artifact.name }.toSet())
+            assertNotNull(fast.coverageDescription)
+            assertTrue(VersionCheckStatus(CheckPhase.PARTIAL, coverageDescription = fast.coverageDescription).text.contains("partial"))
+            val full = background { adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, platform.file.path)) }.single()
+            assertEquals(3, full.declarations.size)
+            assertNull(full.coverageDescription)
+            val cache = VersionResultCache()
+            assertTrue(cache.put(fast, cache.begin(fast), UpdateReport()))
+            assertNotNull(cache.get(fast))
+            assertNull("A fast editor result must not authorize the full preview", cache.get(full))
+        } finally { settings.mavenFastEditorChecks = previous }
+    }
+
+    fun testFastEditorScopeRetainsParentOverridesAndFallsBackForUnresolvedConsumers() {
+        imported("parent", """<packaging>pom</packaging><dependencyManagement><dependencies>
+            <dependency><groupId>g</groupId><artifactId>inherited</artifactId><version>1.0</version></dependency>
+            </dependencies></dependencyManagement>""")
+        val child = imported("child", """<parent><groupId>scaling</groupId><artifactId>parent</artifactId><version>1</version>
+            <relativePath>../parent/pom.xml</relativePath></parent><dependencyManagement><dependencies>
+            <dependency><groupId>g</groupId><artifactId>inherited</artifactId><version>2.0</version></dependency>
+            <dependency><groupId>g</groupId><artifactId>unused</artifactId><version>1.0</version></dependency>
+            </dependencies></dependencyManagement>""")
+        val settings = project.service<VersionCheckerSettings>().state
+        val previous = settings.mavenFastEditorChecks
+        try {
+            settings.mavenFastEditorChecks = true
+            val adapter = MavenBuildSystemAdapter()
+            val fast = adapter.snapshot(project, child.file)!!
+            assertEquals(listOf("g:inherited"), fast.declarations.map { it.artifact.name })
+            imported("unresolved", """<dependencies><dependency><groupId>${'$'}{unknown.group}</groupId><artifactId>consumer</artifactId><version>1.0</version></dependency></dependencies>""")
+            val conservative = adapter.snapshot(project, child.file)!!
+            assertEquals(2, conservative.declarations.size)
+            assertNull(conservative.coverageDescription)
+        } finally { settings.mavenFastEditorChecks = previous }
+    }
+
+    fun testCompletedFullAuditRemainsVisibleWithFastEditorChecksEnabled() {
+        val platform = imported("audited-platform", """<dependencyManagement><dependencies>
+            <dependency><groupId>g</groupId><artifactId>unused</artifactId><version>1.0</version></dependency>
+            </dependencies></dependencyManagement>""")
+        val settings = project.service<VersionCheckerSettings>().state
+        val previous = settings.mavenFastEditorChecks
+        val adapter = MavenBuildSystemAdapter()
+        try {
+            settings.mavenFastEditorChecks = true
+            assertNotNull(adapter.snapshot(project, platform.file)!!.coverageDescription)
+            val full = background { adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, platform.file.path)) }.single()
+            val checker = object : BuildSystemAdapter by adapter {
+                override val capabilities = AdapterCapabilities(incrementalInspections = false)
+                override suspend fun check(project: com.intellij.openapi.project.Project, snapshot: BuildSnapshot, mode: UpdateMode) =
+                    UpdateReport(snapshot.declarations.map { UpdateCandidate(it, "2.0") })
+            }
+            val service = project.service<VersionCheckService>()
+            background { service.checkNow(checker, full, UpdateMode.MAJOR) }
+            val editor = adapter.snapshot(project, platform.file)!!
+            assertNull("A completed full audit must not immediately become partial in the editor", editor.coverageDescription)
+            assertEquals(1, editor.declarations.size)
+            assertEquals(CheckPhase.CHECKED, service.status(adapter, editor).phase)
+            assertEquals(1, service.cached(editor)!!.candidates.size)
+            service.invalidateForPreview(adapter, platform.file)
+            assertNotNull("After refresh invalidation, the editor must return to its configured fast scope",
+                adapter.snapshot(project, platform.file)!!.coverageDescription)
+            val failedChecker = object : BuildSystemAdapter by checker {
+                override suspend fun check(project: com.intellij.openapi.project.Project, snapshot: BuildSnapshot, mode: UpdateMode) =
+                    UpdateReport(failure = "Repository unavailable")
+            }
+            assertTrue(background { runCatching { service.checkNow(failedChecker, full, UpdateMode.MAJOR) }.isFailure })
+            val failedAudit = adapter.snapshot(project, platform.file)!!
+            assertNull("A failed full audit must remain visible until retry or expiry", failedAudit.coverageDescription)
+            assertEquals(CheckPhase.FAILED, service.status(adapter, failedAudit).phase)
+        } finally { settings.mavenFastEditorChecks = previous }
+    }
     private fun reports(snapshots: List<BuildSnapshot>) = snapshots.associateWith { snapshot ->
         UpdateReport(snapshot.declarations.take(1).map { UpdateCandidate(it, "1.2.9") })
     }

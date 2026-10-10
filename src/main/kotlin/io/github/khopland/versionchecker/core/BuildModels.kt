@@ -22,7 +22,9 @@ internal data class BuildSnapshot(
     val context: BuildContextId, val sourceFile: String, val fingerprint: BuildFingerprint,
     val declarations: List<VersionDeclaration>,
     /** Optional configuration identity for retaining inspection warnings across declaration edits. */
-    val inspectionFingerprint: BuildFingerprint? = null
+    val inspectionFingerprint: BuildFingerprint? = null,
+    /** A deliberately narrower inspection scope cannot masquerade as a full audit. */
+    val coverageDescription: String? = null
 )
 internal enum class VersionChangeKind { PATCH, MINOR, MAJOR, OTHER, DEPRECATED }
 internal data class UpdateCandidate(

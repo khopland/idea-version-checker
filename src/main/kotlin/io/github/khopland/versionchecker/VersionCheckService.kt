@@ -89,8 +89,9 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 ?: cache.inspectionProgressCounts(snapshot)
             return VersionCheckStatus(phase, counts?.first ?: 0, counts?.second ?: 0, counts?.third)
         }
-        if (result != null) return VersionCheckStatus(if (result.report.successful) CheckPhase.CHECKED else CheckPhase.FAILED,
-            result.report.candidates.size, result.report.notices.size, result.expiresAtNanos)
+        if (result != null) return VersionCheckStatus(if (!result.report.successful) CheckPhase.FAILED else
+            if (snapshot.coverageDescription != null) CheckPhase.PARTIAL else CheckPhase.CHECKED,
+            result.report.candidates.size, result.report.notices.size, result.expiresAtNanos, snapshot.coverageDescription)
         return VersionCheckStatus(CheckPhase.UNCHECKED)
     }
 

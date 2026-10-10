@@ -35,7 +35,8 @@ class VersionCheckerSettings : PersistentStateComponent<VersionCheckerSettings.O
         var checkIntervalMinutes: Int = 30,
         var ignoredVersions: String = "",
         var mavenPlatformFirst: Boolean = false,
-        var mavenMetadataThreads: Int = 2
+        var mavenMetadataThreads: Int = 2,
+        var mavenFastEditorChecks: Boolean = false
     )
     private var options = Options()
     override fun getState(): Options = options
@@ -51,6 +52,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     private var ignored: JBTextArea? = null
     private var platformFirst: JBCheckBox? = null
     private var mavenThreads: JSpinner? = null
+    private var fastMaven: JBCheckBox? = null
     override fun getDisplayName(): String = "Version Checker"
     override fun createComponent(): JComponent {
         enabled = JBCheckBox("Check for newer dependency and build-plugin versions")
@@ -63,9 +65,12 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
             .addComponent(JBLabel("Scheduled checks refresh editor warnings and do not change dependency versions."))
         platformFirst = JBCheckBox("Check Maven parents and Spring Boot BOMs first")
         mavenThreads = JSpinner(SpinnerNumberModel(2, 1, 4, 1))
+        fastMaven = JBCheckBox("Use a faster Maven editor scope (omit unused local management entries)")
         form.addComponent(platformFirst!!)
+            .addComponent(fastMaven!!)
             .addLabeledComponent("Maven metadata workers:", mavenThreads!!)
             .addComponent(JBLabel("Use fewer metadata workers for slow or rate-limited repositories."))
+            .addComponent(JBLabel("Fast scope is optional. Refresh and update previews always audit all supported declarations."))
         for ((kind, label) in linkedMapOf(
             VersionChangeKind.PATCH to "Patch updates:",
             VersionChangeKind.MINOR to "Minor updates:",
@@ -93,7 +98,8 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
             scheduled?.isSelected != state.scheduledChecks || interval?.value != state.checkIntervalMinutes.coerceIn(1, 1440) ||
             severities.any { (kind, selector) -> selector.selectedItem != kind.severity(state) } ||
             deprecated?.text != state.deprecatedDependencies || ignored?.text != state.ignoredVersions ||
-            platformFirst?.isSelected != state.mavenPlatformFirst || mavenThreads?.value != state.mavenMetadataThreads.coerceIn(1, 4)
+            platformFirst?.isSelected != state.mavenPlatformFirst || mavenThreads?.value != state.mavenMetadataThreads.coerceIn(1, 4) ||
+            fastMaven?.isSelected != state.mavenFastEditorChecks
     }
     override fun apply() {
         val state = project.service<VersionCheckerSettings>().state
@@ -109,6 +115,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         state.ignoredVersions = ignored!!.text
         state.mavenPlatformFirst = platformFirst!!.isSelected
         state.mavenMetadataThreads = mavenThreads!!.value as Int
+        state.mavenFastEditorChecks = fastMaven!!.isSelected
         project.service<ScheduledVersionChecks>().configure()
         project.service<VersionCheckService>().statusChanged()
         refreshEditorProblems(project, this)
@@ -124,11 +131,12 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         ignored?.text = state.ignoredVersions
         platformFirst?.isSelected = state.mavenPlatformFirst
         mavenThreads?.value = state.mavenMetadataThreads.coerceIn(1, 4)
+        fastMaven?.isSelected = state.mavenFastEditorChecks
     }
     private fun selected(kind: VersionChangeKind) = severities.getValue(kind).selectedItem as VersionSeverity
     private fun updateScheduleControls() {
         scheduled?.isEnabled = enabled?.isSelected == true
         interval?.isEnabled = enabled?.isSelected == true && scheduled?.isSelected == true
     }
-    override fun disposeUIResources() { enabled = null; scheduled = null; interval = null; deprecated = null; ignored = null; platformFirst = null; mavenThreads = null; severities.clear() }
+    override fun disposeUIResources() { enabled = null; scheduled = null; interval = null; deprecated = null; ignored = null; platformFirst = null; mavenThreads = null; fastMaven = null; severities.clear() }
 }

@@ -37,6 +37,139 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /** Opt-in: starts IDEA's real Maven server and may download the Versions goal from Maven Central. */
 class MavenSettingsIntegrationTest : BasePlatformTestCase() {
+    fun testLargeManagementFastScopeAndFullAuditWithPlatformPriority() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-large-management-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val requests = CopyOnWriteArrayList<String>()
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(4)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.executor = executor
+        server.createContext("/") { exchange ->
+            try {
+                val path = exchange.requestURI.path
+                val body = when {
+                    path.endsWith("/maven-metadata.xml") -> {
+                        requests += path
+                        Thread.sleep(2)
+                        val artifact = path.substringBeforeLast('/').substringAfterLast('/')
+                        """<metadata><artifactId>$artifact</artifactId><versioning><versions>
+                            <version>1.0</version><version>1.0.1</version><version>1.1</version><version>2.0</version>
+                            <version>3.0-RC1</version><version>4.0-SNAPSHOT</version></versions></versioning></metadata>"""
+                    }
+                    path.endsWith("/spring-boot-starter-parent/1.0/spring-boot-starter-parent-1.0.pom") ->
+                        """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                            <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId>
+                            <version>1.0</version><packaging>pom</packaging></project>"""
+                    else -> null
+                }
+                if (body == null) exchange.sendResponseHeaders(404, -1)
+                else {
+                    val bytes = body.toByteArray()
+                    exchange.sendResponseHeaders(200, bytes.size.toLong()); exchange.responseBody.write(bytes)
+                }
+            } finally { exchange.close() }
+        }
+        server.start()
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
+        val oldSettings = manager.generalSettings.userSettingsFile
+        val options = project.service<VersionCheckerSettings>()
+        val oldOptions = options.state.copy()
+        options.loadState(VersionCheckerSettings.Options(mavenFastEditorChecks = true, mavenPlatformFirst = true))
+        try {
+            val fixtureRepository = directory.resolve("repository")
+            val settings = directory.resolve("settings.xml")
+            Files.writeString(settings, """<settings><localRepository>$fixtureRepository</localRepository><profiles><profile><id>large-management</id><repositories>
+                <repository><id>central</id><url>https://repo.maven.apache.org/maven2</url><releases><enabled>false</enabled></releases><snapshots><enabled>false</enabled></snapshots></repository>
+                <repository><id>large-management</id><url>http://127.0.0.1:${server.address.port}/</url><releases><updatePolicy>daily</updatePolicy></releases></repository>
+                </repositories></profile></profiles><activeProfiles><activeProfile>large-management</activeProfile></activeProfiles></settings>""")
+            manager.generalSettings.setUserSettingsFile(settings.toString())
+            val managed = (0 until 1000).map { MavenArtifactInfo("example.management", "artifact-$it", "1.0", "jar", null) }
+            fun imported(name: String, body: String): MavenProject {
+                val pom = Files.createDirectories(directory.resolve(name)).resolve("pom.xml")
+                Files.writeString(pom, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                    <groupId>example.management</groupId><artifactId>$name</artifactId><version>1</version>$body</project>""")
+                val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!
+                return MavenProject(file).apply {
+                    updateState(MavenModel().apply { mavenId = MavenId("example.management", name, "1") },
+                        managed, "21", emptyList(), MavenExplicitProfiles.NONE, emptySet(), emptyMap(),
+                        fixtureRepository, false)
+                    manager.projectsTree.putVirtualFileToProjectMapping(this, mavenId)
+                    manager.projectsTree.setIgnoredState(listOf(this), false)
+                }
+            }
+            val platform = imported("platform", """<parent><groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-parent</artifactId><version>1.0</version><relativePath/></parent><packaging>pom</packaging>
+                <dependencyManagement><dependencies>${managed.joinToString("") {
+                    "<dependency><groupId>${it.groupId}</groupId><artifactId>${it.artifactId}</artifactId><version>${it.version}</version></dependency>"
+                }}</dependencies></dependencyManagement>""")
+            val child = imported("child", """<parent><groupId>example.management</groupId><artifactId>platform</artifactId>
+                <version>1</version><relativePath>../platform/pom.xml</relativePath></parent><dependencies>${managed.take(25).joinToString("") {
+                    "<dependency><groupId>${it.groupId}</groupId><artifactId>${it.artifactId}</artifactId></dependency>"
+                }}</dependencies>""")
+            fun <T> background(action: suspend () -> T): T = PlatformTestUtil.waitForFuture(
+                ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { action() } }), 180_000)
+            val adapter = MavenBuildSystemAdapter()
+            val childSnapshot = adapter.snapshot(project, child.file)!!
+            assertEquals(25, childSnapshot.declarations.size)
+            val childReport = background { adapter.check(project, childSnapshot, UpdateMode.MAJOR) }
+            assertTrue(childReport.failure.orEmpty(), childReport.successful)
+            assertEquals(25, childReport.candidates.size)
+            assertEquals("A child must not query the parent's 1,000 managed entries", 25, requests.size)
+
+            adapter.invalidateMetadata(project)
+            val fast = adapter.snapshot(project, platform.file)!!
+            assertEquals(26, fast.declarations.size)
+            assertNotNull(fast.coverageDescription)
+            val fastBefore = requests.size
+            val started = System.nanoTime()
+            var firstBatchNanos: Long? = null
+            val fastReport = background { withMavenScanSession {
+                adapter.checkIncrementally(project, fast, UpdateMode.MAJOR) { delta ->
+                    if (firstBatchNanos == null) {
+                        firstBatchNanos = System.nanoTime() - started
+                        assertEquals(listOf(MavenArtifactKind.PARENT), delta.report.candidates.map { it.declaration.coordinate().artifactKind })
+                        assertEquals("Platform priority publishes before the management batch", 1, requests.size - fastBefore)
+                    }
+                }
+            } }
+            assertTrue(fastReport.failure.orEmpty(), fastReport.successful)
+            assertEquals(26, fastReport.candidates.size)
+            assertEquals(26, requests.size - fastBefore)
+            println("version-check benchmark=maven-management path=fast supported=1001 checked=26 httpRequests=26 firstBatchNs=$firstBatchNanos elapsedNs=${System.nanoTime() - started}")
+
+            adapter.invalidateMetadata(project)
+            val full = background { adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, platform.path)) }.single()
+            assertEquals(1001, full.declarations.size)
+            assertNull(full.coverageDescription)
+            val fullBefore = requests.size
+            val fullStarted = System.nanoTime()
+            val service = project.service<VersionCheckService>()
+            val fullReport = background { withMavenScanSession { service.checkNow(adapter, full, UpdateMode.MAJOR) } }
+            assertTrue(fullReport.successful)
+            assertEquals(1001, fullReport.candidates.size)
+            assertTrue(fullReport.candidates.all { it.version == "2.0" })
+            assertEquals(1001, requests.size - fullBefore)
+            println("version-check benchmark=maven-management path=full supported=1001 checked=1001 httpRequests=1001 elapsedNs=${System.nanoTime() - fullStarted}")
+            val auditedEditor = adapter.snapshot(project, platform.file)!!
+            assertNull(auditedEditor.coverageDescription)
+            assertEquals(CheckPhase.CHECKED, service.status(adapter, auditedEditor).phase)
+            val warmed = requests.size
+            val patch = background { adapter.check(project, full, UpdateMode.PATCH) }
+            assertTrue(patch.candidates.all { it.version == "1.0.1" })
+            assertEquals("Warm modes reuse the full management history", warmed, requests.size)
+        } finally {
+            project.service<MavenMetadataService>().invalidate()
+            manager.projectsTree.setIgnoredState(manager.projects, true)
+            manager.embeddersManager.reset()
+            manager.generalSettings.setUserSettingsFile(oldSettings)
+            options.loadState(oldOptions)
+            server.stop(0); executor.shutdownNow(); directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testBatchedMetadataSharesOneHundredArtifactsAcrossOneHundredModulesAndModes() {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
         val directory = Files.createTempDirectory("version-checker-shared-metadata-").toRealPath()

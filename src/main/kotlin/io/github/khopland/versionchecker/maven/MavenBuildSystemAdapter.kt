@@ -37,7 +37,14 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
         CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
             val manager = MavenProjectsManager.getInstance(project)
             val mavenProject = manager.findProject(file)?.takeUnless { manager.isIgnored(it) } ?: return@measure null
-            captureSnapshot(project, mavenProject, MavenProjectInputs(manager))
+            val snapshot = captureSnapshot(project, mavenProject, MavenProjectInputs(manager)) ?: return@measure null
+            // Retain the full audit's coverage and failures until it expires or is invalidated.
+            if (!project.service<VersionCheckerSettings>().state.mavenFastEditorChecks ||
+                project.service<VersionCheckService>().cached(snapshot) != null) snapshot else {
+                val file = PsiManager.getInstance(project).findFile(mavenProject.file) ?: return@measure snapshot
+                val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return@measure snapshot
+                MavenFastEditorScope.select(manager, model, snapshot)
+            }
         }
 
     private fun captureSnapshot(project: Project, mavenProject: MavenProject, inputs: MavenProjectInputs): BuildSnapshot? {
