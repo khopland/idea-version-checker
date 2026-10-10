@@ -4,12 +4,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.DocumentAdapter
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.*
 import com.intellij.ui.table.JBTable
 import io.github.khopland.versionchecker.core.UpdateScope
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.KeyboardFocusManager
 import java.awt.event.ActionEvent
 import java.awt.event.MouseEvent
 import java.util.concurrent.TimeUnit
@@ -70,6 +72,8 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     init {
         title = "Review $buildSystem updates"
+        modeSelector.renderer = SimpleListCellRenderer.create("") { it.label }
+        scopeSelector.renderer = SimpleListCellRenderer.create("") { it.label }
         modeSelector.selectedItem = mode
         scopeSelector.selectedItem = UpdateScope.entries.first { it.label == scopeLabel }
         table.rowSorter = sorter
@@ -78,6 +82,8 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         table.columnModel.getColumn(2).preferredWidth = 120
         table.columnModel.getColumn(3).preferredWidth = 120
         table.accessibleContext.accessibleName = "Dependency version changes"
+        table.setFocusTraversalKeys(KeyboardFocusManager.FORWARD_TRAVERSAL_KEYS, setOf(KeyStroke.getKeyStroke("TAB")))
+        table.setFocusTraversalKeys(KeyboardFocusManager.BACKWARD_TRAVERSAL_KEYS, setOf(KeyStroke.getKeyStroke("shift TAB")))
         table.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke("SPACE"), "toggleVersionSelection")
         table.actionMap.put("toggleVersionSelection", object : AbstractAction() {
             override fun actionPerformed(event: ActionEvent) {

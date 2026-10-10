@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker
 
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
+import com.intellij.codeInsight.intention.LowPriorityAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import io.github.khopland.versionchecker.core.*
@@ -37,7 +38,7 @@ internal fun UpdateReport.withoutIgnored(adapter: String, options: VersionChecke
     })
 }
 
-internal class IgnorePublishedVersionFix(private val ignored: IgnoredVersion) : LocalQuickFix {
+internal class IgnorePublishedVersionFix(private val ignored: IgnoredVersion) : LocalQuickFix, LowPriorityAction {
     override fun getFamilyName() = "Ignore published version"
     override fun getName() = "Ignore ${artifactLabel(ignored.artifact)} ${ignored.version} in this project"
     override fun startInWriteAction() = false

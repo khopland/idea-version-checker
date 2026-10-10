@@ -296,8 +296,14 @@ Do not add overlapping stages or milestone durations. The [trace summarizer](../
 
 Disable tracing after profiling. Capture current-file/project scope, mode and cold/warm cases separately. Metadata expiration/invocation counts do not establish HTTP revalidation; repository fixtures count requests independently.
 
+## Native small-Maven measurements: 10 October 2026
+
+The [native validation record](native-validation-2026-10-10/README.md) contains sanitized traces and reproducible JSON reports. IDEA 2025.3.6.1 completed 105 warm editor endpoints (p95 3.49 ms), 100 cached three-row preview endpoints (p95 43.86 ms) and 100 literal-fix endpoints (p95 5.45 ms). Editor and preview captures contain no native queries. Fixes initiate no native queries; already running background goals overlap 15 fix intervals during undo/hint restoration. IDEA 2026.1.4 has 76 partial literal-fix endpoints (p95 5.35 ms), below the required sample count.
+
+These cases use one Maven module and three declarations with a local file repository. They do not establish the complete plan's targets or EDT typing behavior. Native npm validation is blocked by disabled JavaScript/Node support in the available IDEA sandbox, as requested by the user; no usable licensed profile was supplied or verified. Large projects, Gradle, the remaining 2026.1 repetitions and failure/usability cases are still pending.
+
 ## Measurement limits
 
 `FIRST_INSPECTION_RESULT` measures time from a check starting to its first accepted incremental update containing a candidate or notice. Its count is the number of candidates/notices in that delta. It excludes queue wait and does not measure IDEA rendering; compare it with overall `CHECK` and highlighting stages separately.
 
-These are small local fixtures with warm native installations and forced metadata revalidation. Maven server startup, setup and OS caches can affect the first sample; npm registry/cache startup can do the same. Five samples are sufficient to catch changed work counts, not to establish a reliable production p95 or a general speed multiplier. Large project workloads, cold installations, private remote repository latency and time to visible editor diagnostics still require measurement before choosing broader session or concurrency changes.
+The earlier five-sample comparisons use small local fixtures with warm native installations and forced metadata revalidation. Maven server startup, setup and OS caches can affect the first sample; npm registry/cache startup can do the same. Five samples are sufficient to catch changed work counts, not to establish a reliable production p95 or a general speed multiplier. The later native record measures visible diagnostics for small warm Maven only. Large project workloads, cold installations, private remote repository latency and other ecosystems still require measurement before choosing broader session or concurrency changes.

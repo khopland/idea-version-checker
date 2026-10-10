@@ -11,13 +11,27 @@ Source: [10 October remaining-work plan](https://plan-api.k8r.no/p/4kY_bfKP7caOr
 - Maven shared/property/parent actions show known version-declaration and imported-POM counts. Scope labels are computed when an action name is requested, keeping project-wide traversal out of routine hint construction. Counts include effective inherited property consumers, exclude local version overrides and retain imported-owner/profile guards. Unknown scope is labelled for review rather than guessed. Counts describe supported version declarations, not arbitrary uses of a property elsewhere.
 - Refresh, preview, retry and post-apply saving preserve unrelated unsaved editing. Maven saves participating imported POMs, settings and ancestor `.mvn` inputs. npm saves the workspace manifests and relevant registry/runtime configuration. Gradle saves linked-build scripts/catalogs/properties/wrapper/locks/verification inputs and known user-home properties/init scripts. After apply, only selected edit files are saved. A changed mode/scope saves that selection's required inputs before rediscovery.
 - An Alt+Enter action ignores one exact artifact/version within this IDEA project's workspace settings. npm aliases share their registry identity. Both inspection presentation and bulk review honor the policy, while raw cached results and deprecation/relocation/manual-review notices remain available. Later releases and other artifacts remain visible. Remove the corresponding line in Settings → Tools → Version Checker to restore the update. Changed ignore policy invalidates prepared previews and retained version fixes; Maven shared edits cannot change an ignored artifact through another artifact's property update.
-- Preview controls have label mnemonics, and Space toggles highlighted rows using model indices after sorting/filtering. Hidden selections stay in the summary, and highlighted rows remain selected for repeated keyboard toggles.
+- Preview controls have readable mode/scope labels and label mnemonics. Tab/Shift+Tab enter and leave the table, and Space toggles highlighted rows using model indices after sorting/filtering. Hidden selections stay in the summary, and highlighted rows remain selected for repeated keyboard toggles. Update actions precede exact-release Ignore actions in Alt+Enter.
 
 Selective saving follows inputs known to each supported adapter. Arbitrary files read by custom build scripts, convention-plugin source, custom Maven extensions or user tooling are not a complete general-purpose build-input graph. Save those inputs explicitly when their changes affect resolution. They are outside the adapters' current automatic-edit scope.
 
-## Native validation still required
+## Native validation status
 
-The plan's latency targets are not measured promises. Headless platform, native repository integration and packaged-plugin lifecycle tests establish behavior and safety; they do not replace the native sessions below.
+The [native record and sanitized traces](native-validation-2026-10-10/README.md) now cover the small, warm, current-file Maven cases in IDEA 2025.3.6.1: 105 editor, 100 preview and 100 literal-fix endpoints. Their p95 values are 3.49, 43.86 and 5.45 ms respectively. Preview and editor captures have no native queries. Fixes start no native queries; preexisting background queries overlap 15 fixes during the undo/restore loop. IDEA 2026.1.4 has 76 partial local-fix endpoints and verified readable labels/action ordering. Native testing also corrected preview Tab traversal and verified filter/Space/hidden-selection behavior in 2025.3.
+
+**Native npm validation is blocked:** JavaScript/Node support is disabled in the available IDEA sandbox. No usable licensed profile was supplied or verified; the user requested recording this blocker. Passing headless npm integration tests do not replace native validation.
+
+| Native work | Status |
+|-------------|--------|
+| Small warm Maven editor/preview/literal fix, 2025.3.6.1 | Sample counts and latency recorded; globally idle fix capture remains to confirm |
+| Small warm Maven, 2026.1.4 | Partial fix capture; editor/preview and 100-sample completion pending after native input interruption |
+| Large Maven, roughly 100 modules / 10,000 declarations | Reproducible fixture generated and checked; native measurements pending |
+| Gradle, both IDEA versions | Native performance/usability cases pending |
+| npm, both IDEA versions | Blocked by disabled JavaScript/Node support in available sandbox |
+| Cold/setup, delayed/offline/authentication, shared fixes and typing profiler | Pending |
+| Remaining native keyboard/focus and recovery cases | Pending; findings and corrections recorded per version |
+
+The measured cases do not establish the full plan's latency targets. Headless platform, native repository integration and packaged-plugin lifecycle tests establish behavior and safety; they do not replace the outstanding native sessions below.
 
 Run both IDEA 2025.3.6.1 and 2026.1.4 with the packaged plugin. Enable the debug category documented in [performance.md](performance.md). Use separate captures for each ecosystem, project size, scope, mode and cache state. Record the IDEA/JDK/Node/Gradle/Maven versions, module/workspace count, declaration count, repository latency and update mode with each case.
 
@@ -49,4 +63,4 @@ The final run passed 346 plugin tests with zero failures, errors or skips, inclu
 
 New regressions cover selective saving of sibling/configuration inputs while preserving unrelated edits, serialization and removal of exact-release ignores, npm aliases and cached/bulk presentation, Maven snapshot identity filtering, stale policy guards, ignored Maven consumers sharing a property, scope counts, sorted/filtered keyboard toggling, coroutine trace context, document markup visibility and overlap-safe median/p95 reporting. The Maven native demo fixture now initializes its mapped model properties before resolving inherited DOM values. Existing native inspection assertions include both property and declaration diagnostics and distinguish update actions from ignores.
 
-These results validate the implementation. Native-window usability and the 100-repetition performance matrix above remain unmeasured; no editor or preview latency target is claimed.
+These results validate the implementation, including the native-discovered dialog/action corrections. Small Maven native measurements and their limits are recorded above; the rest of the performance/usability matrix remains pending or explicitly blocked.
