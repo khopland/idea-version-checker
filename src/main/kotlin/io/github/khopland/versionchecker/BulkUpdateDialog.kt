@@ -82,8 +82,8 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     init {
         title = "Review $buildSystem updates"
-        modeSelector.renderer = SimpleListCellRenderer.create("") { it.label }
-        scopeSelector.renderer = SimpleListCellRenderer.create("") { it.label }
+        modeSelector.renderer = choiceRenderer<UpdateMode> { it.label }
+        scopeSelector.renderer = choiceRenderer<UpdateScope> { it.label }
         modeSelector.selectedItem = mode
         scopeSelector.selectedItem = UpdateScope.entries.first { it.label == scopeLabel }
         preparedScope = scopeSelector.selectedItem
@@ -271,4 +271,11 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             preferredSize = Dimension(860, 480)
         }
     }
+
+    private fun <T> choiceRenderer(label: (T) -> String): SimpleListCellRenderer<T> =
+        object : SimpleListCellRenderer<T>() {
+            override fun customize(list: JList<out T>, value: T?, index: Int, selected: Boolean, hasFocus: Boolean) {
+                text = value?.let(label).orEmpty()
+            }
+        }
 }

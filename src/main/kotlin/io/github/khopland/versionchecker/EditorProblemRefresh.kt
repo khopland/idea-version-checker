@@ -2,7 +2,7 @@ package io.github.khopland.versionchecker
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
@@ -70,14 +70,24 @@ internal class FileProblemRefreshQueue(
 internal class FileProblemRefresh(private val project: Project, private val scope: CoroutineScope) {
     private val traces = mutableMapOf<String, Pair<CheckPerformance.Interaction, Long>>() // EDT only.
     private val queue = FileProblemRefreshQueue(scope) { paths ->
+        val sources = withContext(Dispatchers.Default) {
+            readAction {
+                if (project.isDisposed) emptyList() else {
+                    val psi = PsiManager.getInstance(project)
+                    val roots = ProjectRootManager.getInstance(project).contentRoots
+                    paths.mapNotNull { path ->
+                        val file = LocalFileSystem.getInstance().findFileByPath(path)
+                            ?: roots.firstNotNullOfOrNull { it.fileSystem.findFileByPath(path) }
+                        file?.takeIf { it.isValid }?.let(psi::findFile)?.let { path to it }
+                    }
+                }
+            }
+        }
         withContext(Dispatchers.EDT) {
-            if (!project.isDisposed) ReadAction.run<RuntimeException> {
-                val psi = PsiManager.getInstance(project)
+            if (!project.isDisposed) {
                 val daemon = DaemonCodeAnalyzer.getInstance(project)
-                for (path in paths) {
-                    val file = LocalFileSystem.getInstance().findFileByPath(path)
-                        ?: ProjectRootManager.getInstance(project).contentRoots.firstNotNullOfOrNull { it.fileSystem.findFileByPath(path) }
-                    file?.takeIf { it.isValid }?.let(psi::findFile)?.let { source ->
+                for ((path, source) in sources) {
+                    if (source.isValid) {
                         val trace = traces.remove(path)
                         CheckPerformance.locally(trace?.first) {
                             trace?.let { CheckPerformance.record(CheckPerformance.Stage.HIGHLIGHT_QUEUE, it.second) }
