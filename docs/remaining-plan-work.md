@@ -65,6 +65,27 @@ archive identities, sanitized traces, functional outcomes and remaining gaps:
 Phase 2 is not complete. Minimum-IDE npm, controlled scale/typing measurements
 and the remaining native failure/usability matrix still gate stable release.
 
+### Recovery follow-up
+
+The generic npm preview failure observed above led to an F14 correction:
+provider-owned safe guidance now explains authentication, offline-cache,
+network and certificate failures. Failed previews offer **Retry Preview**, which
+forces fresh metadata and preserves the latest mode, scope and file. Preview
+notifications are owned by the feedback service and expire on disposal/unload;
+paused checks and expired notifications cannot start a retry. The shared preview
+code depends on a core advice contract rather than optional npm classes.
+
+See the [recovery validation record](native-validation-2026-10-10/preview-recovery.md)
+for the exact archive, native authentication retry and regression results. This
+addresses the observed preview failure; the broader F14 failure/status matrix and
+minimum-IDE native npm coverage remain open.
+
+The final snapshot passed native HTTP 401 and empty-offline-cache recovery in
+IDEA 2026.2.3, with unchanged manifests/lockfile and the latest Whole Project/Minor
+selection retained after retry. Full validation now passes 401 plugin tests in
+61 classes, with 13 release and 16 script tests. Exact artifact identity and
+sanitized traces are included in the recovery record.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
@@ -80,6 +101,6 @@ and the remaining native failure/usability matrix still gate stable release.
 4. **F11: align quick-fix and preview freshness.** Introduce a common candidate lease with result identity, generation and original deadline. Keep stale-edit recovery and shared-consumer safety.
 5. **F12: explicit coverage.** Track checked, ignored, unsupported and manual-review declarations so status, empty previews and partial/failure states share an honest explanation.
 6. **F13: retain preview state.** Update mode/scope in one dialog while preserving search, sorting and compatible selections; pending checks must never authorize an old plan.
-7. **F14: consistent recovery.** Map native failures to concrete retry/configuration actions, including npm offline/configuration behavior, without weakening native provider semantics.
+7. **F14: consistent recovery.** Preview failures now offer fresh retry and npm-specific guidance. Complete the remaining status/automatic-check and native failure matrix, including npm offline/configuration behavior, without weakening native provider semantics.
 
 The broader onboarding, accessibility, repository diagnostics, persistent metadata and scheduling proposals remain in the HTML plan. Prioritize measured bottlenecks and release blockers; preserve the existing provider isolation, cancellation, authentication and shared-declaration safeguards during each change.

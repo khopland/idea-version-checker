@@ -1,8 +1,6 @@
 package io.github.khopland.versionchecker
 
 import com.intellij.codeInsight.FileModificationService
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
@@ -12,7 +10,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.notification.NotificationAction
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.ide.progress.withBackgroundProgress
@@ -85,7 +82,10 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
     }
 
     fun preview(mode: UpdateMode, updateScope: UpdateScope = UpdateScope.WHOLE_PROJECT,
-                currentFile: VirtualFile? = null) {
+                currentFile: VirtualFile? = null) = previewWithRefresh(mode, updateScope, currentFile, forceRefresh = false)
+
+    private fun previewWithRefresh(mode: UpdateMode, updateScope: UpdateScope,
+                                   currentFile: VirtualFile?, forceRefresh: Boolean) {
         if (disposed || !scope.isActive) return
         val adapters = BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path))
         if (adapters.isEmpty()) return
@@ -96,10 +96,10 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
         }
         val interaction = CheckPerformance.current() ?: CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
         scope.launch(Dispatchers.IO + CheckPerformance.context(interaction)) {
+            var selectedMode = mode
+            var selectedScope = updateScope
             try {
-                var selectedMode = mode
-                var selectedScope = updateScope
-                var forceRefresh = false
+                var refreshRequired = forceRefresh
                 var nextInteraction = interaction
                 while (isActive && !disposed) {
                     val recheck = CheckPerformance.traced(nextInteraction) {
@@ -113,7 +113,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                         }
                         val prepared = withBackgroundProgress(project, "Checking versions: ${selectedScope.label} — ${selectedMode.label}", cancellable = true) {
                             CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PREPARATION) {
-                                preparePreview(selectedMode, selectedScope, currentFile, matching, forceRefresh)
+                                preparePreview(selectedMode, selectedScope, currentFile, matching, refreshRequired)
                             }
                         }
                         var recheck = false
@@ -129,7 +129,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                             if (!accepted && shown.exitCode == BulkUpdateDialog.RECHECK_EXIT_CODE && !disposed) {
                                 selectedMode = shown.modeSelector.selectedItem as UpdateMode
                                 selectedScope = shown.scopeSelector.selectedItem as UpdateScope
-                                forceRefresh = shown.refreshRequested
+                                refreshRequired = shown.refreshRequested
                                 nextInteraction = shown.recheckInteraction
                                 recheck = true
                             } else if (accepted) {
@@ -142,7 +142,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                 if (!plan.apply(project, shown.applyInteraction)) {
                                     showDialog { BulkUpdateMessageDialog(project, "Version Checker", "Build files, settings or version results changed after the preview. Review refreshed results before applying.") }
                                     recheck = !disposed
-                                    forceRefresh = true
+                                    refreshRequired = true
                                     nextInteraction = if (recheck) CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED) else null
                                     return@withContext
                                 }
@@ -162,14 +162,13 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                 throw cancelled
             } catch (failure: Exception) {
                 log.warn("$buildSystems bulk update check failed (${mode.label})", failure)
-                if (!disposed && scope.isActive && !project.isDisposed) NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
-                    .createNotification("$buildSystems version update check failed",
-                        "${failure.javaClass.simpleName}. No versions were changed. Use Show details for the cause.", NotificationType.WARNING)
-                    .addAction(NotificationAction.createSimple("Show details") {
-                        scope.launch {
-                            showDialog { BulkUpdateMessageDialog(project, "$buildSystems version update check failed", failure.stackTraceToString()) }
-                        }
-                    }).notify(project)
+                if (!disposed && scope.isActive && !project.isDisposed) {
+                    val retryMode = selectedMode
+                    val retryScope = selectedScope
+                    project.service<VersionCheckFeedback>().previewFailure(buildSystems, failure) {
+                        previewWithRefresh(retryMode, retryScope, currentFile, forceRefresh = true)
+                    }
+                }
             } finally {
                 running.set(false)
             }

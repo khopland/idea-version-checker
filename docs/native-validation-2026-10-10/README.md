@@ -13,6 +13,11 @@ diagnostics/fix evidence, current-IDE shared/dense edits and provider-disabled
 smoke tests. The earlier npm blocker still applies to the minimum-IDE profile;
 phase 2 and the full release matrix remain incomplete.
 
+The [preview recovery follow-up](preview-recovery.md) fixes the generic npm
+failure notification found during phase 2. The final archive passed native
+authentication and empty-offline-cache recovery with fresh retry preserving the
+latest scope/mode; the automated suite now contains 401 passing plugin tests.
+
 ## Results
 
 | IDEA | Endpoint | Completed samples | Median | Nearest-rank p95 | Evidence |

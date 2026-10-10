@@ -5,6 +5,10 @@ Native npm works in the available IDEA **2026.2.3** installation despite its
 with current-IDE functional evidence. The minimum-IDE npm configuration remains
 unvalidated. Phase 2 is still incomplete; no RC, EAP or stable release was published.
 
+The subsequent [preview recovery correction](preview-recovery.md) fixes the
+generic npm failure described below and records native authentication/offline-cache
+retry checks against its exact final archive.
+
 ## Artifact and conditions
 
 All native cases below loaded the same `1.3.0-SNAPSHOT` archive:

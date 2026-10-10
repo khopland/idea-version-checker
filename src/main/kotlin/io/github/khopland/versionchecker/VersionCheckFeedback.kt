@@ -12,6 +12,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import io.github.khopland.versionchecker.core.VersionCheckFailureAdvice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -77,6 +78,35 @@ internal class VersionCheckFeedback(private val project: Project, private val sc
     fun report(failures: VersionCheckFailures) {
         if (failures.isEmpty) return
         scope.launch(Dispatchers.EDT) { if (!disposed && !project.isDisposed) publish(failures) }
+    }
+
+    fun previewFailure(providers: String, failure: Exception, retry: () -> Unit) {
+        val advice = (failure as? VersionCheckFailureAdvice)?.recoveryMessage
+            ?: "Could not check dependency versions. Check the build tool and repository settings, then retry."
+        val details = failure.stackTraceToString()
+        scope.launch(Dispatchers.EDT) {
+            if (disposed || project.isDisposed) return@launch
+            val title = "$providers version update check failed"
+            val notification = group().createNotification(title,
+                "$advice No versions were changed. Use Show Details for the cause.", NotificationType.WARNING)
+                .setRemoveWhenExpired(true)
+            notification.addAction(object : NotificationAction("Retry Preview") {
+                override fun getActionUpdateThread() = ActionUpdateThread.BGT
+                override fun update(event: AnActionEvent) {
+                    event.presentation.isEnabled = !disposed && !project.isDisposed && !notification.isExpired &&
+                        project.service<VersionCheckerSettings>().state.enabled
+                }
+                override fun actionPerformed(event: AnActionEvent, notification: Notification) {
+                    if (disposed || project.isDisposed || notification.isExpired || !project.service<VersionCheckerSettings>().state.enabled) return
+                    retry()
+                    notification.expire()
+                }
+            })
+            notification.addAction(NotificationAction.createSimple("Show Details") {
+                if (!disposed && !project.isDisposed && !notification.isExpired) project.service<BulkUpdateService>().showDetails(title, details)
+            })
+            show(notification)
+        }
     }
 
     fun automaticFailure(target: VersionCheckTarget, provider: String, message: String, cause: Exception?) {

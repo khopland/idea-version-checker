@@ -15,6 +15,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import io.github.khopland.versionchecker.UpdateMode
 import io.github.khopland.versionchecker.CheckPerformance
+import io.github.khopland.versionchecker.core.VersionCheckFailureAdvice
 import kotlinx.coroutines.*
 import java.io.IOException
 import java.nio.charset.StandardCharsets
@@ -40,10 +41,12 @@ internal object NpmRegistry {
         CheckPerformance.measure(CheckPerformance.Stage.NPM_RUNTIME_RESOLUTION) {
             val (interpreter, configured) = readAction {
                 val interpreter = NodeJsInterpreterManager.getInstance(project).interpreter
-                    ?: error("Configure a local Node.js interpreter and npm in IntelliJ's JavaScript runtime settings")
-                check(interpreter is NodeJsLocalInterpreter) { "npm checks currently require a local Node.js interpreter" }
+                    ?: throw NpmRuntimeFailure("Configure a local Node.js interpreter and npm in IntelliJ's JavaScript runtime settings, then retry.")
+                if (interpreter !is NodeJsLocalInterpreter)
+                    throw NpmRuntimeFailure("npm checks require a local Node.js interpreter. Choose one in IntelliJ's JavaScript runtime settings, then retry.")
                 val configured = NpmManager.getInstance(project).getPackageOrThrow(interpreter)
-                check(NpmManager.getNpmPackagePresentableName(configured) == "npm") { "npm checks currently require npm as IntelliJ's configured package manager" }
+                if (NpmManager.getNpmPackagePresentableName(configured) != "npm")
+                    throw NpmRuntimeFailure("Choose npm as IntelliJ's configured package manager, then retry.")
                 interpreter to configured
             }
             val npm = packageDirectory(configured) ?: bundledPackage(interpreter, directory) ?: configured
@@ -165,7 +168,7 @@ internal object NpmRegistry {
             execute(CheckPerformance.measure(CheckPerformance.Stage.NPM_COMMAND_SETUP) {
                 command(runtime, directory, parameters)
             })
-        } ?: throw IOException("npm registry query timed out for ${parameters.first()}")
+        } ?: throw NpmViewFailure("ETIMEDOUT", "npm registry query timed out for ${parameters.first()}")
         if (output.exitCode != 0) {
             // Do not copy stderr/configuration or credentials into a diagnostic or log.
             val code = runCatching { JsonParser.parseString(output.stdout).asJsonObject.getAsJsonObject("error")?.get("code")?.asString }
@@ -198,4 +201,17 @@ internal object NpmRegistry {
 }
 
 internal class UnsupportedNpmMetadata : IOException("npm did not return complete stable-version metadata")
-internal class NpmViewFailure(val code: String?, message: String) : IOException(message)
+internal class NpmRuntimeFailure(override val recoveryMessage: String) : IOException(recoveryMessage), VersionCheckFailureAdvice
+
+internal class NpmViewFailure(val code: String?, message: String) : IOException(message), VersionCheckFailureAdvice {
+    override val recoveryMessage: String get() = when (code) {
+        "E401", "E403", "ENEEDAUTH" -> "npm registry access was denied. Check the registry credentials and package permissions in .npmrc, then retry."
+        "ENOTCACHED" -> "npm could not find registry metadata in its offline cache. Check npm's offline configuration and registry access, then retry."
+        "ETIMEDOUT", "ESOCKETTIMEDOUT", "ECONNRESET", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH" ->
+            "npm could not reach the registry. Check the network, registry URL and proxy configuration, then retry."
+        "CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN", "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ->
+            "npm could not verify the registry certificate. Check the registry certificate and npm's trusted certificate configuration, then retry."
+        "E404", "ETARGET", "ENOVERSIONS" -> "npm could not read package versions. Check the package name, scoped registry and package access, then retry."
+        else -> "npm could not check package versions. Check IntelliJ's Node/npm settings and registry access, then retry."
+    }
+}

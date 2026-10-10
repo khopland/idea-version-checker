@@ -17,6 +17,7 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.ui.UiInterceptors
 import io.github.khopland.versionchecker.core.*
+import io.github.khopland.versionchecker.npm.NpmViewFailure
 import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -27,6 +28,7 @@ class VersionCheckRecoveryTest : BasePlatformTestCase() {
         override val capabilities = AdapterCapabilities()
         val errors = ConcurrentHashMap<String, String>()
         val checked = CopyOnWriteArrayList<String>()
+        val checkedModes = CopyOnWriteArrayList<UpdateMode>()
         var metadataRefreshes = 0
         var offline = false
         var discoveryFailure: Exception? = null
@@ -44,6 +46,7 @@ class VersionCheckRecoveryTest : BasePlatformTestCase() {
         }
         override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
             checked += snapshot.sourceFile
+            checkedModes += mode
             beforeCheck(snapshot)
             return UpdateReport(failure = errors[snapshot.sourceFile])
         }
@@ -244,5 +247,47 @@ class VersionCheckRecoveryTest : BasePlatformTestCase() {
         invoke(notifications.single(), "Show Details")
         PlatformTestUtil.waitWithEventsDispatching("Details shown", { shown }, 10)
         assertEquals(1, adapter.checked.size)
+    }
+
+    fun testFailedPreviewAfterModeAndScopeChangeRetriesFreshWithTheLatestSelection() {
+        val files = files("preview-retry", 2)
+        val adapter = Adapter(files, "Preview provider")
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        val notifications = notifications()
+        UiInterceptors.registerPossible(testRootDisposable,
+            object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
+                override fun doIntercept(component: DialogWrapper) {
+                    val preview = component as BulkUpdateDialog
+                    assertEquals(UpdateMode.PATCH, preview.modeSelector.selectedItem)
+                    assertEquals(UpdateScope.WHOLE_PROJECT, preview.scopeSelector.selectedItem)
+                    adapter.beforeCheck = { throw NpmViewFailure("E401", "native authentication cause") }
+                    preview.modeSelector.selectedItem = UpdateMode.MINOR
+                    preview.scopeSelector.selectedItem = UpdateScope.CURRENT_FILE
+                }
+            })
+        project.service<BulkUpdateService>().preview(UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, files.first())
+        PlatformTestUtil.waitWithEventsDispatching("Changed preview fails", { notifications.size == 1 }, 10)
+        assertTrue(notifications.single().content.contains("registry access was denied"))
+        assertEquals(listOf(UpdateMode.PATCH, UpdateMode.PATCH, UpdateMode.MINOR), adapter.checkedModes.toList())
+        assertEquals(0, adapter.metadataRefreshes)
+        adapter.beforeCheck = {}
+        var shown = false
+        UiInterceptors.registerPossible(testRootDisposable,
+            object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
+                override fun doIntercept(component: DialogWrapper) {
+                    val preview = component as BulkUpdateDialog
+                    assertEquals(UpdateMode.MINOR, preview.modeSelector.selectedItem)
+                    assertEquals(UpdateScope.CURRENT_FILE, preview.scopeSelector.selectedItem)
+                    assertEquals(1, adapter.metadataRefreshes)
+                    shown = true
+                    preview.close(DialogWrapper.CANCEL_EXIT_CODE)
+                }
+            })
+        invoke(notifications.single(), "Retry Preview")
+        PlatformTestUtil.waitWithEventsDispatching("Retry preserves selection", { shown }, 10)
+        assertEquals(listOf(files[0].path, files[1].path, files[0].path, files[0].path), adapter.checked.toList())
+        assertEquals(UpdateMode.MINOR, adapter.checkedModes.last())
+        assertTrue(notifications.single().isExpired)
+        assertTrue(files.all { it.contentsToByteArray().toString(Charsets.UTF_8) == "1.0" })
     }
 }
