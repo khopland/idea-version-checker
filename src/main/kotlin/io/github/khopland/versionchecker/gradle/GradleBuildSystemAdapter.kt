@@ -171,10 +171,13 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
             val candidates = report.candidates.associateBy { it.declaration.id }
             for ((range, consumers) in declarations.groupBy { it.range }) {
                 val updates = consumers.map { candidates[it.declaration.id] }
+                val location = "${psi.virtualFile.path}: " + consumers.joinToString {
+                    "${it.declaration.artifact.namespace}:${it.declaration.artifact.name} (${it.declaration.id.location})"
+                }
                 if (range != null && consumers.all { it.reason == null } && updates.all { it != null } && updates.map { it!!.version }.distinct().size == 1) {
-                    edits += GradleVersionEdit(psi, range, updates.first()!!.version, "${psi.virtualFile.path}: ${consumers.joinToString { it.declaration.id.location }}", original)
+                    edits += GradleVersionEdit(psi, range, updates.first()!!.version, location, original)
                 } else if (consumers.any { it.reason != null } || updates.any { it != null }) {
-                    skipped += "${psi.virtualFile.path}: ${consumers.joinToString { it.declaration.id.location }}: ${consumers.mapNotNull { it.reason }.firstOrNull() ?: "Shared version has conflicting or unchanged consumers"}"
+                    skipped += "$location: ${consumers.mapNotNull { it.reason }.firstOrNull() ?: "Shared version has conflicting or unchanged consumers"}"
                 }
             }
             skipped += report.notices.map { "${it.declaration.id.file}: ${it.message}" }

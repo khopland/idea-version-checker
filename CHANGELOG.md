@@ -27,6 +27,7 @@
 
 ### Fixed
 
+- Gradle preview rows and shared-version review messages identify their dependency coordinates, allowing package-name filtering while retaining declaration and catalog-alias distinctions.
 - Rebuilt previews have independent performance interactions, and bulk Apply timing includes plan and writable-file preparation. Trace reports distinguish owned native invocations from background overlap and expose incomplete samples.
 - Preview mode/scope selectors display readable labels, and Tab/Shift+Tab leave the change table. Update actions precede exact-release Ignore actions in Alt+Enter.
 - Preview mode/scope changes wait for dropdown selection to finish, preserving keyboard navigation and keeping Enter out of the editor. Pending choices cannot apply an older plan; empty previews use readable mode labels.

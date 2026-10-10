@@ -90,6 +90,29 @@ class GradleAdapterTest : BasePlatformTestCase() {
         assertEquals(original.replace("// original", "// changed"), file.text)
     }
 
+    fun testPreviewFiltersByArtifactAndAppliesOnlyMatchingRepeatedDeclarations() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", """dependencies {
+            implementation 'g:alpha:1.2.3'
+            testImplementation 'g:alpha:1.2.3'
+            implementation 'g:beta:1.2.3'
+        }""".trimIndent())
+        link()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val preview = BulkUpdateDialog(project, UpdateMode.PATCH, UpdateScope.CURRENT_FILE.label, "Gradle", plan(snapshot, report(snapshot)))
+        try {
+            preview.model.selectRows(snapshot.declarations.indices.toSet(), false)
+            preview.filter.text = "g:alpha"
+            assertEquals(2, preview.table.rowCount)
+            preview.model.selectRows((0 until preview.table.rowCount).map(preview.table::convertRowIndexToModel).toSet(), true)
+            val selected = preview.selectedPlan()
+            assertEquals(2, selected.changes.size)
+            assertEquals(2, selected.changes.map { it.location }.distinct().size)
+            assertTrue(selected.apply(project))
+            assertEquals(2, Regex("g:alpha:1.2.9").findAll(file.text).count())
+            assertTrue(file.text.contains("g:beta:1.2.3"))
+        } finally { preview.close(com.intellij.openapi.ui.DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
     fun testSubsetSelectionRejectsChangesToAnUnselectedGradleLiteral() {
         val file = myFixture.addFileToProject("gradle-project/build.gradle", """dependencies {
             implementation 'g:alpha:1.2.3'
@@ -142,8 +165,13 @@ class GradleAdapterTest : BasePlatformTestCase() {
         val snapshot = adapter.snapshot(project, file.virtualFile)!!
         assertTrue(plan(snapshot, report(snapshot, listOf("1.2.9", null))).changes.isEmpty())
         assertTrue(plan(snapshot, report(snapshot, listOf("1.2.9", "1.2.8"))).changes.isEmpty())
+        val conflict = plan(snapshot, report(snapshot, listOf("1.2.9", "1.2.8"))).skipped.single()
+        assertTrue(conflict.contains("g:alpha (libraries/alpha)"))
+        assertTrue(conflict.contains("g:beta (libraries/beta)"))
         val prepared = plan(snapshot, report(snapshot))
         assertEquals(1, prepared.changes.size)
+        assertTrue(prepared.changes.single().location.contains("g:alpha (libraries/alpha)"))
+        assertTrue(prepared.changes.single().location.contains("g:beta (libraries/beta)"))
         assertTrue(prepared.apply(project))
         assertTrue(file.text.contains("shared = \"1.2.9\""))
     }
