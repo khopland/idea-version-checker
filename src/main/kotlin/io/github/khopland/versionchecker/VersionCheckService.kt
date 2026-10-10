@@ -288,32 +288,36 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     private suspend fun refreshInSession(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?, scheduled: Boolean,
                                          retryFiles: Map<String, Set<String>?>?) {
         if (adapters.isEmpty() || project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled) return
-        val scopeLabel = if (retryFiles != null) "Failed Checks" else if (currentFile == null) "Whole Project" else "Current File"
+        val scopeLabel = when {
+            retryFiles != null -> "Failed Checks"
+            currentFile == null -> "Whole Project"
+            else -> "Current File"
+        }
         val affected = mutableSetOf<String>()
         val failures = VersionCheckFailures()
         currentFile?.let { affected += it.path }
         try {
             withBackgroundProgress(project, "Checking dependency versions: $scopeLabel", cancellable = true) {
-                val selection = BuildSelection(if (currentFile == null) UpdateScope.WHOLE_PROJECT else UpdateScope.CURRENT_FILE, currentFile?.path)
+                val selection = BuildSelection(
+                    scope = if (currentFile == null) UpdateScope.WHOLE_PROJECT else UpdateScope.CURRENT_FILE,
+                    currentFile = currentFile?.path
+                )
                 val unsaved = if (scheduled) readAction {
                     val documents = FileDocumentManager.getInstance()
                     documents.unsavedDocuments.mapNotNull { documents.getFile(it)?.path }.toSet()
                 } else emptySet()
                 val scans = adapters.flatMap { adapter ->
                     try {
-                        val wanted = retryFiles?.get(adapter.id)
-                        val discovered = adapter.discover(project, selection).filter { wanted == null || it.sourceFile in wanted }
-                        wanted?.minus(discovered.map { it.sourceFile }.toSet())?.forEach { path ->
-                            failures.add(VersionCheckTarget(adapter.id, path), adapter.displayName,
-                                "Build file is no longer available or supported. Import or reload the build project before retrying.")
-                        }
+                        val discovered = discoverRefreshSnapshots(adapter, selection, retryFiles?.get(adapter.id), failures)
                         affected += discovered.map { it.sourceFile }
                         if (adapter.isOffline(project)) {
                             failures.offline(adapter.displayName)
-                            emptyList()
+                            return@flatMap emptyList()
+                        }
+                        val eligible = if (scheduled) discovered.filter { snapshot ->
+                            !readAction { adapter.hasUnsavedResolutionInputs(project, snapshot, unsaved) }
                         } else discovered
-                            .filter { snapshot -> !scheduled || !readAction { adapter.hasUnsavedResolutionInputs(project, snapshot, unsaved) } }
-                            .map { adapter to it }
+                        eligible.map { adapter to it }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (cancelled: ProcessCanceledException) {
@@ -347,6 +351,25 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 affected.forEach { project.service<FileProblemRefresh>().request(it) }
             }
         }
+    }
+
+    private suspend fun discoverRefreshSnapshots(
+        adapter: BuildSystemAdapter,
+        selection: BuildSelection,
+        requestedFiles: Set<String>?,
+        failures: VersionCheckFailures
+    ): List<BuildSnapshot> {
+        val snapshots = adapter.discover(project, selection)
+            .filter { requestedFiles == null || it.sourceFile in requestedFiles }
+        val missingFiles = requestedFiles?.minus(snapshots.map { it.sourceFile }.toSet()).orEmpty()
+        for (path in missingFiles) {
+            failures.add(
+                VersionCheckTarget(adapter.id, path),
+                adapter.displayName,
+                "Build file is no longer available or supported. Import or reload the build project before retrying."
+            )
+        }
+        return snapshots
     }
 
     private fun token(snapshot: BuildSnapshot) = ScanToken(snapshot.sourceFile, snapshot.fingerprint, snapshot.declarations, cache.begin(snapshot))
