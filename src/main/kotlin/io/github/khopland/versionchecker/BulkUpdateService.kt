@@ -108,6 +108,9 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                         val currentAvailable = currentFile != null && readAction {
                             BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
                         }
+                        val platformAvailable = currentFile != null && readAction {
+                            BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, currentFile.path)).isNotEmpty()
+                        }
                         val prepared = withBackgroundProgress(project, "Checking versions: ${selectedScope.label} — ${selectedMode.label}", cancellable = true) {
                             CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PREPARATION) {
                                 preparePreview(selectedMode, selectedScope, currentFile, matching, forceRefresh)
@@ -119,7 +122,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                             var dialog: BulkUpdateDialog? = null
                             val accepted = showDialog {
                                 BulkUpdateDialog(project, selectedMode, selectedScope.label, matching.joinToString { it.displayName }, prepared.plan).also {
-                                    dialog = it; it.configure(prepared, currentAvailable)
+                                    dialog = it; it.configure(prepared, currentAvailable, platformAvailable)
                                 }
                             }
                             val shown = dialog ?: return@withContext

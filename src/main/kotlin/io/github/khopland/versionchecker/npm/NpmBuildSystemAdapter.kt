@@ -20,7 +20,7 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     private val registrySlots = Semaphore(4)
     override fun isOffline(project: Project) = false // npm evaluates its own offline/cache configuration.
     override fun supports(project: Project, selection: BuildSelection) =
-        NpmManifest.files(project, selection).any { NpmWorkspaces.supportsManifest(project, it) }
+        selection.scope in capabilities.updateScopes && NpmManifest.files(project, selection).any { NpmWorkspaces.supportsManifest(project, it) }
 
     override fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
         val workspaces = NpmManifest.files(project, selection).map { NpmWorkspaces.resolve(project, it) }.distinctBy { it.root }

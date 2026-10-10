@@ -4,7 +4,8 @@
 
 ### Added
 
-- Maven metadata worker control (1–4, default 2), optional parents/Spring Boot BOM priority, and optional fast editor checks with explicit partial coverage. Refreshes and update previews always perform full supported-declaration audits.
+- Maven metadata worker control (1–4, default 2), optional parents/Spring Boot BOM priority, and optional fast editor checks with explicit partial coverage. Refreshes and Current File / Whole Project previews perform full supported-declaration audits.
+- **Maven Platform** update previews follow imported parent chains to the editable parent/BOM owners, check platform declarations before explicit overrides, and show their actual source files. This explicit narrower scope has separate result identity and cannot replace or authorize a full audit.
 - Ignore one exact published artifact/version in the current project through Alt+Enter, with reversible workspace settings and matching bulk-review filtering. Other releases and replacement notices remain visible; changed ignore policy rejects older prepared edits.
 - Anonymous performance interaction IDs and monotonic endpoints connect native setup/query work, result acceptance, displayed previews, changed editor text and painted visible diagnostics. A sanitized trace report computes median/p95 and partitions overlapping stages.
 

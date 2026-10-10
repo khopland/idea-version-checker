@@ -70,7 +70,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
             .addComponent(fastMaven!!)
             .addLabeledComponent("Maven metadata workers:", mavenThreads!!)
             .addComponent(JBLabel("Use fewer metadata workers for slow or rate-limited repositories."))
-            .addComponent(JBLabel("Fast scope is optional. Refresh and update previews always audit all supported declarations."))
+            .addComponent(JBLabel("Fast scope is optional. Refresh and Current File / Whole Project previews perform full audits."))
         for ((kind, label) in linkedMapOf(
             VersionChangeKind.PATCH to "Patch updates:",
             VersionChangeKind.MINOR to "Minor updates:",

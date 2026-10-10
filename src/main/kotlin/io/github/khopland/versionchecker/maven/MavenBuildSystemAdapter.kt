@@ -16,11 +16,12 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 internal class MavenBuildSystemAdapter : BuildSystemAdapter {
     override val id = "maven"
     override val displayName = "Maven"
-    override val capabilities = AdapterCapabilities(incrementalInspections = true)
+    override val capabilities = AdapterCapabilities(incrementalInspections = true, updateScopes = UpdateScope.entries.toSet())
 
     override fun supports(project: Project, selection: BuildSelection): Boolean {
         val manager = MavenProjectsManager.getInstance(project)
-        return selectedProjects(manager, selection).isNotEmpty()
+        val projects = selectedProjects(manager, selection)
+        return projects.isNotEmpty() && (selection.scope != UpdateScope.MAVEN_PLATFORM || projects.any { MavenPlatformScope.hasPlatform(manager, it) })
     }
 
     override fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
@@ -99,8 +100,12 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
     override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = readAction {
         val manager = MavenProjectsManager.getInstance(project)
         val inputs = MavenProjectInputs(manager)
-        inputs.projects.filter { selection.scope == UpdateScope.WHOLE_PROJECT || it.path == selection.currentFile }.mapNotNull { mavenProject ->
-            CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) { captureSnapshot(project, mavenProject, inputs) }
+        selectedProjects(manager, selection).mapNotNull { mavenProject ->
+            CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
+                val snapshot = captureSnapshot(project, mavenProject, inputs) ?: return@measure null
+                if (selection.scope == UpdateScope.MAVEN_PLATFORM) MavenPlatformScope.select(manager, mavenProject, snapshot)
+                    .takeIf { it.declarations.isNotEmpty() } else snapshot
+            }
         }
     }
 
@@ -175,7 +180,8 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
         manager.nonIgnoredProjects.singleOrNull { it.path == snapshot.sourceFile }
 
     private fun selectedProjects(manager: MavenProjectsManager, selection: BuildSelection): List<MavenProject> =
-        manager.nonIgnoredProjects.filter { selection.scope == UpdateScope.WHOLE_PROJECT || it.path == selection.currentFile }
+        if (selection.scope == UpdateScope.MAVEN_PLATFORM) MavenPlatformScope.projects(manager, selection.currentFile) else
+            manager.nonIgnoredProjects.filter { selection.scope == UpdateScope.WHOLE_PROJECT || it.path == selection.currentFile }
 
     private fun readRelocations(mavenProject: MavenProject, snapshot: BuildSnapshot): Map<DependencyVersion, String> = buildMap {
         for (coordinate in snapshot.declarations.map { it.coordinate() }.distinct()) {

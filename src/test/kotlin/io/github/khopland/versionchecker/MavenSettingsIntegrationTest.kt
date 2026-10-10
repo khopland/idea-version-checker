@@ -119,6 +119,17 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             assertEquals(25, childReport.candidates.size)
             assertEquals("A child must not query the parent's 1,000 managed entries", 25, requests.size)
 
+            val platformScope = background { adapter.discover(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, child.path)) }
+            assertEquals("The child platform preview locates its editable owner", listOf(platform.path), platformScope.map { it.sourceFile })
+            assertEquals(listOf("org.springframework.boot:spring-boot-starter-parent"), platformScope.single().declarations.map { it.artifact.name })
+            val platformBefore = requests.size
+            val platformPreview = background { project.service<BulkUpdateService>().preparePreview(
+                UpdateMode.MAJOR, UpdateScope.MAVEN_PLATFORM, child.file, listOf(adapter), forceRefresh = true) }
+            assertEquals(1, platformPreview.totalReports)
+            assertEquals(1, platformPreview.plan.changes.size)
+            assertEquals("A platform-only preview queries just the external parent", 1, requests.size - platformBefore)
+            assertTrue(platformPreview.plan.changes.single().location.startsWith(platform.path))
+
             adapter.invalidateMetadata(project)
             val fast = adapter.snapshot(project, platform.file)!!
             assertEquals(26, fast.declarations.size)

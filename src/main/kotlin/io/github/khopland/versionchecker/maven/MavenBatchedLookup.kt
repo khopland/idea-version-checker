@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.components.service
+import com.intellij.openapi.application.readAction
 import io.github.khopland.versionchecker.CheckPerformance
 import io.github.khopland.versionchecker.CheckQueue
 import io.github.khopland.versionchecker.UpdateMode
@@ -36,9 +37,11 @@ internal object MavenBatchedLookup {
         if (!context.nativeSupported) return null
         val options = manager.project.service<VersionCheckerSettings>().state.copy()
         val keys = coordinates.groupBy { MavenMetadataKey(it.groupId, it.artifactId, it.artifactKind == MavenArtifactKind.PLUGIN) }
-        val platform = if (options.mavenPlatformFirst) keys.filterValues { declarations -> declarations.any {
+        val platformScope = MavenPlatformScope.isPlatform(snapshot)
+        val ownedPlatforms = if (platformScope) readAction { MavenPlatformScope.platformCoordinates(manager, project, snapshot) } else emptySet()
+        val platform = if (options.mavenPlatformFirst || platformScope) keys.filterValues { declarations -> declarations.any {
             it.artifactKind == MavenArtifactKind.PARENT || it.groupId == "org.springframework.boot" &&
-                it.artifactId in setOf("spring-boot-dependencies", "spring-boot-starter-parent")
+                it.artifactId in setOf("spring-boot-dependencies", "spring-boot-starter-parent") || it in ownedPlatforms
         } }.keys else emptySet()
         // Publish dependencies before spending time on plugin candidate POMs. Optional platform
         // priority gets its own batch so even a small POM can display that answer earlier.

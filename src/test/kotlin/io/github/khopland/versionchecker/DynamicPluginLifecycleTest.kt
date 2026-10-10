@@ -108,8 +108,9 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         val adapterType = loader.loadClass("io.github.khopland.versionchecker.core.BuildSystemAdapter")
         val capabilitiesType = loader.loadClass("io.github.khopland.versionchecker.core.AdapterCapabilities")
         val defaults = capabilitiesType.getConstructor().newInstance()
-        val capabilities = capabilitiesType.constructors.single { it.parameterCount == 2 }
-            .newInstance(capabilitiesType.getMethod("getUpdateModes").invoke(defaults), true)
+        val capabilities = capabilitiesType.constructors.single { it.parameterCount == 3 }
+            .newInstance(capabilitiesType.getMethod("getUpdateModes").invoke(defaults), true,
+                capabilitiesType.getMethod("getUpdateScopes").invoke(defaults))
         val adapter = Proxy.newProxyInstance(loader, arrayOf(adapterType)) { proxy, method, args ->
             when (method.name) {
                 "getId", "getDisplayName" -> "dynamic-lifecycle-test"

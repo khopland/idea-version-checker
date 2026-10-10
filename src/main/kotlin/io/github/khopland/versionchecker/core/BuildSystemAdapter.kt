@@ -37,7 +37,7 @@ internal interface BuildSystemAdapter {
     companion object {
         val EP = ExtensionPointName.create<BuildSystemAdapter>("io.github.khopland.version-checker.buildSystemAdapter")
         fun matching(project: Project, selection: BuildSelection): List<BuildSystemAdapter> =
-            EP.extensionList.filter { it.supports(project, selection) }
+            EP.extensionList.filter { selection.scope in it.capabilities.updateScopes && it.supports(project, selection) }
         fun find(id: String): BuildSystemAdapter? = EP.extensionList.singleOrNull { it.id == id }
     }
 }

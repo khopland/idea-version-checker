@@ -126,6 +126,17 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         assertTrue(dialog.isDisposed)
     }
 
+    fun testPlatformScopeIsOfferedOnlyWhenAvailableAndKeepsTheFullAuditChoices() {
+        val dialog = dialog(BulkUpdatePlan(emptyList(), emptyList()))
+        try {
+            assertEquals(listOf(UpdateScope.CURRENT_FILE, UpdateScope.WHOLE_PROJECT),
+                (0 until dialog.scopeSelector.itemCount).map(dialog.scopeSelector::getItemAt))
+            dialog.configure(PreparedVersionPreview(BulkUpdatePlan(emptyList(), emptyList()), System.nanoTime(), 0, 1), true, true)
+            assertEquals(UpdateScope.entries.toList(), (0 until dialog.scopeSelector.itemCount).map(dialog.scopeSelector::getItemAt))
+            assertEquals(UpdateScope.WHOLE_PROJECT, dialog.scopeSelector.selectedItem)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
     fun testChangingModeRequestsANewPreviewBeforeAnythingCanApply() {
         val edit = edit("alpha")
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))

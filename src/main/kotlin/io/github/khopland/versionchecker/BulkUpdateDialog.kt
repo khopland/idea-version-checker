@@ -53,7 +53,9 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
                                 buildSystem: String, private val plan: BulkUpdatePlan) : DialogWrapper(project) {
     companion object { const val RECHECK_EXIT_CODE = 3 }
     internal val modeSelector = ComboBox(UpdateMode.entries.toTypedArray())
-    internal val scopeSelector = ComboBox(UpdateScope.entries.toTypedArray())
+    internal val scopeSelector = ComboBox(UpdateScope.entries.filter {
+        it != UpdateScope.MAVEN_PLATFORM || scopeLabel == it.label
+    }.toTypedArray())
     internal val model = VersionUpdateTableModel(plan.changes, project.basePath)
     internal val table = object : JBTable(model) {
         override fun getToolTipText(event: MouseEvent): String? {
@@ -124,10 +126,13 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         updateSummary()
     }
 
-    fun configure(prepared: PreparedVersionPreview, currentFileAvailable: Boolean) {
+    fun configure(prepared: PreparedVersionPreview, currentFileAvailable: Boolean, platformAvailable: Boolean = false) {
         configuring = true
         try {
             if (!currentFileAvailable) scopeSelector.removeItem(UpdateScope.CURRENT_FILE)
+            if (platformAvailable && (0 until scopeSelector.itemCount).none { scopeSelector.getItemAt(it) == UpdateScope.MAVEN_PLATFORM })
+                scopeSelector.addItem(UpdateScope.MAVEN_PLATFORM)
+            if (!platformAvailable) scopeSelector.removeItem(UpdateScope.MAVEN_PLATFORM)
             preparedScope = scopeSelector.selectedItem
         } finally { configuring = false }
         val minutes = TimeUnit.NANOSECONDS.toMinutes((System.nanoTime() - prepared.checkedAtNanos).coerceAtLeast(0))

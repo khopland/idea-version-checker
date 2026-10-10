@@ -10,6 +10,7 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
 import io.github.khopland.versionchecker.maven.MavenBuildSystemAdapter
+import io.github.khopland.versionchecker.maven.coordinate
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.model.MavenModel
@@ -58,6 +59,62 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
         ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { action() } }), 60_000)
 
     private val dependency = "<dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>1.2.3</version></dependency></dependencies>"
+
+    fun testPlatformScopeFindsTheEditableOwnerThroughAReactorParentChain() {
+        val owner = imported("boot-owner", """<parent><groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-parent</artifactId><version>1.0</version><relativePath/></parent>
+            <dependencyManagement><dependencies>
+            <dependency><groupId>g</groupId><artifactId>tools-bom</artifactId><version>1.0</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>g</groupId><artifactId>unused</artifactId><version>1.0</version></dependency>
+            </dependencies></dependencyManagement>""")
+        imported("corporate", """<parent><groupId>scaling</groupId><artifactId>boot-owner</artifactId><version>1</version>
+            <relativePath>../boot-owner/pom.xml</relativePath></parent>""")
+        val child = imported("platform-child", """<parent><groupId>scaling</groupId><artifactId>corporate</artifactId><version>1</version>
+            <relativePath>../corporate/pom.xml</relativePath></parent>$dependency""")
+        val adapter = MavenBuildSystemAdapter()
+        val selection = BuildSelection(UpdateScope.MAVEN_PLATFORM, child.path)
+        assertTrue(adapter.supports(project, selection))
+        val snapshots = background { adapter.discover(project, selection) }
+        assertEquals(listOf(owner.path, child.path), snapshots.map { it.sourceFile })
+        assertEquals(setOf("org.springframework.boot:spring-boot-starter-parent", "g:tools-bom"), snapshots.first().declarations.map { it.artifact.name }.toSet())
+        assertEquals(listOf("g:a"), snapshots.last().declarations.map { it.artifact.name })
+        assertTrue(snapshots.all { it.coverageDescription!!.contains("platform scope") && adapter.isCurrent(project, it) })
+        assertTrue(snapshots.flatMap { it.declarations }.none { it.coordinate().groupId == "scaling" })
+        val full = background { adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, owner.path)) }.single()
+        assertEquals(3, full.declarations.size)
+        assertFalse(full.context == snapshots.first().context)
+        val cache = VersionResultCache()
+        assertTrue(cache.put(full, cache.begin(full), UpdateReport()))
+        val narrow = snapshots.first()
+        assertTrue(cache.put(narrow, cache.begin(narrow), UpdateReport()))
+        assertNotNull("A platform check must retain a completed full audit", cache.get(full))
+
+        val reports = snapshots.associateWith { snapshot -> UpdateReport(snapshot.declarations.map { UpdateCandidate(it, "2.0") }) }
+        val plan = background { adapter.prepareUpdates(project, reports) }
+        assertEquals(3, plan.changes.size)
+        assertTrue(plan.changes.any { it.location.startsWith(owner.path) })
+        assertTrue(plan.changes.any { it.location.startsWith(child.path) })
+        val document = FileDocumentManager.getInstance().getDocument(child.file)!!
+        WriteCommandAction.runWriteCommandAction(project) { document.setText(document.text.replace("1.2.3", "1.2.4")) }
+        assertFalse("A changed child rejects edits in its platform owner", plan.apply(project))
+    }
+
+    fun testPlatformScopeIncludesInheritedBomPropertyOverridesAndOmitsUnusedManagement() {
+        val owner = imported("bom-owner", """<properties><boot.version>1.0</boot.version></properties>
+            <dependencyManagement><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId>
+            <version>${'$'}{boot.version}</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement>""")
+        val child = imported("bom-child", """<parent><groupId>scaling</groupId><artifactId>bom-owner</artifactId><version>1</version>
+            <relativePath>../bom-owner/pom.xml</relativePath></parent><properties><boot.version>1.1</boot.version></properties>
+            <dependencyManagement><dependencies><dependency><groupId>g</groupId><artifactId>unused</artifactId><version>1.0</version>
+            </dependency></dependencies></dependencyManagement>""")
+        val adapter = MavenBuildSystemAdapter()
+        val snapshots = background { adapter.discover(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, child.path)) }
+        assertEquals(listOf(owner.path, child.path), snapshots.map { it.sourceFile })
+        assertTrue(snapshots.all { it.declarations.single().artifact.name == "org.springframework.boot:spring-boot-dependencies" })
+        assertEquals(listOf("1.0", "1.1"), snapshots.map { it.declarations.single().baseline })
+        assertTrue(snapshots.last().declarations.single().id.location.contains(":property:"))
+        assertFalse(adapter.supports(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, directory.resolve("source.txt").toString())))
+    }
 
     fun testFastEditorScopeIsExplicitPartialAndCannotSatisfyAFullAudit() {
         val platform = imported("platform", """<dependencyManagement><dependencies>

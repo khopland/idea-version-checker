@@ -5,4 +5,12 @@
     <extensions defaultExtensionNs="io.github.khopland.version-checker">
         <buildSystemAdapter implementation="io.github.khopland.versionchecker.maven.MavenBuildSystemAdapter" />
     </extensions>
+    <actions>
+        <group id="VersionChecker.Updates.MavenPlatform" text="Maven Platform" popup="true">
+            <add-to-group group-id="VersionChecker.Updates" anchor="last" />
+            <action id="VersionChecker.MavenPlatform.Patch" class="io.github.khopland.versionchecker.maven.MavenPlatformPatchUpdateAction" text="Patch Only…" />
+            <action id="VersionChecker.MavenPlatform.Minor" class="io.github.khopland.versionchecker.maven.MavenPlatformMinorUpdateAction" text="Minor + Patch…" />
+            <action id="VersionChecker.MavenPlatform.Major" class="io.github.khopland.versionchecker.maven.MavenPlatformMajorUpdateAction" text="Major + Minor + Patch…" />
+        </group>
+    </actions>
 </idea-plugin>
