@@ -33,6 +33,10 @@ kotlin {
 
 tasks.processResources {
     from("LICENSE") { into("META-INF") }
+    from(project(":maven-helper").tasks.named("jar")) {
+        into("maven-helper")
+        rename { "version-checker-maven-helper.jar" }
+    }
 }
 
 tasks.test {
