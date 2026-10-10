@@ -101,9 +101,12 @@ jobs:
       - name: Test release automation
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 
+      - name: Test performance report tooling
+        run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
+
       # Tests and compatibility checks run without publishing/signing credentials.
       - name: Test, build and verify tagged plugin
-        run: ./gradlew check buildPlugin verifyPlugin -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain
+        run: ./gradlew check buildPlugin verifyPluginProjectConfiguration verifyPlugin -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain
 
       - name: Collect validation reports
         if: ${{ always() }}
