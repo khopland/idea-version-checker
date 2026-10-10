@@ -4,6 +4,7 @@
 
 ### Added
 
+- Maven metadata worker control (1–4, default 2), optional parents/Spring Boot BOM priority, and optional fast editor checks with explicit partial coverage. Refreshes and update previews always perform full supported-declaration audits.
 - Ignore one exact published artifact/version in the current project through Alt+Enter, with reversible workspace settings and matching bulk-review filtering. Other releases and replacement notices remain visible; changed ignore policy rejects older prepared edits.
 - Anonymous performance interaction IDs and monotonic endpoints connect native setup/query work, result acceptance, displayed previews, changed editor text and painted visible diagnostics. A sanitized trace report computes median/p95 and partitions overlapping stages.
 
@@ -12,13 +13,14 @@
 
 ### Changed
 
+- Supported Maven 3/Java 17+ checks use a bundled metadata helper with batched Resolver requests, bounded shared histories across modules/update modes, cached plugin prerequisites and short-lived refresh/preview sessions. Fresh generations force remote revalidation; context changes isolate repository and credential results. Custom extensions/rules and unsupported runtimes retain the Versions-goal fallback.
 - Routine hints lead with artifact, update kind and declared version change. Maven shared version actions include known version-declaration and POM counts.
 - Refresh, preview and retry save required build inputs rather than all open documents; bulk apply saves only selected edit files.
 - Preview controls have keyboard mnemonics, and Space toggles sorted/filtered highlighted rows while preserving hidden selections and repeated keyboard selection.
 
 - Project refresh failures share one summary with native details and a retry limited to failed files. Automatic failures share a notification per build system. Cancelled checks are excluded, successful cached results survive retry, and actionable notifications expire on plugin unload or project disposal.
 - npm inspections publish finished packages while slower queries continue. Aliases retain their shared lookup, and one package failure preserves other successful hints while rejecting a complete bulk preview. Early results retain freshness, cancellation and refresh guards.
-- Maven inspections publish completed dependency, plugin and parent categories separately, checking dependencies first and retaining one embedder per POM. Failed categories preserve other hints but prevent a complete bulk preview; cancellation stops remaining categories.
+- Maven inspections publish completed dependency, plugin and parent results incrementally, checking dependencies first by default. Failed batches preserve other hints but prevent a complete bulk preview; cancellation stops work once no shared consumer remains.
 - Bulk previews reuse current, unexpired results for the requested update mode. Refresh still forces native revalidation. Selected edits retain all input and shared-consumer guards, and expired or replaced results require another preview before applying.
 - Bulk apply preserves valid warnings while rechecking changed declarations, and shows npm/Gradle synchronization guidance only for selected build systems.
 - Current-file refreshes can run between whole-project module checks. Manual checks and selected-file inspections take priority over queued background checks, and superseded automatic inspections are cancelled.
@@ -27,6 +29,7 @@
 
 ### Fixed
 
+- Fast Maven editor scope preserves completed and failed full-audit status until expiry or invalidation. Global settings, credential files and relocated credential targets now participate in preview/input guards, including unsaved changes.
 - Gradle preview rows and shared-version review messages identify their dependency coordinates, allowing package-name filtering while retaining declaration and catalog-alias distinctions.
 - Rebuilt previews have independent performance interactions, and bulk Apply timing includes plan and writable-file preparation. Trace reports distinguish owned native invocations from background overlap and expose incomplete samples.
 - Preview mode/scope selectors display readable labels, and Tab/Shift+Tab leave the change table. Update actions precede exact-release Ignore actions in Alt+Enter.

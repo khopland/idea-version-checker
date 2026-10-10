@@ -29,7 +29,7 @@ IDEA 2026.1.4 also completed 100 small warm current-file Gradle endpoints each f
 |-------------|--------|
 | Small warm Maven editor/preview/literal fix, 2025.3.6.1 | Sample counts and latency recorded; globally idle fix capture remains to confirm |
 | Small warm Maven editor/preview/literal fix, 2026.1.4 | 100 completed samples per endpoint; no native queries in editor/preview captures or overlapping fixes |
-| Large Maven, roughly 100 modules / 10,000 declarations | Reproducible fixture generated and checked; native measurements pending |
+| Large Maven, roughly 100 modules / 10,000 declarations | Native Maven-server integration verifies 100 fresh metadata requests for 10,000 declarations and context/mode isolation; native-window endpoint measurements pending |
 | Small warm Gradle editor/preview/literal fix, 2026.1.4 | 100 completed samples each; p95 9.82 / 44.28 / 4.24 ms; no native queries in editor/preview captures or overlapping fixes |
 | Small warm Gradle preview, 2025.3.6.1 | 100 completed samples; p95 53.24 ms; no native queries |
 | Remaining Gradle cases, both IDEA versions | 2025.3 editor/fix, large/cold, Kotlin/catalog and remaining failure cases pending; reproducible fixtures available |
@@ -61,7 +61,9 @@ The report includes completed endpoint sample counts, nearest-rank p95, median, 
 
 ## Conditional work
 
-Linked-build Gradle batching, Maven plugin branch reduction and cross-module embedder/session reuse remain deferred. Choose an experiment only after native traces show the corresponding repeated work dominates, then compare exact candidates, repository/profile/authentication behavior, cancellation and lifecycle as well as elapsed time. No native resolution semantics have been changed for these experiments.
+Linked-build Gradle batching remains deferred pending native profiling. The separately approved [Maven server performance plan](maven-server-performance-ideas.html) now implements a bundled metadata batch, shared cross-module/mode version histories, prerequisite-aware plugin selection and short-lived refresh/preview sessions. Request-count, candidate, context/authentication and cancellation/lifecycle checks are recorded in [performance.md](performance.md#maven-server-metadata-batching-10-october-2026). A native 1,000-entry management fixture also checks full versus optional fast coverage and platform ordering. These integration results do not replace native-window latency measurements or the remaining profiler/usability matrix.
+
+The Maven follow-up passed 369 platform/unit/native integration tests and nine trace-summary tests. Both supported IDEA versions passed plugin compatibility verification. Current full-audit coverage, including failures, survives optional fast editor filtering; changed global settings and saved/unsaved relocated credentials reject prepared edits. Painted editor/preview latency for the new large-project native path remains unmeasured.
 
 ## Local validation: 10 October 2026
 

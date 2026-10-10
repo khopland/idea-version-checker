@@ -302,6 +302,43 @@ Use one IDEA process and condition per capture, with complete native spans. A ca
 
 Disable tracing after profiling. Capture current-file/project scope, mode and cold/warm cases separately. Metadata expiration/invocation counts do not establish HTTP revalidation; repository fixtures count requests independently.
 
+## Maven server metadata batching: 10 October 2026
+
+Supported Maven 3/Java 17+ checks now use a bundled helper inside IDEA's Maven server. It submits artifact metadata batches to Maven Resolver, then selects Patch/Minor/Major candidates locally. Plugin candidates also have their Maven prerequisites read through Maven's project builder. The helper inherits Maven's repository, mirror, authentication and transport configuration. Custom extensions/rules and unsupported runtimes keep the existing Versions-goal path.
+
+The project service shares bounded version histories across compatible modules and modes for ten minutes from successful completion. Metadata keys exclude declaration baselines and modes, but include the resolution-context digest and refresh generation. Successful sibling entries survive a failed artifact and are reused on retry. A new generation cannot join or retain an older worker's results. A shared worker survives one cancelled consumer; the final consumer or project disposal cancels it. Refresh/preview sessions are short lived, serialized and retained until their surviving workers finish.
+
+Full scope remains the default. Optional editor filtering omits unused local management entries, retaining used coordinates, imported BOMs, property declarations and inherited overrides. Uncertain consumer resolution retains full scope. Reduced snapshots expose a coverage description and partial status; they cannot authorize full refresh/preview results. Parent and Spring Boot platform priority is a separate optional ordering control. Metadata concurrency defaults to two and is bounded from one to four.
+
+The native integration fixture uses IDEA's real Maven server, an authenticated HTTP settings mirror, daily release-update policy, 100 imported modules and 100 repeated artifact coordinates per module (10,000 declarations). Module baselines alternate between 1.0 and 1.1. The server delays successful metadata responses by 10 ms and offers stable versions, a prerelease and a snapshot. These are synthetic modules, not a full Spring Boot application or a timing comparison against 100 legacy module checks.
+
+| Assertion                                                | Observed work                                                            |
+|----------------------------------------------------------|--------------------------------------------------------------------------|
+| Legacy Versions comparison for one module                | 100 metadata HTTP requests; exact candidate map matches the native path  |
+| Native scan of all 100 modules                           | 100 fresh metadata HTTP requests for 10,000 declarations                 |
+| Warm Patch and Minor mode changes                        | 0 additional metadata HTTP requests; original expiry retained            |
+| New release followed by explicit generation invalidation | 100 fresh requests; new candidates observed                              |
+| One artifact fails, then recovers                        | 99 successful hints retained; recovery requests only the failed artifact |
+| Same mirror ID, changed URL                              | 100 fresh requests to the changed URL without explicit invalidation      |
+| Changed settings credential                              | 100 fresh authenticated requests without explicit invalidation           |
+
+The separate settings/native integration test checks plugin candidate POMs: a release requiring Maven 99 is skipped in favor of the newest compatible release, and its prerequisite decision is reused. It also checks core-extension fallback. Unit and platform regressions cover expiry, generation races, overlapping consumer cancellation, disposal, cache bounds, plugin/dependency repository-key isolation, partial/full snapshot separation, inherited management overrides and unresolved consumers. Packaged dynamic unload includes the Maven metadata service.
+
+A follow-up native fixture uses a private temporary local repository and a controlled HTTP repository with a 2 ms delay per metadata response. Its workspace parent declares 1,000 managed entries; a child uses 25 versionless dependencies. A synthetic external parent uses the Spring Boot parent coordinate to exercise platform-priority ordering; this is not a real Spring Boot release or application. The child issues 25 metadata requests. Fast parent checking issues 26 requests (25 used entries plus the external parent), publishing the external parent first. Explicit full checking issues 1,001 requests and returns all 1,001 expected updates. A subsequent Patch lookup issues no additional requests. Fast/full timings describe different coverage and cannot be used as an equal-scope speedup claim.
+
+Completed and failed full audits now retain their coverage in the editor until expiry or invalidation. This avoids replacing a Refresh result immediately with a reduced snapshot. Global settings and security/relocation inputs are shared between metadata-context discovery and preview fingerprints. Regressions first failed on lost full coverage and changed credential targets, then passed after the corrections; unsaved credential changes also reject prepared edits. Settings-file discovery and disk stamps are reused within a single input pass.
+
+Run the native request-count fixture with:
+
+```sh
+./gradlew test --tests '*MavenSettingsIntegrationTest.testBatchedMetadataSharesOneHundredArtifactsAcrossOneHundredModulesAndModes' -PmavenIntegration=true
+./gradlew test --tests '*MavenSettingsIntegrationTest.testLargeManagementFastScopeAndFullAuditWithPlatformPriority' -PmavenIntegration=true
+```
+
+The fixture emits an anonymous `benchmark=maven-shared` work-count line. `MAVEN_METADATA_BATCH` spans are counted as native repository invocations by the trace summarizer; reuse and coordinate/context counts are separate events. The full integration validation uses `-PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true`. This establishes request deduplication and correctness boundaries, not a production p95 or a general speed multiplier. Boot-child model cost, large single management POMs, cold starts, remote tail latency and painted editor endpoints still need comparable measurements on both IDEA versions.
+
+Final follow-up validation: 369 platform/unit/native integration tests passed with zero failures, errors or skips; all nine trace-summary tests passed. `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed against IDEA 2025.3.6.1 and 2026.1.4. The verifier reported compatibility with experimental API notices on both versions and a deprecated API notice on 2026.1.4. The large-management test uses a fresh, temporary Maven local repository on each run.
+
 ## Native small-Maven measurements: 10 October 2026
 
 The [native validation record](native-validation-2026-10-10/README.md) contains sanitized traces and reproducible JSON reports. IDEA 2025.3.6.1 completed 105 warm editor endpoints (p95 3.49 ms), 100 cached three-row preview endpoints (p95 43.86 ms) and 100 literal-fix endpoints (p95 5.45 ms). IDEA 2026.1.4 completed 100 per endpoint, with p95 values of 6.11, 34.23 and 6.58 ms. All final editor/preview captures contain no native queries. Fixes initiate no native queries; already running background goals overlap 15 fix intervals in 2025.3 and none in the final 2026.1 capture. The earlier partial 2026.1 capture remains available separately.
