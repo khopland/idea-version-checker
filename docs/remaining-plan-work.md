@@ -13,6 +13,7 @@ Source: [10 October remaining-work plan](https://plan-api.k8r.no/p/4kY_bfKP7caOr
 - Refresh, preview, retry and post-apply saving preserve unrelated unsaved editing. Maven saves participating imported POMs, settings and ancestor `.mvn` inputs. npm saves the workspace manifests and relevant registry/runtime configuration. Gradle saves linked-build scripts/catalogs/properties/wrapper/locks/verification inputs and known user-home properties/init scripts. After apply, only selected edit files are saved. A changed mode/scope saves that selection's required inputs before rediscovery.
 - An Alt+Enter action ignores one exact artifact/version within this IDEA project's workspace settings. npm aliases share their registry identity. Both inspection presentation and bulk review honor the policy, while raw cached results and deprecation/relocation/manual-review notices remain available. Later releases and other artifacts remain visible. Remove the corresponding line in Settings → Tools → Version Checker to restore the update. Changed ignore policy invalidates prepared previews and retained version fixes; Maven shared edits cannot change an ignored artifact through another artifact's property update.
 - Preview controls have readable mode/scope labels and label mnemonics. Tab/Shift+Tab enter and leave the table, and Space toggles highlighted rows using model indices after sorting/filtering. Hidden selections stay in the summary, and highlighted rows remain selected for repeated keyboard toggles. Update actions precede exact-release Ignore actions in Alt+Enter.
+- Gradle preview and shared-version review labels include artifact coordinates while retaining script offsets/catalog aliases. Artifact filtering can distinguish repeated declarations; shared edits retain all consumer identities in one atomic row.
 
 Selective saving follows inputs known to each supported adapter. Arbitrary files read by custom build scripts, convention-plugin source, custom Maven extensions or user tooling are not a complete general-purpose build-input graph. Save those inputs explicitly when their changes affect resolution. They are outside the adapters' current automatic-edit scope.
 
@@ -22,15 +23,18 @@ The [native record and sanitized traces](native-validation-2026-10-10/README.md)
 
 **Native npm validation is blocked:** JavaScript/Node support is disabled in the available IDEA sandbox. No usable licensed profile was supplied or verified; the user requested recording this blocker. Passing headless npm integration tests do not replace native validation.
 
+IDEA 2026.1.4 also completed 100 small warm current-file Gradle Patch previews: median 31.35 ms, p95 44.28 ms, no incomplete previews or native queries. A packaged Maven follow-up verified committed mode/scope navigation, Refresh, bulk apply/undo, focus of an existing preview and stale-plan rejection/recovery with distinct trace origins. These results and archive identities are recorded in the native record; they cover those conditions only.
+
 | Native work | Status |
 |-------------|--------|
 | Small warm Maven editor/preview/literal fix, 2025.3.6.1 | Sample counts and latency recorded; globally idle fix capture remains to confirm |
 | Small warm Maven editor/preview/literal fix, 2026.1.4 | 100 completed samples per endpoint; no native queries in editor/preview captures or overlapping fixes |
 | Large Maven, roughly 100 modules / 10,000 declarations | Reproducible fixture generated and checked; native measurements pending |
-| Gradle, both IDEA versions | Native performance/usability cases pending |
+| Small warm Gradle preview, 2026.1.4 | 100 completed samples; p95 44.28 ms; no native queries |
+| Remaining Gradle cases, both IDEA versions | Editor/fix, large/cold/failure and 2025.3 native measurements pending; reproducible Groovy/Kotlin/catalog fixtures available |
 | npm, both IDEA versions | Blocked by disabled JavaScript/Node support in available sandbox |
 | Cold/setup, delayed/offline/authentication, shared fixes and typing profiler | Pending |
-| Remaining native keyboard/focus and recovery cases | Pending; findings and corrections recorded per version |
+| Remaining native keyboard/focus and recovery cases | 2026.1 committed selectors, Refresh, existing-preview focus and stale rejection/recovery verified; failure cases and remaining per-version matrix pending |
 
 The measured cases do not establish the full plan's latency targets. Headless platform, native repository integration and packaged-plugin lifecycle tests establish behavior and safety; they do not replace the outstanding native sessions below.
 
@@ -69,3 +73,7 @@ These results validate the implementation, including the native-discovered dialo
 ### Tracing follow-up verification
 
 After isolating rebuilt previews and carrying bulk Apply's invocation origin, 351 plugin tests passed with zero failures, errors or skips, including the authenticated Maven/npm/Gradle integration suites and packaged-plugin lifecycle tests. `test`, `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed for both supported IDEA versions with the existing API notices. Eight trace-report tests passed. The real coordinator regression verifies that a mode change and Refresh each propagate their own ID through native checking, plan preparation and dialog presentation; dialog tests verify the accepted Apply origin reaches guarded writes. These are automated behavior checks, not additional native-window latency samples.
+
+### Gradle preview follow-up verification
+
+With artifact labels and repeated-declaration filtering coverage, the final run passed 352 plugin tests with zero failures, errors or skips, including all three authenticated native integration suites and packaged-plugin lifecycle checks. `test`, `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed, retaining the existing verifier notices on both IDEA versions. Eight trace-report tests passed. The coordinator trace regression now snapshots preview checks before Apply, so post-apply background checks cannot contaminate its preview-only assertion. Native 2026.1 separately verified filtering beta, selecting its single visible row, applying only beta and restoring it with one undo. The fixture generator's Groovy and Kotlin/shared-catalog configurations passed wrapper `help`; a 100-project / 10,000-use fixture and nonempty-destination protection were checked.

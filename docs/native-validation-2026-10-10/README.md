@@ -3,6 +3,7 @@
 Small Maven cases ran in native IDEA windows with the packaged plugin. Both IDEA
 2025.3.6.1 and 2026.1.4 now have at least 100 completed samples for each measured
 endpoint. The full plan's performance and usability matrix is still incomplete.
+A small warm Gradle preview case has also completed 100 repetitions in 2026.1.4.
 
 **Native npm validation is blocked.** JavaScript/Node support is disabled in the
 available IDEA sandbox. No usable licensed profile was supplied or verified, and
@@ -99,10 +100,84 @@ another empty preview.
 Mode navigation also exposed premature dialog disposal before Enter. Committed
 selection handling now keeps navigation within the popup, defers rebuilding until
 the key/mouse event finishes, and rejects Apply against a pending mode/scope
-change. Further native confirmation, stale rejection, failed-file Retry,
+change. The follow-up below confirms this behavior and stale-preview rejection in
+2026.1. Failed-file Retry,
 delayed/offline/authentication states and the rest of the keyboard/focus matrix
 still require dedicated cases on both versions. Automated regression coverage
 for these behaviors is separate evidence.
+
+### Packaged preview/recovery follow-up, IDEA 2026.1.4
+
+The packaged plugin from `3873549` was checked in the same isolated small Maven
+fixture. Archive SHA-256:
+`13d23f453088c2fb929438ebc00af2ee97b1a62a73366a118dd1bc56b752c7e4`.
+The [sanitized trace](idea-2026.1.4-preview-recovery.log) records this usability
+session, which mixes modes/scopes and is separate from performance samples.
+
+- With Patch prepared, opening Updates and pressing Down highlighted Minor
+  while keeping the dialog and Patch rows unchanged. Escape restored Patch and
+  kept the dialog open. Down followed by Enter rebuilt the Minor preview with
+  1.1.0 targets; Enter did not insert text in the editor.
+- Committing Whole Project rebuilt the single-module preview from cached Minor
+  reports. Refresh displayed readable Whole Project/Minor progress and queried
+  fresh results. The initial preview, mode change, scope change and Refresh have
+  distinct IDs 2, 3, 4 and 5, each with one ready endpoint.
+- Apply changed alpha/beta/gamma to 1.1.0 under fix ID 6, followed by one
+  changed-text endpoint with count 3. One editor undo restored all three to
+  1.0.0. These are one apply/undo cycle, not a 100-sample fix measurement.
+- A second Patch preview stayed prepared while the main window was activated
+  through Window → maven-small and beta was edited to 1.1.0. Reinvoking Review
+  brought the original dialog forward, still showing its earlier beta baseline.
+  Apply rejected that plan with a readable changed-input explanation and no
+  partial edits. Dismissing the explanation rebuilt a two-row preview for alpha
+  and gamma, preserving beta's edit. Cancelling it and undoing the manual edit
+  restored the fixture.
+- The rejected fix ID 12 has no changed-text endpoint. Recovery has its own
+  preview ID 13 and ready endpoint with count 2. Reinvocation ID 11 has no new
+  ready endpoint because it focused the existing dialog; an incomplete endpoint
+  in this trace is not by itself a failure.
+
+These cases verify native interaction and trace boundaries in 2026.1 only. They
+do not complete the remaining failure, keyboard, large-project or typing cases.
+
+## Native Gradle preview, IDEA 2026.1.4
+
+| Endpoint | Completed samples | Median | Nearest-rank p95 | Evidence |
+|----------|------------------:|-------:|-----------------:|----------|
+| Cached current-file Patch preview, 3 rows | 100 | 31.35 ms | 44.28 ms | [Report](idea-2026.1.4-gradle-small-preview.json), [trace](idea-2026.1.4-gradle-small-preview.log) |
+
+The same isolated IDEA 2026.1.4 process imported one Java Gradle project with
+three Groovy literal dependency declarations for fixture:alpha/beta/gamma. The
+wrapper uses Gradle 9.8.0 and the Gradle daemon uses SDKMAN Eclipse Temurin
+25.0.3+9-LTS. The local file repository and published versions match the Maven
+fixture. The packaged archive has SHA-256
+`13d23f453088c2fb929438ebc00af2ee97b1a62a73366a118dd1bc56b752c7e4`.
+
+The Patch report and Gradle installation were primed before capture. Each
+repetition invoked Review Dependency Updates, verified the showing Gradle
+dialog reported cached results and three selected/visible rows, then cancelled
+back to build.gradle. All 100 interactions have a ready endpoint and no
+incomplete previews. No native Gradle invocation belongs to, starts within, or
+overlaps these preview intervals; the entire capture contains no native query.
+This meets the preview target for this condition only. It does not establish
+Gradle editor/fix latency, large-project behavior, Kotlin/catalog performance,
+cold setup, repository failures or behavior in IDEA 2025.3.
+
+This native session also exposed declaration labels containing only script
+offsets, such as dependency@138. Preview and shared-version review labels now
+include dependency coordinates alongside offsets or catalog aliases. Platform
+regressions verify filtering repeated declarations by artifact and applying only
+the selected matches, plus both consumer identities in one shared catalog edit.
+
+The corrected labels were then checked with a newly packaged archive, SHA-256
+`f43ffbbe135f36d28d5da8e6d9f3816cc366bec1bb1705fbb302e768292b86a3`.
+The [separate follow-up trace](idea-2026.1.4-gradle-preview-filter.log) records
+one fresh Patch preview (ID 2), filtering by fixture:beta after clearing selection,
+selecting the one visible match and applying it (fix ID 3, changed count 1).
+Only beta changed to 1.0.1; alpha and gamma remained 1.0.0. One undo and save
+restored beta. This is a usability check, separate from the earlier warm timing
+capture. The sandbox reported a bundled Groovy GrabDependencies service-in-class-
+initializer error on startup; the log attributes it to the Groovy plugin.
 
 ## Reproduction and remaining work
 
@@ -112,18 +187,31 @@ Create an equivalent disposable fixture with:
 python3 scripts/create-native-maven-fixture.py /tmp/version-checker-small
 python3 scripts/create-native-maven-fixture.py /tmp/version-checker-large \
   --modules 100 --declarations-per-module 100
+python3 scripts/create-native-gradle-fixture.py /tmp/version-checker-gradle-small \
+  --repository /tmp/version-checker-small/repository
+python3 scripts/create-native-gradle-fixture.py /tmp/version-checker-gradle-large \
+  --repository /tmp/version-checker-large/repository \
+  --modules 100 --declarations-per-module 100
+python3 scripts/create-native-gradle-fixture.py /tmp/version-checker-gradle-catalog \
+  --repository /tmp/version-checker-small/repository --dsl kotlin --catalog
 ```
 
 The large generator was checked to contain 100 dependency-bearing modules,
 10,000 declarations and one additional aggregator POM; it has not been imported
 or measured in a native session. The generator refuses a nonempty destination.
+The Gradle generator was also checked to contain 100 dependency-bearing projects
+and 10,000 dependency uses, plus a root aggregator; that large fixture has not
+been imported or measured natively. Small Groovy and Kotlin/shared-catalog
+fixtures passed wrapper `help`, and nonempty-destination protection was checked.
+Catalog fixtures distinguish dependency uses from unique library declarations
+and the single shared version. The wrapper is copied from this checkout.
 Open the generated Maven project, prime reports, enable tracing, and use separate
 captures for each endpoint and condition. Regenerate reports with
 [summarize-performance.py](../../scripts/summarize-performance.py) and the
 metadata stored in each JSON's `conditions` object. Trace files here contain only
 the numeric, anonymous fixed-stage schema, without surrounding IDEA log lines.
 
-Pending: large Maven cases, Gradle
+Pending: large Maven cases, remaining Gradle
 native cases, shared/property/parent fixes, cold/setup and failure cases, typing
 profiling, and the remaining usability matrix. npm remains blocked until an
 authorized sandbox/profile with working JavaScript/Node support is available.
