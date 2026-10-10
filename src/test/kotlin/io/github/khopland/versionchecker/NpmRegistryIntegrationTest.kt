@@ -374,7 +374,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             }
             publishedMetadata.set(metadata)
             for ((mode, expected) in listOf(UpdateMode.PATCH to "1.2.8", UpdateMode.MINOR to "1.9.0", UpdateMode.MAJOR to "4.0.0")) {
-                for (scope in UpdateScope.entries) {
+                for (scope in adapter.capabilities.updateScopes) {
                     val before = requests.size
                     val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                         runBlocking { project.service<BulkUpdateService>().createPlan(mode, scope, rootFile, forceRefresh = true) }

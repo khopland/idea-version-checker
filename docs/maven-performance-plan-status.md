@@ -20,4 +20,16 @@ The implementation keeps repository facts separate from edit authorization. Save
 
 Request-count, native Maven-server, IntelliJ platform, packaged lifecycle and compatibility checks cover implementation behavior. Controlled timing records distinguish first useful acceptance, complete checks, native goals and local preparation. Scope reductions are documented separately from equal-scope work reductions.
 
+Final validation on 10 October 2026 passed 388 tests across 58 classes with Maven, npm and Gradle native integrations enabled, plus 12 Python trace-summary tests. The distributable ZIP was built, project configuration verified, and Plugin Verifier reported compatibility with IDEA 2025.3.6.1 and 2026.1.4. Existing notices remain: ten experimental API usages in each version and one deprecated API usage in 2026.1.4. Packaged lifecycle tests verify unload/reload and disposal.
+
+The first clean run exposed an npm integration fixture that assumed every enum scope applied to every adapter. It now exercises the npm adapter's advertised scopes, so adding Maven Platform does not make the npm fixture request an unsupported preview. The full suite passed after that correction.
+
+```sh
+./gradlew clean check buildPlugin verifyPluginProjectConfiguration verifyPlugin \
+  -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain
+python3 -m unittest discover -s scripts -p 'test*.py'
+```
+
+After correcting the fixture, the Gradle validation was repeated without `clean`; all production outputs came from the preceding clean build.
+
 The original plan also proposed broad measurement campaigns. Large-project painted editor/preview/fix endpoints, cold installations, production throttling and typing-profiler sessions have not been fully measured in both IDE versions. Existing small warm native-window records remain valid for their recorded conditions; they are not a production p95 claim for this implementation. Full IDE restart timing for persistence is also unmeasured. See [performance.md](performance.md) and [native validation status](remaining-plan-work.md#native-validation-status).
