@@ -27,6 +27,97 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Real IDEA Gradle tooling + project wrapper + authenticated settings repositories. No public artifact queries. */
 class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
+    fun testIndexedRepeatedDeclarationsMatchLegacyResultsAndKeepCatalogOwnerIsolation() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-gradle-index-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val settings = GradleSettings.getInstance(project)
+        val previousOffline = settings.isOfflineWork
+        try {
+            settings.isOfflineWork = false
+            val publication = Files.createDirectories(directory.resolve("repo/fixture/alpha"))
+            Files.writeString(publication.resolve("maven-metadata.xml"), """<metadata><groupId>fixture</groupId><artifactId>alpha</artifactId>
+                <versioning><versions><version>1.0.0</version><version>1.0.1</version><version>2.0.0</version></versions></versioning></metadata>""")
+            for (version in listOf("1.0.0", "1.0.1", "2.0.0")) {
+                val path = Files.createDirectories(publication.resolve(version))
+                Files.writeString(path.resolve("alpha-$version.pom"), """<project><modelVersion>4.0.0</modelVersion>
+                    <groupId>fixture</groupId><artifactId>alpha</artifactId><version>$version</version></project>""")
+            }
+            Files.writeString(directory.resolve("settings.gradle"), "rootProject.name = 'index-fixture'\ninclude 'child', 'replacement'\n")
+            Files.writeString(directory.resolve("build.gradle"), """
+                plugins { id 'java' }
+                allprojects { repositories { maven { url = uri(rootProject.file('repo')) } } }
+                dependencies {
+                    ${(1..100).joinToString("\n") { "implementation 'fixture:alpha:1.0.0'" }}
+                }
+                tasks.withType(JavaCompile).configureEach { doFirst { throw new GradleException('Build task executed') } }
+            """.trimIndent())
+            val child = Files.createDirectories(directory.resolve("child"))
+            Files.writeString(child.resolve("build.gradle"), """
+                plugins { id 'java' }
+                configurations.configureEach { resolutionStrategy.dependencySubstitution {
+                    substitute module('fixture:alpha:1.0.0') using project(':replacement')
+                } }
+                dependencies { implementation libs.alpha }
+            """.trimIndent())
+            val replacement = Files.createDirectories(directory.resolve("replacement"))
+            Files.writeString(replacement.resolve("build.gradle"), "plugins { id 'java-library' }")
+            val catalog = Files.createDirectories(directory.resolve("gradle")).resolve("libs.versions.toml")
+            Files.writeString(catalog, """
+                [versions]
+                shared = "1.0.0"
+                [libraries]
+                alpha = { module = "fixture:alpha", version.ref = "shared" }
+                other = { module = "fixture:alpha", version.ref = "shared" }
+            """.trimIndent())
+            val wrapper = Files.createDirectories(directory.resolve("gradle/wrapper"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.properties"), wrapper.resolve("gradle-wrapper.properties"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.jar"), wrapper.resolve("gradle-wrapper.jar"))
+            val root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            VfsUtil.markDirtyAndRefresh(false, true, true, root)
+            settings.linkProject(GradleProjectSettings().apply {
+                externalProjectPath = directory.toString()
+                gradleJvm = "#JAVA_HOME"
+                distributionType = DistributionType.DEFAULT_WRAPPED
+                setModules(setOf(directory.toString(), child.toString(), replacement.toString()))
+            })
+            val adapter = GradleBuildSystemAdapter()
+            fun run(snapshot: BuildSnapshot, indexed: Boolean): Pair<Map<String, GradleVersionLookup.Result>, GradleVersionLookup.Timings> {
+                var work: GradleVersionLookup.Timings? = null
+                val results = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                    runBlocking { GradleVersionLookup.checkWithIndex(project, snapshot, UpdateMode.MAJOR, indexed) { work = it } }
+                }), 120_000)
+                return results to checkNotNull(work)
+            }
+            val literal = adapter.snapshot(project, root.findChild("build.gradle")!!)!!
+            assertEquals(100, literal.declarations.size)
+            val (legacy, oldWork) = run(literal, false)
+            val (indexed, newWork) = run(literal, true)
+            assertEquals(legacy, indexed)
+            assertEquals(100, indexed.size)
+            assertTrue(indexed.values.all { it.versions == listOf("2.0.0") && it.reason == null })
+            assertEquals(300, oldWork.ownerProjects)
+            assertEquals(3, newWork.ownerProjects)
+            assertEquals(100, oldWork.semanticProbes)
+            assertEquals(1, newWork.semanticProbes)
+            val shared = adapter.snapshot(project, root.findFileByRelativePath("gradle/libs.versions.toml")!!)!!
+            val (legacyCatalog, legacyCatalogWork) = run(shared, false)
+            val (indexedCatalog, indexedCatalogWork) = run(shared, true)
+            assertEquals(legacyCatalog, indexedCatalog)
+            assertEquals(2, indexedCatalog.size)
+            assertTrue(indexedCatalog.values.all { it.versions.isEmpty() && it.reason?.contains("substitution") == true })
+            assertEquals(4, legacyCatalogWork.semanticProbes)
+            assertEquals(2, indexedCatalogWork.semanticProbes)
+            assertFalse(Files.exists(directory.resolve("build/classes")))
+            println("Gradle index parity: 100 declarations; owner visits ${oldWork.ownerProjects} -> ${newWork.ownerProjects}; " +
+                "semantic probes ${oldWork.semanticProbes} -> ${newWork.semanticProbes}; catalog owners preserved")
+        } finally {
+            settings.unlinkExternalProject(directory.toString())
+            settings.isOfflineWork = previousOffline
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testHelpersSubstitutionsAndCatalogFeaturesCannotReceiveAutomaticEdits() {
         if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
         val directory = Files.createTempDirectory("version-checker-gradle-safety-").toRealPath()

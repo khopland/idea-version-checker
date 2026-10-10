@@ -88,6 +88,34 @@ sanitized traces are included in the recovery record.
 
 ## Remaining release gates
 
+## Gradle ownership indexing (F07)
+
+The generated metadata task now indexes requested coordinates, their source
+owners and resolvable configurations once, then reuses identical coordinate /
+baseline probes within that source and update mode. Original dependency
+attributes, capabilities, constraints, inherited configurations and
+version-specific substitutions retain the existing resolution path.
+
+A real IDEA Gradle task-manager parity fixture compared the indexed path with
+the previous algorithm: 100 repeated declarations returned identical candidates,
+with owner-project visits reduced from **300 to 3** and semantic probes from
+**100 to 1**. Two catalog aliases still checked both owners and rejected the
+substituted consumer; semantic probes fell from 4 to 2. Existing authenticated,
+DSL/catalog, qualifier and capability integration cases also passed. Anonymous
+traces expose owner-project, owner-configuration and semantic-probe counts.
+
+Full validation passed: **402 plugin tests in 61 classes**, zero failures/errors/
+skips; 13 release and 16 script tests; `check`, `buildPlugin`, project-configuration
+validation and all three IDEA verifier targets (10 existing experimental API
+uses, no deprecated/scheduled uses). The full Gradle run took 2m 47s. Archive
+SHA-256: `c1ef1877ab2e289fef405865ef4d854ccaf21dae0faa5ceb3f2a0509f5745d26`.
+Log: `/tmp/version-checker-gradle-index-full.log`.
+
+These are algorithm/parity checks, not native UI latency measurements. Cross-file
+aggregation, native scale/typing and the remaining release matrix remain open.
+
+## Remaining release gates
+
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
 - **F03: native npm workflows.** Current-IDE editor/preview/local/workspace edit and authentication-recovery checks passed. Complete minimum-IDE coverage, ignore/recovery, cancellation and offline/runtime/configuration cases; preserve those gaps in the [native record](native-validation-2026-10-10/phase2.md).
 - **F04: supported-IDE Gradle UX.** Minimum-IDE Groovy diagnostics/local fix and current-IDE Groovy/shared Kotlin catalog workflows passed. Complete the per-version DSL/catalog and repeated performance matrix. Binary compatibility alone does not close this gate.
@@ -95,7 +123,7 @@ sanitized traces are included in the recovery record.
 
 ## Next engineering work
 
-1. **F06/F07: Gradle query batching.** Build a scan session per resolution context; index requests once rather than scanning every project/configuration for each request. Preserve native repository/variant semantics and prove candidates/request counts on authenticated fixtures before sharing metadata across modes.
+1. **F06: Gradle query batching.** F07 now indexes requested ownership/configuration contexts once per native invocation and reuses repeated coordinate/baseline probes within the same source and mode. Build a scan session per resolution context next; preserve native repository/variant semantics before sharing results across files or modes.
 2. **F09: move external input reads off the EDT.** Separate the small save/model step from cancellable hashing and configuration discovery. Keep fresh unsaved/external-input guards before apply.
 3. **F10: bound result state.** Add documented budgets and expiry cleanup for results, source/context tracking and generation state while proving that evicted in-flight results cannot reauthorize old edits.
 4. **F11: align quick-fix and preview freshness.** Introduce a common candidate lease with result identity, generation and original deadline. Keep stale-edit recovery and shared-consumer safety.

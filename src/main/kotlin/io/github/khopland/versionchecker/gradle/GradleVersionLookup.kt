@@ -26,10 +26,15 @@ internal object GradleVersionLookup {
     private val gson = Gson()
     internal data class Request(val id: String, val group: String, val name: String, val current: String)
     internal data class Result(val versions: List<String> = emptyList(), val reason: String? = null)
-    internal data class Timings(val configurationNs: Long, val queryNs: Long)
+    internal data class Timings(val configurationNs: Long, val queryNs: Long,
+                                val ownerProjects: Int = 0, val ownerConfigurations: Int = 0, val semanticProbes: Int = 0)
+
+    suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): Map<String, Result> =
+        checkWithIndex(project, snapshot, mode, indexed = true)
 
     @OptIn(kotlinx.coroutines.InternalCoroutinesApi::class)
-    suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): Map<String, Result> = withContext(Dispatchers.IO) {
+    internal suspend fun checkWithIndex(project: Project, snapshot: BuildSnapshot, mode: UpdateMode, indexed: Boolean,
+                                       observeWork: ((Timings) -> Unit)? = null): Map<String, Result> = withContext(Dispatchers.IO) {
         val requests = snapshot.declarations.filter { it.baseline.isNotEmpty() }.map { Request(it.id.location, it.artifact.namespace, it.artifact.name, it.baseline) }
         if (requests.isEmpty()) return@withContext emptyMap()
         val setupStarted = System.nanoTime()
@@ -38,10 +43,10 @@ internal object GradleVersionLookup {
         val requestFile = directory.resolve("requests.json")
         val output = directory.resolve("result.json")
         val init = directory.resolve("check.gradle")
-        val timings = if (CheckPerformance.enabled()) directory.resolve("timings.json") else null
+        val timings = if (CheckPerformance.enabled() || observeWork != null) directory.resolve("timings.json") else null
         try {
             Files.writeString(requestFile, gson.toJson(requests))
-            Files.writeString(init, script(requestFile, output, snapshot.sourceFile, mode, task, timings))
+            Files.writeString(init, script(requestFile, output, snapshot.sourceFile, mode, task, timings, indexed))
             val settings = GradleExecutionSettings(ExternalSystemApiUtil.getExecutionSettings<GradleExecutionSettings>(project, snapshot.context.root, GradleConstants.SYSTEM_ID))
             settings.withArguments("--init-script", init.toString(), "--no-configuration-cache", "--no-configure-on-demand", "--refresh-dependencies")
             settings.setTasks(listOf(":$task"))
@@ -74,10 +79,14 @@ internal object GradleVersionLookup {
                     // invocation; JVM nanoTime origins and buffered console delivery are not comparable.
                     if (measured != null && measured.configurationNs >= 0 && measured.queryNs >= 0 &&
                         measured.configurationNs <= finished - nativeStarted - measured.queryNs) {
+                        observeWork?.invoke(measured)
                         val queryStarted = finished - measured.queryNs
                         CheckPerformance.interval(CheckPerformance.Stage.GRADLE_QUERY, queryStarted, finished, requests.size, interaction)
                         CheckPerformance.interval(CheckPerformance.Stage.GRADLE_CONFIGURATION,
                             queryStarted - measured.configurationNs, queryStarted, interaction = interaction)
+                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_OWNER_PROJECTS, finished, finished, measured.ownerProjects, interaction)
+                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_OWNER_CONFIGURATIONS, finished, finished, measured.ownerConfigurations, interaction)
+                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_SEMANTIC_PROBES, finished, finished, measured.semanticProbes, interaction)
                     }
                 }
             }
@@ -89,7 +98,8 @@ internal object GradleVersionLookup {
     }
 
     /** Resolve metadata only: never execute a build task or resolve artifact files. */
-    fun script(requests: Path, output: Path, source: String, mode: UpdateMode, task: String, timings: Path? = null): String {
+    fun script(requests: Path, output: Path, source: String, mode: UpdateMode, task: String, timings: Path? = null,
+               indexed: Boolean = true): String {
         fun literal(value: String) = "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
         return """
             import groovy.json.JsonSlurper
@@ -104,31 +114,73 @@ internal object GradleVersionLookup {
                 def source = new File(${literal(source)}).canonicalFile
                 gradle.rootProject.tasks.register(${literal(task)}) {
                     doLast {
+                        def work = [ownerProjects: 0, ownerConfigurations: 0, semanticProbes: 0]
                         ${if (timings != null) "def versionCheckerQueryStarted = System.nanoTime(); try {" else ""}
                         def report = [:]
+                        def coordinate = { d -> [d.group, d.name, d.version] }
+                        def requested = requests.collect { [it.group, it.name, it.current] }.toSet()
+                        def ownersByCoordinate = [:].withDefault { new LinkedHashSet() }
+                        def originalsByOwner = [:].withDefault { [] }
+                        def contextsByOwner = [:].withDefault { new LinkedHashSet() }
+                        if (${indexed}) {
+                            // Index only requested coordinates. Each source owner/configuration is visited once;
+                            // inheritance, attributes and owner identity remain part of every semantic probe.
+                            gradle.rootProject.allprojects.each { p ->
+                                work.ownerProjects++
+                                if (!(source.name.endsWith('.toml') || p.buildFile.canonicalFile == source)) return
+                                p.configurations.each { c ->
+                                    work.ownerConfigurations++
+                                    c.dependencies.each { d ->
+                                        def key = coordinate(d)
+                                        if (requested.contains(key)) {
+                                            ownersByCoordinate[key].add(p)
+                                            if (d instanceof org.gradle.api.artifacts.ModuleDependency)
+                                                originalsByOwner[[p.path, key]].add(d)
+                                        }
+                                    }
+                                    c.dependencyConstraints.each { d ->
+                                        def key = coordinate(d)
+                                        if (requested.contains(key)) ownersByCoordinate[key].add(p)
+                                    }
+                                    if (c.canBeResolved) c.allDependencies.each { d ->
+                                        def key = coordinate(d)
+                                        if (requested.contains(key)) contextsByOwner[[p.path, key]].add(c)
+                                    }
+                                }
+                            }
+                        }
+                        def checkedCoordinates = [:]
                         requests.each { request ->
-                            def owners = gradle.rootProject.allprojects.findAll { p ->
+                            def requestKey = [request.group, request.name, request.current]
+                            if (${indexed} && checkedCoordinates.containsKey(requestKey)) {
+                                report[request.id] = checkedCoordinates[requestKey]
+                                return
+                            }
+                            def owners = ${if (indexed) "ownersByCoordinate[requestKey]" else """gradle.rootProject.allprojects.findAll { p ->
+                                work.ownerProjects++
                                 (source.name.endsWith('.toml') || p.buildFile.canonicalFile == source) &&
                                 p.configurations.any { c ->
+                                    work.ownerConfigurations++
                                     c.dependencies.any { d -> d.group == request.group && d.name == request.name && d.version == request.current } ||
                                     c.dependencyConstraints.any { d -> d.group == request.group && d.name == request.name && d.version == request.current }
                                 }
-                            }
+                            }"""}
                             def reason = null
                             def versions = owners.collect { p ->
+                                work.semanticProbes++
                                 def matches = { d -> d.group == request.group && d.name == request.name && d.version == request.current }
                                 // Keep dependency attributes, especially the category of platform/BOM calls.
-                                def originals = p.configurations.collectMany { c -> c.dependencies.findAll { d ->
+                                def originals = ${if (indexed) "originalsByOwner[[p.path, requestKey]]" else """p.configurations.collectMany { c -> c.dependencies.findAll { d ->
                                     matches(d) &&
                                     d instanceof org.gradle.api.artifacts.ModuleDependency
-                                }.toList() }
+                                }.toList() }"""}
                                 // Catalog consumers can request features without a literal wrapper in this file.
                                 if (originals.any { original -> !original.requestedCapabilities.empty ||
                                     (original.hasProperty('capabilitySelectors') && !original.capabilitySelectors.empty) }) {
                                     reason = 'Dependency capabilities or features need manual review for ' + request.group + ':' + request.name
                                     return null
                                 }
-                                def contexts = p.configurations.findAll { c -> c.canBeResolved && c.allDependencies.any(matches) }
+                                def contexts = ${if (indexed) "contextsByOwner[[p.path, requestKey]]" else "p.configurations.findAll { c -> c.canBeResolved && c.allDependencies.any(matches) }"}
                                 if (contexts.empty) {
                                     reason = 'No resolvable source configuration for ' + request.group + ':' + request.name
                                     return null
@@ -222,10 +274,12 @@ internal object GradleVersionLookup {
                                     throw new GradleException('Dependency substitution needs manual review for ' + request.group + ':' + request.name)
                                 result.selected.moduleVersion.version
                             }
-                            report[request.id] = [versions: reason == null ? versions : [], reason: reason]
+                            def reportResult = [versions: reason == null ? versions : [], reason: reason]
+                            report[request.id] = reportResult
+                            if (${indexed}) checkedCoordinates[requestKey] = reportResult
                         }
                         new File(${literal(output.toString())}).text = JsonOutput.toJson(report)
-                        ${if (timings != null) "} finally { try { new File(${literal(timings.toString())}).text = JsonOutput.toJson([configurationNs: versionCheckerQueryStarted - versionCheckerInitStarted, queryNs: System.nanoTime() - versionCheckerQueryStarted]) } catch (Exception ignoredTimingFailure) {} }" else ""}
+                        ${if (timings != null) "} finally { try { new File(${literal(timings.toString())}).text = JsonOutput.toJson(work + [configurationNs: versionCheckerQueryStarted - versionCheckerInitStarted, queryNs: System.nanoTime() - versionCheckerQueryStarted]) } catch (Exception ignoredTimingFailure) {} }" else ""}
                     }
                 }
             }
