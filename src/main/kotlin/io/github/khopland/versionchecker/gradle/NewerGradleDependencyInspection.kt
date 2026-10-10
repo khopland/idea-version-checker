@@ -10,18 +10,15 @@ import io.github.khopland.versionchecker.*
 import io.github.khopland.versionchecker.core.*
 
 internal class GradleVersionEdit(file: PsiFile, val range: TextRange, override val latest: String,
-                                 override val location: String, private val original: String) : VersionEdit {
+                                 override val location: String, original: String) : VersionEdit {
     constructor(file: PsiFile, range: TextRange, latest: String, location: String) :
         this(file, range, latest, location, file.text)
-    private val pointer = SmartPointerManager.createPointer(file)
-    override val element: PsiFile? get() = pointer.element
-    override val expected = range.substring(original)
-    override fun isValid() = element?.text == original
+    override val documentChange = DocumentVersionChange(file, range, latest, original)
+    override val element: PsiFile? get() = documentChange.file
+    override val expected = documentChange.expected
+    override fun isValid() = documentChange.isValid()
     override fun apply() {
-        val file = element ?: return
-        val document = PsiDocumentManager.getInstance(file.project).getDocument(file) ?: error("Gradle file has no document")
-        document.replaceString(range.startOffset, range.endOffset, latest)
-        PsiDocumentManager.getInstance(file.project).commitDocument(document)
+        DocumentVersionChange.prepare(listOf(documentChange))?.forEach { it.apply() }
     }
 }
 

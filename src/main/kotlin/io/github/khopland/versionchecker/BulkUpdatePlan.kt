@@ -12,6 +12,8 @@ internal interface VersionEdit {
     val location: String
     /** Null inherits the containing plan's guidance; combined plans assign it per edit. */
     val followUp: List<String>? get() = null
+    /** Captured text edits can be validated and committed once per file, including combined plans. */
+    val documentChange: DocumentVersionChange? get() = null
     fun isValid(): Boolean
     fun apply()
 }
@@ -58,8 +60,13 @@ internal data class BulkUpdatePlan(
         CheckPerformance.locally(interaction) {
             var applied = false
             WriteCommandAction.runWriteCommandAction(project, "Update versions", null, Runnable {
-                if (!isCurrent() || changes.any { !it.isValid() }) return@Runnable
-                changes.forEach { it.apply() }
+                if (!isCurrent()) return@Runnable
+                val textChanges = changes.mapNotNull { it.documentChange }
+                val prepared = DocumentVersionChange.prepare(textChanges) ?: return@Runnable
+                val elementChanges = changes.filter { it.documentChange == null }
+                if (elementChanges.any { !it.isValid() }) return@Runnable
+                prepared.forEach { it.apply() }
+                elementChanges.forEach { it.apply() }
                 applied = true
                 CheckPerformance.record(
                     CheckPerformance.Stage.EDITOR_TEXT_CHANGED,
