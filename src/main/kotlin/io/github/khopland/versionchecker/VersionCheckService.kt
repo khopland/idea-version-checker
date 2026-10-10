@@ -17,7 +17,6 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.progress.reportProgressScope
 import io.github.khopland.versionchecker.core.*
-import io.github.khopland.versionchecker.maven.withMavenScanSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -282,12 +281,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     }
 
     private suspend fun refreshNow(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?, scheduled: Boolean = false,
-                                   retryFiles: Map<String, Set<String>?>? = null) = withMavenScanSession {
-        refreshInSession(adapters, currentFile, scheduled, retryFiles)
-    }
-
-    private suspend fun refreshInSession(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?, scheduled: Boolean,
-                                         retryFiles: Map<String, Set<String>?>?) {
+                                   retryFiles: Map<String, Set<String>?>? = null) {
         if (adapters.isEmpty() || project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled) return
         val scopeLabel = when {
             retryFiles != null -> "Failed Checks"
@@ -333,15 +327,17 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 }.sortedByDescending { it.second.sourceFile in selectedPaths }
                 if (scans.isEmpty()) return@withBackgroundProgress
                 if (scheduled) scans.map { it.first }.distinctBy { it.id }.forEach { it.invalidateMetadata(project) }
-                reportProgressScope(scans.size) { reporter ->
-                    for ((adapter, snapshot) in scans) {
-                        reporter.itemStep("${adapter.displayName}: ${snapshot.sourceFile.substringAfterLast('/')}") {
-                            if (scheduled) invalidateSource(adapter.id, snapshot.sourceFile)
-                            val token = token(snapshot)
-                            pending.putIfAbsent(snapshot.context, PendingScan(token))
-                            statusChanged(snapshot.sourceFile)
-                            if (scan(adapter, snapshot, token, interactive = currentFile != null || retryFiles != null, failures = failures))
-                                affected -= snapshot.sourceFile
+                withBuildScans(project, scans, UpdateMode.MAJOR) {
+                    reportProgressScope(scans.size) { reporter ->
+                        for ((adapter, snapshot) in scans) {
+                            reporter.itemStep("${adapter.displayName}: ${snapshot.sourceFile.substringAfterLast('/')}") {
+                                if (scheduled) invalidateSource(adapter.id, snapshot.sourceFile)
+                                val token = token(snapshot)
+                                pending.putIfAbsent(snapshot.context, PendingScan(token))
+                                statusChanged(snapshot.sourceFile)
+                                if (scan(adapter, snapshot, token, interactive = currentFile != null || retryFiles != null, failures = failures))
+                                    affected -= snapshot.sourceFile
+                            }
                         }
                     }
                 }

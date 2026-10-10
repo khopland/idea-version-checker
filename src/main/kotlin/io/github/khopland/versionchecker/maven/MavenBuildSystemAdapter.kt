@@ -14,6 +14,8 @@ import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 
 internal class MavenBuildSystemAdapter : BuildSystemAdapter {
+    override suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,
+                                    action: suspend () -> T): T = withMavenScanSession(action)
     override val id = "maven"
     override val displayName = "Maven"
     override val capabilities = AdapterCapabilities(incrementalInspections = true, updateScopes = UpdateScope.entries.toSet())

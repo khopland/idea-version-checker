@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Gradle metadata checks index requested source owners and configurations once and reuse identical probes within each source and mode. A development-only `versionchecker.gradleScanAggregation` JVM switch enables bounded checks across compatible files in one linked build; it defaults to off while native UI validation continues.
 - Gradle bulk updates validate captured text once per file and apply selected replacements in a bulk document update with one PSI commit. Combined plans preserve file batching, caret and unchanged ranges, and one-command undo, including dense files with different-length replacements.
 - Supported Maven 3/Java 17+ checks use a bundled metadata helper with batched Resolver requests, bounded shared histories across modules/update modes, cached plugin prerequisites and short-lived editor/refresh/preview sessions. Automatic checks reuse one embedder pool across their metadata batches; each helper invocation reuses repository setup and one secured XML parser. Fresh generations force remote revalidation; context changes isolate repository and credential results. Custom extensions/rules and unsupported runtimes retain the Versions-goal fallback.
 - Shared Maven histories prepare version ordering and numeric branches once. Plugin candidates use the same index and descend through prerequisite checks without repeated list shifting. Traces distinguish local index preparation from candidate-POM prerequisite goals.

@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
 import org.jetbrains.plugins.gradle.service.task.GradleTaskManager
@@ -24,19 +25,42 @@ import kotlinx.coroutines.isActive
 
 internal object GradleVersionLookup {
     private val gson = Gson()
-    internal data class Request(val id: String, val group: String, val name: String, val current: String)
+    internal data class Request(val id: String, val group: String, val name: String, val current: String, val source: String? = null)
     internal data class Result(val versions: List<String> = emptyList(), val reason: String? = null)
+    internal data class Checked(val results: Map<String, Result>, val checkedAtNanos: Long) {
+        val expiresAtNanos: Long get() = checkedAtNanos + TimeUnit.MINUTES.toNanos(10)
+    }
     internal data class Timings(val configurationNs: Long, val queryNs: Long,
                                 val ownerProjects: Int = 0, val ownerConfigurations: Int = 0, val semanticProbes: Int = 0)
 
-    suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): Map<String, Result> =
-        checkWithIndex(project, snapshot, mode, indexed = true)
+    suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): Checked {
+        currentCoroutineContext()[GradleScanSession]?.check(snapshot, mode)?.let { return it }
+        val started = System.nanoTime()
+        return Checked(checkWithIndex(project, snapshot, mode, indexed = true), started)
+    }
+
+    internal suspend fun checkBatch(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode): Map<BuildSnapshot, Map<String, Result>> =
+        checkBatchWithIndex(project, snapshots, mode, indexed = true)
+
+    internal suspend fun checkWithIndex(project: Project, snapshot: BuildSnapshot, mode: UpdateMode, indexed: Boolean,
+                                       observeWork: ((Timings) -> Unit)? = null): Map<String, Result> =
+        checkBatchWithIndex(project, listOf(snapshot), mode, indexed, observeWork).getValue(snapshot)
 
     @OptIn(kotlinx.coroutines.InternalCoroutinesApi::class)
-    internal suspend fun checkWithIndex(project: Project, snapshot: BuildSnapshot, mode: UpdateMode, indexed: Boolean,
-                                       observeWork: ((Timings) -> Unit)? = null): Map<String, Result> = withContext(Dispatchers.IO) {
-        val requests = snapshot.declarations.filter { it.baseline.isNotEmpty() }.map { Request(it.id.location, it.artifact.namespace, it.artifact.name, it.baseline) }
-        if (requests.isEmpty()) return@withContext emptyMap()
+    internal suspend fun checkBatchWithIndex(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode, indexed: Boolean,
+                                            observeWork: ((Timings) -> Unit)? = null): Map<BuildSnapshot, Map<String, Result>> = withContext(Dispatchers.IO) {
+        if (snapshots.isEmpty()) return@withContext emptyMap()
+        val first = snapshots.first()
+        require(snapshots.all { it.context.root == first.context.root && it.fingerprint == first.fingerprint }) {
+            "Gradle batches must have the same linked build and resolution inputs"
+        }
+        val requestsBySnapshot = snapshots.mapIndexed { index, snapshot -> snapshot to
+            snapshot.declarations.filter { it.baseline.isNotEmpty() }.map {
+                Request("$index:${it.id.location}", it.artifact.namespace, it.artifact.name, it.baseline, snapshot.sourceFile)
+            }
+        }.toMap()
+        val requests = requestsBySnapshot.values.flatten()
+        if (requests.isEmpty()) return@withContext snapshots.associateWith { emptyMap() }
         val setupStarted = System.nanoTime()
         val directory = Files.createTempDirectory("gradle-version-checker-")
         val task = "versionChecker" + directory.fileName.toString().filter(Char::isLetterOrDigit)
@@ -46,8 +70,8 @@ internal object GradleVersionLookup {
         val timings = if (CheckPerformance.enabled() || observeWork != null) directory.resolve("timings.json") else null
         try {
             Files.writeString(requestFile, gson.toJson(requests))
-            Files.writeString(init, script(requestFile, output, snapshot.sourceFile, mode, task, timings, indexed))
-            val settings = GradleExecutionSettings(ExternalSystemApiUtil.getExecutionSettings<GradleExecutionSettings>(project, snapshot.context.root, GradleConstants.SYSTEM_ID))
+            Files.writeString(init, script(requestFile, output, first.sourceFile, mode, task, timings, indexed))
+            val settings = GradleExecutionSettings(ExternalSystemApiUtil.getExecutionSettings<GradleExecutionSettings>(project, first.context.root, GradleConstants.SYSTEM_ID))
             settings.withArguments("--init-script", init.toString(), "--no-configuration-cache", "--no-configure-on-demand", "--refresh-dependencies")
             settings.setTasks(listOf(":$task"))
             val id = ExternalSystemTaskId.create(GradleConstants.SYSTEM_ID, ExternalSystemTaskType.EXECUTE_TASK, project)
@@ -66,7 +90,7 @@ internal object GradleVersionLookup {
                 // Invoke IntelliJ's native task manager without creating a run configuration or console.
                 CheckPerformance.record(CheckPerformance.Stage.GRADLE_SETUP, setupStarted)
                 CheckPerformance.measure(CheckPerformance.Stage.GRADLE_NATIVE, requests.size) {
-                    manager.executeTasks(snapshot.context.root, id, settings, listener)
+                    manager.executeTasks(first.context.root, id, settings, listener)
                 }
             } finally {
                 handle?.dispose()
@@ -91,7 +115,10 @@ internal object GradleVersionLookup {
                 }
             }
             check(Files.exists(output)) { "Gradle did not produce a version report" }
-            gson.fromJson(Files.readString(output), object : TypeToken<Map<String, Result>>() {}.type)
+            val results: Map<String, Result> = gson.fromJson(Files.readString(output), object : TypeToken<Map<String, Result>>() {}.type)
+            requestsBySnapshot.mapValues { (_, requested) -> requested.associate { request ->
+                request.id.substringAfter(':') to checkNotNull(results[request.id]) { "Gradle omitted a requested declaration" }
+            } }
         } finally {
             Files.walk(directory).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
         }
@@ -119,6 +146,7 @@ internal object GradleVersionLookup {
                         def report = [:]
                         def coordinate = { d -> [d.group, d.name, d.version] }
                         def requested = requests.collect { [it.group, it.name, it.current] }.toSet()
+                        def sources = requests.collect { new File(it.source ?: source.path).canonicalFile }.toSet()
                         def ownersByCoordinate = [:].withDefault { new LinkedHashSet() }
                         def originalsByOwner = [:].withDefault { [] }
                         def contextsByOwner = [:].withDefault { new LinkedHashSet() }
@@ -127,7 +155,7 @@ internal object GradleVersionLookup {
                             // inheritance, attributes and owner identity remain part of every semantic probe.
                             gradle.rootProject.allprojects.each { p ->
                                 work.ownerProjects++
-                                if (!(source.name.endsWith('.toml') || p.buildFile.canonicalFile == source)) return
+                                if (!sources.any { it.name.endsWith('.toml') || p.buildFile.canonicalFile == it }) return
                                 p.configurations.each { c ->
                                     work.ownerConfigurations++
                                     c.dependencies.each { d ->
@@ -152,13 +180,15 @@ internal object GradleVersionLookup {
                         def checkedCoordinates = [:]
                         requests.each { request ->
                             def requestKey = [request.group, request.name, request.current]
-                            if (${indexed} && checkedCoordinates.containsKey(requestKey)) {
-                                report[request.id] = checkedCoordinates[requestKey]
+                            def requestSource = new File(request.source ?: source.path).canonicalFile
+                            def checkedKey = [requestSource, requestKey]
+                            if (${indexed} && checkedCoordinates.containsKey(checkedKey)) {
+                                report[request.id] = checkedCoordinates[checkedKey]
                                 return
                             }
-                            def owners = ${if (indexed) "ownersByCoordinate[requestKey]" else """gradle.rootProject.allprojects.findAll { p ->
+                            def owners = ${if (indexed) "ownersByCoordinate[requestKey].findAll { p -> requestSource.name.endsWith('.toml') || p.buildFile.canonicalFile == requestSource }" else """gradle.rootProject.allprojects.findAll { p ->
                                 work.ownerProjects++
-                                (source.name.endsWith('.toml') || p.buildFile.canonicalFile == source) &&
+                                (requestSource.name.endsWith('.toml') || p.buildFile.canonicalFile == requestSource) &&
                                 p.configurations.any { c ->
                                     work.ownerConfigurations++
                                     c.dependencies.any { d -> d.group == request.group && d.name == request.name && d.version == request.current } ||
@@ -276,7 +306,7 @@ internal object GradleVersionLookup {
                             }
                             def reportResult = [versions: reason == null ? versions : [], reason: reason]
                             report[request.id] = reportResult
-                            if (${indexed}) checkedCoordinates[requestKey] = reportResult
+                            if (${indexed}) checkedCoordinates[checkedKey] = reportResult
                         }
                         new File(${literal(output.toString())}).text = JsonOutput.toJson(report)
                         ${if (timings != null) "} finally { try { new File(${literal(timings.toString())}).text = JsonOutput.toJson(work + [configurationNs: versionCheckerQueryStarted - versionCheckerInitStarted, queryNs: System.nanoTime() - versionCheckerQueryStarted]) } catch (Exception ignoredTimingFailure) {} }" else ""}

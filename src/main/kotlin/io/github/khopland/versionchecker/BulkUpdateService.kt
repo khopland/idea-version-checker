@@ -25,7 +25,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import io.github.khopland.versionchecker.core.*
-import io.github.khopland.versionchecker.maven.withMavenScanSession
 import java.awt.Dimension
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -186,12 +185,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
     }
 
     internal suspend fun preparePreview(mode: UpdateMode, updateScope: UpdateScope, currentFile: VirtualFile?,
-                                        adapters: List<BuildSystemAdapter>, forceRefresh: Boolean): PreparedVersionPreview = withMavenScanSession {
-        preparePreviewInSession(mode, updateScope, currentFile, adapters, forceRefresh)
-    }
-
-    private suspend fun preparePreviewInSession(mode: UpdateMode, updateScope: UpdateScope, currentFile: VirtualFile?,
-                                              adapters: List<BuildSystemAdapter>, forceRefresh: Boolean): PreparedVersionPreview {
+                                        adapters: List<BuildSystemAdapter>, forceRefresh: Boolean): PreparedVersionPreview {
         check(adapters.isNotEmpty()) { "Open a supported build file to update its versions" }
         val service = project.service<VersionCheckService>()
         val results = mutableListOf<Pair<BuildSnapshot, VersionResultCache.CachedResult>>()
@@ -203,13 +197,16 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
             if (forceRefresh) service.invalidateForPreview(adapter, if (updateScope == UpdateScope.CURRENT_FILE) currentFile else null)
             val snapshots = adapter.discover(project, BuildSelection(updateScope, currentFile?.path))
             check(snapshots.isNotEmpty()) { "No supported build files found for ${adapter.displayName}" }
-            val reports = snapshots.associateWith { snapshot ->
-                if (service.cached(snapshot, mode)?.successful == true) reused++
-                val report = service.checkNow(adapter, snapshot, mode, reuseCached = true)
-                val result = service.cachedResult(snapshot, mode) ?: error("Repository results expired. Refresh version checks to retry.")
-                check(result.report === report) { "Version results changed during preparation. Refresh the preview." }
-                results += snapshot to result
-                report.withoutIgnored(adapter.id, project.service<VersionCheckerSettings>().state)
+            val unchecked = snapshots.filter { service.cached(it, mode)?.successful != true }
+            val reports = adapter.withScan(project, unchecked, mode) {
+                snapshots.associateWith { snapshot ->
+                    if (service.cached(snapshot, mode)?.successful == true) reused++
+                    val report = service.checkNow(adapter, snapshot, mode, reuseCached = true)
+                    val result = service.cachedResult(snapshot, mode) ?: error("Repository results expired. Refresh version checks to retry.")
+                    check(result.report === report) { "Version results changed during preparation. Refresh the preview." }
+                    results += snapshot to result
+                    report.withoutIgnored(adapter.id, project.service<VersionCheckerSettings>().state)
+                }
             }
             CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PLAN, reports.size) { adapter.prepareUpdates(project, reports) }
         }

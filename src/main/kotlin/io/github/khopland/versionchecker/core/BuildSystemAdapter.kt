@@ -21,6 +21,9 @@ internal interface BuildSystemAdapter {
     fun canCheckInBackground(project: Project, snapshot: BuildSnapshot): Boolean = true
     fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean
     suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot>
+    /** Provider-owned, short-lived native resources/results for one ordered scan. */
+    suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,
+                            action: suspend () -> T): T = action()
     suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport
     /** Deltas can display individually checked hints; only the final return value authorizes a preview. */
     suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
@@ -40,4 +43,15 @@ internal interface BuildSystemAdapter {
             EP.extensionList.filter { selection.scope in it.capabilities.updateScopes && it.supports(project, selection) }
         fun find(id: String): BuildSystemAdapter? = EP.extensionList.singleOrNull { it.id == id }
     }
+}
+
+/** Nest provider scopes without changing selected-file/interactive ordering in the coordinator. */
+internal suspend fun <T> withBuildScans(project: Project, scans: List<Pair<BuildSystemAdapter, BuildSnapshot>>,
+                                      mode: UpdateMode, action: suspend () -> T): T {
+    val groups = scans.groupBy({ it.first }, { it.second }).entries.toList()
+    suspend fun enter(index: Int): T = if (index == groups.size) action() else {
+        val (adapter, snapshots) = groups[index]
+        adapter.withScan(project, snapshots, mode) { enter(index + 1) }
+    }
+    return enter(0)
 }

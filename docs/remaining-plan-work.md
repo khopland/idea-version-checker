@@ -86,8 +86,6 @@ selection retained after retry. Full validation now passes 401 plugin tests in
 61 classes, with 13 release and 16 script tests. Exact artifact identity and
 sanitized traces are included in the recovery record.
 
-## Remaining release gates
-
 ## Gradle ownership indexing (F07)
 
 The generated metadata task now indexes requested coordinates, their source
@@ -123,7 +121,7 @@ aggregation, native scale/typing and the remaining release matrix remain open.
 
 ## Next engineering work
 
-1. **F06: Gradle query batching.** F07 now indexes requested ownership/configuration contexts once per native invocation and reuses repeated coordinate/baseline probes within the same source and mode. Build a scan session per resolution context next; preserve native repository/variant semantics before sharing results across files or modes.
+1. **F06/F07: Gradle query batching.** Ownership indexing is enabled. The [bounded cross-file prototype](gradle-scan-prototype.md) is implemented behind a development-only JVM switch, with native resolver work/parity and cancellation/freshness regressions. Keep aggregation off by default until controlled native UI scale/typing and failure measurements pass; mode sharing and refresh-flag changes remain deferred.
 2. **F09: move external input reads off the EDT.** Separate the small save/model step from cancellable hashing and configuration discovery. Keep fresh unsaved/external-input guards before apply.
 3. **F10: bound result state.** Add documented budgets and expiry cleanup for results, source/context tracking and generation state while proving that evicted in-flight results cannot reauthorize old edits.
 4. **F11: align quick-fix and preview freshness.** Introduce a common candidate lease with result identity, generation and original deadline. Keep stale-edit recovery and shared-consumer safety.

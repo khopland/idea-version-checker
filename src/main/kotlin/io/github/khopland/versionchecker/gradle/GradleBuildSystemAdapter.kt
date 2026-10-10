@@ -27,6 +27,16 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
     override val id = "gradle"
     override val displayName = "Gradle"
     override val capabilities = AdapterCapabilities()
+    override fun invalidateMetadata(project: Project) = project.service<GradleProjectCache>().invalidateMetadata()
+    override suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,
+                                    action: suspend () -> T): T {
+        if (!java.lang.Boolean.getBoolean("versionchecker.gradleScanAggregation")) return action()
+        val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }
+        val eligible = snapshots.map { snapshot ->
+            snapshot.copy(declarations = snapshot.declarations.filter { "${it.artifact.namespace}:${it.artifact.name}" !in policy })
+        }
+        return withGradleScanSession(project, eligible, mode, action)
+    }
     override fun isOffline(project: Project) = GradleSettings.getInstance(project).isOfflineWork
     private fun supported(file: VirtualFile) = !file.isDirectory &&
         (file.name in setOf("build.gradle", "build.gradle.kts") || file.name == "libs.versions.toml" && file.parent.name == "gradle") &&
@@ -148,7 +158,8 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }
-        val results = GradleVersionLookup.check(project, snapshot.copy(declarations = snapshot.declarations.filter { "${it.artifact.namespace}:${it.artifact.name}" !in policy }), mode)
+        val checked = GradleVersionLookup.check(project, snapshot.copy(declarations = snapshot.declarations.filter { "${it.artifact.namespace}:${it.artifact.name}" !in policy }), mode)
+        val results = checked.results
         return UpdateReport(snapshot.declarations.mapNotNull { declaration ->
             val versions = results[declaration.id.location]?.versions.orEmpty().distinct()
             val latest = versions.singleOrNull() ?: return@mapNotNull null
@@ -160,7 +171,7 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
             } ?: results[declaration.id.location]?.reason?.let {
                 UpdateNotice(declaration, NoticeKind.MANUAL_REVIEW, it)
             }
-        })
+        }, validUntilNanos = checked.expiresAtNanos, checkedAtNanos = checked.checkedAtNanos)
     }
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
         check(areCurrent(project, reports.keys)) { "Gradle build files or settings changed. Run the check again." }

@@ -24,6 +24,9 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
     private val digests = mutableMapOf<VirtualFile, Digest>()
     private val inspectionDigests = mutableMapOf<VirtualFile, Digest>()
     private val documentChanges = AtomicLong()
+    private val metadataChanges = AtomicLong()
+    val metadataGeneration: Long get() = metadataChanges.get()
+    fun invalidateMetadata() { metadataChanges.incrementAndGet() }
     private var structureGeneration: List<Long> = emptyList()
     private var contentGeneration: List<Long> = emptyList()
 

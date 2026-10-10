@@ -27,6 +27,79 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Real IDEA Gradle tooling + project wrapper + authenticated settings repositories. No public artifact queries. */
 class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
+    fun testLinkedBuildAggregationChecksOneHundredModulesInFiveBoundedInvocations() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-gradle-scan-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val settings = GradleSettings.getInstance(project)
+        val previousOffline = settings.isOfflineWork
+        val previousSwitch = System.getProperty("versionchecker.gradleScanAggregation")
+        try {
+            settings.isOfflineWork = false
+            val publication = Files.createDirectories(directory.resolve("repo/fixture/alpha"))
+            Files.writeString(publication.resolve("maven-metadata.xml"), """<metadata><groupId>fixture</groupId><artifactId>alpha</artifactId>
+                <versioning><versions><version>1.0.0</version><version>2.0.0</version></versions></versioning></metadata>""")
+            for (version in listOf("1.0.0", "2.0.0")) {
+                val path = Files.createDirectories(publication.resolve(version))
+                Files.writeString(path.resolve("alpha-$version.pom"), """<project><modelVersion>4.0.0</modelVersion>
+                    <groupId>fixture</groupId><artifactId>alpha</artifactId><version>$version</version></project>""")
+            }
+            val modules = (1..100).map { "module-$it" }
+            Files.writeString(directory.resolve("settings.gradle"), "rootProject.name = 'scan-fixture'\ninclude " + modules.joinToString { "'$it'" })
+            Files.writeString(directory.resolve("build.gradle"), """
+                allprojects { repositories { maven { url = uri(rootProject.file('repo')) } } }
+                subprojects { tasks.withType(JavaCompile).configureEach { doFirst { throw new GradleException('Build task executed') } } }
+            """.trimIndent())
+            for (module in modules) {
+                val path = Files.createDirectories(directory.resolve(module))
+                Files.writeString(path.resolve("build.gradle"), "plugins { id 'java' }\ndependencies {\n" +
+                    (1..100).joinToString("\n") { "implementation 'fixture:alpha:1.0.0'" } + "\n}")
+            }
+            val wrapper = Files.createDirectories(directory.resolve("gradle/wrapper"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.properties"), wrapper.resolve("gradle-wrapper.properties"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.jar"), wrapper.resolve("gradle-wrapper.jar"))
+            val root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            VfsUtil.markDirtyAndRefresh(false, true, true, root)
+            settings.linkProject(GradleProjectSettings().apply {
+                externalProjectPath = directory.toString(); gradleJvm = "#JAVA_HOME"
+                distributionType = DistributionType.DEFAULT_WRAPPED
+                setModules((modules.map { directory.resolve(it).toString() } + directory.toString()).toSet())
+            })
+            val adapter = GradleBuildSystemAdapter()
+            val work = mutableListOf<GradleVersionLookup.Timings>()
+            val checked = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking {
+                    val snapshots = adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)).filter { it.declarations.isNotEmpty() }
+                    assertEquals(100, snapshots.size)
+                    System.clearProperty("versionchecker.gradleScanAggregation")
+                    adapter.withScan(project, snapshots, UpdateMode.MAJOR) { assertNull(kotlinx.coroutines.currentCoroutineContext()[GradleScanSession]) }
+                    System.setProperty("versionchecker.gradleScanAggregation", "true")
+                    adapter.withScan(project, snapshots, UpdateMode.MAJOR) { assertNotNull(kotlinx.coroutines.currentCoroutineContext()[GradleScanSession]) }
+                    kotlinx.coroutines.supervisorScope {
+                        val session = GradleScanSession(this, snapshots, UpdateMode.MAJOR, { 0L }) { batch ->
+                            GradleVersionLookup.checkBatchWithIndex(project, batch, UpdateMode.MAJOR, true) { work += it }
+                        }
+                        try { kotlinx.coroutines.withContext(session) {
+                            snapshots.associateWith { GradleVersionLookup.check(project, it, UpdateMode.MAJOR).results }
+                        } } finally { session.close() }
+                    }
+                }
+            }), 120_000)
+            assertEquals(10_000, checked.values.sumOf { it.size })
+            assertTrue(checked.values.all { results -> results.values.all { it.versions == listOf("2.0.0") && it.reason == null } })
+            assertEquals(5, work.size)
+            assertEquals(505, work.sumOf { it.ownerProjects })
+            assertEquals(100, work.sumOf { it.semanticProbes })
+            assertTrue(modules.none { Files.exists(directory.resolve("$it/build/classes")) })
+            println("Gradle scan work: 100 modules / 10000 declarations; nativeInvocations=5 ownerVisits=505 semanticProbes=100")
+        } finally {
+            if (previousSwitch == null) System.clearProperty("versionchecker.gradleScanAggregation")
+            else System.setProperty("versionchecker.gradleScanAggregation", previousSwitch)
+            settings.unlinkExternalProject(directory.toString()); settings.isOfflineWork = previousOffline
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testIndexedRepeatedDeclarationsMatchLegacyResultsAndKeepCatalogOwnerIsolation() {
         if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
         val directory = Files.createTempDirectory("version-checker-gradle-index-").toRealPath()
@@ -108,6 +181,15 @@ class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
             assertTrue(indexedCatalog.values.all { it.versions.isEmpty() && it.reason?.contains("substitution") == true })
             assertEquals(4, legacyCatalogWork.semanticProbes)
             assertEquals(2, indexedCatalogWork.semanticProbes)
+            var batchWork: GradleVersionLookup.Timings? = null
+            val batch = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { GradleVersionLookup.checkBatchWithIndex(project, listOf(literal, shared), UpdateMode.MAJOR, true) { batchWork = it } }
+            }), 120_000)
+            assertEquals(indexed, batch[literal])
+            assertEquals(indexedCatalog, batch[shared])
+            val measuredBatch = checkNotNull(batchWork)
+            assertEquals(3, measuredBatch.ownerProjects)
+            assertEquals(3, measuredBatch.semanticProbes)
             assertFalse(Files.exists(directory.resolve("build/classes")))
             println("Gradle index parity: 100 declarations; owner visits ${oldWork.ownerProjects} -> ${newWork.ownerProjects}; " +
                 "semantic probes ${oldWork.semanticProbes} -> ${newWork.semanticProbes}; catalog owners preserved")
