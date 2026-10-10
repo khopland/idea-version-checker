@@ -17,6 +17,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.progress.reportProgressScope
 import io.github.khopland.versionchecker.core.*
+import io.github.khopland.versionchecker.maven.withMavenScanSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -279,7 +280,12 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     }
 
     private suspend fun refreshNow(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?, scheduled: Boolean = false,
-                                   retryFiles: Map<String, Set<String>?>? = null) {
+                                   retryFiles: Map<String, Set<String>?>? = null) = withMavenScanSession {
+        refreshInSession(adapters, currentFile, scheduled, retryFiles)
+    }
+
+    private suspend fun refreshInSession(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile?, scheduled: Boolean,
+                                         retryFiles: Map<String, Set<String>?>?) {
         if (adapters.isEmpty() || project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled) return
         val scopeLabel = if (retryFiles != null) "Failed Checks" else if (currentFile == null) "Whole Project" else "Current File"
         val affected = mutableSetOf<String>()

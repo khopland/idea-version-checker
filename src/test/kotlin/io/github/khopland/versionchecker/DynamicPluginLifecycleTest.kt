@@ -203,6 +203,7 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
     private fun unloadWithServices(plugin: PluginMainDescriptor): WeakReference<ClassLoader> {
         val npm = service(plugin, "npm.NpmProjectCache") as Disposable
         val metadata = service(plugin, "npm.NpmMetadataService") as Disposable
+        val mavenMetadata = service(plugin, "maven.MavenMetadataService") as Disposable
         val gradle = service(plugin, "gradle.GradleProjectCache") as Disposable
         val previews = service(plugin, "BulkUpdateService") as Disposable
         val feedback = service(plugin, "VersionCheckFeedback") as Disposable
@@ -222,7 +223,7 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         notifications.clear()
         assertFalse(recovery.isExpired)
         var disposedServices = 0
-        listOf(npm, metadata, gradle, previews, feedback).forEach { Disposer.register(it) { disposedServices++ } }
+        listOf(npm, metadata, mavenMetadata, gradle, previews, feedback).forEach { Disposer.register(it) { disposedServices++ } }
         val previousLoader = WeakReference(plugin.pluginClassLoader!!)
         assertNotNull(ActionManager.getInstance().getAction("VersionChecker.Refresh"))
         val adapters = ApplicationManager.getApplication().extensionArea.getExtensionPoint<Any>(BuildSystemAdapter.EP.name)
@@ -231,7 +232,7 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         assertNull(DynamicPlugins.checkCanUnloadWithoutRestart(plugin))
         assertTrue(DynamicPlugins.unloadPlugin(plugin, DynamicPlugins.UnloadPluginOptions(disable = false, save = false)))
         // DynamicPlugins clears disposal traces, so observe cleanup rather than calling isDisposed.
-        assertEquals(5, disposedServices)
+        assertEquals(6, disposedServices)
         assertTrue("Unload expires actionable notifications", recovery.isExpired)
         assertFalse(project.isDisposed)
         assertNull(ActionManager.getInstance().getAction("VersionChecker.Refresh"))

@@ -21,12 +21,19 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             assertEquals(5, selectors.size)
             assertFalse(configurable.isModified())
             val schedule = components(panel).filterIsInstance<JBCheckBox>().single { "periodically" in it.text }
-            val interval = components(panel).filterIsInstance<JSpinner>().single()
+            val spinners = components(panel).filterIsInstance<JSpinner>()
+            val interval = spinners.first()
+            val mavenWorkers = spinners.last()
+            val platformFirst = components(panel).filterIsInstance<JBCheckBox>().single { "BOMs" in it.text }
+            assertFalse(platformFirst.isSelected)
+            assertEquals(2, mavenWorkers.value)
             assertFalse(schedule.isSelected)
             assertFalse(interval.isEnabled)
             schedule.doClick()
             assertTrue(interval.isEnabled)
             interval.value = 15
+            platformFirst.isSelected = true
+            mavenWorkers.value = 4
             selectors[0].selectedItem = VersionSeverity.DISABLED
             selectors[2].selectedItem = VersionSeverity.ERROR
             components(panel).filterIsInstance<JBTextArea>().single { it.accessibleContext.accessibleName == "Deprecated artifacts" }.text = "old:library = Use new:library"
@@ -41,6 +48,8 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             assertEquals("npm alpha = 1.2.3", state.ignoredVersions)
             assertTrue(state.scheduledChecks)
             assertEquals(15, state.checkIntervalMinutes)
+            assertTrue(state.mavenPlatformFirst)
+            assertEquals(4, state.mavenMetadataThreads)
             assertFalse(configurable.isModified())
             selectors[2].selectedItem = VersionSeverity.INFORMATION
             configurable.reset()
@@ -57,7 +66,8 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
         val state = VersionCheckerSettings.Options(patchSeverity = VersionSeverity.DISABLED,
             minorSeverity = VersionSeverity.INFORMATION, majorSeverity = VersionSeverity.ERROR,
             deprecatedSeverity = VersionSeverity.WARNING, deprecatedDependencies = "old:library = Retired",
-            scheduledChecks = true, checkIntervalMinutes = 60, ignoredVersions = "maven g:a = 2.0")
+            scheduledChecks = true, checkIntervalMinutes = 60, ignoredVersions = "maven g:a = 2.0",
+            mavenPlatformFirst = true, mavenMetadataThreads = 4)
         assertEquals(state, XmlSerializer.deserialize(XmlSerializer.serialize(state), VersionCheckerSettings.Options::class.java))
     }
 }

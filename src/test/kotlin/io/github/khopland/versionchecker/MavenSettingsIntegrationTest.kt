@@ -37,6 +37,144 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /** Opt-in: starts IDEA's real Maven server and may download the Versions goal from Maven Central. */
 class MavenSettingsIntegrationTest : BasePlatformTestCase() {
+    fun testBatchedMetadataSharesOneHundredArtifactsAcrossOneHundredModulesAndModes() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-shared-metadata-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val requests = CopyOnWriteArrayList<String>()
+        val published = AtomicReference("2.0")
+        val failedArtifact = AtomicReference<String?>(null)
+        val auth = AtomicReference("Basic " + Base64.getEncoder().encodeToString("fixture:password".toByteArray()))
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(4)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.executor = executor
+        server.createContext("/") { exchange ->
+            try {
+                val path = exchange.requestURI.path
+                if (exchange.requestHeaders.getFirst("Authorization") != auth.get()) {
+                    exchange.responseHeaders.add("WWW-Authenticate", "Basic realm=fixture")
+                    exchange.sendResponseHeaders(401, -1)
+                } else if (path.endsWith("/maven-metadata.xml")) {
+                    requests += path
+                    val artifact = path.substringBeforeLast('/').substringAfterLast('/')
+                    if (artifact == failedArtifact.get()) exchange.sendResponseHeaders(500, -1)
+                    else {
+                        Thread.sleep(10)
+                        val body = """<metadata><groupId>example.shared</groupId><artifactId>$artifact</artifactId><versioning><versions>
+                            <version>1.0</version><version>1.0.1</version><version>1.1</version><version>1.1.1</version>
+                            <version>${published.get()}</version><version>4.0-RC1</version><version>5.0-SNAPSHOT</version>
+                            </versions></versioning></metadata>""".toByteArray()
+                        exchange.sendResponseHeaders(200, body.size.toLong()); exchange.responseBody.write(body)
+                    }
+                } else exchange.sendResponseHeaders(404, -1)
+            } finally { exchange.close() }
+        }
+        server.start()
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
+        val oldSettings = manager.generalSettings.userSettingsFile
+        project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+        try {
+            val settings = directory.resolve("settings.xml")
+            Files.writeString(settings, """<settings><servers><server><id>shared-mirror</id><username>fixture</username><password>password</password></server></servers>
+                <mirrors><mirror><id>shared-mirror</id><mirrorOf>shared-source</mirrorOf><url>http://127.0.0.1:${server.address.port}/</url></mirror></mirrors>
+                <profiles><profile><id>shared</id><repositories>
+                  <repository><id>central</id><url>https://repo.maven.apache.org/maven2</url><releases><enabled>false</enabled></releases><snapshots><enabled>false</enabled></snapshots></repository>
+                  <repository><id>shared-source</id><url>http://127.0.0.1:1/unmirrored</url><releases><updatePolicy>daily</updatePolicy></releases></repository>
+                </repositories></profile></profiles><activeProfiles><activeProfile>shared</activeProfile></activeProfiles></settings>""")
+            manager.generalSettings.setUserSettingsFile(settings.toString())
+            val imported = (0 until 100).map { module ->
+                val pom = Files.createDirectories(directory.resolve("module-$module")).resolve("pom.xml")
+                val baseline = if (module % 2 == 0) "1.0" else "1.1"
+                Files.writeString(pom, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                    <groupId>example.shared</groupId><artifactId>module-$module</artifactId><version>1</version>
+                    <dependencies>${(0 until 100).joinToString("") { artifact ->
+                        "<dependency><groupId>example.shared</groupId><artifactId>artifact-$artifact</artifactId><version>$baseline</version></dependency>"
+                    }}</dependencies></project>""")
+                val virtual = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!
+                MavenProject(virtual).apply {
+                    updateState(MavenModel().apply { mavenId = MavenId("example.shared", "module-$module", "1") },
+                        emptyList(), "21", emptyList(), MavenExplicitProfiles.NONE, emptySet(), emptyMap(),
+                        Path.of(System.getProperty("user.home"), ".m2/repository"), false)
+                    manager.projectsTree.putVirtualFileToProjectMapping(this, mavenId)
+                    manager.projectsTree.setIgnoredState(listOf(this), false)
+                }
+            }
+            val adapter = MavenBuildSystemAdapter()
+            fun <T> background(action: suspend () -> T): T = PlatformTestUtil.waitForFuture(
+                ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { action() } }), 180_000)
+            val snapshots = background { adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
+            assertEquals(100, snapshots.size)
+            assertEquals(10_000, snapshots.sumOf { it.declarations.size })
+            val baselineBefore = requests.size
+            val baseline = background { MavenVersionLookup.check(manager, imported.first()) }
+            assertEquals(100, requests.size - baselineBefore)
+            adapter.invalidateMetadata(project)
+            val before = requests.size
+            val started = System.nanoTime()
+            var firstDeadline: Long? = null
+            for (snapshot in snapshots) {
+                val report = background { adapter.check(project, snapshot, UpdateMode.MAJOR) }
+                assertTrue(report.failure.orEmpty(), report.successful)
+                assertEquals(100, report.candidates.size)
+                assertTrue(report.candidates.all { it.version == "2.0" })
+                if (firstDeadline == null) firstDeadline = report.validUntilNanos
+                assertEquals("Sharing must not extend freshness", firstDeadline, report.validUntilNanos)
+                if (snapshot.sourceFile == imported.first().path) assertEquals(baseline, report.mavenUpdates())
+            }
+            assertEquals("10,000 declarations must cause only 100 fresh metadata requests", 100, requests.size - before)
+            println("version-check benchmark=maven-shared modules=100 declarations=10000 uniqueArtifacts=100 httpRequests=${requests.size - before} elapsedNs=${System.nanoTime() - started}")
+            for (mode in listOf(UpdateMode.PATCH, UpdateMode.MINOR)) {
+                val report = background { adapter.check(project, snapshots.first(), mode) }
+                assertTrue(report.successful)
+                val expected = if (mode == UpdateMode.PATCH) snapshots.first().declarations.first().baseline + ".1" else "1.1.1"
+                assertTrue(report.candidates.all { it.version == expected })
+                assertEquals(firstDeadline, report.validUntilNanos)
+            }
+            assertEquals("Mode changes must not repeat native metadata requests", 100, requests.size - before)
+            published.set("3.0"); adapter.invalidateMetadata(project)
+            val refreshed = background { adapter.check(project, snapshots.first(), UpdateMode.MAJOR) }
+            assertTrue(refreshed.candidates.all { it.version == "3.0" })
+            assertEquals(200, requests.size - before)
+            failedArtifact.set("artifact-0"); adapter.invalidateMetadata(project)
+            val partial = background { adapter.check(project, snapshots.first(), UpdateMode.MAJOR) }
+            assertFalse(partial.successful)
+            assertEquals(99, partial.candidates.size)
+            assertTrue(partial.failure!!.contains("artifact-0"))
+            failedArtifact.set(null)
+            val retryBefore = requests.size
+            val retry = background { adapter.check(project, snapshots.first(), UpdateMode.MAJOR) }
+            assertTrue(retry.successful)
+            assertEquals(100, retry.candidates.size)
+            assertEquals("Retry only the failed artifact", 1, requests.size - retryBefore)
+            // Same repository ID with a changed mirror URL or credential is a new context,
+            // even without an explicit cache invalidation.
+            published.set("3.1")
+            Files.writeString(settings, Files.readString(settings).replace("${server.address.port}/</url>", "${server.address.port}/second/</url>"))
+            val urlBefore = requests.size
+            val changedUrl = background { adapter.check(project, snapshots.first(), UpdateMode.MAJOR) }
+            assertTrue(changedUrl.successful)
+            assertTrue(changedUrl.candidates.all { it.version == "3.1" })
+            assertEquals(100, requests.size - urlBefore)
+            assertTrue(requests.takeLast(100).all { it.startsWith("/second/") })
+            published.set("3.2")
+            auth.set("Basic " + Base64.getEncoder().encodeToString("fixture:changed".toByteArray()))
+            Files.writeString(settings, Files.readString(settings).replace("<password>password</password>", "<password>changed</password>"))
+            val authBefore = requests.size
+            val changedAuth = background { adapter.check(project, snapshots.first(), UpdateMode.MAJOR) }
+            assertTrue(changedAuth.failure.orEmpty(), changedAuth.successful)
+            assertTrue(changedAuth.candidates.all { it.version == "3.2" })
+            assertEquals(100, requests.size - authBefore)
+        } finally {
+            project.service<MavenMetadataService>().invalidate()
+            manager.projectsTree.setIgnoredState(manager.projects, true)
+            manager.embeddersManager.reset()
+            manager.generalSettings.setUserSettingsFile(oldSettings)
+            server.stop(0); executor.shutdownNow(); directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testActiveProfilePropertyEditsChangeTheNativeEffectiveDependencyVersion() {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
         val directory = Files.createTempDirectory("version-checker-maven-property-owner-").toRealPath()
@@ -336,6 +474,8 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString(), directory.toRealPath().toString())
         val metadataRequests = AtomicInteger()
         val publishedVersion = AtomicReference("2.0")
+        val incompatiblePlugin = java.util.concurrent.atomic.AtomicBoolean(false)
+        val pluginPomRequests = CopyOnWriteArrayList<String>()
         val expectedAuth = AtomicReference("Basic " + Base64.getEncoder().encodeToString("fixture:password".toByteArray()))
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
@@ -349,16 +489,17 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                     val body = """
                         <metadata><groupId>example.versionchecker</groupId><artifactId>$artifact</artifactId>
                         <versioning><latest>4.0-SNAPSHOT</latest><release>3.0-RC1</release><versions>
-                        <version>1.0</version><version>1.0.1</version><version>1.1</version><version>1.1.1</version><version>${publishedVersion.get()}</version><version>3.0-RC1</version><version>4.0-SNAPSHOT</version>
+                        <version>1.0</version><version>1.0.1</version><version>1.1</version><version>1.1.1</version><version>${publishedVersion.get()}</version>${if (artifact == "fixture-plugin" && incompatiblePlugin.get()) "<version>8.0</version>" else ""}<version>3.0-RC1</version><version>4.0-SNAPSHOT</version>
                         </versions><lastUpdated>20261005000000</lastUpdated></versioning></metadata>
                     """.trimIndent().toByteArray()
                     exchange.sendResponseHeaders(200, body.size.toLong())
                     exchange.responseBody.write(body)
                 } else if ("/fixture-plugin/" in exchange.requestURI.path && exchange.requestURI.path.endsWith(".pom")) {
+                    pluginPomRequests += exchange.requestURI.path
                     val version = exchange.requestURI.path.substringBeforeLast('/').substringAfterLast('/')
                     val body = """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
                         <groupId>example.versionchecker</groupId><artifactId>fixture-plugin</artifactId><version>$version</version>
-                        <packaging>maven-plugin</packaging><prerequisites><maven>3.6.3</maven></prerequisites></project>""".toByteArray()
+                        <packaging>maven-plugin</packaging><prerequisites><maven>${if (version == "8.0") "99.0" else "3.6.3"}</maven></prerequisites></project>""".toByteArray()
                     exchange.sendResponseHeaders(200, body.size.toLong())
                     exchange.responseBody.write(body)
                 } else {
@@ -614,6 +755,34 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val afterVisitor = NewerMavenDependencyInspection().buildVisitor(after, true)
             tags.forEach { it.accept(afterVisitor) }
             assertTrue("Edited versions must not get stale errors", after.results.none { !it.descriptionTemplate.contains("Maven plugin") })
+            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
+            incompatiblePlugin.set(true)
+            native.invalidateMetadata(project)
+            val pluginSnapshot = native.snapshot(project, virtualFile)!!
+            fun <T> background(action: suspend () -> T): T = PlatformTestUtil.waitForFuture(
+                ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { action() } }), 120_000)
+            val compatible = background { native.check(project, pluginSnapshot, UpdateMode.MAJOR) }
+            assertTrue(compatible.failure.orEmpty(), compatible.successful)
+            assertEquals("Skip a newer plugin requiring Maven 99, then select the compatible candidate", "2.0",
+                compatible.candidates.single { it.declaration.coordinate().artifactKind == MavenArtifactKind.PLUGIN }.version)
+            val metadata = project.service<MavenMetadataService>()
+            val context = background { metadata.contexts.get(manager, mavenProject, pluginSnapshot, metadata.cache.generation()) }
+            val incompatible = MavenMetadataKey("example.versionchecker", "fixture-plugin", true, "8.0")
+            val requirement = background { metadata.cache.getMany(context.id, listOf(incompatible)) {
+                error("The native lookup must already have cached the incompatible POM's prerequisites")
+            }.getValue(incompatible).getOrThrow() }
+            assertEquals("99.0", requirement.value.requiredMaven)
+            val pomCount = pluginPomRequests.size
+            val cachedCompatible = background { native.check(project, pluginSnapshot, UpdateMode.MAJOR) }
+            assertEquals(compatible.candidates, cachedCompatible.candidates)
+            assertEquals("Reuse plugin prerequisite decisions", pomCount, pluginPomRequests.size)
+
+            val extension = Files.createDirectories(directory.resolve(".mvn")).resolve("extensions.xml")
+            Files.writeString(extension, "<extensions/>")
+            val fallbackSnapshot = native.snapshot(project, virtualFile)!!
+            val fallbackContext = background { project.service<MavenMetadataService>().contexts.get(manager, mavenProject,
+                fallbackSnapshot, project.service<MavenMetadataService>().cache.generation()) }
+            assertFalse("Custom core extension configuration retains the Versions goal fallback", fallbackContext.nativeSupported)
         } finally {
             manager.projectsTree.setIgnoredState(manager.projects, true)
             manager.embeddersManager.reset()

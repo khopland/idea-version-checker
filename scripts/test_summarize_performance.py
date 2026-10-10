@@ -8,6 +8,14 @@ spec.loader.exec_module(trace)
 
 
 class TraceSummaryTest(unittest.TestCase):
+    def test_batched_maven_metadata_counts_native_work_but_cache_reuse_does_not(self):
+        interactions = {(1, 100): [dict(stage=s, start=a, end=b) for s, a, b in [
+            ("PREVIEW_INVOKED", 100, 100), ("MAVEN_METADATA_BATCH", 120, 180),
+            ("MAVEN_METADATA_REUSED", 150, 150), ("PREVIEW_READY", 100, 200)]]}
+        report = trace.summarize(interactions)["preview"]
+        self.assertEqual(1, report["nativeInvocations"]["owned"])
+        self.assertAlmostEqual(60 / 1_000_000, report["interactions"][0]["exclusiveMs"]["repository"])
+
     def test_overlapping_goals_and_setup_are_counted_once(self):
         events = [dict(stage=s, start=a, end=b) for s, a, b in [
             ("PREVIEW_PREPARATION", 0, 100), ("CHECK", 5, 80), ("CHECK_QUEUE", 0, 10),

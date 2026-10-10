@@ -31,6 +31,8 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
 
     override fun isOffline(project: Project) = MavenProjectsManager.getInstance(project).generalSettings.isWorkOffline
 
+    override fun invalidateMetadata(project: Project) { project.service<MavenMetadataService>().invalidate() }
+
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? =
         CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
             val manager = MavenProjectsManager.getInstance(project)
@@ -107,6 +109,18 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
                                      publish: (suspend (InspectionUpdate) -> Unit)?): UpdateReport {
         val manager = MavenProjectsManager.getInstance(project)
         val mavenProject = readAction { findProject(manager, snapshot) } ?: error("Maven POM is no longer imported")
+        val native = MavenBatchedLookup.check(manager, mavenProject, snapshot, mode, publish?.let { publisher ->
+            { delta ->
+                val declarations = snapshot.declarations.filter { it.coordinate() in delta.coordinates }
+                val report = versionReport(mavenProject, snapshot.copy(declarations = declarations), delta.updates).copy(
+                    failure = delta.failures.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.message.orEmpty() },
+                    failureCause = delta.failures.firstOrNull(), validUntilNanos = delta.validUntil)
+                publisher(InspectionUpdate(report, declarations.map { it.id }.toSet()))
+            }
+        })
+        if (native != null) return versionReport(mavenProject, snapshot, native.updates).copy(
+            failure = native.failures.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.message.orEmpty() },
+            failureCause = native.failures.firstOrNull(), validUntilNanos = native.validUntil)
         val coordinates = snapshot.declarations.map { it.coordinate() }
         val kinds = coordinates.map { it.artifactKind }.toSet()
         val failures = mutableListOf<Exception>()

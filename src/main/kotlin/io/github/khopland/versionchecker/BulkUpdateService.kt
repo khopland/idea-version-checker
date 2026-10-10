@@ -28,6 +28,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import io.github.khopland.versionchecker.core.*
+import io.github.khopland.versionchecker.maven.withMavenScanSession
 import java.awt.Dimension
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -183,7 +184,12 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
     }
 
     internal suspend fun preparePreview(mode: UpdateMode, updateScope: UpdateScope, currentFile: VirtualFile?,
-                                        adapters: List<BuildSystemAdapter>, forceRefresh: Boolean): PreparedVersionPreview {
+                                        adapters: List<BuildSystemAdapter>, forceRefresh: Boolean): PreparedVersionPreview = withMavenScanSession {
+        preparePreviewInSession(mode, updateScope, currentFile, adapters, forceRefresh)
+    }
+
+    private suspend fun preparePreviewInSession(mode: UpdateMode, updateScope: UpdateScope, currentFile: VirtualFile?,
+                                              adapters: List<BuildSystemAdapter>, forceRefresh: Boolean): PreparedVersionPreview {
         check(adapters.isNotEmpty()) { "Open a supported build file to update its versions" }
         val service = project.service<VersionCheckService>()
         val results = mutableListOf<Pair<BuildSnapshot, VersionResultCache.CachedResult>>()
