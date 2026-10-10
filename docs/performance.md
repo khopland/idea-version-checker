@@ -74,7 +74,7 @@ The targeted reproduction command is:
   --tests '*NpmWorkspaceVersionFixTest'
 ```
 
-Use a clean rebuild after changing internal constructor signatures if incremental test bytecode is stale. These tests validate work counts, batching and edit safety, not production editor latency. Measure first visible hints and restart frequency in IDEA before claiming an end-to-end speedup or reducing the active window further. Active-file scan prioritization, incremental result publication and mode-aware cached previews were subsequently delivered; see their sections below and the [fast-hints review](fast-hints-ux-review.html).
+Use a clean rebuild after changing internal constructor signatures if incremental test bytecode is stale. These tests validate work counts, batching and edit safety, not production editor latency. Measure first visible hints and restart frequency in IDEA before claiming an end-to-end speedup or reducing the active window further. Active-file scan prioritization, incremental result publication and mode-aware cached previews were subsequently delivered; see their sections below and the [release and UX review](release-plan-2026-10-10.html#experience).
 
 The complete validation passed 255 plugin tests with no failures, errors or skips, including authenticated native Maven/npm/Gradle integration and packaged-plugin unload coverage. `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed. Both IDEA 2025.3.6.1 and 2026.1.4 remain compatible, with the existing experimental progress API notices and the existing deprecated read-action notice on 2026.1.4. No native editor latency measurement was performed.
 

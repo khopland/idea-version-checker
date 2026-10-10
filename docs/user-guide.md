@@ -187,7 +187,7 @@ Maven/npm performance changes restrict dependency goals to supported snapshot co
 ./gradlew verifyPlugin
 ```
 
-Compatibility checks target IDEA 2025.3.6.1 and 2026.1.4.
+Compatibility checks target IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Verifier compatibility and headless integration tests do not replace the [native UX release gates](remaining-plan-work.md).
 
 Build and release CI enable the native Maven/npm/Gradle integration tests; local runs can opt in using the flags below. The test task builds the distributable ZIP. Lifecycle tests load that ZIP with IDEA's real plugin class loader, exercise repeated unload/reload cycles, and check service disposal, cancellation of active checks and timers, closure of open previews, and class-loader collection. Dialog tests use the platform's headless UI interception; native window behavior can be checked with `runIde`.
 
@@ -195,6 +195,12 @@ Local scaling tests exercise discovery, stale-result validation and bulk applica
 
 ```bash
 ./gradlew test --tests '*SnapshotScalingTest'
+```
+
+Dense Gradle application also checks 10,000 selected replacements in one file, including mixed replacement lengths, one PSI commit and one-command undo. Separate cases check caret and range preservation on unchanged text:
+
+```bash
+./gradlew test --tests '*GradleDocumentUpdateTest'
 ```
 
 Parser and IntelliJ platform tests cover stable-version filtering, wrapped reports, current-POM/project scopes, plugin Maven prerequisites, Maven configuration properties, stale previews, shared properties, dependency/plugin selection, and POM quick fixes.
