@@ -186,6 +186,9 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         val failedArtifact = AtomicReference<String?>(null)
         val metadataOverrides = AtomicReference<Map<String, String>>(emptyMap())
         val externalDtdRequests = AtomicInteger()
+        val metadataDelay = java.util.concurrent.atomic.AtomicLong(10)
+        val delayedResponses = AtomicInteger()
+        val peakDelayedResponses = AtomicInteger()
         val auth = AtomicReference("Basic " + Base64.getEncoder().encodeToString("fixture:password".toByteArray()))
         val executor = java.util.concurrent.Executors.newFixedThreadPool(4)
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -202,7 +205,9 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                     val artifact = path.substringBeforeLast('/').substringAfterLast('/')
                     if (artifact == failedArtifact.get()) exchange.sendResponseHeaders(500, -1)
                     else {
-                        Thread.sleep(10)
+                        val active = delayedResponses.incrementAndGet()
+                        peakDelayedResponses.accumulateAndGet(active) { previous, current -> maxOf(previous, current) }
+                        try { Thread.sleep(metadataDelay.get()) } finally { delayedResponses.decrementAndGet() }
                         val body = (metadataOverrides.get()[artifact] ?: """<metadata><groupId>example.shared</groupId><artifactId>$artifact</artifactId><versioning><versions>
                             <version>1.0</version><version>1.0.1</version><version>1.1</version><version>1.1.1</version>
                             <version>${published.get()}</version><version>4.0-RC1</version><version>5.0-SNAPSHOT</version>
@@ -257,8 +262,34 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val before = requests.size
             val started = System.nanoTime()
             var firstDeadline: Long? = null
-            for (snapshot in snapshots) {
-                val report = background { adapter.check(project, snapshot, UpdateMode.MAJOR) }
+            var firstBatchNanos: Long? = null
+            val queue = CheckQueue { it == snapshots[1].sourceFile }
+            val events = mutableListOf<String>()
+            for ((index, snapshot) in snapshots.withIndex()) {
+                val report = background {
+                    if (index != 0) adapter.check(project, snapshot, UpdateMode.MAJOR) else coroutineScope {
+                        var selected: Deferred<UpdateReport>? = null
+                        val report = queue.withSlot(snapshot.sourceFile) {
+                            adapter.checkIncrementally(project, snapshot, UpdateMode.MAJOR) { delta ->
+                                if (firstBatchNanos == null) {
+                                    firstBatchNanos = System.nanoTime() - started
+                                    assertEquals("An early batch publishes before the full history scan", 16, delta.report.candidates.size)
+                                    assertEquals(16, requests.size - before)
+                                    selected = async(start = CoroutineStart.UNDISPATCHED) {
+                                        queue.withSlot(snapshots[1].sourceFile) {
+                                            adapter.check(project, snapshots[1], UpdateMode.MAJOR).also { events += "selected" }
+                                        }
+                                    }
+                                } else events += "background remainder"
+                            }
+                        }
+                        val selectedReport = selected!!.await()
+                        assertTrue(selectedReport.failure.orEmpty(), selectedReport.successful)
+                        assertEquals(100, selectedReport.candidates.size)
+                        assertEquals(listOf("selected", "background remainder"), events)
+                        report
+                    }
+                }
                 assertTrue(report.failure.orEmpty(), report.successful)
                 assertEquals(100, report.candidates.size)
                 assertTrue(report.candidates.all { it.version == "2.0" })
@@ -267,7 +298,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 if (snapshot.sourceFile == imported.first().path) assertEquals(baseline, report.mavenUpdates())
             }
             assertEquals("10,000 declarations must cause only 100 fresh metadata requests", 100, requests.size - before)
-            println("version-check benchmark=maven-shared modules=100 declarations=10000 uniqueArtifacts=100 httpRequests=${requests.size - before} elapsedNs=${System.nanoTime() - started}")
+            println("version-check benchmark=maven-shared modules=100 declarations=10000 uniqueArtifacts=100 httpRequests=${requests.size - before} firstBatchNs=$firstBatchNanos elapsedNs=${System.nanoTime() - started}")
             for (mode in listOf(UpdateMode.PATCH, UpdateMode.MINOR)) {
                 val report = background { adapter.check(project, snapshots.first(), mode) }
                 assertTrue(report.successful)
@@ -328,6 +359,34 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             assertTrue(changedAuth.failure.orEmpty(), changedAuth.successful)
             assertTrue(changedAuth.candidates.all { it.version == "3.2" })
             assertEquals(100, requests.size - authBefore)
+            val options = project.service<VersionCheckerSettings>().state
+            val originalThreads = options.mavenMetadataThreads
+            try {
+                for (delay in listOf(50L, 250L)) for (workers in listOf(2, 4)) {
+                    metadataDelay.set(delay)
+                    peakDelayedResponses.set(0)
+                    options.mavenMetadataThreads = workers
+                    adapter.invalidateMetadata(project)
+                    val latencyBefore = requests.size
+                    val latencyStarted = System.nanoTime()
+                    var firstUseful: Long? = null
+                    val report = background {
+                        adapter.checkIncrementally(project, snapshots.first(), UpdateMode.MAJOR) { delta ->
+                            if (firstUseful == null) {
+                                firstUseful = System.nanoTime() - latencyStarted
+                                assertEquals(16, delta.report.candidates.size)
+                                assertEquals(16, requests.size - latencyBefore)
+                            }
+                        }
+                    }
+                    assertTrue(report.failure.orEmpty(), report.successful)
+                    assertEquals(100, report.candidates.size)
+                    assertEquals(100, requests.size - latencyBefore)
+                    assertTrue("Native metadata requests overlap", peakDelayedResponses.get() > 1)
+                    assertTrue("Native metadata concurrency stays bounded", peakDelayedResponses.get() <= workers)
+                    println("version-check benchmark=maven-latency delayMs=$delay workers=$workers coordinates=100 httpRequests=100 peakDelayedResponses=${peakDelayedResponses.get()} firstBatchNs=$firstUseful elapsedNs=${System.nanoTime() - latencyStarted}")
+                }
+            } finally { options.mavenMetadataThreads = originalThreads }
         } finally {
             project.service<MavenMetadataService>().invalidate()
             manager.projectsTree.setIgnoredState(manager.projects, true)

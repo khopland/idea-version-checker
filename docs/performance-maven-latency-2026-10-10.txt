@@ -1,0 +1,26 @@
+Native Maven delayed-repository validation, 10 October 2026
+
+macOS arm64, Java 21 Gradle toolchain, IDEA 2025.3.6.1 native Maven server.
+Authenticated controlled HTTP repository, four server handlers. Existing
+Maven local installation; each sample invalidates the plugin's metadata
+generation and forces remote revalidation of 100 coordinates. Major mode,
+platform priority disabled. First batch 16, second batch 84. The peak counter
+measures handlers concurrently delaying successful metadata responses.
+
+./gradlew test --tests '*CheckQueueTest' --tests '*MavenSettingsIntegrationTest.testBatchedMetadataSharesOneHundredArtifactsAcrossOneHundredModulesAndModes' -PmavenIntegration=true --console=plain
+
+version-check benchmark=maven-latency delayMs=50 workers=2 coordinates=100 httpRequests=100 peakDelayedResponses=2 firstBatchNs=512692542 elapsedNs=2956503667
+version-check benchmark=maven-latency delayMs=50 workers=4 coordinates=100 httpRequests=100 peakDelayedResponses=4 firstBatchNs=261035750 elapsedNs=1498033750
+version-check benchmark=maven-latency delayMs=250 workers=2 coordinates=100 httpRequests=100 peakDelayedResponses=2 firstBatchNs=2124115417 elapsedNs=12993196458
+version-check benchmark=maven-latency delayMs=250 workers=4 coordinates=100 httpRequests=100 peakDelayedResponses=4 firstBatchNs=1109406500 elapsedNs=6548674333
+
+Assertions: complete 100-candidate results and exact request counts; first
+publication occurs after only 16 requests; observed overlap is greater than
+one and no greater than the configured worker limit. The broader reactor
+fixture checks that a selected module runs between background batches and
+retains 100 total requests for 10,000 declarations. Eight queue tests and this
+native fixture passed. Eleven trace-summary tests passed.
+
+Limits: one sample per delay/worker setting, controlled successful repository,
+headless IDEA native server. No remote production p95, rate-limit behavior,
+EDT typing, queue latency percentile or painted editor endpoint is inferred.

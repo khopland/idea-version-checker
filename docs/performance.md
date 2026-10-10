@@ -365,6 +365,14 @@ Parity tests compare complete eligible lists and newest selections with the prev
 
 The [raw CPU record](performance-maven-history-2026-10-10.txt) records the fixture conditions. These are local algorithm measurements, not server or production p95 claims. Run with `./gradlew test --tests '*MavenVersionHistoryBenchmarkTest' -PmavenHistoryBenchmark=true`. `MAVEN_VERSION_INDEX` is local preparation; `MAVEN_PLUGIN_PREREQUISITES` counts native candidate-POM goals separately from `MAVEN_METADATA_BATCH` version-history goals.
 
+### First results and cooperative queue handoff
+
+Without a platform-priority batch, Maven starts with at most 16 coordinates from one repository kind, then uses batches of up to 128. An existing platform batch remains the first result. Between completed metadata goals and prerequisite passes, checks can yield their adapter queue to waiting checks of equal or higher priority. Interactive requests lead, selected files follow, and equal priorities rotate in FIFO order. No embedder is borrowed at a handoff; goals remain serialized. Cancelled handoffs remove their request and cannot strand the next slot.
+
+The native 100-module fixture queues a selected module immediately after the background module's first 16 updates. The selected module finishes before the background remainder, and both scans together still require only 100 metadata HTTP requests. Queue regressions separately cover fairness, lower-priority exclusion and cancellation while yielded. `MAVEN_METADATA_WAIT` records consumer wait without adding another native invocation; overlapping native/wait stages are partitioned once.
+
+The [delayed-repository record](performance-maven-latency-2026-10-10.txt) checks 100 coordinates with fixed 50/250 ms response delays and two/four workers. Observed simultaneous delayed responses equal the configured limit; every run returns all 100 updates with exactly 100 requests. At 250 ms delay, the first 16 results arrive in 2.12/1.11 seconds and the full result in 12.99/6.55 seconds for two/four workers respectively. These single controlled observations establish overlap, bounded work and early publication; they do not establish production p95, throttling behavior or painted editor latency. The default remains two workers.
+
 ## Native small-Maven measurements: 10 October 2026
 
 The [native validation record](native-validation-2026-10-10/README.md) contains sanitized traces and reproducible JSON reports. IDEA 2025.3.6.1 completed 105 warm editor endpoints (p95 3.49 ms), 100 cached three-row preview endpoints (p95 43.86 ms) and 100 literal-fix endpoints (p95 5.45 ms). IDEA 2026.1.4 completed 100 per endpoint, with p95 values of 6.11, 34.23 and 6.58 ms. All final editor/preview captures contain no native queries. Fixes initiate no native queries; already running background goals overlap 15 fix intervals in 2025.3 and none in the final 2026.1 capture. The earlier partial 2026.1 capture remains available separately.

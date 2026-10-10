@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.components.service
 import io.github.khopland.versionchecker.CheckPerformance
+import io.github.khopland.versionchecker.CheckQueue
 import io.github.khopland.versionchecker.UpdateMode
 import io.github.khopland.versionchecker.VersionCheckerSettings
 import io.github.khopland.versionchecker.core.BuildSnapshot
@@ -41,9 +42,11 @@ internal object MavenBatchedLookup {
         } }.keys else emptySet()
         // Publish dependencies before spending time on plugin candidate POMs. Optional platform
         // priority gets its own batch so even a small POM can display that answer earlier.
-        val batches = platform.toList().chunked(128) +
-            keys.keys.filter { !it.plugin && it !in platform }.chunked(128) +
-            keys.keys.filter { it.plugin && it !in platform }.chunked(128)
+        val ordinary = keys.keys.filter { !it.plugin && it !in platform } + keys.keys.filter { it.plugin && it !in platform }
+        val first = if (platform.isEmpty()) ordinary.take(16).takeWhile { it.plugin == ordinary.first().plugin } else emptyList()
+        val remaining = ordinary.drop(first.size)
+        val batches = platform.toList().chunked(128) + listOf(first).filter { it.isNotEmpty() } +
+            remaining.filter { !it.plugin }.chunked(128) + remaining.filter { it.plugin }.chunked(128)
         val updates = linkedMapOf<DependencyVersion, String>()
         val failures = mutableListOf<Exception>()
         var expires: Long? = null
@@ -61,6 +64,7 @@ internal object MavenBatchedLookup {
         val mavenVersion = MavenDistributionsCache.getInstance(manager.project).getMavenDistribution(project.file).version
         for (batch in batches) {
             currentCoroutineContext().ensureActive()
+            CheckQueue.yieldCurrent()
             val result = load(batch)
             val deltaUpdates = linkedMapOf<DependencyVersion, String>()
             val deltaFailures = mutableListOf<Exception>()
@@ -82,6 +86,7 @@ internal object MavenBatchedLookup {
                 val candidates = plugins.filterValues { it.isNotEmpty() }.map { (coordinate, versions) ->
                     MavenMetadataKey(coordinate.groupId, coordinate.artifactId, true, versions.first())
                 }.distinct()
+                CheckQueue.yieldCurrent()
                 val prerequisites = load(candidates)
                 val iterator = plugins.iterator()
                 while (iterator.hasNext()) {

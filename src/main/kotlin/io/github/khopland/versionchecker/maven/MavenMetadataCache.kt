@@ -108,12 +108,12 @@ internal class MavenMetadataCache(
         }
         try {
             selected.values.map { it.batch }.distinct().forEach { it.job.start() }
-            return selected.mapValues { (_, entry) ->
+            return CheckPerformance.measure(CheckPerformance.Stage.MAVEN_METADATA_WAIT, selected.size) { selected.mapValues { (_, entry) ->
                 try { Result.success(entry.result.await()) }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (cancelled: ProcessCanceledException) { throw cancelled }
                 catch (failure: Exception) { Result.failure(failure) }
-            }
+            } }
         } finally {
             synchronized(lock) {
                 selected.values.forEach { it.callers-- }

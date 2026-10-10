@@ -17,6 +17,15 @@ class TraceSummaryTest(unittest.TestCase):
         self.assertEqual(2, report["nativeInvocations"]["owned"])
         self.assertAlmostEqual(10 / 1_000_000, report["interactions"][0]["exclusiveMs"]["preparation"])
 
+    def test_maven_wait_does_not_double_count_native_work(self):
+        interactions = {(1, 100): [dict(stage=s, start=a, end=b) for s, a, b in [
+            ("PREVIEW_INVOKED", 100, 100), ("MAVEN_METADATA_WAIT", 110, 190),
+            ("MAVEN_METADATA_BATCH", 120, 180), ("PREVIEW_READY", 100, 200)]]}
+        report = trace.summarize(interactions)["preview"]
+        self.assertEqual(1, report["nativeInvocations"]["owned"])
+        self.assertAlmostEqual(60 / 1_000_000, report["interactions"][0]["exclusiveMs"]["repository"])
+        self.assertAlmostEqual(20 / 1_000_000, report["interactions"][0]["exclusiveMs"]["shared_metadata_wait"])
+
     def test_batched_maven_metadata_counts_native_work_but_cache_reuse_does_not(self):
         interactions = {(1, 100): [dict(stage=s, start=a, end=b) for s, a, b in [
             ("PREVIEW_INVOKED", 100, 100), ("MAVEN_METADATA_BATCH", 120, 180),
