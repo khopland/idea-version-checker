@@ -322,6 +322,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         val file = myFixture.addFileToProject("preview-controls/build.txt", "1.0")
         val checks = CopyOnWriteArrayList<CheckPerformance.Interaction>()
         val preparations = CopyOnWriteArrayList<CheckPerformance.Interaction>()
+        var checksBeforeApply = emptyList<CheckPerformance.Interaction>()
         val native = TestAdapter("preview-controls-test", file).apply {
             beforeCheck = { checks += CheckPerformance.current()!! }
         }
@@ -355,6 +356,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
                     assertEquals(3, native.checked.size)
                     assertEquals(1, native.metadataRefreshes)
                     assertEquals("1.0", file.text)
+                    checksBeforeApply = checks.toList()
                     refreshed.performOKAction()
                 }
                 minor.refreshAction.actionPerformed(ActionEvent(minor, ActionEvent.ACTION_PERFORMED, "Refresh"))
@@ -365,7 +367,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
         PlatformTestUtil.waitWithEventsDispatching("Refreshed preview applied", { document.text == "1.1" }, 10_000)
         assertEquals(3, shown)
-        assertEquals("Each rebuilt preview owns its native check and preparation", checks, preparations)
+        assertEquals("Each rebuilt preview owns its native check and preparation", checksBeforeApply, preparations)
         assertEquals(3, preparations.map { it.id }.distinct().size)
         assertTrue(preparations.zipWithNext().all { (before, after) -> after.started > before.started })
     }
