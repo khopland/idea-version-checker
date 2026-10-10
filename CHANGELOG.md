@@ -4,6 +4,7 @@
 
 ### Added
 
+- JetBrains Marketplace error and UI freeze reporting through the IDE's built-in reporter, respecting users' error-reporting settings.
 - Maven metadata worker control (1–4, default 2), optional parents/Spring Boot BOM priority, and optional fast editor checks with explicit partial coverage. Refreshes and Current File / Whole Project previews perform full supported-declaration audits.
 - **Maven Platform** update previews follow imported parent chains to the editable parent/BOM owners, check platform declarations before explicit overrides, and show their actual source files. This explicit narrower scope has separate result identity and cannot replace or authorize a full audit.
 - Optional local persistence of fresh Maven histories and plugin prerequisites across IDE sessions. The bounded store retains original age/expiry, bypasses old generations on Refresh, and falls back to native resolution after corruption, expiry or incompatible clocks. It defaults to off.

@@ -45,6 +45,12 @@ To promote a prerelease, prepare a new stable version and changelog entry, then 
 
 ## Failures and recovery
 
+### IDE errors and UI freezes
+
+The plugin registers JetBrains' built-in Marketplace error reporter in `plugin.xml`. Users can submit reports through the IDE's error-reporting UI or enable **Send error reports to JetBrains automatically**. In the plugin's Marketplace management page, open **Freezes** to review UI freeze reports attributed to Version Checker. Reports depend on the user's reporting settings and the IDE identifying this plugin as involved. See [JetBrains' freeze-reporting guide](https://blog.jetbrains.com/platform/2026/10/ui-freeze-reports-in-marketplace/) for inspecting thread dumps and other attachments.
+
+### Release delivery
+
 Validation reports are retained as workflow artifacts. Fix validation or credential failures before retrying. Never move a release tag to repair source code; use a new version.
 
 For a published GitHub release whose delivery failed, use **Actions → Release → Run workflow**, enter the existing tag, and leave **Upload to Marketplace** enabled only if that version has not already been uploaded. The workflow verifies that the GitHub release is published before building anything. It attaches GitHub assets before Marketplace upload, so a GitHub asset-upload failure occurs before delivery.

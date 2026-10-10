@@ -20,6 +20,7 @@
         <extensionPoint name="buildSystemAdapter" interface="io.github.khopland.versionchecker.core.BuildSystemAdapter" dynamic="true" />
     </extensionPoints>
     <extensions defaultExtensionNs="com.intellij">
+        <errorHandler implementation="com.intellij.diagnostic.JetBrainsMarketplaceErrorReportSubmitter" />
         <postStartupActivity implementation="io.github.khopland.versionchecker.VersionCheckerStartupActivity" />
         <notificationGroup id="Version Checker" displayType="BALLOON" />
         <statusBarWidgetFactory id="VersionChecker.Status" implementation="io.github.khopland.versionchecker.VersionCheckStatusWidgetFactory" />
