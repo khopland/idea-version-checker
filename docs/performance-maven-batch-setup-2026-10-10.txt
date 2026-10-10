@@ -1,0 +1,44 @@
+Maven automatic-check setup validation, 10 October 2026
+
+Environment: macOS arm64, IDEA 2025.3.6.1 test platform and its native
+Maven server, Gradle Java 21 toolchain. A fresh temporary local Maven
+repository per invocation; controlled HTTP repository with 2 ms delay per
+metadata response. Two metadata workers, platform priority enabled.
+
+Fixture: a workspace parent with 1,000 managed dependencies, a child with
+25 versionless uses, and a synthetic external Spring Boot parent coordinate.
+This is not a real Spring Boot release or application. Maven server startup
+and the preceding child/fast checks occur before the full-check timer.
+
+Command:
+./gradlew test --tests '*MavenSettingsIntegrationTest.testLargeManagementFastScopeAndFullAuditWithPlatformPriority' -PmavenIntegration=true -PperformanceTrace=true
+
+Before: committed implementation plus pool-creation tracing and a full
+check invoked without the explicit outer withMavenScanSession wrapper.
+version-check benchmark=maven-management path=full supported=1001 checked=1001 httpRequests=1001 elapsedNs=2613208000
+
+After: automatic native checks establish their own scan session; helper
+repository/parser/artifact-factory setup is reused within each invocation.
+The same full check is invoked without an explicit outer session.
+version-check benchmark=maven-management path=full supported=1001 checked=1001 httpRequests=1001 elapsedNs=2067118625
+
+Assertions: all 1,001 candidates equal 2.0; warm Patch lookup adds zero
+metadata requests. Both automatic fast callbacks share a session and the
+session is released after completion. The missing-session regression failed
+before the implementation and passed afterward.
+
+The separate 100-module/10,000-declaration fixture passed with 100 fresh
+metadata requests. Its malformed-XML/DOCTYPE case retains 98 valid sibling
+updates, sends no external DTD requests and retries only two failed artifacts.
+
+Final verification:
+./gradlew check buildPlugin verifyPluginProjectConfiguration verifyPlugin -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain
+369 tests passed; zero failures, errors or skips. Both IDEA 2025.3.6.1 and
+2026.1.4 compatible, retaining 10 experimental API notices on each version
+and one deprecated API notice on 2026.1.4. Nine trace-summary tests passed.
+
+Limits: one full-check sample per implementation, separate JVM invocations.
+No warmup series, p95, painted editor endpoint, production remote repository
+latency or general speed multiplier is established. Other setup/cache/JVM
+differences can affect the observed times. The observations demonstrate
+correctness at equal coverage; profiling remains required for latency claims.

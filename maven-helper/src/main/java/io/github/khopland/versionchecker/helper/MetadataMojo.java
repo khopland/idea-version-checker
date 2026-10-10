@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.helper;
 
+import org.apache.maven.artifact.factory.ArtifactFactory;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -18,12 +19,14 @@ import org.eclipse.aether.transfer.MetadataNotFoundException;
 import org.w3c.dom.NodeList;
 
 import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
@@ -53,6 +56,8 @@ public final class MetadataMojo extends AbstractMojo {
             resolver.setConfigProperty("aether.metadataResolver.threads", Math.max(1, Math.min(4, threads)));
             List<MetadataRequest> metadataRequests = new ArrayList<>();
             List<Integer> owners = new ArrayList<>();
+            var repositoriesByKind = new HashMap<Boolean, List<RemoteRepository>>();
+            ArtifactFactory artifactFactory = null;
             for (int i = 0; i < count; i++) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 String prefix = i + ".";
@@ -60,8 +65,6 @@ public final class MetadataMojo extends AbstractMojo {
                 String artifact = request.getProperty(prefix + "artifact");
                 String version = request.getProperty(prefix + "version", "");
                 boolean plugin = Boolean.parseBoolean(request.getProperty(prefix + "plugin"));
-                List<RemoteRepository> repositories = repositorySystem.newResolutionRepositories(resolver,
-                    plugin ? project.getRemotePluginRepositories() : project.getRemoteProjectRepositories());
                 if (!version.isEmpty()) {
                     try {
                         var build = new DefaultProjectBuildingRequest(session.getProjectBuildingRequest());
@@ -69,8 +72,8 @@ public final class MetadataMojo extends AbstractMojo {
                         build.setRemoteRepositories(plugin ? project.getPluginArtifactRepositories() : project.getRemoteArtifactRepositories());
                         build.setResolveDependencies(false);
                         build.setProcessPlugins(false);
-                        var pomArtifact = session.getContainer().lookup(org.apache.maven.artifact.factory.ArtifactFactory.class)
-                            .createProjectArtifact(group, artifact, version);
+                        if (artifactFactory == null) artifactFactory = session.getContainer().lookup(ArtifactFactory.class);
+                        var pomArtifact = artifactFactory.createProjectArtifact(group, artifact, version);
                         MavenProject pom = projectBuilder.build(pomArtifact, build).getProject();
                         String required = pom.getPrerequisites() == null ? "" : pom.getPrerequisites().getMaven();
                         response.setProperty(prefix + "requiredMaven", required == null ? "" : required);
@@ -78,6 +81,10 @@ public final class MetadataMojo extends AbstractMojo {
                         response.setProperty(prefix + "error", failure.getClass().getSimpleName() + ": Could not read plugin prerequisites");
                     }
                 } else {
+                    // Mirror/policy application depends on repository kind, not the artifact.
+                    List<RemoteRepository> repositories = repositoriesByKind.computeIfAbsent(plugin, kind ->
+                        repositorySystem.newResolutionRepositories(resolver,
+                            kind ? project.getRemotePluginRepositories() : project.getRemoteProjectRepositories()));
                     Metadata metadata = new DefaultMetadata(group, artifact, "maven-metadata.xml", Metadata.Nature.RELEASE);
                     for (RemoteRepository repository : repositories) {
                         if (!repository.getPolicy(false).isEnabled()) continue;
@@ -90,6 +97,7 @@ public final class MetadataMojo extends AbstractMojo {
             List<MetadataResult> results = repositorySystem.resolveMetadata(resolver, metadataRequests);
             List<LinkedHashSet<String>> versions = new ArrayList<>();
             for (int i = 0; i < count; i++) versions.add(new LinkedHashSet<>());
+            DocumentBuilder parser = null;
             for (int j = 0; j < results.size(); j++) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 int owner = owners.get(j);
@@ -104,11 +112,16 @@ public final class MetadataMojo extends AbstractMojo {
                 File file = result.getMetadata() == null ? null : result.getMetadata().getFile();
                 if (file == null || !file.isFile()) continue;
                 try {
-                    DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-                    factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-                    factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-                    factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-                    var document = factory.newDocumentBuilder().parse(file);
+                    // Results are parsed serially. Keep one secured parser per goal, including
+                    // after a malformed sibling; no parser is shared between Maven workers.
+                    if (parser == null) {
+                        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+                        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+                        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+                        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+                        parser = factory.newDocumentBuilder();
+                    }
+                    var document = parser.parse(file);
                     NodeList containers = document.getElementsByTagName("versions");
                     NodeList entries = containers.getLength() == 0 ? null : containers.item(0).getChildNodes();
                     for (int k = 0; entries != null && k < entries.getLength(); k++) {

@@ -65,6 +65,8 @@ Linked-build Gradle batching remains deferred pending native profiling. The sepa
 
 The Maven follow-up passed 369 platform/unit/native integration tests and nine trace-summary tests. Both supported IDEA versions passed plugin compatibility verification. Current full-audit coverage, including failures, survives optional fast editor filtering; changed global settings and saved/unsaved relocated credentials reject prepared edits. Painted editor/preview latency for the new large-project native path remains unmeasured.
 
+Automatic native checks now reuse a scan session across their model, metadata and prerequisite goals; the helper reuses repository setup and one secured parser per goal. Native regressions check session completion, malformed sibling isolation, blocked external DTDs and selective retry. The [setup validation record](performance-maven-batch-setup-2026-10-10.txt) preserves one equal-coverage before/after observation; it does not establish production latency or painted endpoints.
+
 ## Local validation: 10 October 2026
 
 The final run passed 346 plugin tests with zero failures, errors or skips, including authenticated native Maven/npm/Gradle resolution and packaged-plugin unload/reload coverage. `test`, `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed. Both IDEA 2025.3.6.1 and 2026.1.4 passed compatibility verification with the existing experimental progress API notices and the existing 2026.1 deprecated read-action notice. The three trace-report tests and thirteen release-automation tests also passed.

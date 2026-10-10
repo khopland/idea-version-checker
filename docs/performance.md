@@ -339,6 +339,18 @@ The fixture emits an anonymous `benchmark=maven-shared` work-count line. `MAVEN_
 
 Final follow-up validation: 369 platform/unit/native integration tests passed with zero failures, errors or skips; all nine trace-summary tests passed. `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed against IDEA 2025.3.6.1 and 2026.1.4. The verifier reported compatibility with experimental API notices on both versions and a deprecated API notice on 2026.1.4. The large-management test uses a fresh, temporary Maven local repository on each run.
 
+### Automatic-check setup reuse
+
+Automatic native editor checks now open the same short-lived scan session used by Refresh and previews. Model evaluation, metadata batches and plugin-prerequisite goals borrow from one embedder pool for a configuration. Nested checks keep the enclosing session, while a standalone check releases its session after completion; shared metadata workers retain their lease until their last consumer finishes. `MAVEN_SESSION_POOL` records pool creation separately from `MAVEN_SESSION` embedder acquisition, and the trace summarizer classifies it as native setup.
+
+The helper also prepares effective repositories once per repository kind in a goal, creates one secured XML parser for its sequential metadata parsing, and looks up the plugin artifact factory once when needed. These objects stay local to a goal. For the 1,001-coordinate full fixture with platform priority, nine metadata goals now share the check's pool; repository and parser setup scales with goals rather than individual metadata files.
+
+The native automatic-check regression failed before the change because its incremental callback had no scan session. It now invokes the adapter without an outer session, checks that both platform/dependency callbacks share a session, and verifies that completion releases it. The authenticated 100-module fixture additionally serves malformed XML and a forbidden external DTD among valid metadata: 98 sibling updates survive, no DTD request is sent, and recovery requests only the two failed artifacts. Existing shared-worker cancellation, context changes, prerequisite compatibility and unload regressions remain applicable.
+
+One full-scope before/after observation is retained in the [setup validation record](performance-maven-batch-setup-2026-10-10.txt). Both checks returned all 1,001 expected updates with 1,001 metadata requests. This is one sample per implementation from a controlled repository, not a production latency estimate or a speedup claim.
+
+Setup-reuse validation passed all 369 platform/unit/native integration tests with zero failures, errors or skips, plus all nine trace-summary tests. `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed on both supported IDEA versions with the existing verifier notices.
+
 ## Native small-Maven measurements: 10 October 2026
 
 The [native validation record](native-validation-2026-10-10/README.md) contains sanitized traces and reproducible JSON reports. IDEA 2025.3.6.1 completed 105 warm editor endpoints (p95 3.49 ms), 100 cached three-row preview endpoints (p95 43.86 ms) and 100 literal-fix endpoints (p95 5.45 ms). IDEA 2026.1.4 completed 100 per endpoint, with p95 values of 6.11, 34.23 and 6.58 ms. All final editor/preview captures contain no native queries. Fixes initiate no native queries; already running background goals overlap 15 fix intervals in 2025.3 and none in the final 2026.1 capture. The earlier partial 2026.1 capture remains available separately.

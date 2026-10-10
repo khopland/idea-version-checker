@@ -20,7 +20,12 @@ internal data class MavenLookupDelta(val coordinates: Set<DependencyVersion>, va
 /** Explicit coordinates are resolved once per context; every baseline/mode is selected locally. */
 internal object MavenBatchedLookup {
     suspend fun check(manager: MavenProjectsManager, project: MavenProject, snapshot: BuildSnapshot, mode: UpdateMode,
-                      publish: (suspend (MavenLookupDelta) -> Unit)?): MavenLookupDelta? {
+                      publish: (suspend (MavenLookupDelta) -> Unit)?): MavenLookupDelta? = withMavenScanSession {
+        checkInSession(manager, project, snapshot, mode, publish)
+    }
+
+    private suspend fun checkInSession(manager: MavenProjectsManager, project: MavenProject, snapshot: BuildSnapshot,
+                                       mode: UpdateMode, publish: (suspend (MavenLookupDelta) -> Unit)?): MavenLookupDelta? {
         val coordinates = snapshot.declarations.map { it.coordinate() }.distinct()
         if (coordinates.isEmpty()) return MavenLookupDelta(emptySet(), emptyMap(), emptyList(), null)
         val service = manager.project.service<MavenMetadataService>()

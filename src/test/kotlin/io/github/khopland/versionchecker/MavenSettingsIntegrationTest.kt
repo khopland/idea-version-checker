@@ -126,16 +126,22 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val fastBefore = requests.size
             val started = System.nanoTime()
             var firstBatchNanos: Long? = null
-            val fastReport = background { withMavenScanSession {
+            var automaticSession: MavenScanSession? = null
+            val fastReport = background {
                 adapter.checkIncrementally(project, fast, UpdateMode.MAJOR) { delta ->
+                    val session = currentCoroutineContext()[MavenScanSession]
+                    assertNotNull("Automatic native batches must have a scan session", session)
+                    if (automaticSession == null) automaticSession = session
+                    assertSame("All automatic batches must share their session", automaticSession, session)
                     if (firstBatchNanos == null) {
                         firstBatchNanos = System.nanoTime() - started
                         assertEquals(listOf(MavenArtifactKind.PARENT), delta.report.candidates.map { it.declaration.coordinate().artifactKind })
                         assertEquals("Platform priority publishes before the management batch", 1, requests.size - fastBefore)
                     }
                 }
-            } }
+            }
             assertTrue(fastReport.failure.orEmpty(), fastReport.successful)
+            assertTrue("Automatic checks must release their session", runCatching { automaticSession!!.retain() }.isFailure)
             assertEquals(26, fastReport.candidates.size)
             assertEquals(26, requests.size - fastBefore)
             println("version-check benchmark=maven-management path=fast supported=1001 checked=26 httpRequests=26 firstBatchNs=$firstBatchNanos elapsedNs=${System.nanoTime() - started}")
@@ -147,12 +153,13 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val fullBefore = requests.size
             val fullStarted = System.nanoTime()
             val service = project.service<VersionCheckService>()
-            val fullReport = background { withMavenScanSession { service.checkNow(adapter, full, UpdateMode.MAJOR) } }
+            val trace = CheckPerformance.start(CheckPerformance.Stage.INTERACTION_STARTED)
+            val fullReport = background { CheckPerformance.traced(trace) { service.checkNow(adapter, full, UpdateMode.MAJOR) } }
             assertTrue(fullReport.successful)
             assertEquals(1001, fullReport.candidates.size)
             assertTrue(fullReport.candidates.all { it.version == "2.0" })
             assertEquals(1001, requests.size - fullBefore)
-            println("version-check benchmark=maven-management path=full supported=1001 checked=1001 httpRequests=1001 elapsedNs=${System.nanoTime() - fullStarted}")
+            println("version-check benchmark=maven-management path=full supported=1001 checked=1001 httpRequests=1001 elapsedNs=${System.nanoTime() - fullStarted} interaction=${trace?.id} originNs=${trace?.started}")
             val auditedEditor = adapter.snapshot(project, platform.file)!!
             assertNull(auditedEditor.coverageDescription)
             assertEquals(CheckPhase.CHECKED, service.status(adapter, auditedEditor).phase)
@@ -177,6 +184,8 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         val requests = CopyOnWriteArrayList<String>()
         val published = AtomicReference("2.0")
         val failedArtifact = AtomicReference<String?>(null)
+        val metadataOverrides = AtomicReference<Map<String, String>>(emptyMap())
+        val externalDtdRequests = AtomicInteger()
         val auth = AtomicReference("Basic " + Base64.getEncoder().encodeToString("fixture:password".toByteArray()))
         val executor = java.util.concurrent.Executors.newFixedThreadPool(4)
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -184,6 +193,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         server.createContext("/") { exchange ->
             try {
                 val path = exchange.requestURI.path
+                if (path.endsWith(".dtd")) externalDtdRequests.incrementAndGet()
                 if (exchange.requestHeaders.getFirst("Authorization") != auth.get()) {
                     exchange.responseHeaders.add("WWW-Authenticate", "Basic realm=fixture")
                     exchange.sendResponseHeaders(401, -1)
@@ -193,10 +203,10 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                     if (artifact == failedArtifact.get()) exchange.sendResponseHeaders(500, -1)
                     else {
                         Thread.sleep(10)
-                        val body = """<metadata><groupId>example.shared</groupId><artifactId>$artifact</artifactId><versioning><versions>
+                        val body = (metadataOverrides.get()[artifact] ?: """<metadata><groupId>example.shared</groupId><artifactId>$artifact</artifactId><versioning><versions>
                             <version>1.0</version><version>1.0.1</version><version>1.1</version><version>1.1.1</version>
                             <version>${published.get()}</version><version>4.0-RC1</version><version>5.0-SNAPSHOT</version>
-                            </versions></versioning></metadata>""".toByteArray()
+                            </versions></versioning></metadata>""").toByteArray()
                         exchange.sendResponseHeaders(200, body.size.toLong()); exchange.responseBody.write(body)
                     }
                 } else exchange.sendResponseHeaders(404, -1)
@@ -281,6 +291,25 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             assertTrue(retry.successful)
             assertEquals(100, retry.candidates.size)
             assertEquals("Retry only the failed artifact", 1, requests.size - retryBefore)
+            metadataOverrides.set(mapOf(
+                "artifact-0" to "<metadata><versioning><versions><version>99.0</version>",
+                "artifact-1" to """<!DOCTYPE metadata SYSTEM "http://127.0.0.1:${server.address.port}/forbidden.dtd">
+                    <metadata><versioning><versions><version>99.0</version></versions></versioning></metadata>"""
+            ))
+            adapter.invalidateMetadata(project)
+            val malformed = background { adapter.check(project, snapshots.first(), UpdateMode.MAJOR) }
+            assertFalse(malformed.successful)
+            assertEquals("A malformed document must not poison the reused parser", 98, malformed.candidates.size)
+            assertTrue(malformed.candidates.all { it.version == "3.0" })
+            assertTrue(malformed.failure!!.contains("artifact-0"))
+            assertTrue(malformed.failure.contains("artifact-1"))
+            assertEquals("External DTDs remain blocked", 0, externalDtdRequests.get())
+            metadataOverrides.set(emptyMap())
+            val xmlRetryBefore = requests.size
+            val xmlRetry = background { adapter.check(project, snapshots.first(), UpdateMode.MAJOR) }
+            assertTrue(xmlRetry.failure.orEmpty(), xmlRetry.successful)
+            assertEquals(100, xmlRetry.candidates.size)
+            assertEquals("Retry only the malformed metadata", 2, requests.size - xmlRetryBefore)
             // Same repository ID with a changed mirror URL or credential is a new context,
             // even without an explicit cache invalidation.
             published.set("3.1")

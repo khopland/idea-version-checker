@@ -21,7 +21,7 @@ internal suspend fun <T> withMavenCheckSession(
     currentCoroutineContext()[MavenScanSession]?.let { session ->
         if (configuration != null) return session.use(manager, project, configuration, action)
     }
-    val embedders = MavenEmbeddersManager(manager.project)
+    val embedders = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SESSION_POOL) { MavenEmbeddersManager(manager.project) }
     try {
         val embedder = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SESSION) {
             embedders.getEmbedder(project, MavenEmbeddersManager.FOR_DEPENDENCIES_RESOLVE)
@@ -36,7 +36,7 @@ internal suspend fun <T> withMavenCheckSession(
     }
 }
 
-/** A short-lived pool belonging to one refresh/preview, never IDEA's import manager. */
+/** A short-lived pool belonging to one editor check, refresh or preview. */
 internal class MavenScanSession : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<MavenScanSession>
     private val lock = Any()
@@ -59,7 +59,7 @@ internal class MavenScanSession : AbstractCoroutineContextElement(Key) {
             return mutex.withLock {
                 if (this.configuration != configuration) {
                     pool?.reset()
-                    pool = MavenEmbeddersManager(manager.project)
+                    pool = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SESSION_POOL) { MavenEmbeddersManager(manager.project) }
                     this.configuration = configuration
                     repository = null
                 }
