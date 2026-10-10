@@ -8,6 +8,15 @@ spec.loader.exec_module(trace)
 
 
 class TraceSummaryTest(unittest.TestCase):
+    def test_plugin_prerequisites_are_distinct_native_work_and_indexing_is_local(self):
+        interactions = {(1, 100): [dict(stage=s, start=a, end=b) for s, a, b in [
+            ("PREVIEW_INVOKED", 100, 100), ("MAVEN_METADATA_BATCH", 110, 130),
+            ("MAVEN_VERSION_INDEX", 130, 140), ("MAVEN_PLUGIN_PREREQUISITES", 140, 180),
+            ("PREVIEW_READY", 100, 200)]]}
+        report = trace.summarize(interactions)["preview"]
+        self.assertEqual(2, report["nativeInvocations"]["owned"])
+        self.assertAlmostEqual(10 / 1_000_000, report["interactions"][0]["exclusiveMs"]["preparation"])
+
     def test_batched_maven_metadata_counts_native_work_but_cache_reuse_does_not(self):
         interactions = {(1, 100): [dict(stage=s, start=a, end=b) for s, a, b in [
             ("PREVIEW_INVOKED", 100, 100), ("MAVEN_METADATA_BATCH", 120, 180),

@@ -1,0 +1,23 @@
+Shared Maven version-history CPU fixture, 10 October 2026
+
+macOS arm64, Gradle Java 21 toolchain and IDEA 2025.3.6.1 Maven version
+comparator. One shuffled history shared by consumers at two baselines and
+all three update modes. Adds equivalent spellings and excluded unstable/
+dynamic versions. Measures newest dependency selection and full plugin
+eligible lists, including first index preparation. Both paths assert exact
+candidate/list parity. Three warmups, five alternating samples per path.
+The reference retains the original selection algorithm; the numeric-prefix
+regex is precompiled for both paths.
+
+./gradlew test --tests '*MavenVersionIndexTest' --tests '*MavenMetadataCacheTest' --tests '*MavenVersionHistoryBenchmarkTest' -PmavenHistoryBenchmark=true --console=plain
+
+maven-history versions=100 consumers=2 modes=3 path=original samplesNs=[6558375, 7269292, 7367958, 6769250, 6787167] medianNs=6787167
+maven-history versions=100 consumers=2 modes=3 path=indexed samplesNs=[413750, 400791, 409417, 374458, 368041] medianNs=400791
+maven-history versions=100 consumers=100 modes=3 path=original samplesNs=[75361458, 77965791, 74393042, 75249958, 74792417] medianNs=75249958
+maven-history versions=100 consumers=100 modes=3 path=indexed samplesNs=[1370875, 1230083, 1107875, 1075166, 845750] medianNs=1107875
+maven-history versions=5000 consumers=100 modes=3 path=original samplesNs=[4198070500, 4212508500, 4271319667, 4223481917, 4250979750] medianNs=4223481917
+maven-history versions=5000 consumers=100 modes=3 path=indexed samplesNs=[16004792, 16163750, 15913584, 15693333, 16033167] medianNs=16004792
+
+Limits: local CPU only, one artifact history and two baselines, five samples.
+No Maven process, network request, prerequisite POM resolution, queue wait,
+editor rendering, production repository latency or reliable p95 is measured.

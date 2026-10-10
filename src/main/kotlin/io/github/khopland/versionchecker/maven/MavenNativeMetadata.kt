@@ -52,7 +52,8 @@ internal object MavenNativeMetadata {
             withMavenCheckSession(manager, project, context.sessionConfiguration) { embedder ->
                 val execution = MavenGoalExecutionRequest(project.file.toNioPath().toFile(), context.profiles,
                     listOf("${id.groupId}:${id.artifactId}"), properties)
-                val results = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_METADATA_BATCH, keys.size) {
+                val stage = if (keys.any { it.version.isNotEmpty() }) CheckPerformance.Stage.MAVEN_PLUGIN_PREREQUISITES else CheckPerformance.Stage.MAVEN_METADATA_BATCH
+                val results = CheckPerformance.measure(stage, keys.size) {
                     withMavenProgress { reporter -> embedder.executeGoal(listOf(execution),
                         "io.github.khopland:version-checker-maven-helper:$version:lookup", reporter, MavenLogEventHandler) }
                 }

@@ -14,6 +14,7 @@
 ### Changed
 
 - Supported Maven 3/Java 17+ checks use a bundled metadata helper with batched Resolver requests, bounded shared histories across modules/update modes, cached plugin prerequisites and short-lived editor/refresh/preview sessions. Automatic checks reuse one embedder pool across their metadata batches; each helper invocation reuses repository setup and one secured XML parser. Fresh generations force remote revalidation; context changes isolate repository and credential results. Custom extensions/rules and unsupported runtimes retain the Versions-goal fallback.
+- Shared Maven histories prepare version ordering and numeric branches once. Plugin candidates use the same index and descend through prerequisite checks without repeated list shifting. Traces distinguish local index preparation from candidate-POM prerequisite goals.
 - Routine hints lead with artifact, update kind and declared version change. Maven shared version actions include known version-declaration and POM counts.
 - Refresh, preview and retry save required build inputs rather than all open documents; bulk apply saves only selected edit files.
 - Preview controls have keyboard mnemonics, and Space toggles sorted/filtered highlighted rows while preserving hidden selections and repeated keyboard selection.

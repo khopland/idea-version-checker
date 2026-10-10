@@ -58,6 +58,9 @@ tasks.test {
     if (providers.gradleProperty("npmHistoryBenchmark").orElse("false").get() != "true") {
         exclude("**/NpmVersionHistoryBenchmarkTest*")
     }
+    if (providers.gradleProperty("mavenHistoryBenchmark").orElse("false").get() != "true") {
+        exclude("**/MavenVersionHistoryBenchmarkTest*")
+    }
     if (providers.gradleProperty("npmInspectionBenchmark").orElse("false").get() != "true") {
         exclude("**/NpmInspectionBenchmarkTest*")
     }

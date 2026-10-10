@@ -351,6 +351,20 @@ One full-scope before/after observation is retained in the [setup validation rec
 
 Setup-reuse validation passed all 369 platform/unit/native integration tests with zero failures, errors or skips, plus all nine trace-summary tests. `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed on both supported IDEA versions with the existing verifier notices.
 
+### Shared Maven version-index preparation
+
+Raw Maven histories now lazily prepare one ordered stable index per cached value. The index parses comparable versions and numeric branch prefixes once, groups Minor/Patch candidates by branch, and preserves the first repository spelling when Maven considers versions equal. Dependency lookups read the newest eligible entry; plugin lookups reuse the same ordered history and consume an `ArrayDeque` while checking prerequisites. Parsed data remains bounded by the raw history cache's version/character limits; per-baseline candidate lists are not retained in that cache.
+
+Parity tests compare complete eligible lists and newest selections with the previous algorithm across all modes, shuffled histories, duplicates, equivalent spellings, unstable/dynamic versions, nonnumeric releases and overflowing numeric prefixes. The opt-in CPU fixture includes first index construction, three warmups and five alternating samples with exact result assertions. It measures one history shared by multiple consumers over all three modes, including both dependency selection and plugin eligible-list construction. It excludes Maven goals, HTTP and editor rendering.
+
+| Version history | Consumers | Previous median | Indexed median |
+|-----------------|-----------|-----------------|----------------|
+| 100 versions | 2 | 6.79 ms | 0.40 ms |
+| 100 versions | 100 | 75.25 ms | 1.11 ms |
+| 5,000 versions | 100 | 4,223.48 ms | 16.00 ms |
+
+The [raw CPU record](performance-maven-history-2026-10-10.txt) records the fixture conditions. These are local algorithm measurements, not server or production p95 claims. Run with `./gradlew test --tests '*MavenVersionHistoryBenchmarkTest' -PmavenHistoryBenchmark=true`. `MAVEN_VERSION_INDEX` is local preparation; `MAVEN_PLUGIN_PREREQUISITES` counts native candidate-POM goals separately from `MAVEN_METADATA_BATCH` version-history goals.
+
 ## Native small-Maven measurements: 10 October 2026
 
 The [native validation record](native-validation-2026-10-10/README.md) contains sanitized traces and reproducible JSON reports. IDEA 2025.3.6.1 completed 105 warm editor endpoints (p95 3.49 ms), 100 cached three-row preview endpoints (p95 43.86 ms) and 100 literal-fix endpoints (p95 5.45 ms). IDEA 2026.1.4 completed 100 per endpoint, with p95 values of 6.11, 34.23 and 6.58 ms. All final editor/preview captures contain no native queries. Fixes initiate no native queries; already running background goals overlap 15 fix intervals in 2025.3 and none in the final 2026.1 capture. The earlier partial 2026.1 capture remains available separately.

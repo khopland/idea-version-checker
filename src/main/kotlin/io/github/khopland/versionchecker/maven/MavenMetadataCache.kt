@@ -9,7 +9,9 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 internal data class MavenMetadataKey(val group: String, val artifact: String, val plugin: Boolean = false, val version: String = "")
-internal data class MavenMetadataValue(val versions: List<String> = emptyList(), val requiredMaven: String = "")
+internal data class MavenMetadataValue(val versions: List<String> = emptyList(), val requiredMaven: String = "") {
+    val versionIndex by lazy { CheckPerformance.measure(CheckPerformance.Stage.MAVEN_VERSION_INDEX, versions.size) { MavenVersionIndex(versions) } }
+}
 internal data class MavenMetadataLease(val value: MavenMetadataValue, val expiresAt: Long)
 
 /** Batched, generation-isolated native workers. Baselines and update modes are deliberately absent. */

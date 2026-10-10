@@ -9,6 +9,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.EmptyCoroutineContext
+import java.util.ArrayDeque
 import org.jetbrains.idea.maven.dom.MavenVersionComparable
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
@@ -65,14 +66,14 @@ internal object MavenBatchedLookup {
             val deltaFailures = mutableListOf<Exception>()
             var deltaExpires: Long? = null
             fun deadline(value: Long) { deltaExpires = minOf(deltaExpires ?: Long.MAX_VALUE, value) }
-            val plugins = linkedMapOf<DependencyVersion, MutableList<String>>()
+            val plugins = linkedMapOf<DependencyVersion, ArrayDeque<String>>()
             result.forEach { (key, value) ->
                 value.fold({ lease ->
                     deadline(lease.expiresAt)
                     for (coordinate in keys.getValue(key)) {
-                        if (!key.plugin) MavenRepositoryMetadata.latest(lease.value.versions, coordinate.version, mode)
+                        if (!key.plugin) lease.value.versionIndex.latest(coordinate.version, mode)
                             ?.let { deltaUpdates[coordinate] = it }
-                        else plugins[coordinate] = eligible(lease.value.versions, coordinate.version, mode).toMutableList()
+                        else plugins[coordinate] = ArrayDeque(lease.value.versionIndex.eligible(coordinate.version, mode))
                     }
                 }, { failure -> deltaFailures += failure as? Exception ?: Exception(failure) })
             }
@@ -86,7 +87,7 @@ internal object MavenBatchedLookup {
                 while (iterator.hasNext()) {
                     val (coordinate, versions) = iterator.next()
                     if (versions.isEmpty()) { iterator.remove(); continue }
-                    val candidate = versions.removeAt(0)
+                    val candidate = versions.removeFirst()
                     val key = MavenMetadataKey(coordinate.groupId, coordinate.artifactId, true, candidate)
                     prerequisites.getValue(key).fold({ lease ->
                         deadline(lease.expiresAt)
@@ -109,7 +110,6 @@ internal object MavenBatchedLookup {
         return MavenLookupDelta(coordinates.toSet(), updates, failures, expires)
     }
 
-    internal fun eligible(versions: List<String>, current: String, mode: UpdateMode): List<String> = versions.distinct()
-        .filter { MavenRepositoryMetadata.latest(listOf(it), current, mode) != null }
-        .sortedWith { left, right -> MavenVersionComparable(right).compareTo(MavenVersionComparable(left)) }
+    internal fun eligible(versions: List<String>, current: String, mode: UpdateMode): List<String> =
+        MavenVersionIndex(versions).eligible(current, mode)
 }

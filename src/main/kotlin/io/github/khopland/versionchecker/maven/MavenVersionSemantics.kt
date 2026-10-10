@@ -6,6 +6,7 @@ import io.github.khopland.versionchecker.*
 
 /** Maven's numeric-prefix update modes must not become the version rules for other ecosystems. */
 internal object MavenVersionSemantics {
+    private val prefix = Regex("""^(\d+)(?:\.(\d+))?(?:\.|-|$).*""")
     fun allows(mode: UpdateMode, current: String, latest: String): Boolean {
         if (mode == UpdateMode.MAJOR) return true
         val old = numericPrefix(current) ?: return false
@@ -13,8 +14,8 @@ internal object MavenVersionSemantics {
         return old.first == new.first && (mode == UpdateMode.MINOR || old.second == new.second)
     }
 
-    private fun numericPrefix(version: String): Pair<Int, Int>? {
-        val match = Regex("""^(\d+)(?:\.(\d+))?(?:\.|-|$).*""").matchEntire(version) ?: return null
+    internal fun numericPrefix(version: String): Pair<Int, Int>? {
+        val match = prefix.matchEntire(version) ?: return null
         return (match.groupValues[1].toIntOrNull() ?: return null) to
             (match.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0)
     }

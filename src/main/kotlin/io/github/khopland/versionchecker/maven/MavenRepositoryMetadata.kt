@@ -99,8 +99,10 @@ internal object MavenRepositoryMetadata {
     fun latest(versions: Collection<String>, current: String, mode: UpdateMode): String? {
         val baseline = MavenVersionComparable(current)
         return versions.asSequence().distinct()
-            .filter { DependencyUpdateReport.isFixedVersion(it) && !unstable.matches(it) }
+            .filter(::isStable)
             .filter { MavenVersionComparable(it) > baseline && MavenVersionSemantics.allows(mode, current, it) }
             .maxWithOrNull { left, right -> MavenVersionComparable(left).compareTo(MavenVersionComparable(right)) }
     }
+
+    internal fun isStable(version: String) = DependencyUpdateReport.isFixedVersion(version) && !unstable.matches(version)
 }

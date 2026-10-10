@@ -20,10 +20,10 @@ class MavenMetadataCacheTest {
         try {
             val first = get()
             assertEquals(10L, first.expiresAt)
-            assertEquals("1.0.1", MavenRepositoryMetadata.latest(first.value.versions, "1.0", UpdateMode.PATCH))
+            assertEquals("1.0.1", first.value.versionIndex.latest("1.0", UpdateMode.PATCH))
             now = 5
-            assertEquals("1.1", MavenRepositoryMetadata.latest(get().value.versions, "1.0", UpdateMode.MINOR))
-            assertEquals("2.0", MavenRepositoryMetadata.latest(get().value.versions, "1.1", UpdateMode.MAJOR))
+            assertEquals("1.1", get().value.versionIndex.latest("1.0", UpdateMode.MINOR))
+            assertEquals("2.0", get().value.versionIndex.latest("1.1", UpdateMode.MAJOR))
             assertEquals(10L, get().expiresAt)
             assertEquals(1, calls)
             now = 10
