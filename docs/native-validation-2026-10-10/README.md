@@ -6,10 +6,12 @@ endpoint. The full plan's performance and usability matrix is still incomplete.
 Small warm Gradle editor, preview and literal-fix cases have also completed 100
 repetitions each in 2026.1.4; the 2025.3.6.1 Gradle preview has 100 repetitions.
 
-**Native npm validation is blocked.** JavaScript/Node support is disabled in the
-available IDEA sandbox. No usable licensed profile was supplied or verified, and
-the user explicitly requested recording this blocker. Headless authenticated npm
-integration tests passed, but do not replace native editor/preview validation.
+The [phase 2 follow-up](phase2.md) adds native npm editor, preview, apply/undo and
+authentication-recovery checks in IDEA 2026.2.3 using working JavaScript/Node
+support in the available installation. It also adds minimum-IDE Gradle
+diagnostics/fix evidence, current-IDE shared/dense edits and provider-disabled
+smoke tests. The earlier npm blocker still applies to the minimum-IDE profile;
+phase 2 and the full release matrix remain incomplete.
 
 ## Results
 
@@ -222,9 +224,10 @@ These p95 results meet the corresponding targets for these conditions only.
 Opening the disposable 2025.3 fixture required disabling the isolated sandbox's
 native file chooser and using IDEA's chooser. Editor/fix sampling was attempted
 but did not produce a verified Version Checker diagnostic or fix. An unrelated
-Groovy intention was immediately undone and excluded. The cause of the absent
-inspection markup remains unresolved; no editor/fix performance claim is made
-for that fixture on 2025.3.
+Groovy intention was immediately undone and excluded. The [phase 2 follow-up](phase2.md)
+subsequently observed the expected inspection markup and local fix with the
+snapshot archive on 2025.3. That functional check does not supply the missing
+repeated editor/fix performance measurements.
 
 The separate [2026.1 recovery trace](idea-2026.1.4-gradle-recovery.log) records a
 mixed usability session, rather than a 100-sample benchmark:
@@ -282,9 +285,9 @@ metadata stored in each JSON's `conditions` object. Trace files here contain onl
 the numeric, anonymous fixed-stage schema, without surrounding IDEA log lines.
 
 Pending: large Maven cases, Gradle 2025.3 editor/fix measurements, remaining large
-and Kotlin/catalog Gradle cases, shared/property/parent fixes, cold/setup and
-remaining per-ecosystem/per-version failure cases, typing profiling and the
-remaining usability matrix. npm remains blocked until an
-authorized sandbox/profile with working JavaScript/Node support is available.
+and per-version Kotlin/catalog Gradle cases, shared/property/parent fixes,
+cold/setup and remaining per-ecosystem/per-version failure cases, controlled
+typing profiling and the remaining usability matrix. Minimum-IDE npm remains
+unvalidated; current-IDE npm functional evidence is recorded in [phase2.md](phase2.md).
 Conditional native-resolution experiments remain deferred pending evidence of
 the corresponding repeated work; see [remaining-plan-work.md](../remaining-plan-work.md).

@@ -106,7 +106,7 @@ def main():
     parser.add_argument("--cache", choices=("warm", "cold", "setup"), required=True)
     parser.add_argument("--modules", type=int, required=True)
     parser.add_argument("--declarations", type=int, required=True)
-    parser.add_argument("--idea-version", choices=("2025.3.6.1", "2026.1.4"), required=True)
+    parser.add_argument("--idea-version", choices=("2025.3.6.1", "2026.1.4", "2026.2.3"), required=True)
     parser.add_argument("--repository-case", choices=("fast-local", "remote", "private-delayed", "slow-package", "offline", "auth-failure"), required=True)
     args = parser.parse_args()
     if args.modules < 1 or args.declarations < 0:

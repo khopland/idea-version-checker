@@ -42,11 +42,34 @@ python3 .github/scripts/release_metadata.py
 
 Use SDKMAN Java 21 for the plugin build. Headless test timings are work-count evidence; no production latency improvement or native p95 claim follows from them.
 
+## Phase 2 progress
+
+The [native follow-up record](native-validation-2026-10-10/phase2.md) contains
+archive identities, sanitized traces, functional outcomes and remaining gaps:
+
+- Native npm works in the available IDEA 2026.2.3 installation despite “Unlock
+  Ultimate.” Local/workspace updates, alias/range preservation, grouped undo,
+  unchanged lockfile, all preview modes/scopes and HTTP 401 recovery were checked.
+- Gradle diagnostics and a local fix were observed on minimum IDEA 2025.3.6.1.
+  Current IDEA 2026.2.3 passed small Groovy edits, a shared Kotlin catalog edit,
+  and a 1,000-declaration apply/undo case.
+- Current-IDE smoke tests passed with Maven disabled for Gradle, Gradle disabled
+  for npm and JavaScript disabled for Maven. Settings/unload coverage remains open.
+- The single contended 1,000-edit endpoint took 622.93 ms. A JFR sample summary
+  was recorded; it does not establish input delay, maximum EDT span or p95.
+- Full validation passed again: 395 plugin tests, 13 release tests, 16 script
+  tests and all three verifier targets. The rebuilt archive includes concurrent
+  error-reporter changes and differs from the native-tested archive; both hashes
+  are recorded in the follow-up. Final-archive native validation remains required.
+
+Phase 2 is not complete. Minimum-IDE npm, controlled scale/typing measurements
+and the remaining native failure/usability matrix still gate stable release.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
-- **F03: native npm workflows.** The previous sandbox could not enable the JavaScript/Node support required for npm. Reproduce with that support enabled and a configured runtime; verify editor hints, ignore/recovery, all preview modes, aliases/workspaces, manifest-only apply and lockfile preservation. Preserve the blocker in the [native record](native-validation-2026-10-10/README.md) until observed runs replace it.
-- **F04: supported-IDE Gradle UX.** Resolve the missing visible Gradle diagnostics/quick-fix evidence on 2025.3.6.1. Repeat editor, preview and fix flows on 2026.2.3, including Groovy, Kotlin and shared catalogs. Binary compatibility alone does not close this gate.
+- **F03: native npm workflows.** Current-IDE editor/preview/local/workspace edit and authentication-recovery checks passed. Complete minimum-IDE coverage, ignore/recovery, cancellation and offline/runtime/configuration cases; preserve those gaps in the [native record](native-validation-2026-10-10/phase2.md).
+- **F04: supported-IDE Gradle UX.** Minimum-IDE Groovy diagnostics/local fix and current-IDE Groovy/shared Kotlin catalog workflows passed. Complete the per-version DSL/catalog and repeated performance matrix. Binary compatibility alone does not close this gate.
 - **Native scale and failure matrix.** Measure small projects, 100-module projects and dense edits on named hardware; record warm/cold states, authentication failures, offline behavior, cancellation, imports, plugin unload and typing/input delays. Retain completed/incomplete sample counts and archive hashes. The HTML plan's latency budgets remain proposed targets.
 
 ## Next engineering work

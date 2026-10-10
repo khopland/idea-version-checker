@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--declarations-per-module", type=int, default=3)
     parser.add_argument("--dsl", choices=("groovy", "kotlin"), default="groovy")
     parser.add_argument("--catalog", action="store_true", help="Use one shared catalog version instead of script literals")
+    parser.add_argument("--repeat-artifact", help="Repeat one fixture artifact for dense edit checks without creating a large repository")
     args = parser.parse_args()
     if args.modules < 1 or args.declarations_per_module < 1:
         parser.error("module and declaration counts must be positive")
@@ -24,6 +25,10 @@ def main():
     repository = args.repository.resolve()
     names = ["alpha", "beta", "gamma"] if args.declarations_per_module == 3 else [
         f"package-{index:04d}" for index in range(args.declarations_per_module)]
+    if args.repeat_artifact:
+        if not args.repeat_artifact.replace("-", "").replace("_", "").isalnum():
+            parser.error("repeat artifact must be a simple fixture artifact name")
+        names = [args.repeat_artifact] * args.declarations_per_module
     if any(not (repository / "fixture" / name / "maven-metadata.xml").is_file() for name in names):
         parser.error("repository must contain fixture artifacts for the requested declaration count")
     project_root = Path(__file__).resolve().parent.parent

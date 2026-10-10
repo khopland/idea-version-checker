@@ -1,0 +1,101 @@
+{
+  "case": "gradle-dense-1000-functional-apply",
+  "ideaVersion": "2026.2.3",
+  "archiveSha256": "2160464c1166bf18a026388d1be2e0a89187ee299319e0457e891fff945a0d21",
+  "recording": "/tmp/version-checker-phase2-dense.jfr",
+  "jfrEvents": "jdk.ExecutionSample",
+  "selection": "AWT-EventQueue samples in local second 22:15:04 (includes focus, write and post-write work)",
+  "sampledEdtEvents": 21,
+  "topFrames": [
+    {
+      "method": "jdk.proxy2.$Proxy173.focusGained",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.openapi.editor.markup.AttributesFlyweight.createKey",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.openapi.application.impl.NonBlockingFlushQueue.FLUSH_NOW$lambda$0",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.openapi.editor.impl.RangeMarkerTree$RMNode.compareTo",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.openapi.editor.impl.view.LogicalPositionCache.invalidateLines",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.util.containers.DisposableWrapperList$DisposableWrapperListIterator.hasNext",
+      "samples": 1
+    },
+    {
+      "method": "kotlinx.coroutines.channels.BufferedChannel.access$findSegmentSend",
+      "samples": 1
+    },
+    {
+      "method": "java.lang.invoke.VarHandleGuards.guard_LII_Z",
+      "samples": 1
+    },
+    {
+      "method": "kotlinx.coroutines.internal.LockFreeTaskQueue.addLast",
+      "samples": 1
+    },
+    {
+      "method": "kotlin.coroutines.CoroutineContext$Element$DefaultImpls.get",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.pom.PomManager.getModel",
+      "samples": 1
+    },
+    {
+      "method": "java.util.ArrayList.toArray",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.lang.parser.GeneratedParserUtilBase$ErrorState.clearVariants",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.lang.impl.PsiBuilderImpl.eof",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.psi.impl.source.tree.ASTStructure.getChildren",
+      "samples": 1
+    },
+    {
+      "method": "java.lang.invoke.MethodHandle.asType",
+      "samples": 1
+    },
+    {
+      "method": "java.lang.invoke.BoundMethodHandle$Species_LL.copyWithExtendL",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.openapi.editor.impl.LineSet.updateInsideOneLine",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.openapi.fileEditor.impl.text.TextEditorProvider.getStateImpl",
+      "samples": 1
+    },
+    {
+      "method": "com.intellij.openapi.wm.IdeFocusManager.getGlobalInstance",
+      "samples": 1
+    },
+    {
+      "method": "sun.java2d.marlin.MarlinCache.copyAARowNoRLE",
+      "samples": 1
+    }
+  ],
+  "limitations": [
+    "Sampling cannot establish maximum EDT span or input-event delay.",
+    "Stacks may be truncated; no time attribution to the plugin follows from a top frame alone.",
+    "Gradle check/test and Plugin Verifier were running concurrently.",
+    "One apply observation does not establish p95 or acceptance of the proposed write-time budget."
+  ]
+}

@@ -1,0 +1,10 @@
+{"package": "@fixture/alpha", "status": 200, "elapsedMs": 1.18}
+{"package": "@fixture/beta", "status": 200, "elapsedMs": 0.51}
+{"package": "@fixture/alpha", "status": 200, "elapsedMs": 0.16}
+{"package": "@fixture/gamma", "status": 200, "elapsedMs": 0.77}
+{"package": "@fixture/alpha", "status": 401, "elapsedMs": 0.34}
+{"package": "@fixture/beta", "status": 401, "elapsedMs": 0.51}
+{"package": "@fixture/alpha", "status": 200, "elapsedMs": 0.59}
+{"package": "@fixture/beta", "status": 200, "elapsedMs": 0.47}
+{"package": "@fixture/beta", "status": 200, "elapsedMs": 1.85}
+{"package": "@fixture/alpha", "status": 200, "elapsedMs": 0.44}
