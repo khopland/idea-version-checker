@@ -8,6 +8,7 @@ import io.github.khopland.versionchecker.VersionCheckerSettings
 import io.github.khopland.versionchecker.core.BuildFingerprint
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
+import org.jetbrains.idea.maven.server.MavenDistributionsCache
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -18,6 +19,8 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager) {
     private val diskStamps = mutableMapOf<Path, String>()
     private val fingerprints = mutableMapOf<Path, BuildFingerprint>()
     private val inspectionFingerprints = mutableMapOf<Path, BuildFingerprint>()
+    private val settingsFiles = mutableMapOf<Path, Set<Path>>()
+    private val userSettings by lazy { MavenSettingsInputs.userSettings(manager) }
     private val configuration by lazy {
         val policy = manager.project.service<VersionCheckerSettings>().state.deprecatedDependencies.hashCode()
         val fastScope = manager.project.service<VersionCheckerSettings>().state.mavenFastEditorChecks
@@ -30,9 +33,7 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager) {
             val files = projects.associate { pom ->
                 pom.path to "${pom.file.modificationStamp}:${documents.getCachedDocument(pom.file)?.takeIf { documents.isDocumentUnsaved(it) }?.modificationStamp}"
             }.toMutableMap()
-            val settings = manager.generalSettings.userSettingsFile.takeIf(String::isNotBlank)
-                ?: Path.of(System.getProperty("user.home"), ".m2", "settings.xml").toString()
-            files[settings] = diskStamp(Path.of(settings))
+            MavenSettingsInputs.files(userSettings).forEach { files[it.toString()] = diskStamp(it) }
             BuildFingerprint(files, "${manager.modificationTracker.modificationCount}:$configuration")
         }
     }
@@ -43,6 +44,9 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager) {
         val directory = project.file.toNioPath().parent
         return fingerprints.getOrPut(directory) {
             val files = shared.files.toMutableMap()
+            val distribution = MavenDistributionsCache.getInstance(manager.project).getMavenDistribution(project.file)
+            settingsFiles.getOrPut(distribution.mavenHome) { MavenSettingsInputs.files(userSettings, distribution.mavenHome) }
+                .forEach { files[it.toString()] = diskStamp(it) }
             var ancestor: Path? = directory
             while (ancestor != null) {
                 for (name in listOf("maven.config", "jvm.config", "extensions.xml", "wrapper/maven-wrapper.properties")) {
@@ -51,7 +55,7 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager) {
                 }
                 ancestor = ancestor.parent
             }
-            BuildFingerprint(files, shared.configuration)
+            BuildFingerprint(files, "${shared.configuration}:${distribution.mavenHome}:${distribution.version}")
         }
     }
 

@@ -231,6 +231,40 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
         } finally { manager.generalSettings.setUserSettingsFile(previousSettings) }
     }
 
+    fun testRelocatedCredentialsAndUnsavedChangesRejectPreparedPreview() {
+        val selected = imported("credential-guard", dependency)
+        val settings = directory.resolve("settings.xml")
+        Files.writeString(settings, "<settings/>")
+        val security = directory.resolve("settings-security.xml")
+        val target = directory.resolve("credentials/master.xml")
+        Files.createDirectories(target.parent)
+        Files.writeString(security, "<settingsSecurity><relocation>credentials/master.xml</relocation></settingsSecurity>")
+        Files.writeString(target, "<settingsSecurity><master>original</master></settingsSecurity>")
+        val previousSettings = manager.generalSettings.userSettingsFile
+        try {
+            manager.generalSettings.setUserSettingsFile(settings.toString())
+            val adapter = MavenBuildSystemAdapter()
+            val snapshot = adapter.snapshot(project, selected.file)!!
+            val plan = background { adapter.prepareUpdates(project, reports(listOf(snapshot))) }
+            Files.writeString(target, "<settingsSecurity><master>changed-credential</master></settingsSecurity>")
+            assertFalse("A changed relocated credential must invalidate the full audit", adapter.isCurrent(project, snapshot))
+            assertFalse(plan.apply(project))
+            val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(target)!!
+            file.refresh(false, false)
+            val document = FileDocumentManager.getInstance().getDocument(file)!!
+            FileDocumentManager.getInstance().reloadFromDisk(document)
+            val current = adapter.snapshot(project, selected.file)!!
+            val currentPlan = background { adapter.prepareUpdates(project, reports(listOf(current))) }
+            assertTrue(adapter.resolutionInputPaths(project, BuildSelection(UpdateScope.CURRENT_FILE, selected.path)).contains(target.toString()))
+            val savedText = document.text
+            WriteCommandAction.runWriteCommandAction(project) { document.setText(savedText + "\n") }
+            assertFalse("Unsaved relocated credentials must invalidate the full audit", adapter.isCurrent(project, current))
+            assertFalse(currentPlan.apply(project))
+            WriteCommandAction.runWriteCommandAction(project) { document.setText(savedText) }
+            FileDocumentManager.getInstance().saveDocument(document)
+        } finally { manager.generalSettings.setUserSettingsFile(previousSettings) }
+    }
+
     fun testUnsavedSettingsAndAncestorConfigurationRejectPreparedPreviews() {
         val selected = imported("root/module", dependency)
         val settings = directory.resolve("settings.xml")
