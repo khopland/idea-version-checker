@@ -84,14 +84,15 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             else -> null
         }
         val result = cache.getResult(snapshot, UpdateMode.MAJOR)
+        val presentation = VersionPresentationPolicy(adapter.id, project.service<VersionCheckerSettings>().state.ignoredVersions)
         if (phase != null) {
-            val counts = result?.let { Triple(it.report.candidates.size, it.report.notices.size, it.expiresAtNanos) }
-                ?: cache.inspectionProgressCounts(snapshot)
+            val counts = result?.let { Triple(presentation.count(it.report), it.report.notices.size, it.expiresAtNanos) }
+                ?: cache.inspectionProgressCounts(snapshot, presentation.candidateFilter)
             return VersionCheckStatus(phase, counts?.first ?: 0, counts?.second ?: 0, counts?.third)
         }
         if (result != null) return VersionCheckStatus(if (!result.report.successful) CheckPhase.FAILED else
             if (snapshot.coverageDescription != null) CheckPhase.PARTIAL else CheckPhase.CHECKED,
-            result.report.candidates.size, result.report.notices.size, result.expiresAtNanos, snapshot.coverageDescription)
+            presentation.count(result.report), result.report.notices.size, result.expiresAtNanos, snapshot.coverageDescription)
         return VersionCheckStatus(CheckPhase.UNCHECKED)
     }
 

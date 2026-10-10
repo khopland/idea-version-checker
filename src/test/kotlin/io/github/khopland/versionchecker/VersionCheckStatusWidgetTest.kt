@@ -20,9 +20,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 
 class VersionCheckStatusWidgetTest : BasePlatformTestCase() {
-    private fun adapter(file: VirtualFile, expiry: (() -> Long)? = null): BuildSystemAdapter {
+    private fun adapter(file: VirtualFile, providerId: String? = null, expiry: (() -> Long)? = null): BuildSystemAdapter {
         return object : BuildSystemAdapter {
-            override val id = "status-widget-${System.identityHashCode(this)}"
+            override val id = providerId ?: "status-widget-${System.identityHashCode(this)}"
             override val displayName = "Test"
             override val capabilities = AdapterCapabilities()
             override fun supports(project: Project, selection: BuildSelection) = selection.currentFile == file.path
@@ -147,6 +147,74 @@ class VersionCheckStatusWidgetTest : BasePlatformTestCase() {
             }, 10)
             assertEquals(1, nativeChecks.get())
         } finally {
+            gate.complete(Unit)
+            PlatformTestUtil.waitWithEventsDispatching("Check finishes", { service.cached(snapshot) != null }, 10)
+        }
+    }
+
+    fun testIgnorePolicyMatchesHintsDuringAndAfterChecksAndCanBeReversedWithoutQueries() {
+        val build = myFixture.addFileToProject("widget-ignored/build.txt", "1.0").virtualFile
+        val native = adapter(build, "npm")
+        val artifact = ArtifactId("npm", "@scope/library")
+        val declarations = listOf("dependencies/alias", "devDependencies/library").map {
+            VersionDeclaration(DeclarationId(build.path, it), artifact, "1.0", "1.0")
+        }
+        val report = UpdateReport(declarations.map { UpdateCandidate(it, "1.1") },
+            listOf(UpdateNotice(declarations.first(), NoticeKind.MANUAL_REVIEW, "Keep this notice")))
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val adapter = object : BuildSystemAdapter by native {
+            override val capabilities = AdapterCapabilities(incrementalInspections = true)
+            override fun snapshot(project: Project, file: VirtualFile) = native.snapshot(project, file)!!.copy(declarations = declarations)
+            override fun inspectionSnapshot(project: Project, file: VirtualFile) = snapshot(project, file)
+            override suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
+                                                    publish: suspend (InspectionUpdate) -> Unit): UpdateReport {
+                nativeChecks.incrementAndGet()
+                publish(InspectionUpdate(report, declarations.map { it.id }.toSet()))
+                gate.await()
+                return report
+            }
+        }
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        FileEditorManager.getInstance(project).openFile(build, true)
+        val options = project.service<VersionCheckerSettings>().state
+        val previousIgnores = options.ignoredVersions
+        Disposer.register(testRootDisposable) { options.ignoredVersions = previousIgnores }
+        options.ignoredVersions = "npm @scope/library = 1.1"
+        val (widget, _) = widget()
+        val service = project.service<VersionCheckService>()
+        val snapshot = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(
+            java.util.concurrent.Callable { com.intellij.openapi.application.ReadAction.compute<BuildSnapshot, RuntimeException> {
+                adapter.snapshot(project, build)
+            } }), 10_000)
+        service.updates(adapter, snapshot)
+        try {
+            PlatformTestUtil.waitWithEventsDispatching("Ignored partial updates are hidden; notices remain", {
+                widget.status?.phase == CheckPhase.CHECKING && widget.status?.updates == 0 && widget.status?.notices == 1
+            }, 10)
+            assertTrue(service.updates(adapter, snapshot)!!.candidates.isEmpty())
+            options.ignoredVersions = ""
+            service.statusChanged(build.path)
+            PlatformTestUtil.waitWithEventsDispatching("Removing the ignore restores partial updates", {
+                widget.status?.phase == CheckPhase.CHECKING && widget.status?.updates == 2
+            }, 10)
+            assertEquals(2, service.updates(adapter, snapshot)!!.candidates.size)
+            options.ignoredVersions = "npm @scope/library = 1.1"
+            gate.complete(Unit)
+            PlatformTestUtil.waitWithEventsDispatching("Complete status uses the same presentation policy", {
+                widget.status?.phase == CheckPhase.CHECKED && widget.status?.updates == 0 && widget.status?.notices == 1
+            }, 10)
+            assertEquals("Versions: needs review", widget.getText())
+            assertSame("Raw cached results must retain ignored updates", report, service.cached(snapshot))
+            val expiry = widget.status!!.expiresAtNanos
+            options.ignoredVersions = "npm @scope/library = 1.2"
+            service.statusChanged(build.path)
+            PlatformTestUtil.waitWithEventsDispatching("A different release does not hide updates", {
+                widget.status?.phase == CheckPhase.CHECKED && widget.status?.updates == 2
+            }, 10)
+            assertEquals(expiry, widget.status!!.expiresAtNanos)
+            assertEquals("Changing presentation must not query the registry", 1, nativeChecks.get())
+        } finally {
+            options.ignoredVersions = previousIgnores
             gate.complete(Unit)
             PlatformTestUtil.waitWithEventsDispatching("Check finishes", { service.cached(snapshot) != null }, 10)
         }

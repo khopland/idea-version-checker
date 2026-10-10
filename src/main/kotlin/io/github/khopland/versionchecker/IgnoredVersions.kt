@@ -15,8 +15,10 @@ internal data class IgnoredVersion(val adapter: String, val artifact: ArtifactId
 internal fun artifactLabel(artifact: ArtifactId) =
     if (artifact.namespace.isEmpty() || artifact.namespace == "npm") artifact.name else "${artifact.namespace}:${artifact.name}"
 
+private val ignoredVersionRule = Regex("^(maven|npm|gradle)\\s+(\\S+)\\s*=\\s*(\\S+)\\s*$")
+
 internal fun ignoredVersions(text: String): Set<IgnoredVersion> = text.lineSequence().mapNotNull { line ->
-    val match = Regex("^(maven|npm|gradle)\\s+(\\S+)\\s*=\\s*(\\S+)\\s*$").matchEntire(line.trim()) ?: return@mapNotNull null
+    val match = ignoredVersionRule.matchEntire(line.trim()) ?: return@mapNotNull null
     val (adapter, name, version) = match.destructured
     val artifact = if (adapter == "npm") ArtifactId("npm", name) else {
         val parts = name.split(':')
@@ -26,17 +28,29 @@ internal fun ignoredVersions(text: String): Set<IgnoredVersion> = text.lineSeque
     IgnoredVersion(adapter, artifact, version)
 }.toSet()
 
-internal fun UpdateReport.withoutIgnored(adapter: String, options: VersionCheckerSettings.Options): UpdateReport {
-    val ignored = ignoredVersions(options.ignoredVersions)
-    if (ignored.isEmpty()) return this
-    return copy(candidates = candidates.filter {
-        val artifact = it.declaration.artifact
+/** The same predicate serves hints, previews and status, without modifying raw cached reports. */
+internal class VersionPresentationPolicy(private val adapter: String, text: String) {
+    private val ignored = ignoredVersions(text)
+    val candidateFilter: ((UpdateCandidate) -> Boolean)? get() = if (ignored.isEmpty()) null else ::includes
+
+    fun includes(candidate: UpdateCandidate): Boolean {
+        if (ignored.isEmpty()) return true
+        val artifact = candidate.declaration.artifact
         // Maven snapshots store the coordinate in the name; settings use group/artifact identity.
         val identity = if (adapter == "maven" && artifact.namespace == "maven")
             ArtifactId(artifact.name.substringBefore(':'), artifact.name.substringAfter(':')) else artifact
-        IgnoredVersion(adapter, identity, it.version) !in ignored
-    })
+        return IgnoredVersion(adapter, identity, candidate.version) !in ignored
+    }
+
+    fun filter(report: UpdateReport): UpdateReport =
+        if (ignored.isEmpty()) report else report.copy(candidates = report.candidates.filter(::includes))
+
+    fun count(report: UpdateReport): Int =
+        if (ignored.isEmpty()) report.candidates.size else report.candidates.count(::includes)
 }
+
+internal fun UpdateReport.withoutIgnored(adapter: String, options: VersionCheckerSettings.Options): UpdateReport =
+    VersionPresentationPolicy(adapter, options.ignoredVersions).filter(this)
 
 internal class IgnorePublishedVersionFix(private val ignored: IgnoredVersion) : LocalQuickFix, LowPriorityAction {
     override fun getFamilyName() = "Ignore published version"

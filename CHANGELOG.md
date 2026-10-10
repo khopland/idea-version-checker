@@ -33,6 +33,7 @@
 
 ### Fixed
 
+- Versions status counts now use the same exact-version ignore policy as editor hints and bulk previews, including incremental results. Removing an ignore restores counts from cached metadata without another repository query; notices retain their visibility and original expiry.
 - Fast Maven editor scope preserves completed and failed full-audit status until expiry or invalidation. Global settings, credential files and relocated credential targets now participate in preview/input guards, including unsaved changes.
 - Gradle preview rows and shared-version review messages identify their dependency coordinates, allowing package-name filtering while retaining declaration and catalog-alias distinctions.
 - Rebuilt previews have independent performance interactions, and bulk Apply timing includes plan and writable-file preparation. Trace reports distinguish owned native invocations from background overlap and expose incomplete samples.

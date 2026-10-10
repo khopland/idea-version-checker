@@ -41,7 +41,8 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
             failure = failures.takeIf { it.isNotEmpty() }?.joinToString("\n"),
             validUntilNanos = expiresAtNanos
         )
-        fun counts() = candidates.values.sumOf { it.size } to notices.values.sumOf { it.size }
+        fun counts(include: ((UpdateCandidate) -> Boolean)?) =
+            candidates.values.sumOf { if (include == null) it.size else it.count(include) } to notices.values.sumOf { it.size }
     }
     private var globalGeneration = 0L
     private val adapterGenerations = mutableMapOf<String, Long>()
@@ -94,12 +95,13 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
     }
 
     /** Status counts avoid allocating a complete partial report for every UI refresh. */
-    @Synchronized fun inspectionProgressCounts(snapshot: BuildSnapshot): Triple<Int, Int, Long>? {
+    @Synchronized fun inspectionProgressCounts(snapshot: BuildSnapshot,
+                                               include: ((UpdateCandidate) -> Boolean)? = null): Triple<Int, Int, Long>? {
         val entry = progress[snapshot.context]?.takeIf {
             it.revision == revision(snapshot.context) && it.expiresAtNanos > now() &&
                 it.snapshot.hasSameDeclarations(snapshot)
         } ?: return null
-        val (candidateCount, noticeCount) = entry.counts()
+        val (candidateCount, noticeCount) = entry.counts(include)
         return Triple(candidateCount, noticeCount, entry.expiresAtNanos)
     }
 
