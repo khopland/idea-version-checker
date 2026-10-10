@@ -3,8 +3,8 @@
 Small Maven cases ran in native IDEA windows with the packaged plugin. Both IDEA
 2025.3.6.1 and 2026.1.4 now have at least 100 completed samples for each measured
 endpoint. The full plan's performance and usability matrix is still incomplete.
-Small warm Gradle editor and preview cases have also completed 100 repetitions
-each in 2026.1.4.
+Small warm Gradle editor, preview and literal-fix cases have also completed 100
+repetitions each in 2026.1.4; the 2025.3.6.1 Gradle preview has 100 repetitions.
 
 **Native npm validation is blocked.** JavaScript/Node support is disabled in the
 available IDEA sandbox. No usable licensed profile was supplied or verified, and
@@ -102,10 +102,10 @@ Mode navigation also exposed premature dialog disposal before Enter. Committed
 selection handling now keeps navigation within the popup, defers rebuilding until
 the key/mouse event finishes, and rejects Apply against a pending mode/scope
 change. The follow-up below confirms this behavior and stale-preview rejection in
-2026.1. Failed-file Retry,
-delayed/offline/authentication states and the rest of the keyboard/focus matrix
-still require dedicated cases on both versions. Automated regression coverage
-for these behaviors is separate evidence.
+2026.1. The Gradle follow-up below also checks failed-file Retry and
+delayed/offline/authentication states in 2026.1. The corresponding Maven cases,
+other IDEA version and remaining keyboard/focus matrix still require dedicated
+sessions. Automated regression coverage is separate evidence.
 
 ### Packaged preview/recovery follow-up, IDEA 2026.1.4
 
@@ -161,9 +161,9 @@ dialog reported cached results and three selected/visible rows, then cancelled
 back to build.gradle. All 100 interactions have a ready endpoint and no
 incomplete previews. No native Gradle invocation belongs to, starts within, or
 overlaps these preview intervals; the entire capture contains no native query.
-This meets the preview target for this condition only. It does not establish
-Gradle fix latency, large-project behavior, Kotlin/catalog performance,
-cold setup, repository failures or behavior in IDEA 2025.3.
+This meets the preview target for this condition only. The later follow-up below
+adds small literal-fix latency, a 2025.3 preview and selected recovery cases;
+large-project behavior, Kotlin/catalog performance and cold setup remain pending.
 
 This native session also exposed declaration labels containing only script
 offsets, such as dependency@138. Preview and shared-version review labels now
@@ -191,6 +191,63 @@ source tab showed Project JDK is not defined; the imported Gradle project and
 native resolution used the configured Gradle JVM above. The build file also had
 three unrelated Groovy warnings alongside the three Version Checker warnings.
 The measured endpoints require Version Checker inspection markup specifically.
+
+### Native Gradle fixes, previews and recovery follow-up
+
+| IDEA | Endpoint | Completed samples | Median | Nearest-rank p95 | Evidence |
+|------|----------|------------------:|-------:|-----------------:|----------|
+| 2026.1.4 | Cached current-file Major literal fix | 100 | 2.88 ms | 4.24 ms | [Report](idea-2026.1.4-gradle-small-fix.json), [trace](idea-2026.1.4-gradle-small-fix.log) |
+| 2025.3.6.1 | Cached current-file Patch preview, 3 rows | 100 | 31.32 ms | 53.24 ms | [Report](idea-2025.3.6.1-gradle-small-preview.json), [trace](idea-2025.3.6.1-gradle-small-preview.log) |
+
+Both captures use separate isolated installations, one imported Java/Groovy
+module, three literal declarations, Gradle 9.8.0, SDKMAN Temurin 25.0.3+9-LTS
+and the same primed local repository described above. Tracing was enabled.
+The 2026.1 installation used archive SHA-256
+`f43ffbbe135f36d28d5da8e6d9f3816cc366bec1bb1705fbb302e768292b86a3`.
+The 2025.3 installation used the final archive, SHA-256
+`55874205f573f1d89810bd1bda48c778df3b565d452f489063092b4da462fea9`,
+including the multiline viewport-tracing correction. The preview capture does
+not itself validate that diagnostic endpoint.
+
+Each 2026.1 fix changed only alpha from 1.0.0 to 2.0.0; beta and gamma remained
+unchanged. Undo and save restored alpha after every completed cycle. Native input
+routing interrupted one attempted cycle without changing the declaration;
+raising the project window allowed the remaining cycles to finish. Only the
+100 verified fixes have endpoints. None owns, starts or overlaps a native
+invocation; one background native invocation elsewhere in the capture is
+retained. Each 2025.3 preview showed three selected/visible cached rows and was
+cancelled. All 100 previews completed, and the capture contains no native query.
+These p95 results meet the corresponding targets for these conditions only.
+
+Opening the disposable 2025.3 fixture required disabling the isolated sandbox's
+native file chooser and using IDEA's chooser. Editor/fix sampling was attempted
+but did not produce a verified Version Checker diagnostic or fix. An unrelated
+Groovy intention was immediately undone and excluded. The cause of the absent
+inspection markup remains unresolved; no editor/fix performance claim is made
+for that fixture on 2025.3.
+
+The separate [2026.1 recovery trace](idea-2026.1.4-gradle-recovery.log) records a
+mixed usability session, rather than a 100-sample benchmark:
+
+- Enabling Gradle offline mode and refreshing displayed an offline status with
+  instructions to disable Work offline; no native query ran while offline.
+  Disabling it and refreshing restored checking against the local repository.
+- A disposable loopback Maven repository with test-only Basic credentials
+  rejected authentication with HTTP 401. IDEA displayed a retry status,
+  repository/authentication guidance and visible Retry Failed Checks and Show
+  Details actions. Opening Show Details was not verified.
+- After authentication was accepted and the server delayed each request by
+  1,000 ms, Retry Failed Checks progressed through checking to three updates and
+  zero notices. Retry interaction 319 has a 21,503.87 ms native invocation;
+  first useful acceptance and complete checking remain distinct trace stages.
+  This duration is one delayed retry, not a latency distribution.
+- The HTTP observation log contained 23 request observations, including eight
+  401 responses (some were Basic authentication challenges) and fifteen served
+  requests, with no JAR requests. The original file-repository settings were
+  restored and the temporary server was stopped.
+
+These checks cover this small Gradle fixture in 2026.1 only. They do not establish
+typing responsiveness, profiler results, cold setup or the full failure matrix.
 
 ## Reproduction and remaining work
 
@@ -224,9 +281,10 @@ captures for each endpoint and condition. Regenerate reports with
 metadata stored in each JSON's `conditions` object. Trace files here contain only
 the numeric, anonymous fixed-stage schema, without surrounding IDEA log lines.
 
-Pending: large Maven cases, remaining Gradle
-native cases, shared/property/parent fixes, cold/setup and failure cases, typing
-profiling, and the remaining usability matrix. npm remains blocked until an
+Pending: large Maven cases, Gradle 2025.3 editor/fix measurements, remaining large
+and Kotlin/catalog Gradle cases, shared/property/parent fixes, cold/setup and
+remaining per-ecosystem/per-version failure cases, typing profiling and the
+remaining usability matrix. npm remains blocked until an
 authorized sandbox/profile with working JavaScript/Node support is available.
 Conditional native-resolution experiments remain deferred pending evidence of
 the corresponding repeated work; see [remaining-plan-work.md](../remaining-plan-work.md).

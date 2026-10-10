@@ -1,0 +1,2182 @@
+{
+  "case": "gradle-small-current-patch-warm-preview",
+  "conditions": {
+    "ecosystem": "gradle",
+    "scope": "current-file",
+    "mode": "patch",
+    "cache": "warm",
+    "modules": 1,
+    "declarations": 3,
+    "ideaVersion": "2025.3.6.1",
+    "repositoryCase": "fast-local"
+  },
+  "interactionsObserved": 100,
+  "uncorrelatedEvents": 0,
+  "measurements": {
+    "editor_hint": {
+      "samples": 0,
+      "medianMs": null,
+      "p95Ms": null,
+      "incompleteInteractions": 0,
+      "nativeInvocations": {
+        "owned": 0,
+        "startedDuringEndpoint": 0,
+        "overlappingEndpoint": 0,
+        "uncorrelatedOverlappingEndpoint": 0
+      },
+      "minimumSampleCountMet": false,
+      "interactions": []
+    },
+    "preview": {
+      "samples": 100,
+      "medianMs": 31.3239165,
+      "p95Ms": 53.235375,
+      "incompleteInteractions": 0,
+      "nativeInvocations": {
+        "owned": 0,
+        "startedDuringEndpoint": 0,
+        "overlappingEndpoint": 0,
+        "uncorrelatedOverlappingEndpoint": 0
+      },
+      "minimumSampleCountMet": true,
+      "interactions": [
+        {
+          "interaction": 4,
+          "originNs": 600499016509125,
+          "elapsedMs": 35.83575,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.244459,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 34.591291
+          }
+        },
+        {
+          "interaction": 5,
+          "originNs": 600500752761708,
+          "elapsedMs": 44.222917,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.350708,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 43.872209
+          }
+        },
+        {
+          "interaction": 6,
+          "originNs": 600502565137958,
+          "elapsedMs": 30.243583,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.903959,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 28.339624
+          }
+        },
+        {
+          "interaction": 7,
+          "originNs": 600504497450166,
+          "elapsedMs": 29.651917,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.682125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 27.969792
+          }
+        },
+        {
+          "interaction": 8,
+          "originNs": 600506163586375,
+          "elapsedMs": 28.248625,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.725625,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 27.523
+          }
+        },
+        {
+          "interaction": 9,
+          "originNs": 600507819108208,
+          "elapsedMs": 25.392417,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.620125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 24.772292
+          }
+        },
+        {
+          "interaction": 10,
+          "originNs": 600509455781333,
+          "elapsedMs": 27.052542,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.551834,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 26.500708
+          }
+        },
+        {
+          "interaction": 11,
+          "originNs": 600511034032208,
+          "elapsedMs": 21.466833,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.254792,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 21.212041
+          }
+        },
+        {
+          "interaction": 12,
+          "originNs": 600512734285083,
+          "elapsedMs": 27.201917,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.97,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 25.231917
+          }
+        },
+        {
+          "interaction": 13,
+          "originNs": 600514435161250,
+          "elapsedMs": 22.631916,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.792208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 21.839708
+          }
+        },
+        {
+          "interaction": 14,
+          "originNs": 600516046001708,
+          "elapsedMs": 32.602333,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.865375,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 31.736958
+          }
+        },
+        {
+          "interaction": 15,
+          "originNs": 600517776538500,
+          "elapsedMs": 27.034708,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.368709,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 25.665999
+          }
+        },
+        {
+          "interaction": 16,
+          "originNs": 600519464373250,
+          "elapsedMs": 22.847375,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.647292,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 22.200083
+          }
+        },
+        {
+          "interaction": 17,
+          "originNs": 600521136754750,
+          "elapsedMs": 60.911791,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.675083,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 60.236708
+          }
+        },
+        {
+          "interaction": 18,
+          "originNs": 600522956591125,
+          "elapsedMs": 28.509583,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.957666,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 27.551917
+          }
+        },
+        {
+          "interaction": 19,
+          "originNs": 600524725396041,
+          "elapsedMs": 49.0165,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 3.233208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 45.783292
+          }
+        },
+        {
+          "interaction": 20,
+          "originNs": 600526408568666,
+          "elapsedMs": 23.222625,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.768208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 22.454417
+          }
+        },
+        {
+          "interaction": 21,
+          "originNs": 600528096593375,
+          "elapsedMs": 26.242458,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.235917,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 26.006541
+          }
+        },
+        {
+          "interaction": 22,
+          "originNs": 600529668882458,
+          "elapsedMs": 26.657167,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.868666,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 25.788501
+          }
+        },
+        {
+          "interaction": 23,
+          "originNs": 600531634558333,
+          "elapsedMs": 23.538833,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.305,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 23.233833
+          }
+        },
+        {
+          "interaction": 24,
+          "originNs": 600547927568291,
+          "elapsedMs": 42.408084,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 3.466334,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 38.94175
+          }
+        },
+        {
+          "interaction": 25,
+          "originNs": 600549941142875,
+          "elapsedMs": 31.036708,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.1015,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 29.935208
+          }
+        },
+        {
+          "interaction": 26,
+          "originNs": 600551845233333,
+          "elapsedMs": 26.680833,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.013584,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 25.667249
+          }
+        },
+        {
+          "interaction": 27,
+          "originNs": 600553749458833,
+          "elapsedMs": 53.238875,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.727583,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 52.511292
+          }
+        },
+        {
+          "interaction": 28,
+          "originNs": 600555759054458,
+          "elapsedMs": 27.429417,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.574125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 26.855292
+          }
+        },
+        {
+          "interaction": 29,
+          "originNs": 600557472004583,
+          "elapsedMs": 22.893083,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.706042,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 22.187041
+          }
+        },
+        {
+          "interaction": 30,
+          "originNs": 600559362430625,
+          "elapsedMs": 26.903333,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.806417,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 26.096916
+          }
+        },
+        {
+          "interaction": 31,
+          "originNs": 600561187386958,
+          "elapsedMs": 37.387542,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.892041,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 36.495501
+          }
+        },
+        {
+          "interaction": 32,
+          "originNs": 600563038619708,
+          "elapsedMs": 27.732,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.515125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 27.216875
+          }
+        },
+        {
+          "interaction": 33,
+          "originNs": 600564789560250,
+          "elapsedMs": 46.979875,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.581709,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 46.398166
+          }
+        },
+        {
+          "interaction": 34,
+          "originNs": 600566630856541,
+          "elapsedMs": 35.663209,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.781875,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 34.881334
+          }
+        },
+        {
+          "interaction": 35,
+          "originNs": 600568545495125,
+          "elapsedMs": 27.29975,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.327542,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 26.972208
+          }
+        },
+        {
+          "interaction": 36,
+          "originNs": 600570386989541,
+          "elapsedMs": 27.68375,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.248958,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 27.434792
+          }
+        },
+        {
+          "interaction": 37,
+          "originNs": 600572261150833,
+          "elapsedMs": 32.826167,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.766,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 32.060167
+          }
+        },
+        {
+          "interaction": 38,
+          "originNs": 600573958139041,
+          "elapsedMs": 52.758375,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.294541,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 52.463834
+          }
+        },
+        {
+          "interaction": 39,
+          "originNs": 600575704530458,
+          "elapsedMs": 36.965458,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.139625,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 35.825833
+          }
+        },
+        {
+          "interaction": 40,
+          "originNs": 600577494294208,
+          "elapsedMs": 22.824708,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.415708,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 22.409
+          }
+        },
+        {
+          "interaction": 41,
+          "originNs": 600579184475416,
+          "elapsedMs": 41.140584,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.664875,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 40.475709
+          }
+        },
+        {
+          "interaction": 42,
+          "originNs": 600580961535333,
+          "elapsedMs": 30.582375,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.275666,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 30.306709
+          }
+        },
+        {
+          "interaction": 43,
+          "originNs": 600582720584625,
+          "elapsedMs": 25.383875,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.78675,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 24.597125
+          }
+        },
+        {
+          "interaction": 44,
+          "originNs": 600584424715916,
+          "elapsedMs": 21.575167,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.624833,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 20.950334
+          }
+        },
+        {
+          "interaction": 45,
+          "originNs": 600586219718416,
+          "elapsedMs": 84.794042,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.282167,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 83.511875
+          }
+        },
+        {
+          "interaction": 46,
+          "originNs": 600587878561375,
+          "elapsedMs": 23.355708,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.440583,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 22.915125
+          }
+        },
+        {
+          "interaction": 47,
+          "originNs": 600589598524833,
+          "elapsedMs": 22.669958,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.915667,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 21.754291
+          }
+        },
+        {
+          "interaction": 48,
+          "originNs": 600591301655833,
+          "elapsedMs": 28.2415,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.573625,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 27.667875
+          }
+        },
+        {
+          "interaction": 49,
+          "originNs": 600593010093875,
+          "elapsedMs": 21.859791,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.704417,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 21.155374
+          }
+        },
+        {
+          "interaction": 50,
+          "originNs": 600594757397041,
+          "elapsedMs": 23.094584,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.71425,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 22.380334
+          }
+        },
+        {
+          "interaction": 51,
+          "originNs": 600596518801833,
+          "elapsedMs": 25.813167,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.825,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 24.988167
+          }
+        },
+        {
+          "interaction": 52,
+          "originNs": 600598299704250,
+          "elapsedMs": 35.987875,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.286166,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 35.701709
+          }
+        },
+        {
+          "interaction": 53,
+          "originNs": 600600063826666,
+          "elapsedMs": 74.713042,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 2.197,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 72.516042
+          }
+        },
+        {
+          "interaction": 54,
+          "originNs": 600610730932583,
+          "elapsedMs": 31.169583,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.353333,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 30.81625
+          }
+        },
+        {
+          "interaction": 55,
+          "originNs": 600612511940375,
+          "elapsedMs": 36.061166,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.348084,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 34.713082
+          }
+        },
+        {
+          "interaction": 56,
+          "originNs": 600614348490333,
+          "elapsedMs": 36.771,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.256083,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 35.514917
+          }
+        },
+        {
+          "interaction": 57,
+          "originNs": 600616300455250,
+          "elapsedMs": 36.124208,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.799375,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 35.324833
+          }
+        },
+        {
+          "interaction": 58,
+          "originNs": 600618152361875,
+          "elapsedMs": 29.640625,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.284875,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 29.35575
+          }
+        },
+        {
+          "interaction": 59,
+          "originNs": 600620007890250,
+          "elapsedMs": 28.396708,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.225958,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 28.17075
+          }
+        },
+        {
+          "interaction": 60,
+          "originNs": 600621925390291,
+          "elapsedMs": 34.156625,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.816958,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 33.339667
+          }
+        },
+        {
+          "interaction": 61,
+          "originNs": 600623799962125,
+          "elapsedMs": 30.93375,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.513958,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 30.419792
+          }
+        },
+        {
+          "interaction": 62,
+          "originNs": 600625541754500,
+          "elapsedMs": 27.411208,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.998542,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 26.412666
+          }
+        },
+        {
+          "interaction": 63,
+          "originNs": 600627376757416,
+          "elapsedMs": 29.852667,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.725334,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 29.127333
+          }
+        },
+        {
+          "interaction": 64,
+          "originNs": 600629308629041,
+          "elapsedMs": 37.688042,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.812792,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 36.87525
+          }
+        },
+        {
+          "interaction": 65,
+          "originNs": 600631140856875,
+          "elapsedMs": 38.579708,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.640541,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 37.939167
+          }
+        },
+        {
+          "interaction": 66,
+          "originNs": 600633089342916,
+          "elapsedMs": 45.284125,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 2.006083,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 43.278042
+          }
+        },
+        {
+          "interaction": 67,
+          "originNs": 600635087103875,
+          "elapsedMs": 31.614041,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.237583,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 31.376458
+          }
+        },
+        {
+          "interaction": 68,
+          "originNs": 600637036110166,
+          "elapsedMs": 39.292959,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.263333,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 39.029626
+          }
+        },
+        {
+          "interaction": 69,
+          "originNs": 600638810926708,
+          "elapsedMs": 31.793292,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.306375,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 31.486917
+          }
+        },
+        {
+          "interaction": 70,
+          "originNs": 600640737625000,
+          "elapsedMs": 40.153708,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.760125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 39.393583
+          }
+        },
+        {
+          "interaction": 71,
+          "originNs": 600642619535416,
+          "elapsedMs": 37.762834,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.587833,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 37.175001
+          }
+        },
+        {
+          "interaction": 72,
+          "originNs": 600644601252833,
+          "elapsedMs": 31.655583,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.285334,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 31.370249
+          }
+        },
+        {
+          "interaction": 73,
+          "originNs": 600646503127083,
+          "elapsedMs": 81.601417,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.148459,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 80.452958
+          }
+        },
+        {
+          "interaction": 74,
+          "originNs": 600648496548750,
+          "elapsedMs": 47.223125,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 2.999916,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 44.223209
+          }
+        },
+        {
+          "interaction": 75,
+          "originNs": 600650294735708,
+          "elapsedMs": 38.160875,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.342167,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 37.818708
+          }
+        },
+        {
+          "interaction": 76,
+          "originNs": 600652282079541,
+          "elapsedMs": 39.464542,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.7125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 38.752042
+          }
+        },
+        {
+          "interaction": 77,
+          "originNs": 600654220840208,
+          "elapsedMs": 31.475,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.163166,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 30.311834
+          }
+        },
+        {
+          "interaction": 78,
+          "originNs": 600656037406041,
+          "elapsedMs": 51.945709,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.332125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 51.613584
+          }
+        },
+        {
+          "interaction": 79,
+          "originNs": 600657869888583,
+          "elapsedMs": 31.444,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.451209,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 30.992791
+          }
+        },
+        {
+          "interaction": 80,
+          "originNs": 600659977913125,
+          "elapsedMs": 27.176291,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.430208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 26.746083
+          }
+        },
+        {
+          "interaction": 81,
+          "originNs": 600661913224458,
+          "elapsedMs": 33.944833,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.158583,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 33.78625
+          }
+        },
+        {
+          "interaction": 82,
+          "originNs": 600663802577708,
+          "elapsedMs": 31.206458,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.541167,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 30.665291
+          }
+        },
+        {
+          "interaction": 83,
+          "originNs": 600665591271708,
+          "elapsedMs": 32.701875,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.266459,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 32.435416
+          }
+        },
+        {
+          "interaction": 84,
+          "originNs": 600698309582708,
+          "elapsedMs": 36.074667,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.744375,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 35.330292
+          }
+        },
+        {
+          "interaction": 85,
+          "originNs": 600700135019583,
+          "elapsedMs": 29.813458,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.630792,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 29.182666
+          }
+        },
+        {
+          "interaction": 86,
+          "originNs": 600702046485583,
+          "elapsedMs": 29.744208,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.558542,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 29.185666
+          }
+        },
+        {
+          "interaction": 87,
+          "originNs": 600703943814000,
+          "elapsedMs": 32.5205,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.2255,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 32.295
+          }
+        },
+        {
+          "interaction": 88,
+          "originNs": 600705798393291,
+          "elapsedMs": 46.591709,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.354792,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 46.236917
+          }
+        },
+        {
+          "interaction": 89,
+          "originNs": 600707672941250,
+          "elapsedMs": 26.862041,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.523625,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 26.338416
+          }
+        },
+        {
+          "interaction": 90,
+          "originNs": 600709593678791,
+          "elapsedMs": 36.242917,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.328791,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 35.914126
+          }
+        },
+        {
+          "interaction": 91,
+          "originNs": 600711478819541,
+          "elapsedMs": 53.235375,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.299416,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 51.935959
+          }
+        },
+        {
+          "interaction": 92,
+          "originNs": 600713344817000,
+          "elapsedMs": 34.89575,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.291333,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 34.604417
+          }
+        },
+        {
+          "interaction": 93,
+          "originNs": 600715234255958,
+          "elapsedMs": 34.827375,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.3425,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 34.484875
+          }
+        },
+        {
+          "interaction": 94,
+          "originNs": 600717059834458,
+          "elapsedMs": 31.353958,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.179291,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 31.174667
+          }
+        },
+        {
+          "interaction": 95,
+          "originNs": 600719015593375,
+          "elapsedMs": 27.873541,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.20575,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 27.667791
+          }
+        },
+        {
+          "interaction": 96,
+          "originNs": 600720934312500,
+          "elapsedMs": 28.492375,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.230042,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 28.262333
+          }
+        },
+        {
+          "interaction": 97,
+          "originNs": 600722856923500,
+          "elapsedMs": 31.511125,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.218375,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 31.29275
+          }
+        },
+        {
+          "interaction": 98,
+          "originNs": 600724745745541,
+          "elapsedMs": 31.293875,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.552208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 30.741667
+          }
+        },
+        {
+          "interaction": 99,
+          "originNs": 600726459990458,
+          "elapsedMs": 35.973292,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 1.102875,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 34.870417
+          }
+        },
+        {
+          "interaction": 100,
+          "originNs": 600728324256833,
+          "elapsedMs": 30.444417,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.531709,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 29.912708
+          }
+        },
+        {
+          "interaction": 101,
+          "originNs": 600730245446833,
+          "elapsedMs": 25.678833,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.159875,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 25.518958
+          }
+        },
+        {
+          "interaction": 102,
+          "originNs": 600732014569458,
+          "elapsedMs": 32.585792,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.530958,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 32.054834
+          }
+        },
+        {
+          "interaction": 103,
+          "originNs": 600733975320125,
+          "elapsedMs": 30.252541,
+          "endpointCount": 3,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.628625,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 29.623916
+          }
+        }
+      ]
+    },
+    "local_fix": {
+      "samples": 0,
+      "medianMs": null,
+      "p95Ms": null,
+      "incompleteInteractions": 0,
+      "nativeInvocations": {
+        "owned": 0,
+        "startedDuringEndpoint": 0,
+        "overlappingEndpoint": 0,
+        "uncorrelatedOverlappingEndpoint": 0
+      },
+      "minimumSampleCountMet": false,
+      "interactions": []
+    }
+  },
+  "stages": {
+    "PREVIEW_INVOKED": {
+      "samples": 100,
+      "medianMs": 0.0028335,
+      "p95Ms": 0.007625
+    },
+    "PREVIEW_PLAN": {
+      "samples": 100,
+      "medianMs": 0.6297085,
+      "p95Ms": 1.97
+    },
+    "PREVIEW_PREPARATION": {
+      "samples": 100,
+      "medianMs": 2.127375,
+      "p95Ms": 5.555584
+    },
+    "PREVIEW_READY": {
+      "samples": 100,
+      "medianMs": 31.3239165,
+      "p95Ms": 53.235375
+    }
+  }
+}

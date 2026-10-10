@@ -23,18 +23,19 @@ The [native record and sanitized traces](native-validation-2026-10-10/README.md)
 
 **Native npm validation is blocked:** JavaScript/Node support is disabled in the available IDEA sandbox. No usable licensed profile was supplied or verified; the user requested recording this blocker. Passing headless npm integration tests do not replace native validation.
 
-IDEA 2026.1.4 also completed 100 small warm current-file Gradle endpoints each for Major editor diagnostics (median 3.08 ms, p95 9.82 ms) and Patch previews (median 31.35 ms, p95 44.28 ms), with no native queries. There are no incomplete previews; the editor report retains 100 source-tab activations without Version Checker diagnostics as incomplete and excludes them from latency samples. A packaged Maven follow-up verified committed mode/scope navigation, Refresh, bulk apply/undo, focus of an existing preview and stale-plan rejection/recovery with distinct trace origins. These results and archive identities are recorded in the native record; they cover those conditions only.
+IDEA 2026.1.4 also completed 100 small warm current-file Gradle endpoints each for Major editor diagnostics (median 3.08 ms, p95 9.82 ms), Patch previews (median 31.35 ms, p95 44.28 ms) and literal fixes (median 2.88 ms, p95 4.24 ms). Editor/preview captures contain no native queries, and no native invocation belongs to, starts during or overlaps a fix interval. IDEA 2025.3.6.1 completed 100 cached Gradle previews (median 31.32 ms, p95 53.24 ms), also without native queries. There are no incomplete previews; the 2026.1 editor report retains 100 source-tab activations without Version Checker diagnostics as incomplete and excludes them from latency samples. Native Gradle 2026.1 also verified offline guidance, authentication-failure status and a successful delayed failed-file retry. A packaged Maven follow-up verified committed mode/scope navigation, Refresh, bulk apply/undo, focus of an existing preview and stale-plan rejection/recovery with distinct trace origins. These results and archive identities are recorded in the native record; they cover those conditions only.
 
 | Native work | Status |
 |-------------|--------|
 | Small warm Maven editor/preview/literal fix, 2025.3.6.1 | Sample counts and latency recorded; globally idle fix capture remains to confirm |
 | Small warm Maven editor/preview/literal fix, 2026.1.4 | 100 completed samples per endpoint; no native queries in editor/preview captures or overlapping fixes |
 | Large Maven, roughly 100 modules / 10,000 declarations | Reproducible fixture generated and checked; native measurements pending |
-| Small warm Gradle editor/preview, 2026.1.4 | 100 completed samples each; p95 9.82 / 44.28 ms; no native queries |
-| Remaining Gradle cases, both IDEA versions | Fix, large/cold/failure and 2025.3 native measurements pending; reproducible Groovy/Kotlin/catalog fixtures available |
+| Small warm Gradle editor/preview/literal fix, 2026.1.4 | 100 completed samples each; p95 9.82 / 44.28 / 4.24 ms; no native queries in editor/preview captures or overlapping fixes |
+| Small warm Gradle preview, 2025.3.6.1 | 100 completed samples; p95 53.24 ms; no native queries |
+| Remaining Gradle cases, both IDEA versions | 2025.3 editor/fix, large/cold, Kotlin/catalog and remaining failure cases pending; reproducible fixtures available |
 | npm, both IDEA versions | Blocked by disabled JavaScript/Node support in available sandbox |
-| Cold/setup, delayed/offline/authentication, shared fixes and typing profiler | Pending |
-| Remaining native keyboard/focus and recovery cases | 2026.1 committed selectors, Refresh, existing-preview focus and stale rejection/recovery verified; failure cases and remaining per-version matrix pending |
+| Cold/setup, delayed/offline/authentication, shared fixes and typing profiler | Small Gradle offline/authentication/delayed retry verified in 2026.1; other cases pending |
+| Remaining native keyboard/focus and recovery cases | 2026.1 committed selectors, Refresh, existing-preview focus, stale rejection/recovery and Gradle failed-file Retry verified; remaining per-version/per-ecosystem matrix pending |
 
 The measured cases do not establish the full plan's latency targets. Headless platform, native repository integration and packaged-plugin lifecycle tests establish behavior and safety; they do not replace the outstanding native sessions below.
 
@@ -77,3 +78,13 @@ After isolating rebuilt previews and carrying bulk Apply's invocation origin, 35
 ### Gradle preview follow-up verification
 
 With artifact labels and repeated-declaration filtering coverage, the final run passed 352 plugin tests with zero failures, errors or skips, including all three authenticated native integration suites and packaged-plugin lifecycle checks. `test`, `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed, retaining the existing verifier notices on both IDEA versions. Eight trace-report tests passed. The coordinator trace regression now snapshots preview checks before Apply, so post-apply background checks cannot contaminate its preview-only assertion. Native 2026.1 separately verified filtering beta, selecting its single visible row, applying only beta and restoring it with one undo. The fixture generator's Groovy and Kotlin/shared-catalog configurations passed wrapper `help`; a 100-project / 10,000-use fixture and nonempty-destination protection were checked.
+
+### Remaining-plan audit and viewport correction
+
+Comparing the linked plan with the current code confirmed that interaction tracing and all four optional UX tasks are implemented. The outstanding native matrix above remains validation work; the conditional resolver experiments still require profiling evidence.
+
+The audit found a visible-diagnostic endpoint gap: a multiline inspection range starting above the viewport was excluded even when part of it was visible. Visibility now checks overlap of the whole range before checking screen geometry. A regression failed before the correction and passes afterward; a range entirely above the viewport remains excluded.
+
+The corrected build passed 353 plugin tests with zero failures, errors or skips, including authenticated native Maven/npm/Gradle integration and packaged-plugin lifecycle checks. `test`, `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed. Both supported IDEA versions remain compatible with the existing experimental progress API notices and the existing 2026.1 deprecated read-action notice. All eight trace-report tests passed.
+
+The native follow-up completed 100 verified Gradle literal fix/undo cycles in IDEA 2026.1 and 100 cached Gradle previews in IDEA 2025.3, with sanitized traces and reports linked above. It also verified small Gradle offline/authentication guidance and successful delayed Retry in 2026.1. The 2026.1 installation used the earlier archive; 2025.3 used the corrected build, but its preview timing does not validate the viewport endpoint. The 2025.3 editor/fix attempt lacked verified Version Checker markup and remains pending. The native record preserves these limits and the outstanding matrix.

@@ -71,7 +71,8 @@ internal fun visibleVersionDiagnostics(project: Project, editor: Editor, viewpor
     val last = editor.xyToLogicalPosition(java.awt.Point(viewport.x + viewport.width, viewport.y + viewport.height)).line
     return DocumentMarkupModel.forDocument(editor.document, project, false).allHighlighters.count { highlighter ->
         highlighter.isValid && HighlightInfo.fromRangeHighlighter(highlighter)?.inspectionToolId in versionInspectionTools &&
-            editor.document.getLineNumber(highlighter.startOffset.coerceAtMost(editor.document.textLength)) in first..last &&
+            editor.document.getLineNumber(highlighter.startOffset.coerceAtMost(editor.document.textLength)) <= last &&
+            editor.document.getLineNumber(highlighter.endOffset.coerceAtMost(editor.document.textLength)) >= first &&
             run {
                 val start = editor.offsetToXY(highlighter.startOffset.coerceAtMost(editor.document.textLength))
                 val end = editor.offsetToXY(highlighter.endOffset.coerceAtMost(editor.document.textLength))

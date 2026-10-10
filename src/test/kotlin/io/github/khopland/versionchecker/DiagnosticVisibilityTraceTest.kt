@@ -9,6 +9,25 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import java.awt.Rectangle
 
 class DiagnosticVisibilityTraceTest : BasePlatformTestCase() {
+    fun testCountsDiagnosticsStartingAboveTheVisibleViewport() {
+        myFixture.configureByText("visibility.txt", "first\nsecond\nthird\nfourth\n")
+        val editor = myFixture.editor
+        val markup = DocumentMarkupModel.forDocument(editor.document, project, true)
+        val highlighter = markup.addRangeHighlighter(0, 18, HighlighterLayer.WARNING, null,
+            HighlighterTargetArea.EXACT_RANGE).also {
+            it.errorStripeTooltip = HighlightInfo.newHighlightInfo(HighlightInfoType.WARNING).range(0, 18)
+                .description("Update").create()!!.apply { setToolId("NewerMavenDependencyVersion") }
+        }
+        try {
+            assertEquals(1, visibleVersionDiagnostics(project, editor,
+                Rectangle(0, editor.lineHeight, 100, editor.lineHeight)))
+            assertEquals(0, visibleVersionDiagnostics(project, editor,
+                Rectangle(0, editor.lineHeight * 3, 100, editor.lineHeight)))
+        } finally {
+            markup.removeHighlighter(highlighter)
+        }
+    }
+
     fun testReadsInstalledDocumentInspectionMarkupAndExcludesOtherToolsAndOffscreenColumns() {
         myFixture.configureByText("visibility.txt", "first\n" + " ".repeat(200) + "last\n")
         val editor = myFixture.editor
