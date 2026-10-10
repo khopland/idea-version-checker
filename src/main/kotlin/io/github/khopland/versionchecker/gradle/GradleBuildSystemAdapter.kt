@@ -64,8 +64,14 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         UpdateScope.CURRENT_FILE -> selection.currentFile?.let { find(project, it) }?.let { supported(it) && owner(project, it) != null } == true
         UpdateScope.WHOLE_PROJECT -> roots(project).any { root -> files(project, root).any(::supported) }
     }
+    override fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
+        val selectedRoots = if (selection.scope == UpdateScope.CURRENT_FILE)
+            listOfNotNull(selection.currentFile?.let { find(project, it) }?.let { owner(project, it) }) else roots(project)
+        return selectedRoots.flatMap { fingerprint(project, it).files.keys }.toSet()
+    }
+
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
-        return snapshot(project, file, mutableMapOf(), mutableMapOf())
+        return CheckPerformance.measure(CheckPerformance.Stage.GRADLE_SNAPSHOT) { snapshot(project, file, mutableMapOf(), mutableMapOf()) }
     }
     override fun inspectionSnapshot(project: Project, file: VirtualFile): BuildSnapshot? =
         snapshot(project, file, mutableMapOf(), mutableMapOf(), allowUnsaved = true)
@@ -110,9 +116,16 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         val hashes = project.service<GradleProjectCache>().hashes(root, files(project, root)).toMutableMap()
         // These inputs can change outside IntelliJ's VFS, so always read their current contents.
         val home = Path.of(settings.serviceDirectoryPath ?: System.getenv("GRADLE_USER_HOME") ?: Path.of(System.getProperty("user.home"), ".gradle").toString())
-        for (path in listOf(home.resolve("gradle.properties"), home.resolve("init.gradle"), home.resolve("init.gradle.kts"))) hashes[path.toString()] = if (Files.exists(path)) hash(Files.readAllBytes(path)) else "missing"
+        fun externalHash(path: Path): String {
+            val saved = if (Files.exists(path)) hash(Files.readAllBytes(path)) else "missing"
+            val documents = FileDocumentManager.getInstance()
+            val unsaved = LocalFileSystem.getInstance().findFileByNioFile(path)?.let(documents::getCachedDocument)
+                ?.takeIf(documents::isDocumentUnsaved)?.let { hash(it.text.toByteArray()) }
+            return "$saved:$unsaved"
+        }
+        for (path in listOf(home.resolve("gradle.properties"), home.resolve("init.gradle"), home.resolve("init.gradle.kts"))) hashes[path.toString()] = externalHash(path)
         val init = home.resolve("init.d")
-        if (Files.isDirectory(init)) Files.walk(init).use { paths -> paths.filter(Files::isRegularFile).forEach { hashes[it.toString()] = hash(Files.readAllBytes(it)) } }
+        if (Files.isDirectory(init)) Files.walk(init).use { paths -> paths.filter(Files::isRegularFile).forEach { hashes[it.toString()] = externalHash(it) } }
         val sdk = ProjectRootManager.getInstance(project).projectSdk
         val gradleHome = linked?.let { gradleHomeGetter.invoke(it)?.toString() }
         return BuildFingerprint(hashes, listOf(root, linked?.modules?.sorted(), linked?.gradleJvm, gradleHome, linked?.distributionType, sdk?.name, sdk?.homePath, settings.serviceDirectoryPath, settings.gradleVmOptions, settings.isOfflineWork, project.service<VersionCheckerSettings>().state.deprecatedDependencies, System.getenv().toSortedMap()).joinToString("|").let { hash(it.toByteArray()) })

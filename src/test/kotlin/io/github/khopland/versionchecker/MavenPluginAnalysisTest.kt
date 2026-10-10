@@ -92,7 +92,7 @@ class MavenPluginAnalysisTest : BasePlatformTestCase() {
             mapOf(parent to "5.41.0"))
         val problem = analysis.problems(file).single()
         assertEquals(parent, problem.coordinate)
-        assertTrue(problem.message.contains("parent POM org.example:parent"))
+        assertTrue(problem.message.startsWith("org.example:parent · minor update: 5.40.0 → 5.41.0") && problem.message.contains("parent POM"))
         val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
         assertTrue(plan.apply(project))
         assertEquals("5.41.0", (file as XmlFile).rootTag!!.findFirstSubTag("parent")!!.findFirstSubTag("version")!!.value.trimmedText)

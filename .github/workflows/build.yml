@@ -114,6 +114,9 @@ jobs:
       - name: Test release automation
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 
+      - name: Test performance trace reporting
+        run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
+
       - name: Run unit and native repository integration tests
         run: ./gradlew check -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain
 

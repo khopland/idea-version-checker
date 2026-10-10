@@ -60,7 +60,7 @@ class GradleInspectionTest : BasePlatformTestCase() {
             })
         }
         assertEquals(count, holder.results.size)
-        assertTrue(holder.results.all { it.fixes?.size == 1 })
+        assertTrue(holder.results.all { it.fixes?.filterIsInstance<UpdateGradleVersionFix>()?.size == 1 && it.fixes?.filterIsInstance<IgnorePublishedVersionFix>()?.size == 1 })
         assertTrue("Candidate traversal must grow linearly, visited $visits entries for $count declarations", visits <= count * 2)
     }
 

@@ -68,6 +68,7 @@ internal class FileProblemRefreshQueue(
 /** Repository results affect their source files; settings changes still refresh the whole project. */
 @Service(Service.Level.PROJECT)
 internal class FileProblemRefresh(private val project: Project, private val scope: CoroutineScope) {
+    private val traces = mutableMapOf<String, Pair<CheckPerformance.Interaction, Long>>() // EDT only.
     private val queue = FileProblemRefreshQueue(scope) { paths ->
         withContext(Dispatchers.EDT) {
             if (!project.isDisposed) ReadAction.run<RuntimeException> {
@@ -76,16 +77,23 @@ internal class FileProblemRefresh(private val project: Project, private val scop
                 for (path in paths) {
                     val file = LocalFileSystem.getInstance().findFileByPath(path)
                         ?: ProjectRootManager.getInstance(project).contentRoots.firstNotNullOfOrNull { it.fileSystem.findFileByPath(path) }
-                    file?.takeIf { it.isValid }?.let(psi::findFile)?.let { daemon.restart(it, this@FileProblemRefresh) }
+                    file?.takeIf { it.isValid }?.let(psi::findFile)?.let { source ->
+                        val trace = traces.remove(path)
+                        CheckPerformance.locally(trace?.first) {
+                            trace?.let { CheckPerformance.record(CheckPerformance.Stage.HIGHLIGHT_QUEUE, it.second) }
+                            CheckPerformance.measure(CheckPerformance.Stage.HIGHLIGHT_RESTART) { daemon.restart(source, this@FileProblemRefresh) }
+                        }
+                    }
                 }
             }
         }
     }
 
     fun request(path: String) {
-        scope.launch(Dispatchers.EDT) {
+        scope.launch(Dispatchers.EDT + CheckPerformance.context()) {
             if (!project.isDisposed) {
                 val active = FileEditorManager.getInstance(project).selectedFiles.any { it.path == path }
+                CheckPerformance.current()?.let { traces.putIfAbsent(path, it to System.nanoTime()) }
                 queue.request(path, active)
             }
         }

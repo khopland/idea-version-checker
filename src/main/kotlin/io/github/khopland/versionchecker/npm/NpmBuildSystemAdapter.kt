@@ -22,6 +22,18 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     override fun supports(project: Project, selection: BuildSelection) =
         NpmManifest.files(project, selection).any { NpmWorkspaces.supportsManifest(project, it) }
 
+    override fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
+        val workspaces = NpmManifest.files(project, selection).map { NpmWorkspaces.resolve(project, it) }.distinctBy { it.root }
+        val unsaved = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().unsavedDocuments.mapNotNull {
+            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getFile(it)?.path
+        }
+        return workspaces.flatMap { workspace ->
+            NpmBuildInputs.fingerprint(project, workspace).files.keys.map {
+                it.removePrefix("disk-config:").removePrefix("virtual-config:")
+            } + unsaved.filter { NpmBuildInputs.hasUnsavedResolutionInputs(project, workspace.root.path, setOf(it)) }
+        }.toSet()
+    }
+
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? = snapshot(project, file, mutableMapOf())
 
     private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>): BuildSnapshot? {
@@ -76,11 +88,13 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         val report = metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory) }) { runtime ->
             checkNpmVersions(snapshot.declarations, mode, policy, registrySlots,
                 metadata = { name ->
-                    val lease = metadata.cache.getFresh(context, name) {
-                        // The shared metadata worker owns a separate lease. Cancelling the
-                        // initiating check must not stop runtime setup needed by another caller.
-                        metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory) }) {
-                            NpmRegistry.metadata(it.await(), directory, name)
+                    val lease = CheckPerformance.measure(CheckPerformance.Stage.NPM_METADATA_WAIT) {
+                        metadata.cache.getFresh(context, name) {
+                            // The shared metadata worker owns a separate lease. Cancelling the
+                            // initiating check must not stop runtime setup needed by another caller.
+                            metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory) }) {
+                                NpmRegistry.metadata(it.await(), directory, name)
+                            }
                         }
                     }
                     expires.updateAndGet { minOf(it, lease.expiresAt) }
@@ -140,7 +154,8 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     /** Local edits belong to their declaration; a prepared workspace action may be shared by a pass. */
     internal fun quickFixes(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
                             value: JsonStringLiteral, workspaceFix: LocalQuickFix?): Array<LocalQuickFix> {
-        val current = { isCurrent(project, snapshot) }
+        val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
+        val current = { isCurrent(project, snapshot) && project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy }
         if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, isCurrent = current))
         return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, "Update locally to ${candidate.replacementSelector}", current),
             workspaceFix)
@@ -157,7 +172,10 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
             NpmVersionEdit(target, selector.replace(candidate.version), "${declaration.id.file}: ${declaration.id.location}")
         }
         if (edits.mapNotNull { it.element?.containingFile?.virtualFile?.path }.distinct().size < 2) return null
-        return UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits) { isCurrent(project, snapshot) }
+        val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
+        return UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits) {
+            isCurrent(project, snapshot) && project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy
+        }
     }
     private fun findFile(project: Project, path: String): VirtualFile? =
         NpmManifest.files(project, BuildSelection(UpdateScope.CURRENT_FILE, path)).singleOrNull()

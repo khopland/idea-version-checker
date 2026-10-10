@@ -90,6 +90,32 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         else fix.applyFix(project, problem)
     }
 
+    fun testIgnoringOneRegistryReleaseHidesItsAliasesAndKeepsOtherPackagesAndCachedResults() {
+        val root = add("package.json", """{"dependencies":{"alpha":"^1.2.3","alias":"npm:alpha@~1.2.3","beta":"^1.2.3"}}""")
+        val before = root.text
+        val snapshot = adapter.snapshot(project, root.virtualFile)!!
+        val problems = inspect(root)
+        val alpha = problems.first { it.descriptionTemplate.startsWith("alpha ·") }
+        alpha.fixes!!.filterIsInstance<IgnorePublishedVersionFix>().single().applyFix(project, alpha)
+        val options = project.service<VersionCheckerSettings>().state
+        try {
+            assertEquals("npm alpha = 1.2.9", options.ignoredVersions)
+            assertEquals(1, inspect(root).size)
+            assertTrue(inspect(root).single().descriptionTemplate.startsWith("beta ·"))
+            assertEquals(3, project.service<VersionCheckService>().cached(snapshot)!!.candidates.size)
+            val future = com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread(java.util.concurrent.Callable {
+                kotlinx.coroutines.runBlocking { project.service<BulkUpdateService>().createPlan(UpdateMode.MAJOR,
+                    io.github.khopland.versionchecker.core.UpdateScope.CURRENT_FILE, root.virtualFile) }
+            })
+            val plan = PlatformTestUtil.waitForFuture(future, 10_000)
+            assertEquals(1, plan.changes.size)
+            options.ignoredVersions = ""
+            assertFalse("Changing ignore policy invalidates an already prepared preview", plan.apply(project))
+            assertEquals(3, inspect(root).size)
+            assertEquals(before, root.text)
+        } finally { options.ignoredVersions = "" }
+    }
+
     fun testInspectionSharesWorkspaceActionButKeepsLocalAliasesAndPassesSeparate() {
         val root = root()
         val child = child()
@@ -113,7 +139,7 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         val problems = inspect(root, mapOf("dependencies/one" to "1.2.9", "dependencies/two" to "1.3.0"))
         val lower = problems.single { "npm:alpha@^" in it.psiElement.text }
         val higher = problems.single { "npm:alpha@~" in it.psiElement.text }
-        val beta = problems.single { it.descriptionTemplate.contains("of beta ") }
+        val beta = problems.single { it.descriptionTemplate.startsWith("beta ·") }
         assertNotSame(lower.fixes!![1], higher.fixes!![1])
         assertNotSame(lower.fixes!![1], beta.fixes!![1])
         assertEquals("Update alpha across workspace to 1.2.9 (3 declarations)", lower.fixes!![1].name)
@@ -148,9 +174,9 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         val before = newer.text
         val problems = inspect(root)
         assertEquals(2, problems.size)
-        assertTrue(problems.all { it.fixes!!.size == 1 })
+        assertTrue(problems.all { it.fixes!!.filterIsInstance<UpdateNpmVersionFix>().size == 1 && it.fixes!!.filterIsInstance<IgnorePublishedVersionFix>().size == 1 })
         val alias = problems.single { "npm:alpha@~1.2.3" in it.psiElement.text }
-        assertEquals("Update declared version to npm:alpha@~1.2.9", alias.fixes!!.single().name)
+        assertEquals("Update declared version to npm:alpha@~1.2.9", alias.fixes!!.filterIsInstance<UpdateNpmVersionFix>().single().name)
         apply(alias, 0)
         assertEquals("npm:alpha@~1.2.9", selectors(root)["devDependencies/alias"])
         assertEquals("^1.2.3", selectors(root)["dependencies/alpha"])
@@ -162,8 +188,8 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         val child = add("packages/app/package.json", """{"dependencies":{"alias":"npm:alpha@~1.2.3","beta":"~1.2.3"}}""")
         val problems = inspect(root)
         assertEquals(2, problems.size)
-        val alpha = problems.first { it.descriptionTemplate.contains("of alpha ") }
-        val beta = problems.first { it.descriptionTemplate.contains("of beta ") }
+        val alpha = problems.first { it.descriptionTemplate.startsWith("alpha ·") }
+        val beta = problems.first { it.descriptionTemplate.startsWith("beta ·") }
         assertEquals("Update alpha across workspace to 1.2.9 (2 declarations)", alpha.fixes!![1].name)
         assertEquals("Update beta across workspace to 1.2.9 (2 declarations)", beta.fixes!![1].name)
         apply(root, alpha.fixes!![1] as LocalQuickFix)

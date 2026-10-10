@@ -23,8 +23,10 @@ abstract class BulkUpdateAction(private val mode: UpdateMode,
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
         val current = currentBuildFile(event)
-        FileDocumentManager.getInstance().saveAllDocuments()
-        project.service<BulkUpdateService>().preview(mode, scope, current)
+        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)) {
+            saveBuildInputs(project, BuildSelection(scope, current?.path))
+            project.service<BulkUpdateService>().preview(mode, scope, current)
+        }
     }
 }
 class PatchUpdateAction : BulkUpdateAction(UpdateMode.PATCH)

@@ -280,15 +280,21 @@ In IDEA, open **Help → Diagnostic Tools → Debug Log Settings** and enable:
 #io.github.khopland.versionchecker.CheckPerformance
 ```
 
-Trace entries in `idea.log` contain a fixed stage name, elapsed nanoseconds and a count:
+Trace entries in `idea.log` contain a fixed stage, anonymous interaction ID, monotonic start/end/origin timestamps, elapsed nanoseconds and a count:
 
 ```text
-version-check stage=MAVEN_DEPENDENCY_GOAL elapsedNs=123456789 count=1
+version-check stage=MAVEN_DEPENDENCY_GOAL elapsedNs=123456789 count=1 interaction=12 startNs=1000000000 endNs=1123456789 originNs=900000000
 ```
 
-Stages cover Maven/npm snapshot capture, coordinator lock wait, overall checks, Maven project-input capture/declaration collection/embedder acquisition/effective model/settings/metadata expiration, each dependency/plugin/parent goal, npm command setup and CLI execution, npm version indexing, and highlighting restart work. `NPM_VERSION_INDEX` counts raw version entries supplied to the index and measures its one-time preparation per response. `HIGHLIGHT_QUEUE` includes the batching delay and restart scheduling; it does not measure completion of IDEA's inspection rendering. Goal/session/CLI counts count invocations, `MAVEN_PROJECT_INPUTS` counts captured non-ignored POMs, metadata expiration counts declarations, and highlighting counts affected files. Stages can overlap or contain other stages, so their durations must not be summed indiscriminately. Failed and cancelled operations can also emit timings.
+Coroutines and shared npm metadata/runtime workers propagate the initiating interaction. Native tasks and UI dispatch do not log paths, coordinates, URLs, settings, command arguments or credentials. Interaction zero denotes a standalone uncorrelated stage. IDs are process-local; use ID plus origin when reading a log spanning restarts.
 
-The trace category records no file paths, coordinates, registry URLs, command arguments, configuration contents or tokens. Disable it after profiling. Compare current-file and whole-project refreshes separately, and record update mode, fresh/warm native caches and runtime versions alongside results. Counting metadata expiration does not prove HTTP revalidation; the local fixtures count requests independently.
+Stage coverage includes Maven/npm/Gradle snapshots, coordinator queues and complete checks; Maven model/settings/embedder/metadata work and individual goals; npm runtime/command construction, shared metadata waits, CLI execution and local version indexing; Gradle setup, native execution and configuration/query durations; accepted results; highlight queues/restarts; preview plan preparation and readiness; local fix invocation and changed editor text. `FILE_ACTIVATED` to `DIAGNOSTIC_VISIBLE` ends after installed Version Checker markup intersects the selected viewport and an explicit editor paint completes. `IDEA_HIGHLIGHTING` observes daemon start through that paint. `PREVIEW_READY` requires a showing dialog and completed content paint. These debug-only paints and logging add profiling overhead, and compositor latency is excluded.
+
+Gradle configuration/query durations are measured inside its JVM and read from a numeric temporary timing file, including failed queries that reach the task. They do not use buffered console callback times. Their timeline positions are approximated at the end of the host native invocation; configuration includes init-script-to-query work, while process startup/tooling overhead stays outside these native spans. Early failure/cancellation can produce only the overall native duration. Shared npm workers belong to the first initiating interaction; other callers' `NPM_METADATA_WAIT` records their wait without attributing a second native invocation.
+
+Do not add overlapping stages or milestone durations. The [trace summarizer](../scripts/summarize-performance.py) partitions interval coverage into exclusive categories and leaves unidentified time visible, rather than treating whole `CHECK`/preview/diagnostic endpoints as independent work. It exports only the trace schema plus a case label, completed endpoint sample counts, median/p95, and separate stage distributions. Full reproduction conditions and the still-required native performance/usability matrix are in [remaining-plan-work.md](remaining-plan-work.md).
+
+Disable tracing after profiling. Capture current-file/project scope, mode and cold/warm cases separately. Metadata expiration/invocation counts do not establish HTTP revalidation; repository fixtures count requests independently.
 
 ## Measurement limits
 

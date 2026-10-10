@@ -469,7 +469,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 return holder.results
             }
             assertEquals(2, problems().size)
-            assertTrue(problems().all { it.fixes?.size == 2 })
+            assertTrue(problems().all { it.fixes?.size == 3 && it.fixes!!.last() is IgnorePublishedVersionFix })
             assertTrue(problems().all { "locally" in it.fixes!![0].name && "across workspace" in it.fixes!![1].name })
             assertTrue(problems().all { it.highlightType == ProblemHighlightType.GENERIC_ERROR && "deprecated" in it.descriptionTemplate })
             val options = project.service<VersionCheckerSettings>().state
@@ -495,7 +495,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             val updated = adapter.snapshot(project, rootFile)!!
             service.updates(adapter, updated)
             PlatformTestUtil.waitWithEventsDispatching("npm updated diagnostics", { service.cached(updated) != null }, 120_000)
-            assertTrue(problems().all { it.highlightType == ProblemHighlightType.WARNING && "declared range" in it.descriptionTemplate })
+            assertTrue(problems().all { it.highlightType == ProblemHighlightType.WARNING && "update:" in it.descriptionTemplate && " → " in it.descriptionTemplate })
             // Registry failures must propagate, without publishing an empty successful plan or touching declarations.
             val beforeFailure = Files.readString(directory.resolve("package.json"))
             rejectAccess.set(true)

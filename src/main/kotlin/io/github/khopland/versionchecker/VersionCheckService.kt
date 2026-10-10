@@ -54,6 +54,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     private fun captureSelection() {
         selectedPaths = FileEditorManager.getInstance(project).selectedFiles.map { it.path }.toSet()
+        if (CheckPerformance.enabled()) project.service<DiagnosticVisibilityTrace>().activated(selectedPaths)
+        else project.getServiceIfCreated(DiagnosticVisibilityTrace::class.java)?.activated(emptySet())
     }
 
     override fun dispose() { disposed = true }
@@ -99,10 +101,17 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         if (!project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project)) return null
         val entry = cache.get(snapshot)
         if (entry == null && adapter.canCheckInBackground(project, snapshot)) schedule(adapter, snapshot)
-        return entry ?: cache.inspectionProgress(adapter, snapshot) ?: cache.retainedInspectionReport(adapter, snapshot)
+        return (entry ?: cache.inspectionProgress(adapter, snapshot) ?: cache.retainedInspectionReport(adapter, snapshot))
+            ?.withoutIgnored(adapter.id, project.service<VersionCheckerSettings>().state)
     }
 
     internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode,
+                                  reuseCached: Boolean = false): UpdateReport = CheckPerformance.traced(
+        CheckPerformance.current() ?: CheckPerformance.start(CheckPerformance.Stage.INTERACTION_STARTED)) {
+        checkNowTraced(adapter, snapshot, mode, reuseCached)
+    }
+
+    private suspend fun checkNowTraced(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode,
                                   reuseCached: Boolean = false): UpdateReport {
         if (reuseCached) {
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
@@ -126,6 +135,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                     check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed during the check. Run it again." }
                     check(cache.revision(snapshot.context) == revision) { "Version checks were refreshed during this check. Run it again." }
                     check(cache.put(snapshot, revision, result, mode)) { "Repository results expired during this check. Run it again." }
+                    CheckPerformance.record(CheckPerformance.Stage.RESULT_ACCEPTED, System.nanoTime(), result.candidates.size + result.notices.size)
                     if (mode == UpdateMode.MAJOR && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
                     if (!result.successful) throw result.failureCause ?: IllegalStateException(result.failure.orEmpty())
                     result
@@ -163,7 +173,11 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                     }
                 }
             }
-            return finish(report)
+            val completed = finish(report)
+            val useful = report.candidates.size + report.notices.size
+            if (useful > 0 && cache.get(snapshot, mode) === report && first.compareAndSet(false, true))
+                CheckPerformance.record(CheckPerformance.Stage.FIRST_INSPECTION_RESULT, started, useful)
+            return completed
         } finally {
             statusChecks.remove(owner)
             statusChanged(snapshot.sourceFile)
@@ -358,6 +372,14 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     private suspend fun scan(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false,
                              interactive: Boolean = false, failures: VersionCheckFailures? = null): Boolean {
+        val interaction = if (CheckPerformance.enabled()) kotlinx.coroutines.withContext(Dispatchers.EDT) {
+            project.service<DiagnosticVisibilityTrace>().interaction(snapshot.sourceFile)
+        } ?: CheckPerformance.current() ?: CheckPerformance.start(CheckPerformance.Stage.INTERACTION_STARTED) else null
+        return CheckPerformance.traced(interaction) { scanTraced(adapter, snapshot, token, showProgress, interactive, failures) }
+    }
+
+    private suspend fun scanTraced(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false,
+                             interactive: Boolean = false, failures: VersionCheckFailures? = null): Boolean {
         var published = false
         val queued = System.nanoTime()
         try {
@@ -369,6 +391,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 val finish: suspend (UpdateReport) -> Unit = { report ->
                     if (readAction { !project.isDisposed && adapter.isCurrent(project, snapshot) } && cache.put(snapshot, token.revision, report)) {
                         published = true
+                        CheckPerformance.record(CheckPerformance.Stage.RESULT_ACCEPTED, System.nanoTime(), report.candidates.size + report.notices.size)
                         if (!report.successful) recordFailure(adapter, snapshot, report.failure.orEmpty(), report.failureCause, failures)
                         else project.getServiceIfCreated(VersionCheckFeedback::class.java)
                             ?.checked(VersionCheckTarget(adapter.id, snapshot.sourceFile))

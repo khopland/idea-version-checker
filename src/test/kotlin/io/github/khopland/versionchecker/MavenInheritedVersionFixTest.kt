@@ -121,7 +121,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val problems = inspect(file, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results
         val warning = problems.single { it.psiElement == property }
         assertEquals(ProblemHighlightType.WARNING, warning.highlightType)
-        apply(warning.fixes!!.single() as LocalQuickFix, property)
+        apply(warning.fixes!!.filterIsInstance<UpdateDependencyVersionFix>().single() as LocalQuickFix, property)
         assertEquals("4.13.2", property.value.trimmedText)
         assertEquals("\${junit.version}", declaration(file).findFirstSubTag("version")!!.value.trimmedText)
     }
@@ -137,7 +137,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val warning = inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results.single()
         assertSame(property, warning.psiElement)
         assertTrue(warning.descriptionTemplate.contains("4.12 → 4.13.2"))
-        apply(warning.fixes!!.single() as LocalQuickFix, property)
+        apply(warning.fixes!!.filterIsInstance<UpdateDependencyVersionFix>().single() as LocalQuickFix, property)
         assertEquals("4.13.2", property.value.trimmedText)
         assertEquals(parentText, parent.text)
     }
@@ -176,7 +176,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
               <dependency><groupId>g</groupId><artifactId>b</artifactId><version>${'$'}{shared.version}</version></dependency></dependencies>""")
         val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
         val warning = inspect(file, mapOf(DependencyVersion("g", "a", "1.0") to "1.1")).results.single { it.psiElement == property }
-        assertTrue(warning.fixes.isNullOrEmpty())
+        assertTrue(warning.fixes.orEmpty().all { it is IgnorePublishedVersionFix })
     }
 
     fun testChildManagedDependencyFixUpdatesChildPropertyOverride() {
@@ -202,8 +202,8 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val property = child.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
         val warning = inspect(child, mapOf(DependencyVersion("g", "p", "1.1", MavenArtifactKind.PLUGIN) to "1.2")).results.single()
         assertSame(property, warning.psiElement)
-        assertTrue(warning.descriptionTemplate.contains("Maven plugin g:p"))
-        assertEquals(1, warning.fixes!!.size)
+        assertTrue(warning.descriptionTemplate.startsWith("g:p ·"))
+        assertEquals(1, warning.fixes!!.filterIsInstance<UpdateDependencyVersionFix>().size)
     }
 
     fun testParentDeclarationsShadowedByNearerVersionsAndUnrelatedPropertiesHaveNoWarnings() {
@@ -233,7 +233,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val warnings = inspect(file, mapOf(DependencyVersion("g", "a", "1.0") to "1.1",
             DependencyVersion("g", "p", "1.0", MavenArtifactKind.PLUGIN) to "1.2")).results.filter { it.psiElement == property }
         assertEquals(2, warnings.size)
-        assertTrue(warnings.all { it.fixes.isNullOrEmpty() })
+        assertTrue(warnings.all { it.fixes.orEmpty().all { fix -> fix is IgnorePublishedVersionFix } })
     }
 
     fun testRootPropertyUsesItsActiveProfileOwnerForQuickFixAndBulkEdit() {
@@ -294,6 +294,50 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertEquals(3, coordinates.size)
         assertEquals(2, coordinates.count { it == DependencyVersion("junit", "junit", "4.12") })
         assertEquals("bom.group:fixture-bom,junit:junit", MavenDependencyFilters.includes(coordinates))
+    }
+
+    fun testIgnoredArtifactCannotBeChangedThroughAnotherArtifactsSharedProperty() {
+        val file = imported("ignore-shared", """<properties><shared.version>1.0</shared.version></properties>
+            <dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>${'$'}{shared.version}</version></dependency>
+              <dependency><groupId>g</groupId><artifactId>b</artifactId><version>${'$'}{shared.version}</version></dependency></dependencies>""")
+        val options = VersionCheckerSettings.Options(ignoredVersions = "maven g:a = 1.1")
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, manager.findProject(file.virtualFile)!!,
+            mapOf(DependencyVersion("g", "a", "1.0") to "1.1", DependencyVersion("g", "b", "1.0") to "1.1"), options)
+        val tags = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags
+        assertNull(analysis.problem(tags[0]))
+        assertTrue(analysis.quickFixes(tags[1], analysis.problem(tags[1])!!).isEmpty())
+        assertTrue(analysis.propertyQuickFixes(file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()).isEmpty())
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
+        assertTrue(plan.changes.isEmpty())
+        assertTrue(plan.skipped.single().contains("uses need review"))
+    }
+
+    fun testSharedChoiceLabelsCountImportedConsumersAndExcludeLocalOverrides() {
+        imported("scope-parent", management("4.12"))
+        val child = imported("scope-child", dependency(), "scope-parent")
+        imported("scope-sibling", dependency(), "scope-parent")
+        imported("scope-local", dependency("<version>4.12</version>"), "scope-parent")
+        val shared = fixes(child).filterIsInstance<UpdateDependencyVersionFix>().single()
+        assertTrue(shared.name, shared.name.contains("3 version declarations across 3 POMs"))
+        assertTrue(shared.name, shared.name.contains("scope-parent/pom.xml"))
+    }
+
+    fun testMavenCurrentFileSavingIncludesSiblingPomsAndAncestorConfigurationOnly() {
+        val parent = imported("save-parent", management("4.12"))
+        val child = imported("save-child", dependency(), "save-parent")
+        val configPath = Files.createDirectories(directory.resolve(".mvn")).resolve("maven.config")
+        Files.writeString(configPath, "-Dfixture=true")
+        val configFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(configPath)!!
+        val source = myFixture.addFileToProject("unrelated-edit.txt", "keep editing")
+        val documents = FileDocumentManager.getInstance()
+        val edited = listOf(parent.virtualFile, child.virtualFile, configFile, source.virtualFile)
+        WriteCommandAction.runWriteCommandAction(project) {
+            edited.forEach { file -> documents.getDocument(file)!!.let { it.insertString(it.textLength, " ") } }
+            PsiDocumentManager.getInstance(project).commitAllDocuments()
+        }
+        saveBuildInputs(project, BuildSelection(UpdateScope.CURRENT_FILE, child.virtualFile.path), listOf(MavenBuildSystemAdapter()))
+        edited.take(3).forEach { assertFalse(documents.isFileModified(it)) }
+        assertTrue(documents.isFileModified(source.virtualFile))
     }
 
     private fun dependency(version: String = "") = """<dependencies><dependency>

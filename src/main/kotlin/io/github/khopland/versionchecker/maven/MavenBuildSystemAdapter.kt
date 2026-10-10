@@ -23,6 +23,12 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
         return selectedProjects(manager, selection).isNotEmpty()
     }
 
+    override fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
+        val manager = MavenProjectsManager.getInstance(project)
+        val inputs = MavenProjectInputs(manager)
+        return selectedProjects(manager, selection).flatMap { inputs.fingerprint(it).files.keys }.toSet()
+    }
+
     override fun isOffline(project: Project) = MavenProjectsManager.getInstance(project).generalSettings.isWorkOffline
 
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? =

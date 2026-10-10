@@ -61,7 +61,7 @@ class OtherManagerWarningRetentionTest : BasePlatformTestCase() {
         NewerGradleDependencyInspection().buildVisitor(holder, false).visitFile(file)
         assertEquals(report.candidates.size, holder.results.size)
         val descriptor = holder.results.first()
-        descriptor.fixes!!.single().applyFix(project, descriptor)
+        descriptor.fixes!!.filterIsInstance<UpdateGradleVersionFix>().single().applyFix(project, descriptor)
     }
 
     private fun verifySequentialUpdates(adapter: BuildSystemAdapter, first: PsiFile, sibling: PsiFile,
@@ -98,7 +98,7 @@ class OtherManagerWarningRetentionTest : BasePlatformTestCase() {
                 val holder = ProblemsHolder(InspectionManager.getInstance(project), first, false)
                 NewerGradleDependencyInspection().buildVisitor(holder, false).visitFile(first)
                 assertEquals(1, holder.results.size)
-                assertNotNull(holder.results.single().fixes?.singleOrNull())
+                assertNotNull(holder.results.single().fixes?.filterIsInstance<UpdateGradleVersionFix>()?.singleOrNull())
                 FileDocumentManager.getInstance().saveAllDocuments()
                 service.updates(checkingAdapter, snapshot(adapter, first))
                 service.updates(checkingAdapter, snapshot(adapter, sibling))

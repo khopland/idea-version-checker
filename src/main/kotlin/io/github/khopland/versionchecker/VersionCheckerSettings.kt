@@ -32,7 +32,8 @@ class VersionCheckerSettings : PersistentStateComponent<VersionCheckerSettings.O
         var deprecatedSeverity: VersionSeverity = VersionSeverity.ERROR,
         var deprecatedDependencies: String = "",
         var scheduledChecks: Boolean = false,
-        var checkIntervalMinutes: Int = 30
+        var checkIntervalMinutes: Int = 30,
+        var ignoredVersions: String = ""
     )
     private var options = Options()
     override fun getState(): Options = options
@@ -45,6 +46,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     private var interval: JSpinner? = null
     private val severities = linkedMapOf<VersionChangeKind, ComboBox<VersionSeverity>>()
     private var deprecated: JBTextArea? = null
+    private var ignored: JBTextArea? = null
     override fun getDisplayName(): String = "Version Checker"
     override fun createComponent(): JComponent {
         enabled = JBCheckBox("Check for newer dependency and build-plugin versions")
@@ -66,10 +68,14 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
             severities[kind] = selector
             form.addLabeledComponent(label, selector)
         }
-        deprecated = JBTextArea(5, 50)
+        deprecated = JBTextArea(5, 50).apply { accessibleContext.accessibleName = "Deprecated artifacts" }
         form.addComponent(JBLabel("Explicitly deprecated dependencies or plugins (one artifact identifier = reason per line):"))
             .addComponent(JBScrollPane(deprecated!!))
             .addComponent(JBLabel("Use the build system’s artifact identifier, such as org.example:library or @scope/package."))
+        ignored = JBTextArea(4, 50).apply { accessibleContext.accessibleName = "Ignored published versions" }
+        form.addComponent(JBLabel("Ignored published versions in this project (remove a line to restore an update):"))
+            .addComponent(JBScrollPane(ignored!!))
+            .addComponent(JBLabel("One per line: maven org.example:library = 1.2.3, npm @scope/package = 1.2.3, or gradle org.example:library = 1.2.3"))
         return form.panel.also { reset() }
     }
     override fun isModified(): Boolean {
@@ -77,7 +83,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         return enabled?.isSelected != state.enabled ||
             scheduled?.isSelected != state.scheduledChecks || interval?.value != state.checkIntervalMinutes.coerceIn(1, 1440) ||
             severities.any { (kind, selector) -> selector.selectedItem != kind.severity(state) } ||
-            deprecated?.text != state.deprecatedDependencies
+            deprecated?.text != state.deprecatedDependencies || ignored?.text != state.ignoredVersions
     }
     override fun apply() {
         val state = project.service<VersionCheckerSettings>().state
@@ -90,6 +96,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         state.otherSeverity = selected(VersionChangeKind.OTHER)
         state.deprecatedSeverity = selected(VersionChangeKind.DEPRECATED)
         state.deprecatedDependencies = deprecated!!.text
+        state.ignoredVersions = ignored!!.text
         project.service<ScheduledVersionChecks>().configure()
         project.service<VersionCheckService>().statusChanged()
         refreshEditorProblems(project, this)
@@ -102,11 +109,12 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         updateScheduleControls()
         severities.forEach { (kind, selector) -> selector.selectedItem = kind.severity(state) }
         deprecated?.text = state.deprecatedDependencies
+        ignored?.text = state.ignoredVersions
     }
     private fun selected(kind: VersionChangeKind) = severities.getValue(kind).selectedItem as VersionSeverity
     private fun updateScheduleControls() {
         scheduled?.isEnabled = enabled?.isSelected == true
         interval?.isEnabled = enabled?.isSelected == true && scheduled?.isSelected == true
     }
-    override fun disposeUIResources() { enabled = null; scheduled = null; interval = null; deprecated = null; severities.clear() }
+    override fun disposeUIResources() { enabled = null; scheduled = null; interval = null; deprecated = null; ignored = null; severities.clear() }
 }

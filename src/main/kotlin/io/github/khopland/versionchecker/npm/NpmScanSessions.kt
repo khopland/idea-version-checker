@@ -19,7 +19,7 @@ internal class NpmScanSessions<T>(scope: CoroutineScope) {
             check(worker.isActive) { "npm runtime sessions are disposed" }
             val key = Key(context, generation)
             val selected = entries.getOrPut(key) {
-                Entry(workers.async(start = CoroutineStart.LAZY) { load() }).also { created ->
+                Entry(workers.async(io.github.khopland.versionchecker.CheckPerformance.context(), start = CoroutineStart.LAZY) { load() }).also { created ->
                     created.request.invokeOnCompletion { failure -> synchronized(lock) {
                         if (failure != null && entries[key] === created) entries.remove(key)
                     } }

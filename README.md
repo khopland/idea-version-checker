@@ -76,6 +76,10 @@ Successful module checks with an empty or absent Maven report count as having no
 
 Submodules must be imported into IDEA's Maven project model. Maven ignores and offline mode are respected. Parent-managed dependency versions and properties can also be updated from the child with the parent quick fix; bulk updates take a conservative approach to properties inherited across modules.
 
+Routine hints show the package, update kind and declared version change. **Alt+Enter → Ignore … in this project** dismisses one exact published version from hints and bulk review. npm aliases share the registry package's ignore. Other packages, later releases and replacement notices remain visible. To restore an update, remove its line from **Settings → Tools → Version Checker → Ignored published versions**. Ignores are stored in this project's local workspace settings.
+
+Refresh and preview actions save relevant build inputs, including required sibling declarations and configuration, while preserving unrelated unsaved editing. Applying a preview saves only the selected edit files. Custom build scripts can read inputs outside the supported adapters' tracked files; save those explicitly before native resolution.
+
 ## Maven repositories and settings.xml
 
 The plugin uses IDEA's existing Maven server rather than querying a public dependency search service. Maven handles the effective repositories, active settings profiles, mirrors, server credentials, encrypted credentials, proxies, and local repository using IDEA's Maven configuration.

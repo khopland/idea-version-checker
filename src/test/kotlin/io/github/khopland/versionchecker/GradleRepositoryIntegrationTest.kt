@@ -341,13 +341,14 @@ class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
             assertEquals(2, holder.results.size)
             val literalProblem = holder.results.single { it.descriptionTemplate.contains(":literal") }
             assertTrue(literalProblem.descriptionTemplate.contains("1.2.3 → 2.0.0"))
-            assertEquals(1, literalProblem.fixes!!.size)
+            assertEquals(1, literalProblem.fixes!!.filterIsInstance<UpdateGradleVersionFix>().size)
+            assertEquals(1, literalProblem.fixes!!.filterIsInstance<IgnorePublishedVersionFix>().size)
             project.service<VersionCheckerSettings>().state.majorSeverity = VersionSeverity.DISABLED
             val hidden = ProblemsHolder(InspectionManager.getInstance(project), psi, true)
             NewerGradleDependencyInspection().buildVisitor(hidden, true).visitFile(psi)
             assertTrue(hidden.results.isEmpty())
             project.service<VersionCheckerSettings>().state.majorSeverity = VersionSeverity.WARNING
-            literalProblem.fixes!!.single().applyFix(project, literalProblem)
+            literalProblem.fixes!!.filterIsInstance<UpdateGradleVersionFix>().single().applyFix(project, literalProblem)
             com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
             assertTrue(psi.text.contains("literal:2.0.0"))
             val plan = background { project.service<BulkUpdateService>().createPlan(UpdateMode.PATCH) }

@@ -4,10 +4,17 @@
 
 ### Added
 
+- Ignore one exact published artifact/version in the current project through Alt+Enter, with reversible workspace settings and matching bulk-review filtering. Other releases and replacement notices remain visible; changed ignore policy rejects older prepared edits.
+- Anonymous performance interaction IDs and monotonic endpoints connect native setup/query work, result acceptance, displayed previews, changed editor text and painted visible diagnostics. A sanitized trace report computes median/p95 and partitions overlapping stages.
+
 - A current-file **Versions** status-bar item distinguishes queued/running checks, current results, failures, offline mode and required saves, with direct Refresh, Review and settings actions. It reads existing results in the background and does not trigger repository queries.
 - **Review Dependency Updates…** in supported build files' editor context menu opens a searchable preview with checkboxes, update mode and scope controls, cached-result age, and Refresh. Empty previews retain these controls, and skipped items have a separate Needs review section.
 
 ### Changed
+
+- Routine hints lead with artifact, update kind and declared version change. Maven shared version actions include known version-declaration and POM counts.
+- Refresh, preview and retry save required build inputs rather than all open documents; bulk apply saves only selected edit files.
+- Preview controls have keyboard mnemonics, and Space toggles sorted/filtered highlighted rows while preserving hidden selections and repeated keyboard selection.
 
 - Project refresh failures share one summary with native details and a retry limited to failed files. Automatic failures share a notification per build system. Cancelled checks are excluded, successful cached results survive retry, and actionable notifications expire on plugin unload or project disposal.
 - npm inspections publish finished packages while slower queries continue. Aliases retain their shared lookup, and one package failure preserves other successful hints while rejecting a complete bulk preview. Early results retain freshness, cancellation and refresh guards.

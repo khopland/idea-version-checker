@@ -43,13 +43,15 @@ internal data class BulkUpdatePlan(
     fun guardedBy(valid: () -> Boolean) = copy(isCurrent = { isCurrent() && valid() })
 
     /** Validate every edit and the discovery snapshot before applying one undoable command. */
-    fun apply(project: Project): Boolean {
-        var applied = false
-        WriteCommandAction.runWriteCommandAction(project, "Update versions", null, Runnable {
-            if (!isCurrent() || changes.any { !it.isValid() }) return@Runnable
-            changes.forEach { it.apply() }
-            applied = true
-        })
-        return applied
-    }
+    fun apply(project: Project, interaction: CheckPerformance.Interaction? = CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)): Boolean =
+        CheckPerformance.locally(interaction) {
+            var applied = false
+            WriteCommandAction.runWriteCommandAction(project, "Update versions", null, Runnable {
+                if (!isCurrent() || changes.any { !it.isValid() }) return@Runnable
+                changes.forEach { it.apply() }
+                applied = true
+                CheckPerformance.record(CheckPerformance.Stage.EDITOR_TEXT_CHANGED, interaction?.started ?: System.nanoTime(), changes.size, interaction)
+            })
+            applied
+        }
 }

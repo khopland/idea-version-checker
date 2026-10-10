@@ -49,7 +49,7 @@ class GradlePreparationBenchmarkTest : BasePlatformTestCase() {
                 val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
                 val elapsed = measureNanoTime { file.accept(NewerGradleDependencyInspection().buildVisitor(holder, true)) }
                 assertEquals(count, holder.results.size)
-                assertTrue(holder.results.all { it.fixes!!.single().name == "Update declared version to 1.2.9" })
+                assertTrue(holder.results.all { it.fixes!!.filterIsInstance<UpdateGradleVersionFix>().single().name == "Update declared version to 1.2.9" })
                 return elapsed
             }
             fun preview(): Long = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {

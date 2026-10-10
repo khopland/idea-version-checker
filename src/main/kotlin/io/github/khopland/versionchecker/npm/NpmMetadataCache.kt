@@ -42,7 +42,7 @@ internal class NpmMetadataCache(
             val key = Key(context, name, generation)
             val selected = entries[key] ?: run {
                 lateinit var created: Entry
-                val request = workers.async(start = CoroutineStart.LAZY) {
+                val request = workers.async(io.github.khopland.versionchecker.CheckPerformance.context(), start = CoroutineStart.LAZY) {
                     val data = load()
                     // Prepare outside the cache lock and account for all retained index records
                     // before the completion TTL starts or another consumer receives this lease.

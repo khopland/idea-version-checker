@@ -66,6 +66,21 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
 
+    fun testSpaceTogglesSortedVisibleRowsWithoutChangingHiddenSelection() {
+        val dialog = dialog(BulkUpdatePlan(listOf(edit("zeta-keyboard"), edit("alpha-keyboard"), edit("beta-keyboard")), emptyList()))
+        try {
+            dialog.table.rowSorter.toggleSortOrder(1)
+            dialog.filter.text = "alpha-keyboard"
+            dialog.table.setRowSelectionInterval(0, 0)
+            val toggle = dialog.table.actionMap.get("toggleVersionSelection")
+            toggle.actionPerformed(ActionEvent(dialog.table, ActionEvent.ACTION_PERFORMED, "Space"))
+            assertEquals(setOf(0, 2), dialog.model.selectedIndices)
+            assertTrue(dialog.summary.text.contains("2 selected hidden by filter"))
+            toggle.actionPerformed(ActionEvent(dialog.table, ActionEvent.ACTION_PERFORMED, "Space"))
+            assertEquals(setOf(0, 1, 2), dialog.model.selectedIndices)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
     fun testSelectedPlanRetainsEveryOriginalStaleInputGuard() {
         val edits = listOf(edit("alpha"), edit("beta"))
         var current = true

@@ -44,7 +44,7 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager) {
             val files = shared.files.toMutableMap()
             var ancestor: Path? = directory
             while (ancestor != null) {
-                for (name in listOf("maven.config", "jvm.config", "wrapper/maven-wrapper.properties")) {
+                for (name in listOf("maven.config", "jvm.config", "extensions.xml", "wrapper/maven-wrapper.properties")) {
                     val config = ancestor.resolve(".mvn").resolve(name)
                     files[config.toString()] = diskStamp(config)
                 }

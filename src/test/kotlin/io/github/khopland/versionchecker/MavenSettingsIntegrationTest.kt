@@ -282,7 +282,15 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 Files.copy(demo.resolve(path).resolve("pom.xml"), pom)
                 val virtual = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!
                 val mavenProject = MavenProject(virtual).apply {
-                    updateMavenId(MavenId("io.github.khopland.demo", artifact, "1.0-SNAPSHOT"))
+                    val id = MavenId("io.github.khopland.demo", artifact, "1.0-SNAPSHOT")
+                    val properties = java.util.Properties()
+                    // A mapped project needs a model state before DOM can resolve inherited properties.
+                    val xml = com.intellij.openapi.util.JDOMUtil.load(Files.readString(pom))
+                    for (source in listOf(com.intellij.openapi.util.JDOMUtil.load(Files.readString(directory.resolve("pom.xml"))), xml))
+                        source.getChild("properties", source.namespace)?.children.orEmpty().forEach { properties[it.name] = it.textTrim }
+                    updateState(MavenModel().apply { mavenId = id; setProperties(properties) },
+                        emptyList(), "21", emptyList(), MavenExplicitProfiles.NONE, emptySet(), emptyMap(),
+                        directory.resolve("repository"), false)
                 }
                 manager.projectsTree.putVirtualFileToProjectMapping(mavenProject, mavenProject.mavenId)
             }
@@ -484,8 +492,9 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 val earlyProblems = ProblemsHolder(InspectionManager.getInstance(project), earlyFile, true)
                 val earlyVisitor = NewerMavenDependencyInspection().buildVisitor(earlyProblems, true)
                 PsiTreeUtil.findChildrenOfType(earlyFile, XmlTag::class.java).forEach { it.accept(earlyVisitor) }
-                assertEquals(1, earlyProblems.results.size)
-                assertFalse(earlyProblems.results.single().descriptionTemplate.contains("Maven plugin"))
+                assertEquals(2, earlyProblems.results.size)
+                assertTrue(earlyProblems.results.all { it.fixes!!.any { fix -> fix is IgnorePublishedVersionFix } })
+                assertFalse(earlyProblems.results.first().descriptionTemplate.contains("Maven plugin"))
                 releaseCategories.complete(Unit)
                 PlatformTestUtil.waitWithEventsDispatching("Native Maven categories complete", { stagedCheck.isCompleted }, 120_000)
                 assertEquals(2, coordinator.cached(snapshot)!!.candidates.size)
@@ -562,13 +571,13 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
             val visitor = NewerMavenDependencyInspection().buildVisitor(holder, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(visitor) }
-            val problem = holder.results.single { !it.descriptionTemplate.contains("Maven plugin") }
-            val pluginProblem = holder.results.single { it.descriptionTemplate.contains("Maven plugin") }
+            val problem = holder.results.single { it.psiElement is XmlTag && (it.psiElement as XmlTag).localName == "fixture.version" }
+            val pluginProblem = holder.results.single { it.psiElement is XmlTag && (it.psiElement as XmlTag).localName == "fixture-plugin.version" }
             assertEquals(ProblemHighlightType.WARNING, pluginProblem.highlightType)
             assertTrue(pluginProblem.descriptionTemplate.contains("1.0 → 2.0"))
             assertEquals(ProblemHighlightType.WARNING, problem.highlightType)
             assertTrue(problem.descriptionTemplate.contains("1.0 → 2.0"))
-            assertEquals("Update fixture.version to 2.0", problem.fixes!!.single().name)
+            assertTrue(problem.fixes!!.filterIsInstance<UpdateDependencyVersionFix>().single().name.startsWith("Update fixture.version to 2.0 in pom.xml"))
 
             myFixture.configureFromExistingVirtualFile(virtualFile)
             PlatformTestUtil.waitWithEventsDispatching("Editor-open version check", {
@@ -579,7 +588,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val errorHolder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
             val errorVisitor = NewerMavenDependencyInspection().buildVisitor(errorHolder, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(errorVisitor) }
-            assertEquals(2, errorHolder.results.size)
+            assertEquals(4, errorHolder.results.size)
             assertTrue(errorHolder.results.all { it.highlightType == ProblemHighlightType.GENERIC_ERROR })
             options.majorSeverity = VersionSeverity.DISABLED
             val disabledHolder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
@@ -590,13 +599,13 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val standard = ProblemsHolder(InspectionManager.getInstance(project), file, true)
             val standardVisitor = NewerMavenDependencyInspection().buildVisitor(standard, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(standardVisitor) }
-            assertEquals(2, standard.results.size)
+            assertEquals(4, standard.results.size)
             assertTrue(standard.results.all { it.highlightType == ProblemHighlightType.WARNING })
 
             // Use the refreshed descriptor after editor setup has changed the POM's modification stamp.
-            val currentProblem = standard.results.single { !it.descriptionTemplate.contains("Maven plugin") }
+            val currentProblem = standard.results.single { it.psiElement is XmlTag && (it.psiElement as XmlTag).localName == "fixture.version" }
             WriteCommandAction.runWriteCommandAction(project) {
-                currentProblem.fixes!!.single().applyFix(project, currentProblem)
+                currentProblem.fixes!!.filterIsInstance<UpdateDependencyVersionFix>().single().applyFix(project, currentProblem)
             }
             val tags = PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java)
             assertEquals("2.0", tags.single { it.localName == "fixture.version" }.value.trimmedText)

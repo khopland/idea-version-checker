@@ -29,7 +29,8 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             interval.value = 15
             selectors[0].selectedItem = VersionSeverity.DISABLED
             selectors[2].selectedItem = VersionSeverity.ERROR
-            components(panel).filterIsInstance<JBTextArea>().single().text = "old:library = Use new:library"
+            components(panel).filterIsInstance<JBTextArea>().single { it.accessibleContext.accessibleName == "Deprecated artifacts" }.text = "old:library = Use new:library"
+            components(panel).filterIsInstance<JBTextArea>().single { it.accessibleContext.accessibleName == "Ignored published versions" }.text = "npm alpha = 1.2.3"
             assertTrue(configurable.isModified())
             configurable.apply()
             val state = project.service<VersionCheckerSettings>().state
@@ -37,6 +38,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             assertEquals(VersionSeverity.WARNING, state.minorSeverity)
             assertEquals(VersionSeverity.ERROR, state.majorSeverity)
             assertEquals("old:library = Use new:library", state.deprecatedDependencies)
+            assertEquals("npm alpha = 1.2.3", state.ignoredVersions)
             assertTrue(state.scheduledChecks)
             assertEquals(15, state.checkIntervalMinutes)
             assertFalse(configurable.isModified())
@@ -55,7 +57,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
         val state = VersionCheckerSettings.Options(patchSeverity = VersionSeverity.DISABLED,
             minorSeverity = VersionSeverity.INFORMATION, majorSeverity = VersionSeverity.ERROR,
             deprecatedSeverity = VersionSeverity.WARNING, deprecatedDependencies = "old:library = Retired",
-            scheduledChecks = true, checkIntervalMinutes = 60)
+            scheduledChecks = true, checkIntervalMinutes = 60, ignoredVersions = "maven g:a = 2.0")
         assertEquals(state, XmlSerializer.deserialize(XmlSerializer.serialize(state), VersionCheckerSettings.Options::class.java))
     }
 }

@@ -14,7 +14,8 @@ import com.intellij.psi.XmlElementVisitor
 import com.intellij.psi.xml.XmlTag
 import com.intellij.psi.codeStyle.CodeStyleManager
 import org.jetbrains.idea.maven.project.MavenProjectsManager
-import io.github.khopland.versionchecker.notifyStaleVersionFix
+import io.github.khopland.versionchecker.*
+import io.github.khopland.versionchecker.core.ArtifactId
 
 class NewerMavenDependencyInspection : LocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
@@ -26,16 +27,19 @@ class NewerMavenDependencyInspection : LocalInspectionTool() {
                 val propertyFixes = if (problems.isEmpty()) emptyArray() else analysis.propertyQuickFixes(tag)
                 for (problem in problems) {
                     val highlight = problem.severity.highlight ?: continue
-                    holder.registerProblem(tag, problem.message, highlight, *propertyFixes)
+                    holder.registerProblem(tag, problem.message, highlight, *(propertyFixes + ignoreFix(problem)))
                 }
                 val problem = analysis.problem(tag) ?: return
                 val highlight = problem.severity.highlight ?: return
                 val fixes = analysis.quickFixes(tag, problem)
-                holder.registerProblem(problem.anchor, problem.message, highlight, *fixes)
+                holder.registerProblem(problem.anchor, problem.message, highlight, *(fixes + ignoreFix(problem)))
             }
         }
     }
 }
+
+private fun ignoreFix(problem: DependencyProblem): Array<LocalQuickFix> = if (problem.latest == null || problem.notice != null) emptyArray()
+    else arrayOf(IgnorePublishedVersionFix(IgnoredVersion("maven", ArtifactId(problem.coordinate.groupId, problem.coordinate.artifactId), problem.latest)))
 
 internal fun isProjectDependency(tag: XmlTag): Boolean = tag.localName == "dependency" &&
     tag.parentTag?.localName == "dependencies" &&
@@ -82,19 +86,25 @@ internal fun versionPropertyName(raw: String): String? = Regex("""\$\{([^}]+)}""
 class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, private val latest: String,
                                  private val actionName: String? = null,
                                  private val isCurrent: () -> Boolean = { true }) : LocalQuickFix {
+    private var actionNameProvider: (() -> String)? = null
+    internal fun withActionName(provider: () -> String) = apply { actionNameProvider = provider }
     private val pointer: SmartPsiElementPointer<XmlTag> = SmartPointerManager.createPointer(target)
     private val expected = target.value.trimmedText
     override fun getFamilyName(): String = "Update Maven version"
-    override fun getName(): String = actionName ?: "Update ${pointer.element?.localName ?: "version"} to $latest"
+    override fun getName(): String = actionNameProvider?.invoke() ?: actionName ?: "Update ${pointer.element?.localName ?: "version"} to $latest"
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = pointer.element
-    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        val tag = pointer.element
-        if (tag == null || !isCurrent() || tag.value.trimmedText != expected) {
-            notifyStaleVersionFix(project, "maven", descriptor)
-            return
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
+        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
+            val interaction = CheckPerformance.current()
+            val tag = pointer.element
+            if (tag == null || !isCurrent() || tag.value.trimmedText != expected) {
+                notifyStaleVersionFix(project, "maven", descriptor)
+                return@locally
+            }
+            tag.value.setText(latest)
+            CheckPerformance.record(CheckPerformance.Stage.EDITOR_TEXT_CHANGED,
+                interaction?.started ?: System.nanoTime(), interaction = interaction)
         }
-        tag.value.setText(latest)
-    }
 }
 
 class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: String,
@@ -104,18 +114,22 @@ class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: Strin
     override fun getFamilyName() = "Override Maven dependency version locally"
     override fun getName() = "Override version locally with $latest"
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = pointer.element
-    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        val dependency = pointer.element
-        if (dependency == null || !isCurrent() || dependency.text != expected) {
-            notifyStaleVersionFix(project, "maven", descriptor)
-            return
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
+        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
+            val interaction = CheckPerformance.current()
+            val dependency = pointer.element
+            if (dependency == null || !isCurrent() || dependency.text != expected) {
+                notifyStaleVersionFix(project, "maven", descriptor)
+                return@locally
+            }
+            val version = dependency.findFirstSubTag("version")
+            if (version != null) version.value.setText(latest)
+            else {
+                val artifact = dependency.findFirstSubTag("artifactId") ?: return@locally
+                dependency.addAfter(dependency.createChildTag("version", dependency.namespace, latest, false), artifact)
+                CodeStyleManager.getInstance(project).reformat(dependency)
+            }
+            CheckPerformance.record(CheckPerformance.Stage.EDITOR_TEXT_CHANGED,
+                interaction?.started ?: System.nanoTime(), interaction = interaction)
         }
-        val version = dependency.findFirstSubTag("version")
-        if (version != null) version.value.setText(latest)
-        else {
-            val artifact = dependency.findFirstSubTag("artifactId") ?: return
-            dependency.addAfter(dependency.createChildTag("version", dependency.namespace, latest, false), artifact)
-            CodeStyleManager.getInstance(project).reformat(dependency)
-        }
-    }
 }

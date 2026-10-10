@@ -78,6 +78,18 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         table.columnModel.getColumn(2).preferredWidth = 120
         table.columnModel.getColumn(3).preferredWidth = 120
         table.accessibleContext.accessibleName = "Dependency version changes"
+        table.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke("SPACE"), "toggleVersionSelection")
+        table.actionMap.put("toggleVersionSelection", object : AbstractAction() {
+            override fun actionPerformed(event: ActionEvent) {
+                if (table.isEditing && !table.cellEditor.stopCellEditing()) return
+                val rows = table.selectedRows.map { table.convertRowIndexToModel(it) }.toSet()
+                if (rows.isNotEmpty()) {
+                    model.selectRows(rows, rows.any { it !in model.selectedIndices })
+                    table.clearSelection()
+                    rows.map(table::convertRowIndexToView).filter { it >= 0 }.forEach { table.addRowSelectionInterval(it, it) }
+                }
+            }
+        })
         filter.accessibleContext.accessibleName = "Filter version changes"
         modeSelector.accessibleContext.accessibleName = "Update mode"
         scopeSelector.accessibleContext.accessibleName = "Update scope"
@@ -138,21 +150,21 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     public override fun createCenterPanel(): JComponent {
         val controls = JPanel(FlowLayout(FlowLayout.LEADING)).apply {
-            add(JBLabel("Scope:")); add(scopeSelector)
-            add(JBLabel("Updates:")); add(modeSelector)
+            add(JBLabel("Scope:").apply { labelFor = scopeSelector; displayedMnemonic = 'S'.code }); add(scopeSelector)
+            add(JBLabel("Updates:").apply { labelFor = modeSelector; displayedMnemonic = 'U'.code }); add(modeSelector)
         }
         val search = JPanel(BorderLayout(8, 0)).apply {
-            add(JBLabel("Filter:").apply { labelFor = filter }, BorderLayout.WEST)
+            add(JBLabel("Filter:").apply { labelFor = filter; displayedMnemonic = 'F'.code }, BorderLayout.WEST)
             add(filter, BorderLayout.CENTER)
         }
         val header = JPanel(BorderLayout(0, 8)).apply {
             add(controls, BorderLayout.NORTH); add(freshness, BorderLayout.CENTER); add(search, BorderLayout.SOUTH)
         }
         val selection = JPanel(FlowLayout(FlowLayout.LEADING)).apply {
-            add(JButton("Select visible").apply { addActionListener {
+            add(JButton("Select visible").apply { mnemonic = 'V'.code; addActionListener {
                 this@BulkUpdateDialog.model.selectRows((0 until table.rowCount).map { table.convertRowIndexToModel(it) }.toSet(), true)
             } })
-            add(JButton("Clear selection").apply { addActionListener {
+            add(JButton("Clear selection").apply { mnemonic = 'C'.code; addActionListener {
                 this@BulkUpdateDialog.model.selectRows(this@BulkUpdateDialog.model.changes.indices.toSet(), false)
             } })
             add(summary)

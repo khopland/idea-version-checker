@@ -44,12 +44,12 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
                 if (candidate == null && notice == null) return
                 val kind = if (notice != null) VersionChangeKind.DEPRECATED else candidate!!.kind
                 val highlight = kind.severity(options).highlight ?: return
-                val message = notice?.message ?: "Newer npm version of ${candidate!!.declaration.artifact.name} is available: ${candidate.declaration.selector} → ${candidate.replacementSelector} (declared range)"
+                val message = notice?.message ?: updateHint(candidate!!.declaration.artifact, candidate.kind, candidate.declaration.selector, candidate.replacementSelector)
                 val fixes = candidate?.let {
                     val key = it.declaration.artifact to it.version
                     if (key !in workspaceFixes) workspaceFixes[key] = adapter.workspaceFix(holder.project, snapshot, it,
                         workspaceDeclarationsByArtifact[it.declaration.artifact].orEmpty())
-                    adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral, workspaceFixes[key])
+                    adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral, workspaceFixes[key]) + IgnorePublishedVersionFix(IgnoredVersion("npm", it.declaration.artifact, it.version))
                 }.orEmpty()
                 holder.registerProblem(element, message, highlight, *fixes)
             }
@@ -64,14 +64,18 @@ class UpdateNpmVersionFix internal constructor(value: JsonStringLiteral, latest:
     override fun getFamilyName() = "Update npm version"
     override fun getName() = actionName ?: "Update declared version to ${edit.latest}"
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = edit.element
-    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        if (!isCurrent() || !edit.isValid()) {
-            notifyStaleVersionFix(project, "npm", descriptor)
-            return
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
+        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
+            val interaction = CheckPerformance.current()
+            if (!isCurrent() || !edit.isValid()) {
+                notifyStaleVersionFix(project, "npm", descriptor)
+                return@locally
+            }
+            edit.apply()
+            CheckPerformance.record(CheckPerformance.Stage.EDITOR_TEXT_CHANGED,
+                interaction?.started ?: System.nanoTime(), interaction = interaction)
+            NpmUpdateGuidance.notify(project)
         }
-        edit.apply()
-        NpmUpdateGuidance.notify(project)
-    }
 }
 
 internal class UpdateNpmWorkspaceVersionFix(name: String, version: String, private val edits: List<NpmVersionEdit>,
@@ -81,15 +85,17 @@ internal class UpdateNpmWorkspaceVersionFix(name: String, version: String, priva
     override fun getName() = actionName
     override fun startInWriteAction() = false
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = null
-    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-        if (!isCurrent() || edits.any { !it.isValid() }) {
-            notifyStaleVersionFix(project, "npm", descriptor)
-            return
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
+        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
+            val interaction = CheckPerformance.current()
+            if (!isCurrent() || edits.any { !it.isValid() }) {
+                notifyStaleVersionFix(project, "npm", descriptor)
+                return@locally
+            }
+            val elements = edits.mapNotNull { it.element }
+            if (!FileModificationService.getInstance().preparePsiElementsForWrite(elements)) return@locally
+            val plan = BulkUpdatePlan(edits, emptyList(), isCurrent, followUp = listOf(NpmUpdateGuidance.message))
+            if (plan.apply(project, interaction)) notifyVersionUpdates(project, plan.followUp)
+            else notifyStaleVersionFix(project, "npm", descriptor)
         }
-        val elements = edits.mapNotNull { it.element }
-        if (!FileModificationService.getInstance().preparePsiElementsForWrite(elements)) return
-        val plan = BulkUpdatePlan(edits, emptyList(), isCurrent, followUp = listOf(NpmUpdateGuidance.message))
-        if (plan.apply(project)) notifyVersionUpdates(project, plan.followUp)
-        else notifyStaleVersionFix(project, "npm", descriptor)
-    }
 }

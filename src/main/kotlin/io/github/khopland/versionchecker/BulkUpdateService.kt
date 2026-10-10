@@ -8,7 +8,6 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.diagnostic.Logger
@@ -72,6 +71,11 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
             }
             try {
                 dialog.show()
+                if (dialog is BulkUpdateDialog && dialog.isShowing) {
+                    dialog.contentPanel.paintImmediately(dialog.contentPanel.visibleRect)
+                    CheckPerformance.record(CheckPerformance.Stage.PREVIEW_READY, CheckPerformance.current()?.started ?: System.nanoTime(),
+                        dialog.model.rowCount)
+                }
             } catch (failure: Throwable) {
                 if (continuation.isActive) continuation.resumeWithException(failure)
                 dialog.disposeIfNeeded()
@@ -89,18 +93,22 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
             scope.launch(Dispatchers.EDT) { activeDialogs.lastOrNull()?.takeUnless { it.isDisposed }?.toFront() }
             return
         }
-        scope.launch(Dispatchers.IO) {
+        val interaction = CheckPerformance.current() ?: CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
+        scope.launch(Dispatchers.IO + CheckPerformance.context(interaction)) {
             try {
                 var selectedMode = mode
                 var selectedScope = updateScope
                 var forceRefresh = false
                 while (isActive && !disposed) {
                     val matching = readAction { BuildSystemAdapter.matching(project, BuildSelection(selectedScope, currentFile?.path)) }
+                    withContext(Dispatchers.EDT) { saveBuildInputs(project, BuildSelection(selectedScope, currentFile?.path), matching) }
                     val currentAvailable = currentFile != null && readAction {
                         BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
                     }
                     val prepared = withBackgroundProgress(project, "Checking versions: ${selectedScope.label} — ${selectedMode.label}", cancellable = true) {
-                        preparePreview(selectedMode, selectedScope, currentFile, matching, forceRefresh)
+                        CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PREPARATION) {
+                            preparePreview(selectedMode, selectedScope, currentFile, matching, forceRefresh)
+                        }
                     }
                     var recheck = false
                     withContext(Dispatchers.EDT) {
@@ -130,7 +138,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                 forceRefresh = true
                                 return@withContext
                             }
-                            FileDocumentManager.getInstance().saveAllDocuments()
+                            saveChangedVersionFiles(plan)
                             notifyVersionUpdates(project, plan.followUp)
                             project.service<VersionCheckService>().recheckAfterEdits(matching,
                                 BuildSelection(selectedScope, currentFile?.path))
@@ -173,6 +181,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
         check(adapters.isNotEmpty()) { "Open a supported build file to update its versions" }
         val service = project.service<VersionCheckService>()
         val results = mutableListOf<Pair<BuildSnapshot, VersionResultCache.CachedResult>>()
+        val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
         var reused = 0
         val plans = adapters.map { adapter ->
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
@@ -186,12 +195,13 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                 val result = service.cachedResult(snapshot, mode) ?: error("Repository results expired. Refresh version checks to retry.")
                 check(result.report === report) { "Version results changed during preparation. Refresh the preview." }
                 results += snapshot to result
-                report
+                report.withoutIgnored(adapter.id, project.service<VersionCheckerSettings>().state)
             }
-            adapter.prepareUpdates(project, reports)
+            CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PLAN, reports.size) { adapter.prepareUpdates(project, reports) }
         }
         val plan = BulkUpdatePlan.combine(plans).guardedBy {
-            results.all { (snapshot, result) -> service.isCachedResultCurrent(snapshot, mode, result) }
+            project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy &&
+                results.all { (snapshot, result) -> service.isCachedResultCurrent(snapshot, mode, result) }
         }
         return PreparedVersionPreview(plan, results.minOf { it.second.checkedAtNanos }, reused, results.size)
     }

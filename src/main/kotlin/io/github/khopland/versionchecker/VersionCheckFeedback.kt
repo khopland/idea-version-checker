@@ -11,7 +11,6 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -142,7 +141,14 @@ internal class VersionCheckFeedback(private val project: Project, private val sc
 
     private fun retry(targets: Set<VersionCheckTarget>): Boolean {
         if (disposed || project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled || targets.isEmpty()) return false
-        FileDocumentManager.getInstance().saveAllDocuments()
+        targets.groupBy { it.adapterId }.forEach { (id, files) ->
+            val adapter = io.github.khopland.versionchecker.core.BuildSystemAdapter.find(id) ?: return@forEach
+            files.forEach { target ->
+                saveBuildInputs(project, io.github.khopland.versionchecker.core.BuildSelection(
+                    if (target.sourceFile == null) io.github.khopland.versionchecker.core.UpdateScope.WHOLE_PROJECT
+                    else io.github.khopland.versionchecker.core.UpdateScope.CURRENT_FILE, target.sourceFile), listOf(adapter))
+            }
+        }
         project.service<VersionCheckService>().retryFailed(targets)
         return true
     }

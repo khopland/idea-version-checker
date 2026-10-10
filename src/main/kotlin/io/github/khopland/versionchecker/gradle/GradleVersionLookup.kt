@@ -5,6 +5,7 @@ import com.google.gson.reflect.TypeToken
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
 import com.intellij.openapi.project.Project
+import io.github.khopland.versionchecker.CheckPerformance
 import io.github.khopland.versionchecker.UpdateMode
 import io.github.khopland.versionchecker.core.BuildSnapshot
 import kotlinx.coroutines.Dispatchers
@@ -25,36 +26,61 @@ internal object GradleVersionLookup {
     private val gson = Gson()
     internal data class Request(val id: String, val group: String, val name: String, val current: String)
     internal data class Result(val versions: List<String> = emptyList(), val reason: String? = null)
+    internal data class Timings(val configurationNs: Long, val queryNs: Long)
 
     @OptIn(kotlinx.coroutines.InternalCoroutinesApi::class)
     suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): Map<String, Result> = withContext(Dispatchers.IO) {
         val requests = snapshot.declarations.filter { it.baseline.isNotEmpty() }.map { Request(it.id.location, it.artifact.namespace, it.artifact.name, it.baseline) }
         if (requests.isEmpty()) return@withContext emptyMap()
+        val setupStarted = System.nanoTime()
         val directory = Files.createTempDirectory("gradle-version-checker-")
         val task = "versionChecker" + directory.fileName.toString().filter(Char::isLetterOrDigit)
         val requestFile = directory.resolve("requests.json")
         val output = directory.resolve("result.json")
         val init = directory.resolve("check.gradle")
+        val timings = if (CheckPerformance.enabled()) directory.resolve("timings.json") else null
         try {
             Files.writeString(requestFile, gson.toJson(requests))
-            Files.writeString(init, script(requestFile, output, snapshot.sourceFile, mode, task))
+            Files.writeString(init, script(requestFile, output, snapshot.sourceFile, mode, task, timings))
             val settings = GradleExecutionSettings(ExternalSystemApiUtil.getExecutionSettings<GradleExecutionSettings>(project, snapshot.context.root, GradleConstants.SYSTEM_ID))
             settings.withArguments("--init-script", init.toString(), "--no-configuration-cache", "--no-configure-on-demand", "--refresh-dependencies")
             settings.setTasks(listOf(":$task"))
             val id = ExternalSystemTaskId.create(GradleConstants.SYSTEM_ID, ExternalSystemTaskType.EXECUTE_TASK, project)
             val manager = GradleTaskManager()
             val context = currentCoroutineContext()
+            val interaction = CheckPerformance.current()
             val listener = object : ExternalSystemTaskNotificationListener {
                 override fun onStart(workingDir: String, id: ExternalSystemTaskId) {
                     if (!context.isActive) manager.cancelTask(id, this)
                 }
             }
             val handle = context[Job]?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { if (it != null) manager.cancelTask(id, listener) }
+            val nativeStarted = System.nanoTime()
             try {
                 context.ensureActive()
                 // Invoke IntelliJ's native task manager without creating a run configuration or console.
-                manager.executeTasks(snapshot.context.root, id, settings, listener)
-            } finally { handle?.dispose() }
+                CheckPerformance.record(CheckPerformance.Stage.GRADLE_SETUP, setupStarted)
+                CheckPerformance.measure(CheckPerformance.Stage.GRADLE_NATIVE, requests.size) {
+                    manager.executeTasks(snapshot.context.root, id, settings, listener)
+                }
+            } finally {
+                handle?.dispose()
+                val finished = System.nanoTime()
+                if (timings != null && Files.exists(timings)) {
+                    val measured = try { gson.fromJson(Files.readString(timings), Timings::class.java) }
+                        catch (_: java.io.IOException) { null }
+                        catch (_: com.google.gson.JsonParseException) { null }
+                    // Durations are measured in the Gradle JVM. Place them at the end of the host
+                    // invocation; JVM nanoTime origins and buffered console delivery are not comparable.
+                    if (measured != null && measured.configurationNs >= 0 && measured.queryNs >= 0 &&
+                        measured.configurationNs <= finished - nativeStarted - measured.queryNs) {
+                        val queryStarted = finished - measured.queryNs
+                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_QUERY, queryStarted, finished, requests.size, interaction)
+                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_CONFIGURATION,
+                            queryStarted - measured.configurationNs, queryStarted, interaction = interaction)
+                    }
+                }
+            }
             check(Files.exists(output)) { "Gradle did not produce a version report" }
             gson.fromJson(Files.readString(output), object : TypeToken<Map<String, Result>>() {}.type)
         } finally {
@@ -63,7 +89,7 @@ internal object GradleVersionLookup {
     }
 
     /** Resolve metadata only: never execute a build task or resolve artifact files. */
-    fun script(requests: Path, output: Path, source: String, mode: UpdateMode, task: String): String {
+    fun script(requests: Path, output: Path, source: String, mode: UpdateMode, task: String, timings: Path? = null): String {
         fun literal(value: String) = "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
         return """
             import groovy.json.JsonSlurper
@@ -71,12 +97,14 @@ internal object GradleVersionLookup {
             import org.gradle.api.artifacts.result.ResolvedDependencyResult
             import org.gradle.api.artifacts.result.UnresolvedDependencyResult
             import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+            ${if (timings != null) "def versionCheckerInitStarted = System.nanoTime()" else ""}
             gradle.projectsEvaluated {
                 if (gradle.parent != null) return
                 def requests = new JsonSlurper().parse(new File(${literal(requests.toString())}))
                 def source = new File(${literal(source)}).canonicalFile
                 gradle.rootProject.tasks.register(${literal(task)}) {
                     doLast {
+                        ${if (timings != null) "def versionCheckerQueryStarted = System.nanoTime(); try {" else ""}
                         def report = [:]
                         requests.each { request ->
                             def owners = gradle.rootProject.allprojects.findAll { p ->
@@ -197,6 +225,7 @@ internal object GradleVersionLookup {
                             report[request.id] = [versions: reason == null ? versions : [], reason: reason]
                         }
                         new File(${literal(output.toString())}).text = JsonOutput.toJson(report)
+                        ${if (timings != null) "} finally { try { new File(${literal(timings.toString())}).text = JsonOutput.toJson([configurationNs: versionCheckerQueryStarted - versionCheckerInitStarted, queryNs: System.nanoTime() - versionCheckerQueryStarted]) } catch (Exception ignoredTimingFailure) {} }" else ""}
                     }
                 }
             }

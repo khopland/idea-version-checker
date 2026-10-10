@@ -2,7 +2,6 @@ package io.github.khopland.versionchecker
 
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.components.service
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import io.github.khopland.versionchecker.core.*
 
 open class RefreshVersionsAction(private val scope: UpdateScope = UpdateScope.WHOLE_PROJECT) : AnAction() {
@@ -19,7 +18,7 @@ open class RefreshVersionsAction(private val scope: UpdateScope = UpdateScope.WH
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
         val current = if (scope == UpdateScope.CURRENT_FILE) currentBuildFile(event) ?: return else null
-        FileDocumentManager.getInstance().saveAllDocuments()
+        saveBuildInputs(project, BuildSelection(scope, current?.path))
         project.service<VersionCheckService>().refresh(
             BuildSystemAdapter.matching(project, BuildSelection(scope, current?.path)), current)
     }

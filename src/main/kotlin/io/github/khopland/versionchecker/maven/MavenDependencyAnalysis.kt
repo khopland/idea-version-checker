@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.maven
 
 import io.github.khopland.versionchecker.core.VersionChangeKind
+import io.github.khopland.versionchecker.core.ArtifactId
 
 import io.github.khopland.versionchecker.*
 
@@ -24,11 +25,12 @@ internal data class DependencyProblem(
     val severity: VersionSeverity,
     val notice: String? = null
 ) {
-    val message: String get() = notice ?: "Newer version of ${when (coordinate.artifactKind) {
-        MavenArtifactKind.PLUGIN -> "Maven plugin "
-        MavenArtifactKind.PARENT -> "parent POM "
-        MavenArtifactKind.DEPENDENCY -> ""
-    }}${coordinate.groupId}:${coordinate.artifactId} is available: ${coordinate.version} → $latest"
+    val message: String get() = notice ?: updateHint(
+        ArtifactId(coordinate.groupId, coordinate.artifactId), kind, coordinate.version, latest.orEmpty()) + when (coordinate.artifactKind) {
+            MavenArtifactKind.PLUGIN -> " (Maven plugin)"
+            MavenArtifactKind.PARENT -> " (parent POM)"
+            else -> ""
+        }
 }
 
 internal class MavenDependencyAnalysis(
@@ -40,11 +42,44 @@ internal class MavenDependencyAnalysis(
     private val inspection: MavenInspectionResult? = null,
 ) {
     private val deprecated = deprecatedDependencies(options.deprecatedDependencies)
+    private val ignoredPolicy = options.ignoredVersions
+    private val ignored = ignoredVersions(ignoredPolicy)
     private val versionProperties by lazy {
         MavenVersionProperties(model, mavenProject.activatedProfilesIds.enabledProfiles, ::coordinate)
     }
     internal val propertyConsumers by lazy { versionProperties.consumers() }
     private val propertyConsumersByTarget by lazy { propertyConsumers.groupBy { it.target } }
+    private val sharedConsumers by lazy {
+        val manager = MavenProjectsManager.getInstance(model.manager.project)
+        val models = manager.nonIgnoredProjects.mapNotNull { pom ->
+            com.intellij.psi.PsiManager.getInstance(model.manager.project).findFile(pom.file)?.let { file ->
+                MavenDomUtil.getMavenDomProjectModel(file)?.let { it to pom }
+            }
+        }.ifEmpty { listOf(model to mavenProject) }
+        val consumers = models.flatMap { (dom, pom) ->
+            val analysis = MavenDependencyAnalysis(dom, pom, emptyMap())
+            val local = PsiTreeUtil.findChildrenOfType(dom.xmlTag, XmlTag::class.java).mapNotNull { tag ->
+                val coordinate = analysis.coordinate(tag) ?: return@mapNotNull null
+                val version = tag.findFirstSubTag("version") ?: analysis.managingVersion(tag)
+                val target = analysis.sharedVersionTarget(version, coordinate.version) ?: return@mapNotNull null
+                target to Triple(tag, dom.xmlTag!!.containingFile, coordinate)
+            }
+            local + analysis.propertyConsumers.map { it.target to Triple(it.tag, dom.xmlTag!!.containingFile, it.coordinate) }
+        }
+        consumers.groupBy({ it.first }, { it.second })
+    }
+    private val sharedScopes by lazy {
+        sharedConsumers.mapValues { (_, contexts) ->
+            "${contexts.distinctBy { it.first to it.second }.size} version declarations across ${contexts.map { it.second }.distinct().size} POMs"
+        }
+    }
+    private fun sharedAllowed(target: XmlTag, latest: String) = ignored.isEmpty() || sharedConsumers[target].orEmpty().none {
+        IgnoredVersion("maven", ArtifactId(it.third.groupId, it.third.artifactId), latest) in ignored
+    }
+    private fun scopedAction(target: XmlTag, latest: String): String {
+        val scope = sharedScopes[target] ?: "shared scope requires review"
+        return "Update ${target.localName} to $latest in ${target.containingFile.name} ($scope)"
+    }
     private val quickFixAdapter by lazy { inspection?.adapter ?: MavenBuildSystemAdapter() }
     private val quickFixSnapshot by lazy {
         inspection?.snapshot ?: model.xmlTag?.containingFile?.virtualFile?.let {
@@ -94,7 +129,8 @@ internal class MavenDependencyAnalysis(
 
     fun problem(tag: XmlTag): DependencyProblem? {
         val coordinate = coordinate(tag) ?: return null
-        val latest = updates[coordinate]
+        val latest = updates[coordinate]?.takeUnless { IgnoredVersion("maven",
+            ArtifactId(coordinate.groupId, coordinate.artifactId), it) in ignored }
         val id = "${coordinate.groupId}:${coordinate.artifactId}"
         val label = when (coordinate.artifactKind) {
             MavenArtifactKind.PLUGIN -> "Maven plugin"
@@ -130,10 +166,11 @@ internal class MavenDependencyAnalysis(
         val consumers = propertyConsumersByTarget[property].orEmpty()
         val problems = consumers.map { problem(it.tag) }
         val latest = problems.map { it?.latest }.distinct().singleOrNull() ?: return emptyArray()
-        if (problems.any { it?.notice != null }) return emptyArray()
+        if (problems.any { it?.notice != null } || !sharedAllowed(property, latest)) return emptyArray()
         val snapshot = quickFixSnapshot ?: return emptyArray()
         return arrayOf(UpdateDependencyVersionFix(property, latest,
-            isCurrent = { quickFixAdapter.isCurrent(property.project, snapshot) }))
+            isCurrent = { quickFixAdapter.isCurrent(property.project, snapshot) && property.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy })
+            .withActionName { scopedAction(property, latest) })
     }
 
     fun quickFixes(tag: XmlTag, problem: DependencyProblem): Array<LocalQuickFix> {
@@ -142,21 +179,28 @@ internal class MavenDependencyAnalysis(
         val project = tag.project
         val adapter = quickFixAdapter
         val snapshot = quickFixSnapshot ?: return emptyArray()
-        val isCurrent = { adapter.isCurrent(project, snapshot) }
-        problem.target?.let { return arrayOf(UpdateDependencyVersionFix(it, latest, isCurrent = isCurrent)) }
+        val isCurrent = { adapter.isCurrent(project, snapshot) && project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy }
+        problem.target?.let {
+            val shared = it.parentTag?.localName == "properties" || it.parentTag?.parentTag?.parentTag?.localName == "dependencyManagement"
+            if (shared && !sharedAllowed(it, latest)) return emptyArray()
+            val fix = UpdateDependencyVersionFix(it, latest, isCurrent = isCurrent)
+            if (shared) fix.withActionName { scopedAction(it, latest) }
+            return arrayOf(fix)
+        }
         if (problem.coordinate.artifactKind != MavenArtifactKind.DEPENDENCY) return emptyArray()
         val version = tag.findFirstSubTag("version")
         // Composite expressions and ranges retain their existing manual-review behavior.
         if (version != null && versionPropertyName(version.value.trimmedText) == null) return emptyArray()
         val fixes = mutableListOf<LocalQuickFix>(OverrideDependencyVersionFix(tag, latest, isCurrent))
         val target = sharedVersionTarget(version ?: managingVersion(tag), problem.coordinate.version)
-        if (target != null) {
+        if (target != null && sharedAllowed(target, latest)) {
             val file = target.containingFile.virtualFile
             val base = project.basePath?.trimEnd('/')
             val path = if (base != null && file.path.startsWith("$base/")) file.path.removePrefix("$base/") else file.path
             val location = if (file == tag.containingFile.virtualFile) "managed" else "parent"
-            fixes += UpdateDependencyVersionFix(target, latest,
-                "Update $location version to $latest in $path", isCurrent)
+            fixes += UpdateDependencyVersionFix(target, latest, isCurrent = isCurrent).withActionName {
+                "Update $location version to $latest in $path (${sharedScopes[target] ?: "shared scope requires review"})"
+            }
         }
         return fixes.toTypedArray()
     }
