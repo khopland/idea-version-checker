@@ -2,6 +2,8 @@
 
 Source: [10 October remaining-work plan](https://plan-api.k8r.no/p/4kY_bfKP7caOrUP_mCSwVhxY).
 
+The separate [Maven server performance proposal](maven-server-performance-ideas.html) now has all eight implementation items and its optional persistent index delivered. The [implementation audit](maven-performance-plan-status.md) records behavior and evidence. The native measurement matrix below remains separate from completion of those code changes.
+
 ## Delivered code
 
 - Opt-in anonymous interaction tracing propagates through coroutine dispatch, npm metadata/runtime workers, the coordinator and editor restart scheduling. Events include monotonic interval endpoints, so nested stages can be partitioned instead of summed. First accepted useful results, complete checks, preview plan preparation, displayed previews and changed editor text have distinct milestones.

@@ -2,8 +2,12 @@ package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
+import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.progress.ProcessCanceledException
 import io.github.khopland.versionchecker.CheckPerformance
+import io.github.khopland.versionchecker.VersionCheckerSettings
 import kotlinx.coroutines.*
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -12,7 +16,7 @@ internal data class MavenMetadataKey(val group: String, val artifact: String, va
 internal data class MavenMetadataValue(val versions: List<String> = emptyList(), val requiredMaven: String = "") {
     val versionIndex by lazy { CheckPerformance.measure(CheckPerformance.Stage.MAVEN_VERSION_INDEX, versions.size) { MavenVersionIndex(versions) } }
 }
-internal data class MavenMetadataLease(val value: MavenMetadataValue, val expiresAt: Long)
+internal data class MavenMetadataLease(val value: MavenMetadataValue, val expiresAt: Long, val checkedAtNanos: Long = System.nanoTime())
 
 /** Batched, generation-isolated native workers. Baselines and update modes are deliberately absent. */
 internal class MavenMetadataCache(
@@ -21,7 +25,9 @@ internal class MavenMetadataCache(
     private val ttl: Long = TimeUnit.MINUTES.toNanos(10),
     private val capacity: Int = 2048,
     private val versionBudget: Int = 100_000,
-    private val characterBudget: Int = 8_000_000
+    private val characterBudget: Int = 8_000_000,
+    private val persistence: MavenMetadataStore? = null,
+    private val persistEnabled: () -> Boolean = { false }
 ) {
     private data class Key(val context: String, val artifact: MavenMetadataKey, val generation: Long)
     private class Batch { lateinit var job: Job; val entries = mutableListOf<Entry>() }
@@ -62,17 +68,32 @@ internal class MavenMetadataCache(
             if (missing.isNotEmpty()) {
                 batch.job = workers.launch(CheckPerformance.context(), start = CoroutineStart.LAZY) {
                     try {
-                        val results = load(missing.keys.map { it.artifact })
+                        val requests = missing.keys.map { it.artifact }
+                        val diskRevision = synchronized(lock) {
+                            if (persistEnabled() && generation == this@MavenMetadataCache.generation) persistence?.revision() else null
+                        }
+                        val persisted = diskRevision?.let { persistence!!.read(context, requests, it) }.orEmpty()
+                        val fresh = requests.filter { it !in persisted }
+                        val results = if (fresh.isEmpty()) emptyMap() else load(fresh)
+                        currentCoroutineContext().ensureActive()
+                        val checkedAt = now()
+                        val expires = checkedAt + ttl
+                        val successful = results.mapNotNull { (key, result) -> result.getOrNull()?.let {
+                            key to MavenMetadataLease(it, expires, checkedAt)
+                        } }.toMap()
+                        if (diskRevision != null && successful.isNotEmpty()) persistence!!.write(context, successful, diskRevision)
                         currentCoroutineContext().ensureActive()
                         synchronized(lock) {
-                            val expires = now() + ttl
                             missing.forEach { (key, entry) ->
-                                val result = results[key.artifact] ?: Result.failure(IOException("Missing Maven metadata response"))
-                                result.fold({ value ->
+                                val result = persisted[key.artifact]?.let { Result.success(it) } ?:
+                                    successful[key.artifact]?.let { Result.success(it) } ?:
+                                    Result.failure(results[key.artifact]?.exceptionOrNull() ?: IOException("Missing Maven metadata response"))
+                                result.fold({ lease ->
+                                    val value = lease.value
                                     entry.weight = value.versions.size.toLong()
                                     entry.characters = value.versions.sumOf { it.length.toLong() } + value.requiredMaven.length
-                                    entry.expires = expires
-                                    entry.result.complete(MavenMetadataLease(value, expires))
+                                    entry.expires = lease.expiresAt
+                                    entry.result.complete(lease)
                                 }, { failure ->
                                     if (entries[key] === entry) entries.remove(key)
                                     entry.result.completeExceptionally(failure)
@@ -127,8 +148,11 @@ internal class MavenMetadataCache(
         }
     }
 
-    fun invalidate() = synchronized(lock) { generation++; entries.clear() }
-    fun close() = synchronized(lock) { generation++; entries.clear(); worker.cancel() }
+    fun invalidate() { synchronized(lock) {
+        generation++; entries.clear(); persistence?.invalidate()
+        if (persistence != null) workers.launch { persistence.clearInvalidated() }
+    } }
+    fun close() = synchronized(lock) { generation++; entries.clear(); persistence?.close(); worker.cancel() }
     private fun trim() {
         var weight = entries.values.sumOf { it.weight }
         var characters = entries.values.sumOf { it.characters }
@@ -142,8 +166,11 @@ internal class MavenMetadataCache(
 }
 
 @Service(Service.Level.PROJECT)
-internal class MavenMetadataService(scope: CoroutineScope) : Disposable {
-    val cache = MavenMetadataCache(scope)
+internal class MavenMetadataService(project: Project, scope: CoroutineScope) : Disposable {
+    private val persistence = MavenMetadataStore({ PathManager.getSystemDir().resolve("version-checker/maven-metadata")
+        .resolve(project.locationHash).resolve("histories.bin") })
+    val cache = MavenMetadataCache(scope, persistence = persistence,
+        persistEnabled = { project.service<VersionCheckerSettings>().state.mavenPersistentMetadata })
     val contexts = MavenResolutionContexts()
     fun invalidate() { cache.invalidate(); contexts.clear() }
     override fun dispose() { cache.close(); contexts.clear() }

@@ -26,6 +26,8 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             val mavenWorkers = spinners.last()
             val platformFirst = components(panel).filterIsInstance<JBCheckBox>().single { "BOMs" in it.text }
             val fastMaven = components(panel).filterIsInstance<JBCheckBox>().single { "faster Maven" in it.text }
+            val persistentMaven = components(panel).filterIsInstance<JBCheckBox>().single { "between IDE sessions" in it.text }
+            assertFalse(persistentMaven.isSelected)
             assertFalse(fastMaven.isSelected)
             assertFalse(platformFirst.isSelected)
             assertEquals(2, mavenWorkers.value)
@@ -36,6 +38,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             interval.value = 15
             platformFirst.isSelected = true
             fastMaven.isSelected = true
+            persistentMaven.isSelected = true
             mavenWorkers.value = 4
             selectors[0].selectedItem = VersionSeverity.DISABLED
             selectors[2].selectedItem = VersionSeverity.ERROR
@@ -53,6 +56,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             assertEquals(15, state.checkIntervalMinutes)
             assertTrue(state.mavenPlatformFirst)
             assertTrue(state.mavenFastEditorChecks)
+            assertTrue(state.mavenPersistentMetadata)
             assertEquals(4, state.mavenMetadataThreads)
             assertFalse(configurable.isModified())
             selectors[2].selectedItem = VersionSeverity.INFORMATION
@@ -71,7 +75,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             minorSeverity = VersionSeverity.INFORMATION, majorSeverity = VersionSeverity.ERROR,
             deprecatedSeverity = VersionSeverity.WARNING, deprecatedDependencies = "old:library = Retired",
             scheduledChecks = true, checkIntervalMinutes = 60, ignoredVersions = "maven g:a = 2.0",
-            mavenPlatformFirst = true, mavenMetadataThreads = 4, mavenFastEditorChecks = true)
+            mavenPlatformFirst = true, mavenMetadataThreads = 4, mavenFastEditorChecks = true, mavenPersistentMetadata = true)
         assertEquals(state, XmlSerializer.deserialize(XmlSerializer.serialize(state), VersionCheckerSettings.Options::class.java))
     }
 }

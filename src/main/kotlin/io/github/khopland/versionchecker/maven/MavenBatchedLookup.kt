@@ -18,7 +18,7 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.server.MavenDistributionsCache
 
 internal data class MavenLookupDelta(val coordinates: Set<DependencyVersion>, val updates: Map<DependencyVersion, String>,
-                                     val failures: List<Exception>, val validUntil: Long?)
+                                     val failures: List<Exception>, val validUntil: Long?, val checkedAtNanos: Long? = null)
 
 /** Explicit coordinates are resolved once per context; every baseline/mode is selected locally. */
 internal object MavenBatchedLookup {
@@ -53,6 +53,7 @@ internal object MavenBatchedLookup {
         val updates = linkedMapOf<DependencyVersion, String>()
         val failures = mutableListOf<Exception>()
         var expires: Long? = null
+        var checkedAt: Long? = null
         val session = currentCoroutineContext()[MavenScanSession]
         CheckPerformance.record(CheckPerformance.Stage.MAVEN_QUERY_COORDINATES, System.nanoTime(), keys.size)
         CheckPerformance.record(CheckPerformance.Stage.MAVEN_QUERY_CONTEXTS, System.nanoTime())
@@ -72,11 +73,15 @@ internal object MavenBatchedLookup {
             val deltaUpdates = linkedMapOf<DependencyVersion, String>()
             val deltaFailures = mutableListOf<Exception>()
             var deltaExpires: Long? = null
-            fun deadline(value: Long) { deltaExpires = minOf(deltaExpires ?: Long.MAX_VALUE, value) }
+            var deltaCheckedAt: Long? = null
+            fun observed(lease: MavenMetadataLease) {
+                deltaExpires = minOf(deltaExpires ?: Long.MAX_VALUE, lease.expiresAt)
+                deltaCheckedAt = minOf(deltaCheckedAt ?: Long.MAX_VALUE, lease.checkedAtNanos)
+            }
             val plugins = linkedMapOf<DependencyVersion, ArrayDeque<String>>()
             result.forEach { (key, value) ->
                 value.fold({ lease ->
-                    deadline(lease.expiresAt)
+                    observed(lease)
                     for (coordinate in keys.getValue(key)) {
                         if (!key.plugin) lease.value.versionIndex.latest(coordinate.version, mode)
                             ?.let { deltaUpdates[coordinate] = it }
@@ -98,7 +103,7 @@ internal object MavenBatchedLookup {
                     val candidate = versions.removeFirst()
                     val key = MavenMetadataKey(coordinate.groupId, coordinate.artifactId, true, candidate)
                     prerequisites.getValue(key).fold({ lease ->
-                        deadline(lease.expiresAt)
+                        observed(lease)
                         val required = lease.value.requiredMaven
                         if (required.isEmpty() || mavenVersion != null && MavenVersionComparable(required) <= MavenVersionComparable(mavenVersion)) {
                             deltaUpdates[coordinate] = candidate
@@ -110,12 +115,13 @@ internal object MavenBatchedLookup {
                     })
                 }
             }
-            val delta = MavenLookupDelta(batch.flatMap { keys.getValue(it) }.toSet(), deltaUpdates, deltaFailures, deltaExpires)
+            val delta = MavenLookupDelta(batch.flatMap { keys.getValue(it) }.toSet(), deltaUpdates, deltaFailures, deltaExpires, deltaCheckedAt)
             updates.putAll(deltaUpdates); failures += deltaFailures
             deltaExpires?.let { expires = minOf(expires ?: Long.MAX_VALUE, it) }
+            deltaCheckedAt?.let { checkedAt = minOf(checkedAt ?: Long.MAX_VALUE, it) }
             publish?.invoke(delta)
         }
-        return MavenLookupDelta(coordinates.toSet(), updates, failures, expires)
+        return MavenLookupDelta(coordinates.toSet(), updates, failures, expires, checkedAt)
     }
 
     internal fun eligible(versions: List<String>, current: String, mode: UpdateMode): List<String> =

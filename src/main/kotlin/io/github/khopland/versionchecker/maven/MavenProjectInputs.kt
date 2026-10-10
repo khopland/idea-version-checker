@@ -24,7 +24,8 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager) {
     private val configuration by lazy {
         val policy = manager.project.service<VersionCheckerSettings>().state.deprecatedDependencies.hashCode()
         val fastScope = manager.project.service<VersionCheckerSettings>().state.mavenFastEditorChecks
-        "${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy:$fastScope"
+        val persistent = manager.project.service<VersionCheckerSettings>().state.mavenPersistentMetadata
+        "${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy:$fastScope:$persistent"
     }
     private val shared by lazy {
         CheckPerformance.measure(CheckPerformance.Stage.MAVEN_PROJECT_INPUTS, projects.size) {

@@ -8,6 +8,14 @@ spec.loader.exec_module(trace)
 
 
 class TraceSummaryTest(unittest.TestCase):
+    def test_persisted_metadata_reads_are_local_work(self):
+        interactions = {(1, 100): [dict(stage=s, start=a, end=b) for s, a, b in [
+            ("PREVIEW_INVOKED", 100, 100), ("MAVEN_METADATA_DISK_READ", 110, 150),
+            ("MAVEN_METADATA_DISK_REUSED", 150, 150), ("PREVIEW_READY", 100, 200)]]}
+        report = trace.summarize(interactions)["preview"]
+        self.assertEqual(0, report["nativeInvocations"]["owned"])
+        self.assertAlmostEqual(40 / 1_000_000, report["interactions"][0]["exclusiveMs"]["preparation"])
+
     def test_plugin_prerequisites_are_distinct_native_work_and_indexing_is_local(self):
         interactions = {(1, 100): [dict(stage=s, start=a, end=b) for s, a, b in [
             ("PREVIEW_INVOKED", 100, 100), ("MAVEN_METADATA_BATCH", 110, 130),

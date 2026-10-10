@@ -8,6 +8,20 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 
 class VersionResultCacheTest {
+    @Test fun `derived reports preserve original metadata age and deadline across modes`() {
+        var time = 100L
+        val cache = VersionResultCache { time }
+        val snapshot = snapshot()
+        val report = report(snapshot).copy(validUntilNanos = 1000, checkedAtNanos = 10)
+        assertTrue(cache.put(snapshot, cache.begin(snapshot), report))
+        assertEquals(10L, cache.getResult(snapshot, UpdateMode.MAJOR)!!.checkedAtNanos)
+        time = 500
+        assertTrue(cache.put(snapshot, cache.begin(snapshot), report, UpdateMode.PATCH))
+        assertEquals(10L, cache.getResult(snapshot, UpdateMode.PATCH)!!.checkedAtNanos)
+        assertEquals(1000L, cache.getResult(snapshot, UpdateMode.PATCH)!!.expiresAtNanos)
+        time = 1000
+        assertNull(cache.get(snapshot, UpdateMode.PATCH))
+    }
     private fun snapshot(adapter: String = "maven", root: String = "/one", selector: String = "1.0") = BuildSnapshot(
         BuildContextId(adapter, root, "$root/manifest"), "$root/manifest", BuildFingerprint(mapOf("$root/manifest" to "1"), "settings-1"),
         listOf(VersionDeclaration(DeclarationId("$root/manifest", "dependency"), ArtifactId("npm", "@scope/package"), selector, "1.0", "1.1"))

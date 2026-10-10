@@ -126,13 +126,13 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
                 val declarations = snapshot.declarations.filter { it.coordinate() in delta.coordinates }
                 val report = versionReport(mavenProject, snapshot.copy(declarations = declarations), delta.updates).copy(
                     failure = delta.failures.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.message.orEmpty() },
-                    failureCause = delta.failures.firstOrNull(), validUntilNanos = delta.validUntil)
+                    failureCause = delta.failures.firstOrNull(), validUntilNanos = delta.validUntil, checkedAtNanos = delta.checkedAtNanos)
                 publisher(InspectionUpdate(report, declarations.map { it.id }.toSet()))
             }
         })
         if (native != null) return versionReport(mavenProject, snapshot, native.updates).copy(
             failure = native.failures.takeIf { it.isNotEmpty() }?.joinToString("\n") { it.message.orEmpty() },
-            failureCause = native.failures.firstOrNull(), validUntilNanos = native.validUntil)
+            failureCause = native.failures.firstOrNull(), validUntilNanos = native.validUntil, checkedAtNanos = native.checkedAtNanos)
         val coordinates = snapshot.declarations.map { it.coordinate() }
         val kinds = coordinates.map { it.artifactKind }.toSet()
         val failures = mutableListOf<Exception>()

@@ -42,7 +42,9 @@ internal data class UpdateReport(
     /** Monotonic deadline of the native metadata used, so report caching cannot extend its freshness. */
     val validUntilNanos: Long? = null,
     /** Preserve the native failure type/details when a complete interactive check is rejected. */
-    val failureCause: Exception? = null
+    val failureCause: Exception? = null,
+    /** Original metadata observation, including reuse; deriving a result cannot make it younger. */
+    val checkedAtNanos: Long? = null
 ) {
     val successful: Boolean get() = failure == null
 }

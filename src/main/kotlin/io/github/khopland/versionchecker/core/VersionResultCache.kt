@@ -121,7 +121,7 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
         val expires = minOf(time + ttl, report.validUntilNanos ?: Long.MAX_VALUE)
         if (expires <= time) return false
         sources[snapshot.context] = snapshot.sourceFile
-        entries[Key(snapshot.context, mode)] = Entry(snapshot, revision, time, expires, report)
+        entries[Key(snapshot.context, mode)] = Entry(snapshot, revision, minOf(time, report.checkedAtNanos ?: time), expires, report)
         if (mode == UpdateMode.MAJOR) progress.remove(snapshot.context)
         return true
     }

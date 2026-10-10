@@ -130,6 +130,33 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             assertEquals("A platform-only preview queries just the external parent", 1, requests.size - platformBefore)
             assertTrue(platformPreview.plan.changes.single().location.startsWith(platform.path))
 
+            val diskFile = directory.resolve("persisted-metadata/histories.bin")
+            val diskBefore = requests.size
+            background { coroutineScope {
+                val metadata = project.service<MavenMetadataService>()
+                val context = metadata.contexts.get(manager, platform, platformScope.single(), metadata.cache.generation())
+                val key = MavenMetadataKey("org.springframework.boot", "spring-boot-starter-parent")
+                fun cache() = MavenMetadataCache(this, persistence = MavenMetadataStore({ diskFile }), persistEnabled = { true })
+                val firstCache = cache()
+                val original = try { firstCache.getMany(context.id, listOf(key)) { keys ->
+                    MavenNativeMetadata.load(manager, platform, context, keys, 2)
+                }.getValue(key).getOrThrow() } finally { firstCache.close() }
+                assertEquals(1, requests.size - diskBefore)
+                val reopened = cache()
+                try {
+                    val loaded = reopened.getMany(context.id, listOf(key)) { error("A fresh persisted history must not invoke Maven") }
+                        .getValue(key).getOrThrow()
+                    assertEquals(original.value, loaded.value)
+                    assertEquals(original.checkedAtNanos, loaded.checkedAtNanos)
+                    assertTrue(loaded.expiresAt <= original.expiresAt)
+                    assertEquals("Reopening a fresh metadata cache adds no HTTP requests", 1, requests.size - diskBefore)
+                    reopened.invalidate()
+                    reopened.getMany(context.id, listOf(key)) { keys -> MavenNativeMetadata.load(manager, platform, context, keys, 2) }
+                    assertEquals("Refresh bypasses persisted metadata", 2, requests.size - diskBefore)
+                } finally { reopened.close() }
+            } }
+            println("version-check benchmark=maven-persistence initialHttp=1 reopenedHttp=0 refreshHttp=1 originalAgeAndExpiry=true")
+
             adapter.invalidateMetadata(project)
             val fast = adapter.snapshot(project, platform.file)!!
             assertEquals(26, fast.declarations.size)
