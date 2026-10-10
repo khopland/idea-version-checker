@@ -1,0 +1,1515 @@
+{
+  "case": "maven-small-fix-warm",
+  "conditions": {
+    "ecosystem": "maven",
+    "scope": "current-file",
+    "mode": "major",
+    "cache": "warm",
+    "modules": 1,
+    "declarations": 3,
+    "ideaVersion": "2026.1.4",
+    "repositoryCase": "fast-local"
+  },
+  "interactionsObserved": 210,
+  "measurements": {
+    "editor_hint": {
+      "samples": 0,
+      "medianMs": null,
+      "p95Ms": null,
+      "minimumSampleCountMet": false,
+      "interactions": []
+    },
+    "preview": {
+      "samples": 0,
+      "medianMs": null,
+      "p95Ms": null,
+      "minimumSampleCountMet": false,
+      "interactions": []
+    },
+    "local_fix": {
+      "samples": 100,
+      "medianMs": 3.885479,
+      "p95Ms": 6.579875,
+      "minimumSampleCountMet": true,
+      "interactions": [
+        {
+          "interaction": 163,
+          "originNs": 581635310298250,
+          "elapsedMs": 7.447416,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.120541,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 7.326875
+          }
+        },
+        {
+          "interaction": 165,
+          "originNs": 581636880854000,
+          "elapsedMs": 4.023666,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.095792,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.927874
+          }
+        },
+        {
+          "interaction": 168,
+          "originNs": 581639370327666,
+          "elapsedMs": 3.154125,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.08275,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.071375
+          }
+        },
+        {
+          "interaction": 170,
+          "originNs": 581640913896375,
+          "elapsedMs": 3.885625,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.1045,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.781125
+          }
+        },
+        {
+          "interaction": 172,
+          "originNs": 581642425072625,
+          "elapsedMs": 4.073458,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.142333,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.931125
+          }
+        },
+        {
+          "interaction": 174,
+          "originNs": 581643938331083,
+          "elapsedMs": 3.458833,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.086833,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.372
+          }
+        },
+        {
+          "interaction": 176,
+          "originNs": 581645422265000,
+          "elapsedMs": 3.243958,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.093417,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.150541
+          }
+        },
+        {
+          "interaction": 178,
+          "originNs": 581646861760083,
+          "elapsedMs": 2.565042,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.092792,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.47225
+          }
+        },
+        {
+          "interaction": 180,
+          "originNs": 581648472950541,
+          "elapsedMs": 4.252917,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.100333,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.152584
+          }
+        },
+        {
+          "interaction": 182,
+          "originNs": 581650017099500,
+          "elapsedMs": 5.693291,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.169333,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.523958
+          }
+        },
+        {
+          "interaction": 184,
+          "originNs": 581651583775208,
+          "elapsedMs": 4.390333,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.224125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.166208
+          }
+        },
+        {
+          "interaction": 186,
+          "originNs": 581653040112750,
+          "elapsedMs": 3.979666,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.099417,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.880249
+          }
+        },
+        {
+          "interaction": 188,
+          "originNs": 581654475459833,
+          "elapsedMs": 3.77975,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.123125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.656625
+          }
+        },
+        {
+          "interaction": 190,
+          "originNs": 581656016325958,
+          "elapsedMs": 4.71575,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.219833,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.495917
+          }
+        },
+        {
+          "interaction": 192,
+          "originNs": 581657592892666,
+          "elapsedMs": 5.063584,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.174584,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.889
+          }
+        },
+        {
+          "interaction": 194,
+          "originNs": 581659063908041,
+          "elapsedMs": 3.442292,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.09225,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.350042
+          }
+        },
+        {
+          "interaction": 196,
+          "originNs": 581660566729625,
+          "elapsedMs": 4.497583,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.189959,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.307624
+          }
+        },
+        {
+          "interaction": 198,
+          "originNs": 581662091475583,
+          "elapsedMs": 5.8815,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.236166,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.645334
+          }
+        },
+        {
+          "interaction": 200,
+          "originNs": 581663597356208,
+          "elapsedMs": 5.15525,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.112375,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.042875
+          }
+        },
+        {
+          "interaction": 203,
+          "originNs": 581666448785250,
+          "elapsedMs": 3.888,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.108667,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.779333
+          }
+        },
+        {
+          "interaction": 205,
+          "originNs": 581671083478958,
+          "elapsedMs": 3.505875,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.112625,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.39325
+          }
+        },
+        {
+          "interaction": 207,
+          "originNs": 581672640912875,
+          "elapsedMs": 3.726541,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.138,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.588541
+          }
+        },
+        {
+          "interaction": 209,
+          "originNs": 581674122827708,
+          "elapsedMs": 2.7825,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.076458,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.706042
+          }
+        },
+        {
+          "interaction": 212,
+          "originNs": 581677448704583,
+          "elapsedMs": 2.774792,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.070208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.704584
+          }
+        },
+        {
+          "interaction": 214,
+          "originNs": 581678946747875,
+          "elapsedMs": 4.509291,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.112667,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.396624
+          }
+        },
+        {
+          "interaction": 216,
+          "originNs": 581680372236875,
+          "elapsedMs": 6.078708,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.122334,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.956374
+          }
+        },
+        {
+          "interaction": 218,
+          "originNs": 581681760227541,
+          "elapsedMs": 2.424834,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.085959,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.338875
+          }
+        },
+        {
+          "interaction": 220,
+          "originNs": 581683155355416,
+          "elapsedMs": 4.379834,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.132541,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.247293
+          }
+        },
+        {
+          "interaction": 222,
+          "originNs": 581684579977666,
+          "elapsedMs": 4.736,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.108708,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.627292
+          }
+        },
+        {
+          "interaction": 224,
+          "originNs": 581686181303416,
+          "elapsedMs": 4.497875,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.105042,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.392833
+          }
+        },
+        {
+          "interaction": 227,
+          "originNs": 581688796396666,
+          "elapsedMs": 2.900167,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.075958,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.824209
+          }
+        },
+        {
+          "interaction": 230,
+          "originNs": 581691749471000,
+          "elapsedMs": 4.132833,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.260625,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.872208
+          }
+        },
+        {
+          "interaction": 232,
+          "originNs": 581693606131041,
+          "elapsedMs": 4.098334,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.148291,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.950043
+          }
+        },
+        {
+          "interaction": 234,
+          "originNs": 581695064320333,
+          "elapsedMs": 3.685,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.09925,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.58575
+          }
+        },
+        {
+          "interaction": 236,
+          "originNs": 581696532187791,
+          "elapsedMs": 5.555209,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.172416,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.382793
+          }
+        },
+        {
+          "interaction": 238,
+          "originNs": 581698139783833,
+          "elapsedMs": 3.885333,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.099667,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.785666
+          }
+        },
+        {
+          "interaction": 240,
+          "originNs": 581699596811916,
+          "elapsedMs": 3.09,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.084375,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.005625
+          }
+        },
+        {
+          "interaction": 242,
+          "originNs": 581701182076375,
+          "elapsedMs": 4.224583,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.107708,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.116875
+          }
+        },
+        {
+          "interaction": 244,
+          "originNs": 581702814760875,
+          "elapsedMs": 3.531708,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.104167,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.427541
+          }
+        },
+        {
+          "interaction": 246,
+          "originNs": 581704390826375,
+          "elapsedMs": 6.7645,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.178542,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 6.585958
+          }
+        },
+        {
+          "interaction": 248,
+          "originNs": 581713075305958,
+          "elapsedMs": 6.569792,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.193708,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 6.376084
+          }
+        },
+        {
+          "interaction": 250,
+          "originNs": 581714924229416,
+          "elapsedMs": 4.145459,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.159,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.986459
+          }
+        },
+        {
+          "interaction": 252,
+          "originNs": 581716372453250,
+          "elapsedMs": 3.838791,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.130416,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.708375
+          }
+        },
+        {
+          "interaction": 254,
+          "originNs": 581717898356583,
+          "elapsedMs": 3.386542,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.110125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.276417
+          }
+        },
+        {
+          "interaction": 256,
+          "originNs": 581719448952625,
+          "elapsedMs": 6.57925,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.241958,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 6.337292
+          }
+        },
+        {
+          "interaction": 258,
+          "originNs": 581721007218916,
+          "elapsedMs": 4.113167,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.12175,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.991417
+          }
+        },
+        {
+          "interaction": 260,
+          "originNs": 581722473451958,
+          "elapsedMs": 3.563917,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.106125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.457792
+          }
+        },
+        {
+          "interaction": 262,
+          "originNs": 581724000134791,
+          "elapsedMs": 3.313625,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.135042,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.178583
+          }
+        },
+        {
+          "interaction": 264,
+          "originNs": 581725625956958,
+          "elapsedMs": 6.579875,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.176167,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 6.403708
+          }
+        },
+        {
+          "interaction": 266,
+          "originNs": 581727181928666,
+          "elapsedMs": 3.652334,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.116583,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.535751
+          }
+        },
+        {
+          "interaction": 268,
+          "originNs": 581728920594416,
+          "elapsedMs": 2.5905,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.083,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.5075
+          }
+        },
+        {
+          "interaction": 270,
+          "originNs": 581730455762541,
+          "elapsedMs": 3.491,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.086083,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.404917
+          }
+        },
+        {
+          "interaction": 272,
+          "originNs": 581732006459791,
+          "elapsedMs": 3.460625,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.104708,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.355917
+          }
+        },
+        {
+          "interaction": 275,
+          "originNs": 581734689503333,
+          "elapsedMs": 7.243083,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.178208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 7.064875
+          }
+        },
+        {
+          "interaction": 277,
+          "originNs": 581736373980333,
+          "elapsedMs": 6.733125,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.22775,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 6.505375
+          }
+        },
+        {
+          "interaction": 279,
+          "originNs": 581737990262291,
+          "elapsedMs": 5.221042,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.15025,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.070792
+          }
+        },
+        {
+          "interaction": 281,
+          "originNs": 581739504997083,
+          "elapsedMs": 2.989625,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.093584,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.896041
+          }
+        },
+        {
+          "interaction": 283,
+          "originNs": 581741062301208,
+          "elapsedMs": 3.2645,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.109625,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.154875
+          }
+        },
+        {
+          "interaction": 285,
+          "originNs": 581742648028750,
+          "elapsedMs": 3.295041,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.098541,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.1965
+          }
+        },
+        {
+          "interaction": 287,
+          "originNs": 581744116416500,
+          "elapsedMs": 5.187833,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.190125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.997708
+          }
+        },
+        {
+          "interaction": 289,
+          "originNs": 581757622372333,
+          "elapsedMs": 3.710917,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.136375,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.574542
+          }
+        },
+        {
+          "interaction": 291,
+          "originNs": 581759104861583,
+          "elapsedMs": 3.011375,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.109333,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.902042
+          }
+        },
+        {
+          "interaction": 293,
+          "originNs": 581760708045875,
+          "elapsedMs": 5.550125,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.173166,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.376959
+          }
+        },
+        {
+          "interaction": 296,
+          "originNs": 581764333827750,
+          "elapsedMs": 4.514875,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.146208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.368667
+          }
+        },
+        {
+          "interaction": 298,
+          "originNs": 581765945569833,
+          "elapsedMs": 2.306375,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.067541,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.238834
+          }
+        },
+        {
+          "interaction": 300,
+          "originNs": 581767422882666,
+          "elapsedMs": 3.436709,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.0955,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.341209
+          }
+        },
+        {
+          "interaction": 302,
+          "originNs": 581768972361083,
+          "elapsedMs": 3.792667,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.127208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.665459
+          }
+        },
+        {
+          "interaction": 304,
+          "originNs": 581770566003458,
+          "elapsedMs": 6.121417,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.216583,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.904834
+          }
+        },
+        {
+          "interaction": 306,
+          "originNs": 581772133356666,
+          "elapsedMs": 3.454042,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.15925,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.294792
+          }
+        },
+        {
+          "interaction": 308,
+          "originNs": 581773716104125,
+          "elapsedMs": 5.807791,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.206041,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.60175
+          }
+        },
+        {
+          "interaction": 310,
+          "originNs": 581775271427916,
+          "elapsedMs": 3.202459,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.084542,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.117917
+          }
+        },
+        {
+          "interaction": 312,
+          "originNs": 581776784792500,
+          "elapsedMs": 6.889541,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.253666,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 6.635875
+          }
+        },
+        {
+          "interaction": 314,
+          "originNs": 581778348899291,
+          "elapsedMs": 5.533459,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.176667,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.356792
+          }
+        },
+        {
+          "interaction": 316,
+          "originNs": 581779915874791,
+          "elapsedMs": 4.274667,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.261667,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.013
+          }
+        },
+        {
+          "interaction": 318,
+          "originNs": 581781424923208,
+          "elapsedMs": 5.622417,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.205417,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.417
+          }
+        },
+        {
+          "interaction": 320,
+          "originNs": 581783214958416,
+          "elapsedMs": 3.564417,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.095583,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.468834
+          }
+        },
+        {
+          "interaction": 322,
+          "originNs": 581784772310250,
+          "elapsedMs": 3.044,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.092042,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.951958
+          }
+        },
+        {
+          "interaction": 324,
+          "originNs": 581786332848000,
+          "elapsedMs": 3.370958,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.102208,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.26875
+          }
+        },
+        {
+          "interaction": 327,
+          "originNs": 581789281972500,
+          "elapsedMs": 4.967916,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.140417,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.827499
+          }
+        },
+        {
+          "interaction": 329,
+          "originNs": 581791115091500,
+          "elapsedMs": 4.247125,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.116333,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.130792
+          }
+        },
+        {
+          "interaction": 331,
+          "originNs": 581796101471500,
+          "elapsedMs": 4.763541,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.171125,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.592416
+          }
+        },
+        {
+          "interaction": 333,
+          "originNs": 581797705691666,
+          "elapsedMs": 3.217667,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.1215,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.096167
+          }
+        },
+        {
+          "interaction": 335,
+          "originNs": 581799215648916,
+          "elapsedMs": 4.753084,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.194833,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.558251
+          }
+        },
+        {
+          "interaction": 337,
+          "originNs": 581800790382083,
+          "elapsedMs": 3.151458,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.142542,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.008916
+          }
+        },
+        {
+          "interaction": 340,
+          "originNs": 581803278712416,
+          "elapsedMs": 2.094375,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.064625,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.02975
+          }
+        },
+        {
+          "interaction": 342,
+          "originNs": 581804797388458,
+          "elapsedMs": 2.254208,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.066917,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.187291
+          }
+        },
+        {
+          "interaction": 345,
+          "originNs": 581807304575000,
+          "elapsedMs": 4.373625,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.119,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.254625
+          }
+        },
+        {
+          "interaction": 347,
+          "originNs": 581808804021250,
+          "elapsedMs": 2.244333,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.086166,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.158167
+          }
+        },
+        {
+          "interaction": 349,
+          "originNs": 581810255748250,
+          "elapsedMs": 3.895541,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.108542,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.786999
+          }
+        },
+        {
+          "interaction": 351,
+          "originNs": 581811651886333,
+          "elapsedMs": 2.063667,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.066375,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 1.997292
+          }
+        },
+        {
+          "interaction": 353,
+          "originNs": 581813112994750,
+          "elapsedMs": 4.198,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.112959,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.085041
+          }
+        },
+        {
+          "interaction": 355,
+          "originNs": 581814496133458,
+          "elapsedMs": 3.856,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.120292,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.735708
+          }
+        },
+        {
+          "interaction": 357,
+          "originNs": 581816096458208,
+          "elapsedMs": 3.7295,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.094334,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.635166
+          }
+        },
+        {
+          "interaction": 359,
+          "originNs": 581817495847666,
+          "elapsedMs": 2.602,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.061791,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.540209
+          }
+        },
+        {
+          "interaction": 361,
+          "originNs": 581819255477458,
+          "elapsedMs": 4.121667,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.109041,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 4.012626
+          }
+        },
+        {
+          "interaction": 363,
+          "originNs": 581820820880833,
+          "elapsedMs": 2.978708,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.110667,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 2.868041
+          }
+        },
+        {
+          "interaction": 365,
+          "originNs": 581822388775375,
+          "elapsedMs": 3.102791,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.090167,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.012624
+          }
+        },
+        {
+          "interaction": 367,
+          "originNs": 581823939779958,
+          "elapsedMs": 3.2065,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.09575,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.11075
+          }
+        },
+        {
+          "interaction": 369,
+          "originNs": 581825480468208,
+          "elapsedMs": 3.539708,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.110667,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 3.429041
+          }
+        },
+        {
+          "interaction": 371,
+          "originNs": 581826998334416,
+          "elapsedMs": 5.411709,
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "preparation": 0.1175,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 5.294209
+          }
+        }
+      ]
+    }
+  },
+  "stages": {
+    "FIX_INVOKED": {
+      "samples": 100,
+      "medianMs": 0.002875,
+      "p95Ms": 0.006208
+    },
+    "MAVEN_PROJECT_INPUTS": {
+      "samples": 430,
+      "medianMs": 0.076938,
+      "p95Ms": 0.22775
+    },
+    "EDITOR_TEXT_CHANGED": {
+      "samples": 100,
+      "medianMs": 3.885479,
+      "p95Ms": 6.579875
+    },
+    "INTERACTION_STARTED": {
+      "samples": 110,
+      "medianMs": 0.0039795,
+      "p95Ms": 0.009834
+    },
+    "CHECK_QUEUE": {
+      "samples": 110,
+      "medianMs": 0.028,
+      "p95Ms": 0.071167
+    },
+    "MAVEN_SESSION": {
+      "samples": 110,
+      "medianMs": 2.3607915,
+      "p95Ms": 8.898167
+    },
+    "MAVEN_SETTINGS": {
+      "samples": 110,
+      "medianMs": 1.0800619999999999,
+      "p95Ms": 1.966917
+    },
+    "MAVEN_MODEL": {
+      "samples": 110,
+      "medianMs": 57.5734375,
+      "p95Ms": 75.961542
+    },
+    "MAVEN_METADATA_EXPIRATION": {
+      "samples": 110,
+      "medianMs": 0.742521,
+      "p95Ms": 1.422166
+    },
+    "MAVEN_DEPENDENCY_GOAL": {
+      "samples": 110,
+      "medianMs": 203.67093749999998,
+      "p95Ms": 298.737375
+    },
+    "CHECK": {
+      "samples": 110,
+      "medianMs": 269.5000205,
+      "p95Ms": 362.675833
+    },
+    "FIRST_INSPECTION_RESULT": {
+      "samples": 20,
+      "medianMs": 244.750333,
+      "p95Ms": 359.413375
+    },
+    "RESULT_ACCEPTED": {
+      "samples": 19,
+      "medianMs": 0.001083,
+      "p95Ms": 0.006333
+    },
+    "HIGHLIGHT_QUEUE": {
+      "samples": 20,
+      "medianMs": 50.994062,
+      "p95Ms": 53.940083
+    },
+    "HIGHLIGHT_RESTART": {
+      "samples": 20,
+      "medianMs": 0.0305,
+      "p95Ms": 0.069417
+    }
+  }
+}

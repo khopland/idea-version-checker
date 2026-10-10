@@ -5,6 +5,7 @@ Source: [10 October remaining-work plan](https://plan-api.k8r.no/p/4kY_bfKP7caOr
 ## Delivered code
 
 - Opt-in anonymous interaction tracing propagates through coroutine dispatch, npm metadata/runtime workers, the coordinator and editor restart scheduling. Events include monotonic interval endpoints, so nested stages can be partitioned instead of summed. First accepted useful results, complete checks, preview plan preparation, displayed previews and changed editor text have distinct milestones.
+- Refresh, committed mode/scope changes and stale-preview recovery have independent preview IDs and origins. Bulk Apply carries its acceptance-time origin through selected-plan and writable-file preparation. Trace reports distinguish native invocation ownership, starts and background overlap, retain uncorrelated native spans for overlap analysis, expose endpoint counts and report incomplete interactions separately. This closes measurement gaps without claiming new native latency results.
 - Gradle records host setup and total native execution. A debug-only temporary file carries configuration/query durations measured inside the Gradle JVM; buffered console delivery does not determine them. The file contains two numeric durations and is deleted with the native task inputs. Those durations are placed at the end of the host invocation for visualization; their absolute placement is approximate, and startup/tooling return overhead remains outside them.
 - Selected-file activation has a native diagnostic endpoint. It requires a Version Checker inspection highlighter intersecting the visible viewport and completes an explicit editor paint. Warm installed markup is probed after selection; new markup is probed after daemon completion. Debug mode adds this paint and log overhead. Headless tests cannot certify this endpoint or screen compositor latency.
 - Routine Maven/npm/Gradle hints lead with artifact, update kind and the declared version/selector change. Maven plugin/parent identity and npm selector operators remain visible; notices and manual-review explanations retain their detail.
@@ -17,14 +18,14 @@ Selective saving follows inputs known to each supported adapter. Arbitrary files
 
 ## Native validation status
 
-The [native record and sanitized traces](native-validation-2026-10-10/README.md) now cover the small, warm, current-file Maven cases in IDEA 2025.3.6.1: 105 editor, 100 preview and 100 literal-fix endpoints. Their p95 values are 3.49, 43.86 and 5.45 ms respectively. Preview and editor captures have no native queries. Fixes start no native queries; preexisting background queries overlap 15 fixes during the undo/restore loop. IDEA 2026.1.4 has 76 partial local-fix endpoints and verified readable labels/action ordering. Native testing also corrected preview Tab traversal and verified filter/Space/hidden-selection behavior in 2025.3.
+The [native record and sanitized traces](native-validation-2026-10-10/README.md) now covers the small, warm, current-file Maven cases in both supported IDEA versions. IDEA 2025.3.6.1 has 105 editor, 100 preview and 100 literal-fix endpoints, with p95 values of 3.49, 43.86 and 5.45 ms. IDEA 2026.1.4 has 100 endpoints each, with p95 values of 6.11, 34.23 and 6.58 ms. All final editor/preview captures have no native queries. Fixes start no native queries; preexisting background queries overlap 15 fixes in 2025.3 and none in the final 2026.1 capture. The earlier 76-sample interrupted fix capture remains available separately. Native testing also corrected preview Tab traversal and verified sorting/filtering/Space/hidden-selection behavior, empty preview Refresh and bulk undo in 2026.1.
 
 **Native npm validation is blocked:** JavaScript/Node support is disabled in the available IDEA sandbox. No usable licensed profile was supplied or verified; the user requested recording this blocker. Passing headless npm integration tests do not replace native validation.
 
 | Native work | Status |
 |-------------|--------|
 | Small warm Maven editor/preview/literal fix, 2025.3.6.1 | Sample counts and latency recorded; globally idle fix capture remains to confirm |
-| Small warm Maven, 2026.1.4 | Partial fix capture; editor/preview and 100-sample completion pending after native input interruption |
+| Small warm Maven editor/preview/literal fix, 2026.1.4 | 100 completed samples per endpoint; no native queries in editor/preview captures or overlapping fixes |
 | Large Maven, roughly 100 modules / 10,000 declarations | Reproducible fixture generated and checked; native measurements pending |
 | Gradle, both IDEA versions | Native performance/usability cases pending |
 | npm, both IDEA versions | Blocked by disabled JavaScript/Node support in available sandbox |
@@ -51,7 +52,7 @@ python3 scripts/summarize-performance.py /path/to/idea.log \
   --modules 1 --declarations 25 --idea-version 2025.3.6.1 --repository-case fast-local
 ```
 
-The report includes completed endpoint sample counts, nearest-rank p95, median, exclusive stage partitions, and separate stage distributions for first useful acceptance and complete checks. Incomplete interactions are excluded from endpoint statistics. It flags fewer than 100 endpoint samples. Counts alone cannot prove a case was warm: document cache state and check native invocation stages. Interaction ID zero is uncorrelated and excluded; IDs are grouped with their monotonic origin to distinguish application restarts. Other IDEA log lines are not exported.
+The report includes completed endpoint sample counts, nearest-rank p95, median, exclusive stage partitions, native invocation observations, and separate stage distributions for first useful acceptance and complete checks. Incomplete interactions are counted separately and excluded from endpoint statistics. It flags fewer than 100 endpoint samples. Counts alone cannot prove a case was warm: document cache state and check native invocation stages. Interaction ID zero is uncorrelated and excluded from endpoint samples, while its native spans contribute to overlap checks. IDs are grouped with their monotonic origin to distinguish application restarts. Other IDEA log lines are not exported. Capture one process/condition at a time and let native spans finish; an incomplete capture cannot certify absence of repository work.
 
 ## Conditional work
 
@@ -64,3 +65,7 @@ The final run passed 346 plugin tests with zero failures, errors or skips, inclu
 New regressions cover selective saving of sibling/configuration inputs while preserving unrelated edits, serialization and removal of exact-release ignores, npm aliases and cached/bulk presentation, Maven snapshot identity filtering, stale policy guards, ignored Maven consumers sharing a property, scope counts, sorted/filtered keyboard toggling, coroutine trace context, document markup visibility and overlap-safe median/p95 reporting. The Maven native demo fixture now initializes its mapped model properties before resolving inherited DOM values. Existing native inspection assertions include both property and declaration diagnostics and distinguish update actions from ignores.
 
 These results validate the implementation, including the native-discovered dialog/action corrections. Small Maven native measurements and their limits are recorded above; the rest of the performance/usability matrix remains pending or explicitly blocked.
+
+### Tracing follow-up verification
+
+After isolating rebuilt previews and carrying bulk Apply's invocation origin, 351 plugin tests passed with zero failures, errors or skips, including the authenticated Maven/npm/Gradle integration suites and packaged-plugin lifecycle tests. `test`, `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed for both supported IDEA versions with the existing API notices. Eight trace-report tests passed. The real coordinator regression verifies that a mode change and Refresh each propagate their own ID through native checking, plan preparation and dialog presentation; dialog tests verify the accepted Apply origin reaches guarded writes. These are automated behavior checks, not additional native-window latency samples.

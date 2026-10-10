@@ -1,9 +1,8 @@
 # Native validation: 10 October 2026
 
-Small Maven cases ran in native IDEA windows with the packaged plugin. IDEA
-2025.3.6.1 has at least 100 completed samples for each measured endpoint. IDEA
-2026.1.4 has a partial local-fix capture. The full plan's performance and usability
-matrix is still incomplete.
+Small Maven cases ran in native IDEA windows with the packaged plugin. Both IDEA
+2025.3.6.1 and 2026.1.4 now have at least 100 completed samples for each measured
+endpoint. The full plan's performance and usability matrix is still incomplete.
 
 **Native npm validation is blocked.** JavaScript/Node support is disabled in the
 available IDEA sandbox. No usable licensed profile was supplied or verified, and
@@ -17,32 +16,41 @@ integration tests passed, but do not replace native editor/preview validation.
 | 2025.3.6.1 | Cached editor diagnostic | 105 | 2.31 ms | 3.49 ms | [Report](idea-2025.3.6.1-maven-small-editor.json), [trace](idea-2025.3.6.1-maven-small-editor.log) |
 | 2025.3.6.1 | Cached preview, 3 rows | 100 | 27.52 ms | 43.86 ms | [Report](idea-2025.3.6.1-maven-small-preview.json), [trace](idea-2025.3.6.1-maven-small-preview.log) |
 | 2025.3.6.1 | Literal local fix | 100 | 2.63 ms | 5.45 ms | [Report](idea-2025.3.6.1-maven-small-fix.json), [trace](idea-2025.3.6.1-maven-small-fix.log) |
-| 2026.1.4 | Literal local fix, partial | 76 | 3.80 ms | 5.35 ms | [Report](idea-2026.1.4-maven-small-fix-partial.json), [trace](idea-2026.1.4-maven-small-fix-partial.log) |
+| 2026.1.4 | Cached editor diagnostic | 100 | 4.78 ms | 6.11 ms | [Report](idea-2026.1.4-maven-small-editor.json), [trace](idea-2026.1.4-maven-small-editor.log) |
+| 2026.1.4 | Cached preview, 3 rows | 100 | 25.42 ms | 34.23 ms | [Report](idea-2026.1.4-maven-small-preview.json), [trace](idea-2026.1.4-maven-small-preview.log) |
+| 2026.1.4 | Literal local fix | 100 | 3.89 ms | 6.58 ms | [Report](idea-2026.1.4-maven-small-fix.json), [trace](idea-2026.1.4-maven-small-fix.log) |
 
-The completed 2025.3 latency samples are below the plan's editor/preview/fix p95
+The completed latency samples are below the plan's editor/preview/fix p95
 targets for this condition only. They do not establish performance for other
 ecosystems, large projects, shared edits, cold caches or delayed repositories.
 
 Editor sampling alternated an ordinary Java source tab and a POM with cached,
 visible version diagnostics. There were 110 activation pairs and 105 completed
-diagnostic endpoints; incomplete interactions are excluded by the report. Both
-the editor and preview captures contain zero native query stages. Preview
+diagnostic endpoints in 2025.3; incomplete interactions are excluded by the
+report. The final 2026.1 capture used direct tab clicks for 100 activation pairs
+and has 100 completed diagnostic endpoints. An earlier Switcher-based attempt
+was interrupted by native input routing; it was not used for this final capture.
+All final editor and preview captures contain zero native query stages. Preview
 sampling cancelled each dialog and reused current Patch reports.
 
 Local-fix sampling used Alt+Enter to update alpha from 1.0.0 to 2.0.0, verified the
 changed editor text, then undid and saved to restore the hint. No fix interaction
 owns a native query, and no query starts inside a measured fix interval. Undo and
 hint restoration did cause background native work: 94 goals in the 2025.3
-capture and 79 in the 2026.1 capture. Already running queries overlapped 15 of the
+capture and 110 in the final 2026.1 capture. Already running queries overlapped 15 of the
 2025.3 fixes; none overlapped the 2026.1 fixes. Thus the 2025.3 capture does not
 certify a globally idle repository throughout every fix, although fixes did not
 initiate or wait for those goals.
 
-The 2026.1 capture contains 75 verified fix/undo cycles plus one further completed
-fix. Sampling stopped after input moved to the Terminal panel and subsequent
-native input did not reliably restore editor focus. All 76 completed trace
-endpoints are retained; the report flags the unmet 100-sample requirement. This
-interruption is not recorded as a plugin failure or a completed usability case.
+The earlier interrupted 2026.1 fix capture remains available as a
+[partial report](idea-2026.1.4-maven-small-fix-partial.json) and
+[trace](idea-2026.1.4-maven-small-fix-partial.log). It contains 75 verified fix/undo
+cycles plus one further completed fix, with median 3.80 ms and p95 5.35 ms. Its
+76 endpoints are retained and flagged below the required count. Raising the
+sandbox project window restored input, allowing a fresh uninterrupted capture
+of 100 verified fix/undo cycles. No query starts inside, belongs to, or overlaps
+any of those final fix intervals. Native input interruptions are not recorded
+as plugin failures or completed usability cases.
 
 ## Conditions and source
 
@@ -61,7 +69,7 @@ interruption is not recorded as a plugin failure or a completed usability case.
 - The 2025.3 editor capture used commit `9e6a9e1`. Its preview and fix captures
   used that code plus the dialog renderer and Tab-traversal corrections. The
   low-priority Ignore correction was subsequently loaded in 2026.1.
-- The final archive loaded in 2026.1 has SHA-256
+- The archive used for the 2026.1 latency captures has SHA-256
   `4f4807986b70c7173a75fd4f72cc3081912cd65565a5f8f2aa96dec87ed33e1e`.
 
 Tracing was enabled. Editor and preview endpoints include the explicit paint and
@@ -79,10 +87,22 @@ Space/repeated Space toggles, and hidden selections surviving filtering to zero
 visible rows. Labels were also checked in 2026.1. Native 2026.1 verified Update
 preceding Ignore in Alt+Enter after Ignore became a low-priority action.
 
-Native sorting, empty-plan recovery, stale rejection, scope/mode changes,
-failed-file Retry, delayed/offline/authentication states and the rest of the
-keyboard/focus matrix still require dedicated cases on both versions. Automated
-regression coverage for these behaviors is separate evidence.
+Further 2026.1 checks verified descending declaration sorting (gamma, beta,
+alpha), filtered Space toggles affecting gamma, repeated toggles retaining the
+highlighted row, Shift+Tab returning to the filter, and two hidden selections
+surviving filtering to zero visible rows. Clear selection removed hidden checks
+and disabled Apply. Applying three Major edits changed all three declarations;
+one undo restored all three. An empty Patch preview retained mode/scope controls,
+readable empty-state text, disabled Apply and working Refresh, which returned
+another empty preview.
+
+Mode navigation also exposed premature dialog disposal before Enter. Committed
+selection handling now keeps navigation within the popup, defers rebuilding until
+the key/mouse event finishes, and rejects Apply against a pending mode/scope
+change. Further native confirmation, stale rejection, failed-file Retry,
+delayed/offline/authentication states and the rest of the keyboard/focus matrix
+still require dedicated cases on both versions. Automated regression coverage
+for these behaviors is separate evidence.
 
 ## Reproduction and remaining work
 
@@ -103,7 +123,7 @@ captures for each endpoint and condition. Regenerate reports with
 metadata stored in each JSON's `conditions` object. Trace files here contain only
 the numeric, anonymous fixed-stage schema, without surrounding IDEA log lines.
 
-Pending: complete the 2026.1 small-Maven repetitions, large Maven cases, Gradle
+Pending: large Maven cases, Gradle
 native cases, shared/property/parent fixes, cold/setup and failure cases, typing
 profiling, and the remaining usability matrix. npm remains blocked until an
 authorized sandbox/profile with working JavaScript/Node support is available.
