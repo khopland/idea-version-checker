@@ -14,6 +14,8 @@ BOUNDARIES = {
     "preview": ("PREVIEW_INVOKED", "PREVIEW_READY"),
     "local_fix": ("FIX_INVOKED", "EDITOR_TEXT_CHANGED"),
 }
+# Count host invocations, rather than both Gradle's invocation and its nested query span.
+NATIVE_INVOCATIONS = {"MAVEN_DEPENDENCY_GOAL", "MAVEN_PLUGIN_GOAL", "MAVEN_PARENT_GOAL", "NPM_VIEW", "GRADLE_NATIVE"}
 # Priorities assign every nanosecond to at most one category, even with nested spans.
 CATEGORIES = {
     "repository": {"MAVEN_DEPENDENCY_GOAL", "MAVEN_PLUGIN_GOAL", "MAVEN_PARENT_GOAL", "NPM_VIEW", "GRADLE_QUERY"},
@@ -25,14 +27,14 @@ CATEGORIES = {
 }
 
 
-def parse(lines):
+def parse(lines, include_uncorrelated=False):
     interactions = defaultdict(list)
     for line in lines:
         match = LINE.search(line)
         if not match:
             continue
         stage, elapsed, count, identity, start, end, origin = match.groups()
-        if identity == "0":
+        if identity == "0" and not include_uncorrelated:
             continue  # An uncorrelated stage cannot be added to an interaction.
         event = dict(stage=stage, count=int(count), start=int(start), end=int(end), origin=int(origin))
         if event["end"] >= event["start"] and int(elapsed) == event["end"] - event["start"]:
@@ -56,22 +58,39 @@ def partition(events, start, end):
 
 def summarize(interactions):
     samples = {name: [] for name in BOUNDARIES}
+    native = [(key, event) for key, events in interactions.items() for event in events
+              if event["stage"] in NATIVE_INVOCATIONS]
     for (identity, origin), events in interactions.items():
+        if identity == 0:
+            continue  # Retain these spans for overlap checks, never as endpoint samples.
         for name, (begin, finish) in BOUNDARIES.items():
             starts = [e["start"] for e in events if e["stage"] == begin]
-            ends = [e["end"] for e in events if e["stage"] == finish]
-            if not starts or not ends:
+            endpoints = [e for e in events if e["stage"] == finish and
+                         (name != "local_fix" or e.get("count", 1) > 0)]
+            if not starts or not endpoints:
                 continue
-            start, end = min(starts), min(ends)
+            endpoint = min(endpoints, key=lambda e: e["end"])
+            start, end = min(starts), endpoint["end"]
             if end < start:
                 continue
+            owned = [event for key, event in native if key == (identity, origin)]
+            overlapping = [(key, event) for key, event in native if event["end"] > start and event["start"] < end]
+            invocation_counts = dict(owned=len(owned),
+                                     startedDuringEndpoint=sum(start <= event["start"] < end for _, event in native),
+                                     overlappingEndpoint=len(overlapping),
+                                     uncorrelatedOverlappingEndpoint=sum(key[0] == 0 for key, _ in overlapping))
             samples[name].append(dict(interaction=identity, originNs=origin, elapsedMs=(end-start)/1_000_000,
+                                      endpointCount=endpoint.get("count", 1), nativeInvocations=invocation_counts,
                                       exclusiveMs=partition(events, start, end)))
     report = {}
     for name, values in samples.items():
         elapsed = sorted(v["elapsedMs"] for v in values)
         report[name] = dict(samples=len(values), medianMs=statistics.median(elapsed) if elapsed else None,
                             p95Ms=elapsed[math.ceil(len(elapsed)*0.95)-1] if elapsed else None,
+                            incompleteInteractions=sum(any(e["stage"] == BOUNDARIES[name][0] for e in events)
+                                                       for key, events in interactions.items() if key[0] != 0) - len(values),
+                            nativeInvocations={metric: sum(v["nativeInvocations"][metric] for v in values)
+                                               for metric in ("owned", "startedDuringEndpoint", "overlappingEndpoint", "uncorrelatedOverlappingEndpoint")},
                             minimumSampleCountMet=len(values) >= 100, interactions=values)
     return report
 
@@ -93,7 +112,7 @@ def main():
     if args.modules < 1 or args.declarations < 0:
         parser.error("modules must be positive and declarations non-negative")
     with args.log.open(errors="replace") as source:
-        interactions = parse(source)
+        interactions = parse(source, include_uncorrelated=True)
     stages = defaultdict(list)
     for events in interactions.values():
         for event in events:
@@ -104,10 +123,13 @@ def main():
     result = {"case": args.case, "conditions": {"ecosystem": args.ecosystem, "scope": args.scope, "mode": args.mode,
               "cache": args.cache, "modules": args.modules, "declarations": args.declarations,
               "ideaVersion": args.idea_version, "repositoryCase": args.repository_case},
-              "interactionsObserved": len(interactions), "measurements": summarize(interactions), "stages": stage_summary}
+              "interactionsObserved": sum(key[0] != 0 for key in interactions),
+              "uncorrelatedEvents": sum(len(events) for key, events in interactions.items() if key[0] == 0),
+              "measurements": summarize(interactions), "stages": stage_summary}
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     for name, measurement in result["measurements"].items():
         print(f"{name}: n={measurement['samples']} median={measurement['medianMs']} ms p95={measurement['p95Ms']} ms")
+        print(f"  incomplete={measurement['incompleteInteractions']} native invocation observations={measurement['nativeInvocations']}")
     print("Complete-check and first-result spans remain separate from visible endpoints. Keep cold/setup cases separate.")
 
 

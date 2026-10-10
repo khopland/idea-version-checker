@@ -18,6 +18,8 @@ import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 import javax.swing.*
 import javax.swing.event.DocumentEvent
+import javax.swing.event.PopupMenuEvent
+import javax.swing.event.PopupMenuListener
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.TableRowSorter
 
@@ -65,9 +67,15 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     internal val summary = JBLabel()
     var refreshRequested = false
         private set
+    internal var recheckInteraction: CheckPerformance.Interaction? = null
+        private set
+    internal var applyInteraction: CheckPerformance.Interaction? = null
+        private set
     private var configuring = true
+    private val preparedMode = mode
+    private var preparedScope = scopeSelector.selectedItem
     internal val refreshAction: Action = object : AbstractAction("Refresh") {
-        override fun actionPerformed(event: ActionEvent) { refreshRequested = true; close(RECHECK_EXIT_CODE) }
+        override fun actionPerformed(event: ActionEvent) { refreshRequested = true; requestRecheck() }
     }
 
     init {
@@ -76,6 +84,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         scopeSelector.renderer = SimpleListCellRenderer.create("") { it.label }
         modeSelector.selectedItem = mode
         scopeSelector.selectedItem = UpdateScope.entries.first { it.label == scopeLabel }
+        preparedScope = scopeSelector.selectedItem
         table.rowSorter = sorter
         table.columnModel.getColumn(0).maxWidth = 70
         table.columnModel.getColumn(1).preferredWidth = 460
@@ -109,8 +118,8 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
                 updateSummary()
             }
         })
-        modeSelector.addActionListener { if (!configuring) close(RECHECK_EXIT_CODE) }
-        scopeSelector.addActionListener { if (!configuring) close(RECHECK_EXIT_CODE) }
+        recheckOnCommittedSelection(modeSelector)
+        recheckOnCommittedSelection(scopeSelector)
         configuring = false
         updateSummary()
     }
@@ -119,6 +128,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         configuring = true
         try {
             if (!currentFileAvailable) scopeSelector.removeItem(UpdateScope.CURRENT_FILE)
+            preparedScope = scopeSelector.selectedItem
         } finally { configuring = false }
         val minutes = TimeUnit.NANOSECONDS.toMinutes((System.nanoTime() - prepared.checkedAtNanos).coerceAtLeast(0))
         val age = if (minutes == 0L) "just now" else "$minutes min ago"
@@ -135,9 +145,67 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         return plan.select(model.selectedIndices)
     }
 
-    override fun doOKAction() {
+    public override fun doOKAction() {
+        if (modeSelector.selectedItem != preparedMode || scopeSelector.selectedItem != preparedScope) {
+            requestRecheck()
+            return
+        }
+        if (model.selectedIndices.isEmpty()) return
+        applyInteraction = CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)
         if (table.isEditing && !table.cellEditor.stopCellEditing()) return
-        if (model.selectedIndices.isNotEmpty()) super.doOKAction()
+        super.doOKAction()
+    }
+
+    private fun requestRecheck() {
+        if (isDisposed) return
+        recheckInteraction = CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
+        close(RECHECK_EXIT_CODE)
+    }
+
+    private fun recheckOnCommittedSelection(selector: ComboBox<*>) {
+        var preparedItem = selector.selectedItem
+        var popupOpen = false
+        var scheduled = false
+        fun restorePreparedItem() {
+            val wasConfiguring = configuring
+            configuring = true
+            try { selector.selectedItem = preparedItem } finally { configuring = wasConfiguring }
+        }
+        fun requestRecheck() {
+            if (configuring || popupOpen || scheduled || isDisposed || selector.selectedItem == preparedItem) return
+            scheduled = true
+            // Finish the combo's key/mouse event before disposing its containing dialog.
+            SwingUtilities.invokeLater {
+                scheduled = false
+                if (!configuring && !popupOpen && !isDisposed && selector.selectedItem != preparedItem) {
+                    this@BulkUpdateDialog.requestRecheck()
+                }
+            }
+        }
+        selector.addPopupMenuListener(object : PopupMenuListener {
+            override fun popupMenuWillBecomeVisible(event: PopupMenuEvent) { popupOpen = true }
+            override fun popupMenuWillBecomeInvisible(event: PopupMenuEvent) {
+                popupOpen = false
+                requestRecheck()
+            }
+            override fun popupMenuCanceled(event: PopupMenuEvent) {
+                restorePreparedItem()
+            }
+        })
+        val cancelChoice = "cancelVersionPreviewChoice"
+        val escape = KeyStroke.getKeyStroke("ESCAPE")
+        selector.getInputMap(JComponent.WHEN_FOCUSED).put(escape, cancelChoice)
+        selector.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(escape, cancelChoice)
+        selector.actionMap.put(cancelChoice, object : AbstractAction() {
+            override fun isEnabled() = popupOpen
+            override fun actionPerformed(event: ActionEvent) {
+                restorePreparedItem()
+                selector.isPopupVisible = false
+            }
+        })
+        selector.addActionListener {
+            if (configuring) preparedItem = selector.selectedItem else requestRecheck()
+        }
     }
 
     private fun updateSummary() {
@@ -177,7 +245,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         }
         val footer = JPanel(BorderLayout(0, 8)).apply {
             add(selection, BorderLayout.NORTH)
-            add(JBLabel(if (plan.changes.isEmpty()) "No automatic updates available for ${modeSelector.selectedItem}." else
+            add(JBLabel(if (plan.changes.isEmpty()) "No automatic updates available for ${(modeSelector.selectedItem as UpdateMode).label}." else
                 "Each shared property or catalog version is one change affecting all listed consumers."), BorderLayout.CENTER)
             if (plan.skipped.isNotEmpty()) {
                 val review = JBScrollPane(JBTextArea(plan.skipped.joinToString("\n")).apply {

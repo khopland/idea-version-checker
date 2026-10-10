@@ -1,14 +1,23 @@
 package io.github.khopland.versionchecker
 
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.LogLevel
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.util.ui.UIUtil
 import io.github.khopland.versionchecker.core.UpdateScope
 import java.awt.Container
 import java.awt.event.ActionEvent
 import javax.swing.JButton
 
 class BulkUpdateDialogTest : BasePlatformTestCase() {
+    private fun withTracing(block: () -> Unit) {
+        val logger = Logger.getInstance(CheckPerformance::class.java)
+        val level = if (logger.isDebugEnabled) LogLevel.DEBUG else LogLevel.INFO
+        logger.setLevel(LogLevel.DEBUG)
+        try { block() } finally { logger.setLevel(level) }
+    }
     private fun edit(name: String): VersionEdit {
         val file = myFixture.addFileToProject("selection/$name.txt", "1.0")
         val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
@@ -121,8 +130,81 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         val edit = edit("alpha")
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
         dialog.modeSelector.selectedItem = UpdateMode.MINOR
+        UIUtil.dispatchAllInvocationEvents()
         assertEquals(BulkUpdateDialog.RECHECK_EXIT_CODE, dialog.exitCode)
         assertFalse(dialog.refreshRequested)
         assertEquals("1.0", edit.element!!.text)
+    }
+
+    fun testReturningToThePreparedModeBeforeRecheckKeepsThePreviewOpen() {
+        val dialog = dialog(BulkUpdatePlan(listOf(edit("rapid-mode")), emptyList()))
+        try {
+            dialog.modeSelector.selectedItem = UpdateMode.MINOR
+            dialog.modeSelector.selectedItem = UpdateMode.PATCH
+            UIUtil.dispatchAllInvocationEvents()
+            assertFalse(dialog.isDisposed)
+            assertTrue(dialog.isOKActionEnabled)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
+    fun testApplyDuringPendingModeChangeRequestsRecheckInsteadOfAcceptingOldPlan() {
+        val edit = edit("pending-mode")
+        val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
+        dialog.modeSelector.selectedItem = UpdateMode.MINOR
+        dialog.doOKAction()
+        UIUtil.dispatchAllInvocationEvents()
+        assertEquals(BulkUpdateDialog.RECHECK_EXIT_CODE, dialog.exitCode)
+        assertFalse(dialog.refreshRequested)
+        assertEquals("1.0", edit.element!!.text)
+    }
+
+    fun testRefreshAndModeChangesStartIndependentPreviewInteractions() = withTracing {
+        val initial = CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)!!
+        CheckPerformance.locally(initial) {
+            val refresh = dialog(BulkUpdatePlan(emptyList(), emptyList()))
+            refresh.refreshAction.actionPerformed(ActionEvent(refresh, ActionEvent.ACTION_PERFORMED, "Refresh"))
+            val refreshTrace = refresh.recheckInteraction!!
+            assertTrue(refreshTrace.id != initial.id)
+            assertTrue(refreshTrace.started >= initial.started)
+
+            val mode = dialog(BulkUpdatePlan(emptyList(), emptyList()))
+            mode.modeSelector.selectedItem = UpdateMode.MINOR
+            UIUtil.dispatchAllInvocationEvents()
+            assertTrue(mode.isDisposed)
+            assertTrue(mode.recheckInteraction!!.id != refreshTrace.id)
+            assertNull(mode.applyInteraction)
+            assertSame(initial, CheckPerformance.current())
+        }
+    }
+
+    fun testBulkApplyKeepsItsInvocationOriginThroughWritePreparation() = withTracing {
+        val edit = edit("apply-trace")
+        val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
+        dialog.doOKAction()
+        assertTrue(dialog.isOK)
+        val interaction = dialog.applyInteraction!!
+        assertNull(dialog.recheckInteraction)
+        var observed: CheckPerformance.Interaction? = null
+        val selected = dialog.selectedPlan().guardedBy {
+            observed = CheckPerformance.current()
+            true
+        }
+        assertTrue(selected.apply(project, interaction))
+        assertSame(interaction, observed)
+        assertEquals("2.0", text(edit))
+        assertNull(CheckPerformance.current())
+    }
+
+    fun testEmptyApplyAndRevertedModeDoNotStartAnInteraction() = withTracing {
+        val dialog = dialog(BulkUpdatePlan(emptyList(), emptyList()))
+        try {
+            dialog.modeSelector.selectedItem = UpdateMode.MINOR
+            dialog.modeSelector.selectedItem = UpdateMode.PATCH
+            UIUtil.dispatchAllInvocationEvents()
+            dialog.doOKAction()
+            assertFalse(dialog.isDisposed)
+            assertNull(dialog.recheckInteraction)
+            assertNull(dialog.applyInteraction)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
 }

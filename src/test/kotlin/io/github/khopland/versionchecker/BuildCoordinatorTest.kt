@@ -1,6 +1,8 @@
 package io.github.khopland.versionchecker
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.LogLevel
 import com.intellij.openapi.components.service
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -23,6 +25,12 @@ import java.awt.event.ActionEvent
 
 /** Exercise the real coordinator with a provider having no Maven or XML dependencies. */
 class BuildCoordinatorTest : BasePlatformTestCase() {
+    private fun withTracing(block: () -> Unit) {
+        val logger = Logger.getInstance(CheckPerformance::class.java)
+        val level = if (logger.isDebugEnabled) LogLevel.DEBUG else LogLevel.INFO
+        logger.setLevel(LogLevel.DEBUG)
+        try { block() } finally { logger.setLevel(level) }
+    }
     private inner class TestAdapter(override val id: String, private val file: PsiFile) : BuildSystemAdapter {
         override val displayName = id
         override val capabilities = AdapterCapabilities()
@@ -310,9 +318,19 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertEquals("Current-file refresh invalidates all modes", 4, adapter.checked.size)
     }
 
-    fun testPreviewModeAndRefreshControlsRebuildBeforeApplying() {
+    fun testPreviewModeAndRefreshControlsRebuildBeforeApplying() = withTracing {
         val file = myFixture.addFileToProject("preview-controls/build.txt", "1.0")
-        val adapter = TestAdapter("preview-controls-test", file)
+        val checks = CopyOnWriteArrayList<CheckPerformance.Interaction>()
+        val preparations = CopyOnWriteArrayList<CheckPerformance.Interaction>()
+        val native = TestAdapter("preview-controls-test", file).apply {
+            beforeCheck = { checks += CheckPerformance.current()!! }
+        }
+        val adapter = object : BuildSystemAdapter by native {
+            override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan {
+                preparations += CheckPerformance.current()!!
+                return native.prepareUpdates(project, reports)
+            }
+        }
         BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
         var shown = 0
         fun intercept(action: (BulkUpdateDialog) -> Unit) {
@@ -320,6 +338,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
                 object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
                     override fun doIntercept(component: DialogWrapper) {
                         shown++
+                        assertSame(preparations.last(), CheckPerformance.current())
                         action(component as BulkUpdateDialog)
                     }
                 })
@@ -329,12 +348,12 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             assertEquals("1.0", file.text)
             intercept { minor ->
                 assertEquals(UpdateMode.MINOR, minor.modeSelector.selectedItem)
-                assertEquals(2, adapter.checked.size)
-                assertEquals(0, adapter.metadataRefreshes)
+                assertEquals(2, native.checked.size)
+                assertEquals(0, native.metadataRefreshes)
                 intercept { refreshed ->
                     assertEquals(UpdateMode.MINOR, refreshed.modeSelector.selectedItem)
-                    assertEquals(3, adapter.checked.size)
-                    assertEquals(1, adapter.metadataRefreshes)
+                    assertEquals(3, native.checked.size)
+                    assertEquals(1, native.metadataRefreshes)
                     assertEquals("1.0", file.text)
                     refreshed.performOKAction()
                 }
@@ -346,6 +365,9 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
         PlatformTestUtil.waitWithEventsDispatching("Refreshed preview applied", { document.text == "1.1" }, 10_000)
         assertEquals(3, shown)
+        assertEquals("Each rebuilt preview owns its native check and preparation", checks, preparations)
+        assertEquals(3, preparations.map { it.id }.distinct().size)
+        assertTrue(preparations.zipWithNext().all { (before, after) -> after.started > before.started })
     }
 
     fun testEarlyInspectionHintsDoNotAuthorizeAPreviewWhileTheCheckIsStillRunning() {

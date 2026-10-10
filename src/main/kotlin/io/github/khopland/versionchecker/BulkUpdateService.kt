@@ -99,50 +99,56 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                 var selectedMode = mode
                 var selectedScope = updateScope
                 var forceRefresh = false
+                var nextInteraction = interaction
                 while (isActive && !disposed) {
-                    val matching = readAction { BuildSystemAdapter.matching(project, BuildSelection(selectedScope, currentFile?.path)) }
-                    withContext(Dispatchers.EDT) { saveBuildInputs(project, BuildSelection(selectedScope, currentFile?.path), matching) }
-                    val currentAvailable = currentFile != null && readAction {
-                        BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
-                    }
-                    val prepared = withBackgroundProgress(project, "Checking versions: ${selectedScope.label} — ${selectedMode.label}", cancellable = true) {
-                        CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PREPARATION) {
-                            preparePreview(selectedMode, selectedScope, currentFile, matching, forceRefresh)
+                    val recheck = CheckPerformance.traced(nextInteraction) {
+                        val matching = readAction { BuildSystemAdapter.matching(project, BuildSelection(selectedScope, currentFile?.path)) }
+                        withContext(Dispatchers.EDT) { saveBuildInputs(project, BuildSelection(selectedScope, currentFile?.path), matching) }
+                        val currentAvailable = currentFile != null && readAction {
+                            BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
                         }
-                    }
-                    var recheck = false
-                    withContext(Dispatchers.EDT) {
-                        if (disposed || project.isDisposed) return@withContext
-                        var dialog: BulkUpdateDialog? = null
-                        val accepted = showDialog {
-                            BulkUpdateDialog(project, selectedMode, selectedScope.label, matching.joinToString { it.displayName }, prepared.plan).also {
-                                dialog = it; it.configure(prepared, currentAvailable)
+                        val prepared = withBackgroundProgress(project, "Checking versions: ${selectedScope.label} — ${selectedMode.label}", cancellable = true) {
+                            CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PREPARATION) {
+                                preparePreview(selectedMode, selectedScope, currentFile, matching, forceRefresh)
                             }
                         }
-                        val shown = dialog ?: return@withContext
-                        if (!accepted && shown.exitCode == BulkUpdateDialog.RECHECK_EXIT_CODE && !disposed) {
-                            selectedMode = shown.modeSelector.selectedItem as UpdateMode
-                            selectedScope = shown.scopeSelector.selectedItem as UpdateScope
-                            forceRefresh = shown.refreshRequested
-                            recheck = true
-                        } else if (accepted) {
-                            val plan = shown.selectedPlan()
-                            if (plan.changes.isEmpty()) return@withContext
-                            val targets = plan.changes.mapNotNull { it.element }
-                            if (!FileModificationService.getInstance().preparePsiElementsForWrite(targets)) return@withContext
-                            currentCoroutineContext().ensureActive()
-                            if (disposed) return@withContext
-                            if (!plan.apply(project)) {
-                                showDialog { BulkUpdateMessageDialog(project, "Version Checker", "Build files, settings or version results changed after the preview. Review refreshed results before applying.") }
-                                recheck = !disposed
-                                forceRefresh = true
-                                return@withContext
+                        var recheck = false
+                        withContext(Dispatchers.EDT) {
+                            if (disposed || project.isDisposed) return@withContext
+                            var dialog: BulkUpdateDialog? = null
+                            val accepted = showDialog {
+                                BulkUpdateDialog(project, selectedMode, selectedScope.label, matching.joinToString { it.displayName }, prepared.plan).also {
+                                    dialog = it; it.configure(prepared, currentAvailable)
+                                }
                             }
-                            saveChangedVersionFiles(plan)
-                            notifyVersionUpdates(project, plan.followUp)
-                            project.service<VersionCheckService>().recheckAfterEdits(matching,
-                                BuildSelection(selectedScope, currentFile?.path))
+                            val shown = dialog ?: return@withContext
+                            if (!accepted && shown.exitCode == BulkUpdateDialog.RECHECK_EXIT_CODE && !disposed) {
+                                selectedMode = shown.modeSelector.selectedItem as UpdateMode
+                                selectedScope = shown.scopeSelector.selectedItem as UpdateScope
+                                forceRefresh = shown.refreshRequested
+                                nextInteraction = shown.recheckInteraction
+                                recheck = true
+                            } else if (accepted) {
+                                val plan = shown.selectedPlan()
+                                if (plan.changes.isEmpty()) return@withContext
+                                val targets = plan.changes.mapNotNull { it.element }
+                                if (!FileModificationService.getInstance().preparePsiElementsForWrite(targets)) return@withContext
+                                currentCoroutineContext().ensureActive()
+                                if (disposed) return@withContext
+                                if (!plan.apply(project, shown.applyInteraction)) {
+                                    showDialog { BulkUpdateMessageDialog(project, "Version Checker", "Build files, settings or version results changed after the preview. Review refreshed results before applying.") }
+                                    recheck = !disposed
+                                    forceRefresh = true
+                                    nextInteraction = if (recheck) CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED) else null
+                                    return@withContext
+                                }
+                                saveChangedVersionFiles(plan)
+                                notifyVersionUpdates(project, plan.followUp)
+                                project.service<VersionCheckService>().recheckAfterEdits(matching,
+                                    BuildSelection(selectedScope, currentFile?.path))
+                            }
                         }
+                        recheck
                     }
                     if (!recheck) break
                 }
