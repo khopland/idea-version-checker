@@ -37,6 +37,9 @@
 
 ### Fixed
 
+- Maven, npm and Gradle inspection fixes now share preview freshness checks: expired, refreshed, replaced or evicted version results require a fresh choice. Retained warnings keep their original metadata deadline, and stale authorization rejects before provider input reads.
+- Refresh, preview and retry collect build-input save paths in cancellable background work before saving relevant documents on the UI thread. Save preparation no longer hashes npm/Gradle inputs, and Gradle user-init/Maven credential-relocation discovery runs outside IDE read locks.
+- Bound complete and incremental result storage and clean up expired source/generation bookkeeping. Evicted results cannot be restored by late checks or authorize an older preview; provider refresh and service disposal release retained state.
 - Versions status counts now use the same exact-version ignore policy as editor hints and bulk previews, including incremental results. Removing an ignore restores counts from cached metadata without another repository query; notices retain their visibility and original expiry.
 - Preview selectors use the supported renderer API, and diagnostic refresh resolves PSI files in a cancellable background read action before restarting highlighting on the UI thread, removing deprecated API calls flagged by current IDEA verification.
 - Fast Maven editor scope preserves completed and failed full-audit status until expiry or invalidation. Global settings, credential files and relocated credential targets now participate in preview/input guards, including unsaved changes.

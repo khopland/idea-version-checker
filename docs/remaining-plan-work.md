@@ -1,6 +1,6 @@
 # Release implementation ledger
 
-Updated 2026-10-10. The [HTML release plan](release-plan-2026-10-10.html) records the audit of commit `17c4975`; this ledger tracks implementation after that audit. Development remains `1.3.0-SNAPSHOT` until the release gates are satisfied. A snapshot is intentionally not eligible for release automation.
+Updated 2026-10-11. The [HTML release plan](release-plan-2026-10-10.html) records the audit of commit `17c4975`; this ledger tracks implementation after that audit. Development remains `1.3.0-SNAPSHOT` until the release gates are satisfied. A snapshot is intentionally not eligible for release automation.
 
 ## First implementation batch
 
@@ -112,6 +112,57 @@ Log: `/tmp/version-checker-gradle-index-full.log`.
 These are algorithm/parity checks, not native UI latency measurements. Cross-file
 aggregation, native scale/typing and the remaining release matrix remain open.
 
+## Phase 3: result retention and save preparation (F09/F10)
+
+The [retention and input-preparation record](result-retention.md) describes the
+new budgets, lifecycle policy, regression coverage and remaining thread work.
+
+- Result storage is bounded by 2,048 contexts, 1,024 combined complete/partial
+  reports and 1,000,000 weighted payload units. Expiry cleanup physically removes
+  payloads and inactive source/generation records; provider refresh removes all
+  its bookkeeping. Disposal clears retained reports.
+- Eviction retires context identities. Fresh registrations use a never-reused
+  generation, so late complete/partial workers and held previews cannot revive an
+  evicted result. A 10,000-cycle model soak asserts the bounds throughout.
+- Refresh/preview/retry save-path discovery now runs in cancellable background
+  work, with only selective document saving on EDT. Gradle init-directory and
+  Maven credential-relocation discovery run outside read locks; collecting save
+  paths no longer hashes/fingerprints provider inputs. npm collects paths without
+  reading configuration bytes or probing a runtime.
+- F09 is partially complete: snapshot and quick-fix/apply fingerprint reads still
+  need a separate capture/revalidation design. Native slow-disk/typing and heap
+  measurements remain open. No release identity or aggregation default changed.
+
+Full validation passed on 2026-10-11: **419 plugin tests in 62 classes**, zero
+failures/errors/skips; 13 release and 16 script tests; `check`, `buildPlugin`,
+project-configuration validation and all three IDEA verifier targets (10 existing
+experimental API uses, no deprecated/scheduled uses). The Gradle run took 2m 17s.
+Archive SHA-256: `fc60965a8480bce07330d13e808b3e25d22ea05a722d1a758cdfee2a18078626`.
+Exact commands, artifact notes and evidence limits are in the linked record.
+
+## Shared result freshness (F11)
+
+The [candidate-freshness record](candidate-freshness.md) defines the common
+quick-fix/preview lease policy and its remaining input-read boundary. Production
+Maven/npm/Gradle inspection fixes now require the originating result identity,
+refresh generation and original deadline, in addition to their existing input,
+text, ignore and shared-consumer checks. Retained hints preserve their original
+metadata age; partial observations do not authorize complete previews. A new
+partial publication retires descriptors from its previous observation.
+
+Same-object/same-timestamp replacement, refresh, cancellation, eviction and
+disposal reject held leases. Quick fixes and bulk guards check cheap authorization
+before provider fingerprints, avoiding those reads when the result is already
+stale. Existing recovery still offers **Refresh This File**. Live-result external
+fingerprint reads remain an F09 follow-up.
+
+Full validation passed on 2026-10-11: **430 plugin tests in 62 classes**, zero
+failures/errors/skips; 13 release and 16 script tests; `check`, `buildPlugin`,
+project-configuration validation and all three IDEA verifier targets (10 existing
+experimental API uses, no deprecated/scheduled uses). The run took 2m 28s.
+Archive SHA-256: `eec872c887de4ec7bad0f2228826d7038592b9156e9f295024675b6ec4f160bc`.
+The candidate-freshness record preserves the policy and native acceptance gaps.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
@@ -122,9 +173,9 @@ aggregation, native scale/typing and the remaining release matrix remain open.
 ## Next engineering work
 
 1. **F06/F07: Gradle query batching.** Ownership indexing is enabled. The [bounded cross-file prototype](gradle-scan-prototype.md) is implemented behind a development-only JVM switch, with native resolver work/parity and cancellation/freshness regressions. Keep aggregation off by default until controlled native UI scale/typing and failure measurements pass; mode sharing and refresh-flag changes remain deferred.
-2. **F09: move external input reads off the EDT.** Separate the small save/model step from cancellable hashing and configuration discovery. Keep fresh unsaved/external-input guards before apply.
-3. **F10: bound result state.** Add documented budgets and expiry cleanup for results, source/context tracking and generation state while proving that evicted in-flight results cannot reauthorize old edits.
-4. **F11: align quick-fix and preview freshness.** Introduce a common candidate lease with result identity, generation and original deadline. Keep stale-edit recovery and shared-consumer safety.
+2. **F09: move remaining external input reads off the EDT.** Save-path preparation now uses background discovery without fingerprinting. Complete the snapshot and synchronous freshness capture/revalidation design; keep fresh unsaved/external-input guards before apply and profile slow disks/large init trees.
+3. **F10: validate bounded state in native workloads.** Result/source/generation budgets, expiry cleanup and late-worker regressions are implemented. Complete native import/rename/unload and heap observations; the model soak establishes map bounds, not retained heap size.
+4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; report-level partial leases currently retire descriptors on every new partial observation.
 5. **F12: explicit coverage.** Track checked, ignored, unsupported and manual-review declarations so status, empty previews and partial/failure states share an honest explanation.
 6. **F13: retain preview state.** Update mode/scope in one dialog while preserving search, sorting and compatible selections; pending checks must never authorize an old plan.
 7. **F14: consistent recovery.** Preview failures now offer fresh retry and npm-specific guidance. Complete the remaining status/automatic-check and native failure matrix, including npm offline/configuration behavior, without weakening native provider semantics.
