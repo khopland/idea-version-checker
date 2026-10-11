@@ -196,6 +196,13 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     internal fun refresh(adapters: List<BuildSystemAdapter>, currentFile: VirtualFile? = null): Job =
         startRefresh(adapters, currentFile)
 
+    internal fun refreshSelection(currentFile: VirtualFile?): Job = scope.launch(Dispatchers.IO) {
+        val selection = BuildSelection(if (currentFile == null) UpdateScope.WHOLE_PROJECT else UpdateScope.CURRENT_FILE,
+            currentFile?.path)
+        val adapters = readAction { BuildSystemAdapter.matching(project, selection) }
+        startRefresh(adapters, currentFile).join()
+    }
+
     internal fun retryFailed(targets: Set<VersionCheckTarget>): Job {
         val files = targets.groupBy { it.adapterId }.mapValues { (_, targets) ->
             if (targets.any { it.sourceFile == null }) null else targets.mapNotNull { it.sourceFile }.toSet()
@@ -303,6 +310,13 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 } else emptySet()
                 val scans = adapters.flatMap { adapter ->
                     try {
+                        if (!scheduled) {
+                            val requested = retryFiles?.get(adapter.id)
+                            if (requested == null) saveBuildInputs(project, selection, listOf(adapter))
+                            else for (path in requested) {
+                                saveBuildInputs(project, BuildSelection(UpdateScope.CURRENT_FILE, path), listOf(adapter))
+                            }
+                        }
                         val discovered = discoverRefreshSnapshots(adapter, selection, retryFiles?.get(adapter.id), failures)
                         affected += discovered.map { it.sourceFile }
                         if (adapter.isOffline(project)) {

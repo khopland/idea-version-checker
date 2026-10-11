@@ -1,15 +1,34 @@
 package io.github.khopland.versionchecker
 
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.Project
 import io.github.khopland.versionchecker.core.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 /** Save the adapter's native inputs, including shared inputs outside the selected file. */
-internal fun saveBuildInputs(project: Project, selection: BuildSelection,
-                            adapters: List<BuildSystemAdapter> = BuildSystemAdapter.matching(project, selection)) {
-    val documents = FileDocumentManager.getInstance()
-    val paths = adapters.flatMap { it.resolutionInputPaths(project, selection) }.toSet()
-    documents.unsavedDocuments.filter { documents.getFile(it)?.path in paths }.forEach(documents::saveDocument)
+internal suspend fun saveBuildInputs(project: Project, selection: BuildSelection,
+                                    adapters: List<BuildSystemAdapter>? = null) = withContext(Dispatchers.IO) {
+    if (project.isDisposed) return@withContext
+    val matching = adapters ?: readAction { BuildSystemAdapter.matching(project, selection) }
+    val paths = mutableSetOf<String>()
+    for (adapter in matching) {
+        currentCoroutineContext().ensureActive()
+        paths += adapter.resolutionInputPaths(project, selection)
+    }
+    withContext(Dispatchers.EDT) save@{
+        currentCoroutineContext().ensureActive()
+        if (project.isDisposed) return@save
+        val documents = FileDocumentManager.getInstance()
+        documents.unsavedDocuments.filter { documents.getFile(it)?.path in paths }.forEach {
+            currentCoroutineContext().ensureActive()
+            documents.saveDocument(it)
+        }
+    }
 }
 
 internal fun saveChangedVersionFiles(plan: BulkUpdatePlan) {

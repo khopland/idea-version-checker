@@ -13,6 +13,10 @@ import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 internal class GradleBuildSystemAdapter : BuildSystemAdapter {
     private companion object {
@@ -75,10 +79,30 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         UpdateScope.WHOLE_PROJECT -> roots(project).any { root -> files(project, root).any(::supported) }
         UpdateScope.MAVEN_PLATFORM -> false
     }
-    override fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
-        val selectedRoots = if (selection.scope == UpdateScope.CURRENT_FILE)
-            listOfNotNull(selection.currentFile?.let { find(project, it) }?.let { owner(project, it) }) else roots(project)
-        return selectedRoots.flatMap { fingerprint(project, it).files.keys }.toSet()
+    override suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
+        val (inputs, home) = readAction {
+            val selectedRoots = if (selection.scope == UpdateScope.CURRENT_FILE)
+                listOfNotNull(selection.currentFile?.let { find(project, it) }?.let { owner(project, it) }) else roots(project)
+            val paths = selectedRoots.flatMap { files(project, it).map { file -> file.path } }.toSet()
+            val home = Path.of(GradleSettings.getInstance(project).serviceDirectoryPath ?: System.getenv("GRADLE_USER_HOME")
+                ?: Path.of(System.getProperty("user.home"), ".gradle").toString())
+            paths to home
+        }
+        return withContext(Dispatchers.IO) {
+            val paths = inputs.toMutableSet()
+            listOf("gradle.properties", "init.gradle", "init.gradle.kts").forEach { paths += home.resolve(it).toString() }
+            val init = home.resolve("init.d")
+            val context = currentCoroutineContext()
+            if (Files.isDirectory(init)) Files.walk(init).use { stream ->
+                val iterator = stream.iterator()
+                while (iterator.hasNext()) {
+                    context.ensureActive()
+                    val path = iterator.next()
+                    if (Files.isRegularFile(path)) paths += path.toString()
+                }
+            }
+            paths
+        }
     }
 
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {

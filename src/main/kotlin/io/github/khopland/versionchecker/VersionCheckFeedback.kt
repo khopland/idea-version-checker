@@ -171,14 +171,6 @@ internal class VersionCheckFeedback(private val project: Project, private val sc
 
     private fun retry(targets: Set<VersionCheckTarget>): Boolean {
         if (disposed || project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled || targets.isEmpty()) return false
-        targets.groupBy { it.adapterId }.forEach { (id, files) ->
-            val adapter = io.github.khopland.versionchecker.core.BuildSystemAdapter.find(id) ?: return@forEach
-            files.forEach { target ->
-                saveBuildInputs(project, io.github.khopland.versionchecker.core.BuildSelection(
-                    if (target.sourceFile == null) io.github.khopland.versionchecker.core.UpdateScope.WHOLE_PROJECT
-                    else io.github.khopland.versionchecker.core.UpdateScope.CURRENT_FILE, target.sourceFile), listOf(adapter))
-            }
-        }
         project.service<VersionCheckService>().retryFailed(targets)
         return true
     }

@@ -13,8 +13,8 @@ internal interface BuildSystemAdapter {
     val capabilities: AdapterCapabilities
     fun supports(project: Project, selection: BuildSelection): Boolean
     fun isOffline(project: Project): Boolean
-    /** Called on EDT before discovery; includes sibling/configuration inputs needed by native tools. */
-    fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> = emptySet()
+    /** Background path discovery before save. Capture IDE state under short reads; external I/O outside them. */
+    suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> = emptySet()
     fun snapshot(project: Project, file: VirtualFile): BuildSnapshot?
     /** Inspections may retain warnings from unsaved editor text while native checks wait for save. */
     fun inspectionSnapshot(project: Project, file: VirtualFile): BuildSnapshot? = snapshot(project, file)

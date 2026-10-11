@@ -27,11 +27,12 @@ internal object NpmBuildInputs {
         listOf(Path.of(System.getProperty("user.home"), ".npmrc")) +
             userConfigurationVariables.mapNotNull { environment[it]?.takeIf(String::isNotBlank)?.let(Path::of) }
 
-    fun hasUnsavedResolutionInputs(project: Project, root: String, unsavedPaths: Set<String>): Boolean {
+    /** Native input paths only: saving must not hash configuration or probe a runtime. */
+    fun resolutionInputPaths(project: Project, root: String): Set<String> {
         val paths = mutableSetOf<Path>()
         var ancestor: Path? = Path.of(root)
         while (ancestor != null) {
-            for (name in runtimeConfigurationNames + "package.json") paths.add(ancestor.resolve(name))
+            for (name in runtimeConfigurationNames + "package.json" + NpmWorkspaces.otherManagerFiles) paths.add(ancestor.resolve(name))
             ancestor = ancestor.parent
         }
         paths.addAll(userConfigurationPaths(EnvironmentUtil.getEnvironmentMap()))
@@ -45,8 +46,11 @@ internal object NpmBuildInputs {
             paths.add(configured.resolve("package.json"))
             paths.add(configured.resolve("bin/npm-cli.js"))
         }
-        return paths.any { it.toAbsolutePath().normalize().toString() in unsavedPaths }
+        return paths.mapTo(mutableSetOf()) { it.toAbsolutePath().normalize().toString() }
     }
+
+    fun hasUnsavedResolutionInputs(project: Project, root: String, unsavedPaths: Set<String>): Boolean =
+        resolutionInputPaths(project, root).any { it in unsavedPaths }
 
     fun fingerprint(project: Project, workspace: NpmWorkspace): BuildFingerprint {
         // Only this workspace's manifests affect local package identities and workspace-wide edits.

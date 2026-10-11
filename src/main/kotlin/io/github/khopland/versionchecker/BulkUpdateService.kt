@@ -86,15 +86,13 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
     private fun previewWithRefresh(mode: UpdateMode, updateScope: UpdateScope,
                                    currentFile: VirtualFile?, forceRefresh: Boolean) {
         if (disposed || !scope.isActive) return
-        val adapters = BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path))
-        if (adapters.isEmpty()) return
-        val buildSystems = adapters.joinToString { it.displayName }
         if (!running.compareAndSet(false, true)) {
             scope.launch(Dispatchers.EDT) { activeDialogs.lastOrNull()?.takeUnless { it.isDisposed }?.toFront() }
             return
         }
         val interaction = CheckPerformance.current() ?: CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
         scope.launch(Dispatchers.IO + CheckPerformance.context(interaction)) {
+            var buildSystems = "Dependency"
             var selectedMode = mode
             var selectedScope = updateScope
             try {
@@ -103,7 +101,8 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                 while (isActive && !disposed) {
                     val recheck = CheckPerformance.traced(nextInteraction) {
                         val matching = readAction { BuildSystemAdapter.matching(project, BuildSelection(selectedScope, currentFile?.path)) }
-                        withContext(Dispatchers.EDT) { saveBuildInputs(project, BuildSelection(selectedScope, currentFile?.path), matching) }
+                        if (matching.isEmpty()) return@traced false
+                        buildSystems = matching.joinToString { it.displayName }
                         val currentAvailable = currentFile != null && readAction {
                             BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
                         }
@@ -111,6 +110,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                             BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, currentFile.path)).isNotEmpty()
                         }
                         val prepared = withBackgroundProgress(project, "Checking versions: ${selectedScope.label} — ${selectedMode.label}", cancellable = true) {
+                            saveBuildInputs(project, BuildSelection(selectedScope, currentFile?.path), matching)
                             CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PREPARATION) {
                                 preparePreview(selectedMode, selectedScope, currentFile, matching, refreshRequired)
                             }

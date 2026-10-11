@@ -335,7 +335,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
             edited.forEach { file -> documents.getDocument(file)!!.let { it.insertString(it.textLength, " ") } }
             PsiDocumentManager.getInstance(project).commitAllDocuments()
         }
-        saveBuildInputs(project, BuildSelection(UpdateScope.CURRENT_FILE, child.virtualFile.path), listOf(MavenBuildSystemAdapter()))
+        saveBuildInputsAndWait(project, BuildSelection(UpdateScope.CURRENT_FILE, child.virtualFile.path), listOf(MavenBuildSystemAdapter()))
         edited.take(3).forEach { assertFalse(documents.isFileModified(it)) }
         assertTrue(documents.isFileModified(source.virtualFile))
     }

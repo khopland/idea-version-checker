@@ -312,7 +312,7 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
             FileDocumentManager.getInstance().reloadFromDisk(document)
             val current = adapter.snapshot(project, selected.file)!!
             val currentPlan = background { adapter.prepareUpdates(project, reports(listOf(current))) }
-            assertTrue(adapter.resolutionInputPaths(project, BuildSelection(UpdateScope.CURRENT_FILE, selected.path)).contains(target.toString()))
+            assertTrue(background { adapter.resolutionInputPaths(project, BuildSelection(UpdateScope.CURRENT_FILE, selected.path)) }.contains(target.toString()))
             val savedText = document.text
             WriteCommandAction.runWriteCommandAction(project) { document.setText(savedText + "\n") }
             assertFalse("Unsaved relocated credentials must invalidate the full audit", adapter.isCurrent(project, current))

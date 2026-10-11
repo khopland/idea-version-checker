@@ -24,7 +24,6 @@ abstract class BulkUpdateAction(private val mode: UpdateMode,
         val project = event.project ?: return
         val current = currentBuildFile(event)
         CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)) {
-            saveBuildInputs(project, BuildSelection(scope, current?.path))
             project.service<BulkUpdateService>().preview(mode, scope, current)
         }
     }

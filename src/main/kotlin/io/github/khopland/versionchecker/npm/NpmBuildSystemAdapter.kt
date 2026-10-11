@@ -22,15 +22,10 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     override fun supports(project: Project, selection: BuildSelection) =
         selection.scope in capabilities.updateScopes && NpmManifest.files(project, selection).any { NpmWorkspaces.supportsManifest(project, it) }
 
-    override fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
+    override suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> = readAction {
         val workspaces = NpmManifest.files(project, selection).map { NpmWorkspaces.resolve(project, it) }.distinctBy { it.root }
-        val unsaved = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().unsavedDocuments.mapNotNull {
-            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getFile(it)?.path
-        }
-        return workspaces.flatMap { workspace ->
-            NpmBuildInputs.fingerprint(project, workspace).files.keys.map {
-                it.removePrefix("disk-config:").removePrefix("virtual-config:")
-            } + unsaved.filter { NpmBuildInputs.hasUnsavedResolutionInputs(project, workspace.root.path, setOf(it)) }
+        workspaces.flatMap { workspace ->
+            workspace.manifests.map { it.path } + NpmBuildInputs.resolutionInputPaths(project, workspace.root.path)
         }.toSet()
     }
 

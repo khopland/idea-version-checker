@@ -18,9 +18,7 @@ open class RefreshVersionsAction(private val scope: UpdateScope = UpdateScope.WH
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
         val current = if (scope == UpdateScope.CURRENT_FILE) currentBuildFile(event) ?: return else null
-        saveBuildInputs(project, BuildSelection(scope, current?.path))
-        project.service<VersionCheckService>().refresh(
-            BuildSystemAdapter.matching(project, BuildSelection(scope, current?.path)), current)
+        project.service<VersionCheckService>().refreshSelection(current)
     }
 }
 class CurrentFileRefreshVersionsAction : RefreshVersionsAction(UpdateScope.CURRENT_FILE)
