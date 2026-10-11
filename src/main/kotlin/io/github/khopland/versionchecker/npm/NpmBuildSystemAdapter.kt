@@ -10,10 +10,14 @@ import com.intellij.psi.PsiManager
 import io.github.khopland.versionchecker.*
 import io.github.khopland.versionchecker.core.*
 import java.nio.file.Path
+import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Semaphore
 
-internal class NpmBuildSystemAdapter : BuildSystemAdapter {
+internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> ByteArray = Files::readAllBytes) : BuildSystemAdapter {
+    private suspend fun <T> capture(project: Project, files: () -> List<VirtualFile>,
+                                    action: (NpmBuildInputs.External) -> T): T =
+        NpmBuildInputs.capture(project, { files().map { NpmWorkspaces.resolve(project, it).root.path }.toSet() }, readExternalBytes, action)
     override val id = "npm"
     override val displayName = "npm"
     override val capabilities = AdapterCapabilities(incrementalInspections = true)
@@ -31,11 +35,13 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
 
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? = snapshot(project, file, mutableMapOf())
 
-    private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>): BuildSnapshot? {
-        return CheckPerformance.measure(CheckPerformance.Stage.NPM_SNAPSHOT) { captureSnapshot(project, file, fingerprints) }
+    private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>,
+                         external: NpmBuildInputs.External? = null): BuildSnapshot? {
+        return CheckPerformance.measure(CheckPerformance.Stage.NPM_SNAPSHOT) { captureSnapshot(project, file, fingerprints, external) }
     }
 
-    private fun captureSnapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>): BuildSnapshot? {
+    private fun captureSnapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>,
+                                external: NpmBuildInputs.External?): BuildSnapshot? {
         if (!NpmManifest.supported(file) || !NpmWorkspaces.supportsManifest(project, file)) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
         val workspace = NpmWorkspaces.resolve(project, file)
@@ -43,7 +49,7 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         val declarations = NpmManifest.declarations(psi).map { declaration ->
             if (declaration.artifact.name in localNames) declaration.copy(baseline = "") else declaration
         }
-        val fingerprint = fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace) }
+        val fingerprint = fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace, external) }
         return BuildSnapshot(BuildContextId(id, workspace.root.path, file.path), file.path,
             fingerprint, declarations, NpmBuildInputs.inspectionFingerprint(workspace, fingerprint))
     }
@@ -61,9 +67,15 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         val workspace = NpmWorkspaces.resolve(project, file)
         return NpmWorkspaces.supportsManifest(project, file) && workspace.root.path == snapshot.context.root && snapshot.fingerprint == NpmBuildInputs.fingerprint(project, workspace)
     }
-    override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = readAction {
+    override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
+        capture(project, { listOfNotNull(findFile(project, snapshot.sourceFile)) }) { external ->
+            !project.isDisposed && areCurrent(project, listOf(snapshot), external)
+        }
+
+    override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> =
+        capture(project, { NpmManifest.files(project, selection) }) { external ->
         val fingerprints = mutableMapOf<VirtualFile, BuildFingerprint>()
-        NpmManifest.files(project, selection).mapNotNull { snapshot(project, it, fingerprints) }
+        NpmManifest.files(project, selection).mapNotNull { snapshot(project, it, fingerprints, external) }
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport =
         checkIncrementally(project, snapshot, mode) {}
@@ -71,11 +83,11 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     override suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
                                           publish: suspend (InspectionUpdate) -> Unit): UpdateReport {
         val directory = Path.of(snapshot.context.root)
-        val context = readAction {
+        val context = capture(project, { listOfNotNull(findFile(project, snapshot.sourceFile)) }) { external ->
             val file = findFile(project, snapshot.sourceFile) ?: error("package.json is no longer available")
             val root = NpmWorkspaces.resolve(project, file).root
             check(root.path == snapshot.context.root) { "npm workspace changed during the check" }
-            NpmBuildInputs.resolutionContext(project, root)
+            NpmBuildInputs.resolutionContext(project, root, external)
         }
         val metadata = project.service<NpmMetadataService>()
         val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }
@@ -106,8 +118,9 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         super.hasUnsavedResolutionInputs(project, snapshot, unsavedPaths) ||
             NpmBuildInputs.hasUnsavedResolutionInputs(project, snapshot.context.root, unsavedPaths)
 
-    override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
-        check(areCurrent(project, reports.keys)) { "npm manifests or configuration changed during the check. Run it again." }
+    override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan =
+        capture(project, { reports.keys.mapNotNull { findFile(project, it.sourceFile) } }) { external ->
+        check(areCurrent(project, reports.keys, external)) { "npm manifests or configuration changed during the check. Run it again." }
         val edits = mutableListOf<VersionEdit>()
         val skipped = mutableListOf<String>()
         for ((snapshot, report) in reports) {
@@ -178,13 +191,13 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
     private fun findFile(project: Project, path: String): VirtualFile? =
         NpmManifest.files(project, BuildSelection(UpdateScope.CURRENT_FILE, path)).singleOrNull()
 
-    private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>): Boolean {
+    private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>, external: NpmBuildInputs.External? = null): Boolean {
         val fingerprints = mutableMapOf<VirtualFile, BuildFingerprint>()
         return snapshots.all { snapshot ->
             val file = findFile(project, snapshot.sourceFile) ?: return@all false
             val workspace = NpmWorkspaces.resolve(project, file)
             NpmWorkspaces.supportsManifest(project, file) && workspace.root.path == snapshot.context.root &&
-                snapshot.fingerprint == fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace) }
+                snapshot.fingerprint == fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace, external) }
         }
     }
 }

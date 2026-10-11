@@ -203,6 +203,25 @@ stamps; this change does not claim same-timestamp content detection for Maven.
 Full native integration and compatibility validation will be repeated after the
 remaining provider capture work.
 
+## npm background external capture (F09)
+
+npm discovery, result validation, runtime-context preparation and preview
+preparation now capture registry/runtime configuration, ancestor manifest bytes,
+other-manager file existence and runtime file state on IO outside read actions.
+Captures are shared across selected workspaces; latest unsaved/VFS inputs are
+added in the final read. Changed workspace roots, environment or runtime paths
+retry capture. Saved-content hashing still rejects outside-VFS configuration edits;
+final synchronous edit guards remain in place.
+
+Five new real-disk cases cover thread boundaries/shared reads, context parity,
+external configuration/manager changes, unsaved edits during capture, runtime
+selection changes and cancellation. All **445 plugin tests in 64 classes** passed
+with all native integration flags, zero failures/errors/skips, plus packaging and
+project-configuration validation (1m 40s). Log:
+`/tmp/version-checker-provider-capture-full.log`. IDE verification will run again
+after the remaining engineering changes. Synchronous inspection/edit reads remain
+an F09 gap; no slow-disk/native latency claim is made.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
@@ -213,7 +232,7 @@ remaining provider capture work.
 ## Next engineering work
 
 1. **F06/F07: Gradle query batching.** Ownership indexing is enabled. The [bounded cross-file prototype](gradle-scan-prototype.md) is implemented behind a development-only JVM switch, with native resolver work/parity and cancellation/freshness regressions. Keep aggregation off by default until controlled native UI scale/typing and failure measurements pass; mode sharing and refresh-flag changes remain deferred.
-2. **F09: move remaining external input reads off the EDT.** Save-path preparation now uses background discovery without fingerprinting; Gradle background discovery/validation/preview captures external disk inputs outside read locks. Complete Maven/npm capture and synchronous inspection/edit revalidation; keep fresh unsaved/external-input guards before apply and profile slow disks/large init trees.
+2. **F09: move remaining external input reads off the EDT.** Save-path preparation now uses background discovery without fingerprinting; Gradle background discovery/validation/preview captures external disk inputs outside read locks. Background external capture is implemented for all three providers. Complete synchronous inspection/edit revalidation; keep fresh unsaved/external-input guards before apply and profile slow disks/large init trees.
 3. **F10: validate bounded state in native workloads.** Result/source/generation budgets, expiry cleanup and late-worker regressions are implemented. Complete native import/rename/unload and heap observations; the model soak establishes map bounds, not retained heap size.
 4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; report-level partial leases currently retire descriptors on every new partial observation.
 5. **F12: explicit coverage.** Track checked, ignored, unsupported and manual-review declarations so status, empty previews and partial/failure states share an honest explanation.
