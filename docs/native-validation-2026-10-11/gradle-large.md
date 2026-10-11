@@ -103,3 +103,54 @@ recording the evidence; the user's running IDE was untouched.
 The repeated latency/typing, filtering, dense Apply/undo, cancellation and heap
 matrix still gates aggregation/default and stable release. Incomplete/tooling
 samples are retained separately from completed interaction measurements.
+
+## Sorter and interaction follow-up
+
+The [review-fix batch](../plan-fixes-2026-10-11.md) reproduces and corrects the
+sorter notification order. Native IDEA 2026.2.3 was restarted with archive
+`1fb04a19f48ff67dcda8be92c05b53d5cc2e24b179c8e14f2286e4694266c12a` in the same
+isolated profile. Aggregation was enabled only in that disposable profile.
+The [anonymous trace](idea-2026.2.3-sorter-followup.log) and
+[functional summary](idea-2026.2.3-sorter-followup.json) record this session.
+
+- Current File/Patch displayed 100 checked and selected declarations. With the
+  filter set to `module-099`, switching to Whole Project showed pending work with
+  Apply disabled, then 10,000 checked declarations and 100 visible rows. The
+  original 100 selected rows remained hidden; newly introduced targets were
+  unselected. Keeping a filter active avoided enumerating all 10,000 rows through
+  accessibility, which had timed out in the prior session.
+- Clicking the Declaration header sorted the filtered rows. Highlighting the
+  first visible row and pressing Space selected it, giving 101 selected rows,
+  including the original 100 hidden selections. Clearing selection, removing the
+  filter and selecting visible rows selected all 10,000 declarations. Scrolling
+  the unfiltered sorted table moved the visible rows from module-000 into
+  module-004. A screenshot showed `10000 selected · 10000 of 10000 visible`.
+  Reapplying the module filter showed 9,900 selected rows hidden by the filter.
+- Apply closed the review and saved **10,000 targets at 1.0.1 across 100 files**.
+  One native undo followed by Save restored all **10,000 selectors to 1.0.0**.
+  Every file's SHA-256 matched its pre-Apply bytes. No compiled class files were
+  produced.
+- A first Refresh/cancel attempt completed its 3,616.38 ms preview before Cancel
+  was delivered; it is retained as a completed refresh, not a cancellation pass.
+  For a controlled retest, a reversible 15-second `projectsEvaluated` delay was
+  added to the disposable root script after the 10,000-row review was prepared.
+  Refresh disabled Apply; Cancel closed the review during the native check.
+  That interaction has no preview-ready or edit endpoint. The delay was removed
+  and all declaration files remained identical to their baseline. The native
+  invocation finished after 15,780.45 ms, after the injected delay; the host
+  check's cancellation endpoint was earlier. This establishes no late result or
+  edit, but does not establish prompt native-worker termination.
+
+There were **zero sorter warnings and zero new IDEA error log entries** during
+the session. The existing IDE error indicator was already present at startup.
+One large mixed-cache preview took 8,326.60 ms; the 10,000-edit invocation-to-text
+endpoint took 1,119.31 ms. These are single functional observations, with the
+automated build/tests overlapping part of the session. They are not controlled
+latency distributions, EDT/write-pause spans, typing responsiveness measurements
+or a cancellation latency certification.
+
+The ordinary 10,000-row review's sorting, scrolling, filtering, keyboard selection
+and Apply/undo functional checks now pass on this current-IDE archive. Repeated
+performance, native dense-single-file interaction, screen-reader/focus coverage,
+other IDEs and retained-heap acceptance remain open. Aggregation's shipped
+default and release identity are unchanged.

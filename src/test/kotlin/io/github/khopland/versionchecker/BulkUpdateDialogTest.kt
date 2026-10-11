@@ -34,6 +34,44 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
     private fun dialog(plan: BulkUpdatePlan) = BulkUpdateDialog(project, UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT.label, "Test", plan)
     private fun text(edit: VersionEdit) = FileDocumentManager.getInstance().getDocument(edit.element!!.containingFile.virtualFile)!!.text
 
+    fun testGrowingAndShrinkingTenThousandRowsNeverReadsAnOutdatedSorterMapping() {
+        val template = edit("large-review")
+        val edits = (0 until 10_000).map { index -> object : VersionEdit by template {
+            override val location = "dependency-${index.toString().padStart(5, '0')}: declared version"
+        } }
+        val dialog = dialog(BulkUpdatePlan(edits.take(100), emptyList()))
+        val stderr = java.io.ByteArrayOutputStream()
+        val previous = System.err
+        try {
+            System.setErr(java.io.PrintStream(stderr))
+            fun replace(rows: List<VersionEdit>) = dialog.replacePrepared(
+                PreparedVersionPreview(BulkUpdatePlan(rows, emptyList()), System.nanoTime(), 0, 1),
+                UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, "Test", true, false)
+            replace(edits)
+            assertEquals(10_000, dialog.table.rowCount)
+            assertTrue(dialog.summary.text.contains("100 selected · 10000 of 10000 visible"))
+            dialog.table.rowSorter.toggleSortOrder(1)
+            dialog.filter.text = "dependency-09999"
+            assertEquals(1, dialog.table.rowCount)
+            assertEquals(9999, dialog.table.convertRowIndexToModel(0))
+            dialog.table.setRowSelectionInterval(0, 0)
+            val toggle = dialog.table.actionMap.get("toggleVersionSelection")
+            toggle.actionPerformed(ActionEvent(dialog.table, 0, "Space"))
+            assertEquals(101, dialog.selectedPlan().changes.size)
+            assertEquals(0, dialog.table.selectedRow)
+            dialog.filter.text = ""
+            replace(edits.take(100))
+            assertEquals(100, dialog.table.rowCount)
+            replace(emptyList())
+            assertEquals(0, dialog.table.rowCount)
+            assertFalse(dialog.isOKActionEnabled)
+            assertFalse(stderr.toString(), stderr.toString().contains("sorter's row count"))
+        } finally {
+            System.setErr(previous)
+            dialog.close(DialogWrapper.CANCEL_EXIT_CODE)
+        }
+    }
+
     fun testReplacingResultsKeepsFilterSortingAndChoicesAcrossScopesButNewTargetsNeedSelection() {
         val alpha = edit("retained-alpha")
         val beta = edit("retained-beta")

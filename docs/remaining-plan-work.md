@@ -390,6 +390,29 @@ This completes the explicit external disk-read boundary work. Slow-disk,
 large-init-directory, VFS/PSI cost, native typing/EDT and retained-heap acceptance
 remain open. No aggregation default or release identity changed.
 
+## Sorter warning and review findings follow-up
+
+The [11 October fix record](plan-fixes-2026-10-11.md) closes the reproduced Swing
+sorter warning and all three findings from the linked project review: exact Gradle
+targets now pass source-configuration validation, unknown Gradle ownership needs
+review instead of counting as checked, and Maven excludes dev/EAP candidates.
+New regressions reproduced the sorter, Gradle-target and Maven-qualifier failures
+before their fixes and pass afterward; adapter coverage also verifies R02.
+
+The [native 10,000-declaration follow-up](native-validation-2026-10-11/gradle-large.md#sorter-and-interaction-follow-up)
+passed sorting, scrolling, filtering, keyboard selection, Apply/save across 100
+files and one-command undo with exact byte restoration. A controlled delayed
+Refresh was cancelled without a preview or edit endpoint. The tested snapshot
+archive is `1fb04a19f48ff67dcda8be92c05b53d5cc2e24b179c8e14f2286e4694266c12a`.
+Validation passed 498 plugin tests, 13 release tests, 16 script tests and all three
+verifier targets, retaining the 14-usage experimental API baseline.
+
+Next prioritize controlled typing/EDT/write and slow-disk measurements, retained
+heap/15-minute idle observations, and the remaining supported-IDE and
+accessibility matrix. These single functional checks do not close performance
+acceptance. Aggregation stays off by default; minimum-IDE npm remains blocked,
+and RC/EAP release gates remain open.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.

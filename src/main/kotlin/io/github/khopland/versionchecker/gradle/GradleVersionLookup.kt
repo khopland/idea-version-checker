@@ -195,7 +195,7 @@ internal object GradleVersionLookup {
                                     c.dependencyConstraints.any { d -> d.group == request.group && d.name == request.name && d.version == request.current }
                                 }
                             }"""}
-                            def reason = null
+                            def reason = owners.empty ? 'No source configuration owner found; declaration needs manual review for ' + request.group + ':' + request.name : null
                             def versions = owners.collect { p ->
                                 work.semanticProbes++
                                 def matches = { d -> d.group == request.group && d.name == request.name && d.version == request.current }
@@ -302,7 +302,31 @@ internal object GradleVersionLookup {
                                 if (!(result instanceof ResolvedDependencyResult) || result.selected.moduleVersion == null ||
                                     result.selected.moduleVersion.group != request.group || result.selected.moduleVersion.name != request.name)
                                     throw new GradleException('Dependency substitution needs manual review for ' + request.group + ':' + request.name)
-                                result.selected.moduleVersion.version
+                                def chosenVersion = result.selected.moduleVersion.version
+                                // Discovery uses a detached resolver, but only the source configurations
+                                // can authorize this exact target. Keep their attributes, constraints and
+                                // resolution rules, replacing only copies of the requested dependencies.
+                                for (context in contexts) {
+                                    def probe = context.copyRecursive(matches)
+                                    probe.transitive = false
+                                    probe.dependencies.findAll(matches).each { dependency ->
+                                        dependency.version { constraint -> constraint.require(chosenVersion) }
+                                    }
+                                    def targetResults = probe.incoming.resolutionResult.root.dependencies
+                                    if (targetResults.empty || targetResults.any { target ->
+                                        !(target instanceof ResolvedDependencyResult) ||
+                                        !(target.selected.id instanceof ModuleComponentIdentifier) ||
+                                        target.selected.moduleVersion.group != request.group ||
+                                        target.selected.moduleVersion.name != request.name ||
+                                        target.selected.moduleVersion.version != chosenVersion ||
+                                        target.selected.selectionReason.selectedByRule
+                                    }) {
+                                        reason = 'Proposed target is substituted, rejected or constrained in source configuration ' +
+                                            p.path + ':' + context.name + '; needs manual review for ' + request.group + ':' + request.name
+                                        return null
+                                    }
+                                }
+                                chosenVersion
                             }
                             def reportResult = [versions: reason == null ? versions : [], reason: reason]
                             report[request.id] = reportResult

@@ -99,6 +99,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     internal var applyInteraction: CheckPerformance.Interaction? = null
         private set
     private var configuring = true
+    private var replacingRows = false
     private var preparedMode = mode
     private var preparedScope = scopeSelector.selectedItem
     private var generation = 0L
@@ -209,7 +210,10 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         try {
             modeSelector.selectedItem = mode
             scopeSelector.selectedItem = scope
-            model.replaceChanges(plan.changes)
+            // Model listeners run in reverse registration order. Our summary listener must
+            // not inspect row mappings until JTable has notified its sorter of the new size.
+            replacingRows = true
+            try { model.replaceChanges(plan.changes) } finally { replacingRows = false }
             configure(prepared, currentFileAvailable, platformAvailable)
         } finally { configuring = false }
         title = "Review $buildSystems updates"
@@ -314,6 +318,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     }
 
     private fun updateSummary() {
+        if (replacingRows) return
         val selected = model.selectedIndices
         val visible = (0 until table.rowCount).map { table.convertRowIndexToModel(it) }.toSet()
         val hidden = selected.count { it !in visible }

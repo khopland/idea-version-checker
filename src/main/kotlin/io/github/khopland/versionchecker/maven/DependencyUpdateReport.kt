@@ -14,7 +14,7 @@ internal object DependencyUpdateReport {
     private val update = Regex("""^\s*(\S+):(\S+)\s+\.+\s+(\S+)\s+->\s+(\S+)\s*$""")
     private val wrappedCoordinate = Regex("""^\s*(\S+):(\S+)\s+\.{3}\s*$""")
     private val wrappedVersion = Regex("""^\s*(\S+)\s+->\s+(\S+)\s*$""")
-    const val IGNORED_VERSIONS = "(?i).*[.-](alpha|beta|milestone|rc|cr|ea|preview|snapshot|m)[.-]?[0-9]*([.-].*)?"
+    const val IGNORED_VERSIONS = "(?i).*[.-](alpha|beta|milestone|rc|cr|ea|eap|dev|preview|snapshot|m)[.-]?[0-9]*([.-].*)?"
     private val unstable = Regex(IGNORED_VERSIONS)
     // display-parent-updates pads to a fixed width, so long coordinates get no dots.
     private val parentUpdate = Regex("""^\s*(\S+):(\S+)\s+\.*\s*(\S+)\s+->\s+(\S+)\s*$""")

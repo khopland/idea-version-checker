@@ -7,6 +7,19 @@ import org.junit.Test
 import kotlin.random.Random
 
 class MavenVersionIndexTest {
+    @Test fun `development and EAP releases never displace stable metadata candidates`() {
+        for (qualifier in listOf("dev", "DEV1", "dev-2", "Dev.3", "eap", "EAP1", "eap-2", "Eap.3")) {
+            for (separator in listOf("-", ".")) {
+                val preview = "3.0.0$separator$qualifier"
+                val versions = listOf("1.0.0", "2.0.0", preview)
+                assertFalse(preview, MavenRepositoryMetadata.isStable(preview))
+                assertEquals(preview, "2.0.0", MavenVersionIndex(versions).latest("1.0.0", UpdateMode.MAJOR))
+                assertEquals(listOf("2.0.0"), MavenVersionIndex(versions).eligible("1.0.0", UpdateMode.MAJOR))
+                assertEquals("2.0.0", MavenRepositoryMetadata.latest(versions, "1.0.0", UpdateMode.MAJOR))
+            }
+        }
+    }
+
     @Test fun `prepared histories preserve selection and plugin ordering for all modes`() {
         val spellings = listOf("", "LATEST", "RELEASE", "[1,2)", "\${version}", "1", "1.0", "1.0.0", "1.0-final",
             "1.0-GA", "1.0.1", "1.1", "1.2.3.4", "01.02.4", "1.3-RC1", "1.4-SNAPSHOT", "1.5-beta-2",

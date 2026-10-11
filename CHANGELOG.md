@@ -49,6 +49,9 @@
 
 ### Fixed
 
+- Large update reviews refresh their summary after Swing updates row mappings, avoiding sorter warnings when replacing the visible declarations.
+- Gradle validates proposed versions in every matching source configuration before offering an automatic edit. Target-only substitutions, rejected versions and conflicting constraints require review; declarations without a known source owner no longer count as checked.
+- Maven excludes development (`dev`) and early access (`eap`) qualifiers from stable candidates in both native metadata and legacy reports, including case and separator variants.
 - Held inspection fixes remain usable when unrelated partial results arrive. Replacing any contributing declaration result still rejects local or shared edits; refresh, cancellation, expiry, eviction and final-result replacement retain their freshness guards.
 - Maven edit and result guards detect external settings, relocated credentials and ancestor configuration changes even when file size and timestamp are unchanged. Gradle bulk validation shares one fresh user-home input capture across linked builds.
 - Maven, npm and Gradle inspection fixes now share preview freshness checks: expired, refreshed, replaced or evicted version results require a fresh choice. Retained warnings keep their original metadata deadline, and stale authorization rejects before provider input reads.

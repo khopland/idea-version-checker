@@ -27,6 +27,99 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Real IDEA Gradle tooling + project wrapper + authenticated settings repositories. No public artifact queries. */
 class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
+    fun testProposedTargetsUseEverySourceConfigurationAndMissingOwnersNeedReview() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-gradle-targets-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val settings = GradleSettings.getInstance(project)
+        val previousOffline = settings.isOfflineWork
+        try {
+            settings.isOfflineWork = false
+            project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+            val artifacts = listOf("plain", "future-module", "future-project", "future-rejected", "forced", "constrained", "cross-project", "unused")
+            for (artifact in artifacts) {
+                val publication = Files.createDirectories(directory.resolve("repo/fixture/$artifact"))
+                Files.writeString(publication.resolve("maven-metadata.xml"), """<metadata><groupId>fixture</groupId><artifactId>$artifact</artifactId>
+                    <versioning><versions><version>1.0.0</version><version>2.0.0</version></versions></versioning></metadata>""")
+                for (version in listOf("1.0.0", "2.0.0")) {
+                    val path = Files.createDirectories(publication.resolve(version))
+                    Files.writeString(path.resolve("$artifact-$version.pom"), """<project><modelVersion>4.0.0</modelVersion>
+                        <groupId>fixture</groupId><artifactId>$artifact</artifactId><version>$version</version></project>""")
+                }
+            }
+            Files.writeString(directory.resolve("settings.gradle"), "rootProject.name = 'target-fixture'\ninclude 'child', 'replacement'")
+            Files.writeString(directory.resolve("build.gradle"), """
+                plugins { id 'java' }
+                allprojects { repositories { maven { url = uri(rootProject.file('repo')) } } }
+                configurations.runtimeClasspath {
+                    resolutionStrategy.dependencySubstitution {
+                        substitute module('fixture:future-module:2.0.0') using module('fixture:future-module:1.0.0')
+                        substitute module('fixture:future-project:2.0.0') using project(':replacement')
+                    }
+                    resolutionStrategy.componentSelection.all { selection ->
+                        if (selection.candidate.module == 'future-rejected' && selection.candidate.version == '2.0.0')
+                            selection.reject('Future target rejected by source configuration')
+                    }
+                    resolutionStrategy.force 'fixture:forced:1.0.0'
+                }
+                dependencies {
+                    ${(artifacts - setOf("cross-project", "unused")).joinToString("\n") { "implementation 'fixture:$it:1.0.0'" }}
+                    constraints { implementation('fixture:constrained') { version { strictly '1.0.0' } } }
+                }
+                subprojects {
+                    apply plugin: 'java'
+                    dependencies { implementation 'fixture:cross-project:1.0.0' }
+                }
+                allprojects { tasks.withType(JavaCompile).configureEach { doFirst { throw new GradleException('Build task executed') } } }
+            """.trimIndent())
+            for (child in listOf("child", "replacement")) {
+                Files.createDirectories(directory.resolve(child))
+                Files.writeString(directory.resolve("$child/build.gradle"), "// Dependencies are applied by the root script")
+            }
+            val catalog = Files.createDirectories(directory.resolve("gradle")).resolve("libs.versions.toml")
+            Files.writeString(catalog, """
+                [libraries]
+                unused = { module = "fixture:unused", version = "1.0.0" }
+            """.trimIndent())
+            val wrapper = Files.createDirectories(directory.resolve("gradle/wrapper"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.properties"), wrapper.resolve("gradle-wrapper.properties"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.jar"), wrapper.resolve("gradle-wrapper.jar"))
+            val root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            VfsUtil.markDirtyAndRefresh(false, true, true, root)
+            settings.linkProject(GradleProjectSettings().apply {
+                externalProjectPath = directory.toString(); gradleJvm = "#JAVA_HOME"
+                distributionType = DistributionType.DEFAULT_WRAPPED
+                setModules(setOf(directory.toString(), directory.resolve("child").toString(), directory.resolve("replacement").toString()))
+            })
+            fun <T> background(work: suspend () -> T): T = PlatformTestUtil.waitForFuture(
+                ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { work() } }), 120_000)
+            val adapter = GradleBuildSystemAdapter()
+            val source = adapter.snapshot(project, root.findChild("build.gradle")!!)!!
+            val unused = adapter.snapshot(project, root.findFileByRelativePath("gradle/libs.versions.toml")!!)!!
+            val legacy = background { GradleVersionLookup.checkWithIndex(project, source, UpdateMode.MAJOR, false) }
+            val indexed = background { GradleVersionLookup.checkWithIndex(project, source, UpdateMode.MAJOR, true) }
+            assertEquals(legacy, indexed)
+            val batch = background { GradleVersionLookup.checkBatch(project, listOf(source, unused), UpdateMode.MAJOR) }
+            assertEquals(indexed, batch[source])
+            assertEquals(listOf("2.0.0"), indexed.getValue(source.declarations.single { it.artifact.name == "plain" }.id.location).versions)
+            for (declaration in source.declarations.filter { it.baseline.isNotEmpty() && it.artifact.name != "plain" }) {
+                val result = indexed.getValue(declaration.id.location)
+                assertTrue(declaration.artifact.name, result.versions.isEmpty())
+                assertNotNull(declaration.artifact.name, result.reason)
+            }
+            assertTrue(batch.getValue(unused).values.all { it.versions.isEmpty() && it.reason != null })
+            val report = background { adapter.check(project, source, UpdateMode.MAJOR) }
+            assertEquals(listOf("plain"), report.candidates.map { it.declaration.artifact.name })
+            val crossProject = source.declarations.single { it.artifact.name == "cross-project" }
+            assertEquals(DeclarationOutcome.MANUAL_REVIEW, report.coverage!!.getValue(crossProject.id).outcome)
+            assertTrue(report.notices.any { it.declaration.id == crossProject.id && it.kind == NoticeKind.MANUAL_REVIEW })
+            assertTrue(listOf("", "child/", "replacement/").none { Files.exists(directory.resolve(it + "build/classes")) })
+        } finally {
+            settings.unlinkExternalProject(directory.toString()); settings.isOfflineWork = previousOffline
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testLinkedBuildAggregationChecksOneHundredModulesInFiveBoundedInvocations() {
         if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
         val directory = Files.createTempDirectory("version-checker-gradle-scan-").toRealPath()

@@ -6,6 +6,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DependencyUpdateReportTest {
+    @Test fun `development and EAP qualifiers are excluded from all report formats`() {
+        val parent = DependencyVersion("g", "a", "1.0")
+        for (qualifier in listOf("dev", "DEV1", "dev-2", "Dev.3", "eap", "EAP1", "eap-2", "Eap.3")) {
+            for (separator in listOf("-", ".")) {
+                val latest = "2.0$separator$qualifier"
+                assertTrue(latest, DependencyUpdateReport.parse("  g:a ... 1.0 -> $latest").isEmpty())
+                assertTrue(latest, DependencyUpdateReport.parse("  g:a ...\n    1.0 -> $latest").isEmpty())
+                assertNull(latest, DependencyUpdateReport.parseParent("  g:a ... 1.0 -> $latest", parent))
+            }
+        }
+    }
+
     @Test fun `parses direct and managed dependencies and keeps current version in the key`() {
         val updates = DependencyUpdateReport.parse("""
             The following dependencies in Dependencies have newer versions:
