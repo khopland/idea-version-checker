@@ -83,6 +83,8 @@ IDE startup put that module back in the disabled list and logged that JavaScript
 and TypeScript could not load because its Ultimate dependency was disabled.
 Native npm remains blocked by the available minimum-IDE capability. No trial,
 license agreement or workaround was accepted. This attempt is not a pass.
+The user confirmed that no licensed IDEA 2025.3 installation/profile is available
+and instructed that minimum-IDE npm be recorded as **blocked**.
 
 Controlled 100-module/dense-file typing, EDT/write spans, slow-disk/large init
 trees, 15-minute IDE-baseline idle CPU, import/rename/unload heap observations,

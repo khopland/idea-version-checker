@@ -59,20 +59,26 @@ internal class GradleBuildSystemAdapter(
     }
     private fun files(project: Project, root: String): List<VirtualFile> {
         val settings = GradleSettings.getInstance(project).getLinkedProjectSettings(root)
-        val directories = (listOf(root) + settings?.modules.orEmpty()).distinct().sorted()
+        val directories = (listOf(root) + settings?.modules.orEmpty().sorted()).distinct()
         return project.service<GradleProjectCache>().files(root, directories) { discoverFiles(project, directories) }
     }
     private fun discoverFiles(project: Project, directories: List<String>): List<VirtualFile> {
         val result = mutableSetOf<VirtualFile>()
-        val roots = directories.mapNotNull { find(project, it) }.distinct()
+        // Imported module paths can use a canonical location while the linked root uses
+        // a symlink (for example /tmp and /private/tmp on macOS). Keep the user's root
+        // namespace, but compare VFS-known link targets before walking it again.
+        val roots = directories.mapNotNull { find(project, it) }.distinctBy { it.canonicalPath ?: it.path }
+        val locations = roots.associateWith { it.canonicalPath ?: it.path }
         // Linked modules commonly sit inside the root; walking them again adds no inputs.
-        for (file in roots.filter { candidate -> roots.none { it != candidate && VfsUtilCore.isAncestor(it, candidate, true) } }) {
+        for (file in roots.filter { candidate -> roots.none { parent ->
+            parent != candidate && locations.getValue(candidate).startsWith(locations.getValue(parent).trimEnd('/') + "/")
+        } }) {
             VfsUtilCore.iterateChildrenRecursively(file, { it.name !in excluded }) {
                 if (!it.isDirectory && (it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") || it.name.endsWith(".toml") || it.name in setOf("gradle.properties", "gradle-wrapper.properties", "gradle-wrapper.jar", "gradlew", "gradlew.bat", "gradle.lockfile") || it.path.contains("/gradle/dependency-locks/") || it.name == "verification-metadata.xml")) result += it
                 true
             }
         }
-        return result.toList()
+        return result.distinctBy { it.canonicalPath ?: it.path }
     }
     private fun find(project: Project, path: String): VirtualFile? = LocalFileSystem.getInstance().findFileByPath(path)
         ?: ProjectRootManager.getInstance(project).contentRoots.firstNotNullOfOrNull { it.fileSystem.findFileByPath(path) }

@@ -35,6 +35,33 @@ class GradleAdapterTest : BasePlatformTestCase() {
     private fun report(snapshot: BuildSnapshot, versions: List<String?> = snapshot.declarations.map { "1.2.9" }) = UpdateReport(snapshot.declarations.zip(versions).mapNotNull { (d, v) -> v?.let { UpdateCandidate(d, it) } })
     private fun plan(snapshot: BuildSnapshot, report: UpdateReport): BulkUpdatePlan = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { adapter.prepareUpdates(project, mapOf(snapshot to report)) } }), 30_000)
 
+    fun testCanonicalImportedModulesDoNotDuplicateDeclarationsUnderASymlinkedLinkedRoot() {
+        val directory = Files.createTempDirectory("version-checker-linked-alias-")
+        try {
+            val root = Files.createDirectories(directory.resolve("real"))
+            val module = Files.createDirectories(root.resolve("module"))
+            Files.writeString(root.resolve("settings.gradle"), "include 'module'")
+            Files.writeString(root.resolve("build.gradle"), "// root")
+            Files.writeString(module.resolve("build.gradle"), "dependencies { implementation 'g:alpha:1.2.3' }")
+            val alias = Files.createSymbolicLink(directory.resolve("alias"), root)
+            val fs = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+            val linked = fs.refreshAndFindFileByNioFile(alias)!!
+            fs.refreshAndFindFileByNioFile(module.resolve("build.gradle"))!!
+            GradleSettings.getInstance(project).linkProject(GradleProjectSettings().apply {
+                externalProjectPath = linked.path
+                setModules(setOf(root.toString(), module.toString()))
+            })
+            val snapshots = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
+            }), 30_000)
+            assertEquals(2, snapshots.size)
+            assertEquals(1, snapshots.sumOf { it.declarations.size })
+            assertEquals(setOf("${linked.path}/build.gradle", "${linked.path}/module/build.gradle"), snapshots.map { it.sourceFile }.toSet())
+        } finally {
+            Files.walk(directory).use { paths -> paths.sorted(java.util.Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
+        }
+    }
+
     fun testBlankDeprecationMessageProducesANoticeWithoutRemoteLookup() {
         val file = myFixture.addFileToProject("gradle-project/build.gradle", "dependencies { implementation 'g:alpha:1.2.3' }")
         link()

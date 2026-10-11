@@ -1,0 +1,17 @@
+{
+  "archiveSha256": "0b3e71ec74054ac9d52acf6037ccd4df1de81ea481340994da0abea501cf8a9f",
+  "nativeFixtureModules": 100,
+  "expectedDeclarations": 10000,
+  "observedReviewRows": 20000,
+  "executionAndNativeSamples": 11308,
+  "edtSamples": 135,
+  "edtSamplesWithPluginFrame": 2,
+  "pluginTopFrames": {
+    "io/github/khopland/versionchecker/BulkUpdateDialog.updateSummary": 1,
+    "io/github/khopland/versionchecker/VersionUpdateTableModel.getValueAt": 1
+  },
+  "maxEdtSpanMeasured": false,
+  "typingDelayMeasured": false,
+  "latencyDistribution": false,
+  "note": "Failed alias-discovery run, JFR profile includes import/startup and review; sampling does not measure event duration. Native UI inspection timed out after opening oversized review; two separate EDT dumps were parked in EventQueue.getNextEvent."
+}

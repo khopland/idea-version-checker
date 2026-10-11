@@ -371,6 +371,14 @@ The [2026-10-11 native record](native-validation-2026-10-11/README.md) distingui
 the failing archives from the corrected archive and preserves the remaining
 minimum-IDE npm and controlled performance gaps.
 
+The subsequent [100-module Gradle run](native-validation-2026-10-11/gradle-large.md)
+found duplicate discovery through macOS path aliases. Its failed trace and
+profiling/tooling limits are retained. The correction passed the native count
+retest (10,000 declarations, 101 sources) and **494 plugin tests in 68 classes**,
+plus 13 release and 16 script tests, packaging and all three verifier targets.
+Native automation still timed out inspecting the 10,000-row review, so the
+interaction/performance scale gate remains open.
+
 Final validation passed **493 plugin tests in 68 classes**, 13 release tests and
 16 script tests, all native integration flags, packaging/project-configuration
 checks and all three verifier targets. The compatible archive has 14 experimental
@@ -385,7 +393,7 @@ remain open. No aggregation default or release identity changed.
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
-- **F03: native npm workflows.** Current-IDE editor/preview/local/workspace edit and authentication-recovery checks passed. Complete minimum-IDE coverage, ignore/recovery, cancellation and offline/runtime/configuration cases; preserve those gaps in the [native record](native-validation-2026-10-10/phase2.md).
+- **F03: native npm workflows.** Current-IDE editor/preview/local/workspace edit and authentication-recovery checks passed. Minimum-IDE npm is **blocked**: the isolated IDEA 2025.3 profile disables Ultimate/JavaScript support, and the user confirmed no licensed installation/profile is available. Complete the remaining ignore/recovery, cancellation and offline/runtime/configuration cases; preserve those gaps in the [native record](native-validation-2026-10-11/README.md).
 - **F04: supported-IDE Gradle UX.** Minimum-IDE Groovy diagnostics/local fix and current-IDE Groovy/shared Kotlin catalog workflows passed. Complete the per-version DSL/catalog and repeated performance matrix. Binary compatibility alone does not close this gate.
 - **Native scale and failure matrix.** Measure small projects, 100-module projects and dense edits on named hardware; record warm/cold states, authentication failures, offline behavior, cancellation, imports, plugin unload and typing/input delays. Retain completed/incomplete sample counts and archive hashes. The HTML plan's latency budgets remain proposed targets.
 
