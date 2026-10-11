@@ -37,6 +37,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         var current = true
         var offline = false
         var failure: String? = null
+        var failureCause: Exception? = null
         var version = "1.1"
         var beforeCheck: suspend () -> Unit = {}
         val checked = CopyOnWriteArrayList<String>()
@@ -57,7 +58,8 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         override suspend fun discover(project: Project, selection: BuildSelection) = listOf(buildSnapshot)
         override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
             checked += snapshot.sourceFile
-            val result = UpdateReport(listOf(UpdateCandidate(snapshot.declarations.single(), version)), failure = failure)
+            val result = UpdateReport(listOf(UpdateCandidate(snapshot.declarations.single(), version)), failure = failure,
+                failureCause = failureCause)
             beforeCheck()
             return result
         }
@@ -294,6 +296,28 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertTrue(plan().apply(project))
         assertEquals("1.1", FileDocumentManager.getInstance().getDocument(first.virtualFile)!!.text)
         assertEquals("1.1", FileDocumentManager.getInstance().getDocument(second.virtualFile)!!.text)
+    }
+
+    fun testPausedChecksRejectAHeldPlanBeforeProviderValidationAndAllowResume() {
+        val file = myFixture.addFileToProject("paused-preview/build.txt", "1.0")
+        val native = TestAdapter("paused-preview-test", file)
+        var providerGuards = 0
+        val adapter = object : BuildSystemAdapter by native {
+            override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>) =
+                native.prepareUpdates(project, reports).guardedBy { providerGuards++; true }
+        }
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        val held = plan()
+        val settings = project.service<VersionCheckerSettings>().state
+        settings.enabled = false
+        try {
+            assertFalse(held.apply(project))
+            assertEquals("Paused authorization must avoid final provider input reads", 0, providerGuards)
+            assertEquals("1.0", file.text)
+        } finally { settings.enabled = true }
+        assertTrue(held.apply(project))
+        assertEquals(1, providerGuards)
+        assertEquals(1, native.checked.size)
     }
 
     fun testCurrentFileUsesItsProviderAndDoesNotConsultOtherOfflineProviders() {
@@ -547,6 +571,27 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             PlatformTestUtil.waitWithEventsDispatching("Check cancelled", { job.isCompleted }, 10)
             assertEquals(CheckPhase.UNCHECKED, service.status(adapter, snapshot).phase)
         } finally { gate.complete(Unit) }
+    }
+
+    fun testFailedStatusUsesSafeNativeOfflineAndAuthenticationAdviceWithoutQueryingAgain() {
+        val file = myFixture.addFileToProject("native-status/build.txt", "1.0")
+        val adapter = TestAdapter("native-status-test", file)
+        val service = project.service<VersionCheckService>()
+        for ((code, guidance) in listOf("ENOTCACHED" to "offline", "E401" to "credentials")) {
+            adapter.failure = "private native output"
+            adapter.failureCause = io.github.khopland.versionchecker.npm.NpmViewFailure(code, "private native output")
+            val job = service.refresh(listOf(adapter), file.virtualFile)
+            PlatformTestUtil.waitWithEventsDispatching("Native failure completes", { job.isCompleted }, 10)
+            val checks = adapter.checked.size
+            repeat(3) {
+                val status = service.status(adapter, adapter.snapshot(project, file.virtualFile)!!)
+                assertEquals(CheckPhase.FAILED, status.phase)
+                assertTrue(status.tooltip.contains(guidance))
+                assertTrue(status.tooltip.contains("Refresh Current File"))
+                assertFalse(status.tooltip.contains("private native output"))
+            }
+            assertEquals(checks, adapter.checked.size)
+        }
     }
 
     fun testStatusShowsQueuedFileWithoutConfusingItWithAnotherRunningFile() {

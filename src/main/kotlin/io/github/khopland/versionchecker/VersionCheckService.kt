@@ -91,7 +91,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         }
         if (result != null) return VersionCheckStatus(if (!result.report.successful) CheckPhase.FAILED else
             if (snapshot.coverageDescription != null) CheckPhase.PARTIAL else CheckPhase.CHECKED,
-            presentation.count(result.report), result.report.notices.size, result.expiresAtNanos, snapshot.coverageDescription)
+            presentation.count(result.report), result.report.notices.size, result.expiresAtNanos, snapshot.coverageDescription,
+            (result.report.failureCause as? VersionCheckFailureAdvice)?.recoveryMessage)
         return VersionCheckStatus(CheckPhase.UNCHECKED)
     }
 
@@ -452,7 +453,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             throw cancelled
         } catch (failure: Exception) {
             log.warn("${adapter.displayName} version check failed for ${snapshot.sourceFile}", failure)
-            if (cache.put(snapshot, token.revision, UpdateReport(failure = failure.message ?: failure.javaClass.simpleName))) {
+            if (cache.put(snapshot, token.revision, UpdateReport(failure = failure.message ?: failure.javaClass.simpleName,
+                    failureCause = failure))) {
                 published = true
                 recordFailure(adapter, snapshot, failure.message ?: failure.javaClass.simpleName, failure, failures)
             }

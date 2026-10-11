@@ -13,6 +13,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import io.github.khopland.versionchecker.core.VersionCheckFailureAdvice
+import io.github.khopland.versionchecker.core.DiagnosticSanitizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -31,17 +32,19 @@ internal class VersionCheckFailures {
     val hasFailures: Boolean get() = failed.isNotEmpty()
 
     @Synchronized fun add(target: VersionCheckTarget, provider: String, message: String, cause: Exception? = null) {
-        failed[target] = provider
-        val key = "$provider: ${cause?.javaClass?.simpleName.orEmpty()}: ${message.take(1_000)}"
+        val safeProvider = DiagnosticSanitizer.sanitize(provider)
+        val safeMessage = DiagnosticSanitizer.sanitize(message)
+        failed[target] = safeProvider
+        val key = "$safeProvider: ${cause?.javaClass?.simpleName.orEmpty()}: ${safeMessage.take(1_000)}"
         if (key in samples || samples.size >= 20) return
         samples[key] = buildString {
-            append(provider).append(": ").append(target.sourceFile ?: "Build-file discovery").append('\n')
-            append(message.take(4_000))
-            cause?.let { append('\n').append(it.stackTraceToString().take(12_000)) }
+            append(safeProvider).append(": ").append(DiagnosticSanitizer.sanitize(target.sourceFile ?: "Build-file discovery")).append('\n')
+            append(safeMessage.take(4_000))
+            cause?.let { append('\n').append(DiagnosticSanitizer.sanitize(it.stackTraceToString()).take(12_000)) }
         }
     }
 
-    fun offline(provider: String) { offline += provider }
+    fun offline(provider: String) { offline += DiagnosticSanitizer.sanitize(provider) }
     @Synchronized fun remove(target: VersionCheckTarget) { failed.remove(target) }
 
     val content: String get() = buildString {
@@ -83,7 +86,7 @@ internal class VersionCheckFeedback(private val project: Project, private val sc
     fun previewFailure(providers: String, failure: Exception, retry: () -> Unit) {
         val advice = (failure as? VersionCheckFailureAdvice)?.recoveryMessage
             ?: "Could not check dependency versions. Check the build tool and repository settings, then retry."
-        val details = failure.stackTraceToString()
+        val details = DiagnosticSanitizer.sanitize(failure.stackTraceToString()).take(16_000)
         scope.launch(Dispatchers.EDT) {
             if (disposed || project.isDisposed) return@launch
             val title = "$providers version update check failed"

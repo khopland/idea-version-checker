@@ -8,8 +8,10 @@ import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.components.service
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.ui.UiInterceptors
 import io.github.khopland.versionchecker.npm.NpmViewFailure
 import kotlinx.coroutines.*
 import java.util.concurrent.CopyOnWriteArrayList
@@ -90,5 +92,36 @@ class PreviewFailureRecoveryTest : BasePlatformTestCase() {
         feedback.previewFailure("npm", NpmViewFailure("E401", "late cause")) { retries++ }
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         assertEquals(1, captured.size)
+    }
+
+    fun testCopiedPreviewDetailsRedactCredentialsAndPathsButKeepNativeCause() {
+        feedback.previewFailure("npm", NpmViewFailure("E401",
+            "E401 https://private-user:private-password@registry.example.test/package?token=private-query " +
+                "in /Users/person/private-project/.npmrc\nAuthorization: Bearer private-header")) {}
+        val notification = notification()
+        var shown = false
+        UiInterceptors.registerPossible(testRootDisposable, object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
+            override fun doIntercept(component: DialogWrapper) {
+                fun text(container: java.awt.Container): String = container.components.joinToString("\n") {
+                    when (it) {
+                        is javax.swing.JTextArea -> it.text
+                        is java.awt.Container -> text(it)
+                        else -> ""
+                    }
+                }
+                val panel = component.javaClass.getDeclaredMethod("createCenterPanel").apply { isAccessible = true }
+                    .invoke(component) as java.awt.Container
+                val details = text(panel)
+                assertTrue(details.contains("NpmViewFailure: E401"))
+                assertTrue(details.contains("https://registry.example.test/package"))
+                for (secret in listOf("private-user", "private-password", "private-query", "private-project", "private-header"))
+                    assertFalse(secret, details.contains(secret))
+                shown = true
+                component.close(DialogWrapper.OK_EXIT_CODE)
+            }
+        })
+        (notification.actions.single { it.templatePresentation.text == "Show Details" } as NotificationAction)
+            .actionPerformed(event(), notification)
+        PlatformTestUtil.waitWithEventsDispatching("Sanitized details shown", { shown }, 10)
     }
 }

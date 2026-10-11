@@ -259,7 +259,8 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
 
     internal fun showDetails(title: String, message: String) {
         if (disposed || project.isDisposed) return
-        scope.launch { showDialog { BulkUpdateMessageDialog(project, title, message) } }
+        val safeMessage = DiagnosticSanitizer.sanitize(message)
+        scope.launch { showDialog { BulkUpdateMessageDialog(project, title, safeMessage) } }
     }
 
     internal fun openDeclaration(edit: VersionEdit) {
@@ -322,7 +323,8 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
             CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PLAN, reports.size) { adapter.prepareUpdates(project, reports) }
         }
         val plan = BulkUpdatePlan.combine(plans).guardedBy {
-            project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy &&
+            project.service<VersionCheckerSettings>().state.enabled &&
+                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy &&
                 results.all { (snapshot, result) -> service.isCachedResultCurrent(snapshot, mode, result) }
         }
         return PreparedVersionPreview(plan, results.minOf { it.second.checkedAtNanos }, reused, results.size)

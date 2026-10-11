@@ -21,6 +21,7 @@ internal data class VersionCheckStatus(
     val notices: Int = 0,
     val expiresAtNanos: Long? = null,
     val coverageDescription: String? = null,
+    val recoveryMessage: String? = null,
 ) {
     val text: String get() = "Versions: " + when (phase) {
         CheckPhase.UNCHECKED -> "unchecked"
@@ -45,7 +46,8 @@ internal data class VersionCheckStatus(
         CheckPhase.QUEUED -> "This file is waiting for another native version check to finish."
         CheckPhase.CHECKING -> "Checking this file. Early hints may appear before every declaration is checked."
         CheckPhase.CHECKED -> "Checked the supported declarations in this file. $updates updates and $notices notices. Click to review or refresh."
-        CheckPhase.FAILED -> "The check did not finish successfully. Check repository authentication and configuration, then Refresh Current File to retry."
+        CheckPhase.FAILED -> recoveryMessage?.let { "$it Refresh Current File to retry." }
+            ?: "The check did not finish successfully. Check repository authentication and configuration, then Refresh Current File to retry."
         CheckPhase.PARTIAL -> "$coverageDescription Refresh Current File or Review Dependency Updates for a full audit."
         CheckPhase.SAVE_REQUIRED -> "Native checking requires saved build files. Refresh Current File saves documents and checks again."
         CheckPhase.OFFLINE -> "Disable the build system’s Work offline setting, then Refresh Current File."

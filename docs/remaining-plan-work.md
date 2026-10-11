@@ -247,6 +247,28 @@ parity for Maven, npm and shared Gradle edits. Log:
 `/tmp/version-checker-review-full.log`. Compatibility verification will be repeated
 after the next engineering batch.
 
+## Diagnostic and paused-plan recovery (F14/F11)
+
+Displayed/copied failure details now redact URL user information and queries,
+authentication headers, common token/password assignments, Maven credential XML,
+private keys and local paths before samples are truncated or retained. Repository
+hosts, exception types and native error codes remain available. Retry identities
+keep exact source paths and continue to target only failed files. This is a display
+boundary; native repository configuration and resolver semantics are unchanged.
+
+Failed status tooltips use the same provider-owned safe advice as previews,
+including npm offline-cache and authentication outcomes, without starting queries.
+A held bulk plan now rejects paused checks before running provider input guards;
+resume permits the still-current plan. Native keyboard/recovery and the broader
+failure matrix remain open.
+
+Full validation passed with **459 plugin tests in 66 classes**, zero failures/
+errors/skips, all native integration flags, packaging, project-configuration
+validation and all three IDEA verifier targets (10 existing experimental API
+uses, no deprecated/scheduled-for-removal uses). The run took 3m 14s; log:
+`/tmp/version-checker-diagnostics-full.log`. A final focused run also checks paths
+containing spaces. Compatibility verdicts validate APIs, not native usability.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
@@ -262,6 +284,6 @@ after the next engineering batch.
 4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; report-level partial leases currently retire descriptors on every new partial observation.
 5. **F12: explicit coverage.** Track checked, ignored, unsupported and manual-review declarations so status, empty previews and partial/failure states share an honest explanation.
 6. **F13: native review acceptance.** Stable in-window refresh, compatible review choices, pending-plan rejection and source/diffs are implemented. Validate keyboard/focus, scrolling, diff windows and failed-scope recovery on the supported IDEs.
-7. **F14: consistent recovery.** Preview failures now offer fresh retry and npm-specific guidance. Complete the remaining status/automatic-check and native failure matrix, including npm offline/configuration behavior, without weakening native provider semantics.
+7. **F14: native recovery acceptance.** In-window retry, npm preview/status guidance, sanitized displayed diagnostics and paused-plan guards are implemented. Complete the automatic/status and native failure matrix, including npm offline/configuration behavior, without weakening native provider semantics.
 
 The broader onboarding, accessibility, repository diagnostics, persistent metadata and scheduling proposals remain in the HTML plan. Prioritize measured bottlenecks and release blockers; preserve the existing provider isolation, cancellation, authentication and shared-declaration safeguards during each change.

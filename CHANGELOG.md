@@ -17,6 +17,8 @@
 
 ### Changed
 
+- Sanitize credentials, URL queries and local paths in displayed/copied failure details; show native npm recovery guidance in status and reject held bulk updates while checks are paused.
+
 - Version review keeps one window during mode/scope changes and Refresh, preserving filters, sorting and choices for unchanged targets. New targets require selection; pending/replaced results cannot authorize older plans. Rejected applies and failed rechecks recover in the same window.
 - Review rows can open their source declaration and show a read-only before/after diff. npm bulk edits preserve original spacing and share the captured-text validation used by their previews.
 - Gradle background discovery, result validation and preview preparation capture user-home properties and init scripts outside IDE read locks, sharing one capture across linked builds and preserving unsaved-input guards.
