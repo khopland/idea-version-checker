@@ -51,7 +51,10 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
                     }
                     val highlight = kind.severity(options).highlight ?: continue
                     val safe = notice == null && consumers.all { it.reason == null } && candidates.all { it != null } && candidates.map { it!!.version }.distinct().size == 1
-                    val updateFixes = if (safe) arrayOf<LocalQuickFix>(UpdateGradleVersionFix(GradleVersionEdit(file, range, candidate!!.version, file.name, original), { adapter.isCurrent(holder.project, snapshot) && options.ignoredVersions == ignoredPolicy })) else emptyArray()
+                    val updateFixes = if (safe) arrayOf<LocalQuickFix>(UpdateGradleVersionFix(GradleVersionEdit(file, range, candidate!!.version, file.name, original), {
+                        report.lease?.isCurrent() == true && options.enabled && options.ignoredVersions == ignoredPolicy &&
+                            adapter.isCurrent(holder.project, snapshot)
+                    })) else emptyArray()
                     val fixes = updateFixes + (if (notice != null) emptyList() else consumers.mapNotNull { candidatesById[it.declaration.id] }.distinctBy { it.declaration.artifact to it.version }
                         .map { IgnorePublishedVersionFix(IgnoredVersion("gradle", it.declaration.artifact, it.version)) })
                     val message = notice?.message ?: updateHint(candidate!!.declaration.artifact, candidate.kind, candidate.declaration.baseline, candidate.version) + if (!safe) " (shared version needs review)" else ""

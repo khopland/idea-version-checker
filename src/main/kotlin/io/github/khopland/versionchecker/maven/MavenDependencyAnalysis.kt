@@ -86,6 +86,7 @@ internal class MavenDependencyAnalysis(
             quickFixAdapter.snapshot(model.manager.project, it)
         }
     }
+    private fun resultIsCurrent(): Boolean = inspection?.let { it.report.lease?.isCurrent() == true } ?: true
 
     fun coordinate(tag: XmlTag): DependencyVersion? {
         if (isProjectParent(tag)) return parentCoordinate(tag)
@@ -169,7 +170,9 @@ internal class MavenDependencyAnalysis(
         if (problems.any { it?.notice != null } || !sharedAllowed(property, latest)) return emptyArray()
         val snapshot = quickFixSnapshot ?: return emptyArray()
         return arrayOf(UpdateDependencyVersionFix(property, latest,
-            isCurrent = { quickFixAdapter.isCurrent(property.project, snapshot) && property.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy })
+            isCurrent = { resultIsCurrent() && property.project.service<VersionCheckerSettings>().state.enabled &&
+                property.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy &&
+                quickFixAdapter.isCurrent(property.project, snapshot) })
             .withActionName { scopedAction(property, latest) })
     }
 
@@ -179,7 +182,8 @@ internal class MavenDependencyAnalysis(
         val project = tag.project
         val adapter = quickFixAdapter
         val snapshot = quickFixSnapshot ?: return emptyArray()
-        val isCurrent = { adapter.isCurrent(project, snapshot) && project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy }
+        val isCurrent = { resultIsCurrent() && project.service<VersionCheckerSettings>().state.enabled &&
+            project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && adapter.isCurrent(project, snapshot) }
         problem.target?.let {
             val shared = it.parentTag?.localName == "properties" || it.parentTag?.parentTag?.parentTag?.localName == "dependencyManagement"
             if (shared && !sharedAllowed(it, latest)) return emptyArray()

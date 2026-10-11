@@ -8,6 +8,229 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 
 class VersionResultCacheTest {
+    @Test fun `quick fix and preview leases share original complete result identity and deadline`() {
+        var time = 100L
+        val cache = VersionResultCache { time }
+        val snapshot = snapshot("npm")
+        val report = report(snapshot).copy(checkedAtNanos = 10, validUntilNanos = 1_000)
+        assertTrue(cache.put(snapshot, cache.begin(snapshot), report))
+        val preview = cache.getResult(snapshot, UpdateMode.MAJOR)!!
+        val inspection = cache.inspectionReport(presentationAdapter, snapshot)!!
+        val fixLease = inspection.lease!!
+        assertNull("Raw metadata must not own a presentation lease", cache.get(snapshot)!!.lease)
+        assertEquals(preview.checkedAtNanos, fixLease.checkedAtNanos)
+        assertEquals(preview.expiresAtNanos, fixLease.expiresAtNanos)
+        assertEquals(preview.revision, fixLease.revision)
+        assertTrue(preview.lease.isCurrent()); assertTrue(fixLease.isCurrent())
+        time = 999
+        val filtered = inspection.copy(candidates = emptyList())
+        assertSame(inspection.lease, filtered.lease)
+        time = 1_000
+        assertFalse(preview.lease.isCurrent()); assertFalse(filtered.lease!!.isCurrent())
+        assertFalse(cache.isCurrent(snapshot.context, UpdateMode.MAJOR, preview))
+    }
+
+    @Test fun `republishing the same object in the same clock tick retires held quick fixes and previews`() {
+        val cache = VersionResultCache { 100L }
+        val snapshot = snapshot("npm"); val report = report(snapshot)
+        val revision = cache.begin(snapshot)
+        cache.put(snapshot, revision, report)
+        val fix = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!
+        val preview = cache.getResult(snapshot, UpdateMode.MAJOR)!!
+        cache.put(snapshot, revision, report)
+        assertFalse(fix.isCurrent()); assertFalse(preview.lease.isCurrent())
+        assertTrue(cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!.isCurrent())
+    }
+
+    @Test fun `partial observations authorize their quick fixes but never a complete preview`() {
+        var time = 100L
+        val cache = VersionResultCache { time }
+        val snapshot = snapshot("npm"); val owner = Any(); val revision = cache.begin(snapshot)
+        fun update(version: String) = InspectionUpdate(report(snapshot, version).copy(validUntilNanos = 1_000,
+            checkedAtNanos = 10), snapshot.declarations.map { it.id }.toSet())
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner, update("2.0")))
+        val first = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!
+        assertTrue(first.isCurrent()); assertNull(cache.getResult(snapshot, UpdateMode.MAJOR))
+        time = 500
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner, update("3.0")))
+        assertFalse(first.isCurrent())
+        val second = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!
+        assertEquals(10L, second.checkedAtNanos); assertEquals(1_000L, second.expiresAtNanos)
+        assertTrue(second.isCurrent())
+        assertTrue(cache.put(snapshot, revision, report(snapshot, "3.0")))
+        assertFalse(second.isCurrent())
+        assertTrue(cache.getResult(snapshot, UpdateMode.MAJOR)!!.lease.isCurrent())
+    }
+
+    @Test fun `retained hints cannot renew their originating lease after declaration edits`() {
+        var time = 100L
+        val cache = VersionResultCache { time }
+        val original = snapshot("npm")
+        val second = original.declarations.single().copy(id = DeclarationId(original.sourceFile, "second"))
+        val previous = original.copy(declarations = original.declarations + second)
+        cache.put(previous, cache.begin(previous), UpdateReport(previous.declarations.map { UpdateCandidate(it, "2.0") },
+            checkedAtNanos = 10, validUntilNanos = 1_000))
+        val changed = previous.copy(fingerprint = previous.fingerprint.copy(configuration = "changed"), declarations = listOf(second))
+        time = 900
+        val retained = cache.inspectionReport(presentationAdapter, changed)!!
+        val retainedLease = retained.lease!!
+        assertEquals(listOf(second), retained.candidates.map { it.declaration })
+        assertEquals(10L, retainedLease.checkedAtNanos); assertEquals(1_000L, retainedLease.expiresAtNanos)
+        assertTrue(retainedLease.isCurrent())
+        assertNull(cache.getResult(changed, UpdateMode.MAJOR))
+        time = 1_000
+        assertFalse(retainedLease.isCurrent())
+    }
+
+    @Test fun `source provider refresh and progress cancellation reject held hint leases`() {
+        val cache = VersionResultCache()
+        val snapshot = snapshot("npm"); val owner = Any()
+        cache.put(snapshot, cache.begin(snapshot), report(snapshot))
+        val source = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!
+        cache.invalidateSource("npm", snapshot.sourceFile)
+        assertFalse(source.isCurrent())
+        cache.put(snapshot, cache.begin(snapshot), report(snapshot))
+        val provider = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!
+        cache.invalidateAdapter("npm")
+        assertFalse(provider.isCurrent())
+        cache.putProgress(presentationAdapter, snapshot, cache.begin(snapshot), owner, InspectionUpdate(report(snapshot), emptySet()))
+        val partial = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!
+        cache.clearProgress(snapshot.context, owner)
+        assertFalse(partial.isCurrent())
+        cache.put(snapshot, cache.begin(snapshot), report(snapshot))
+        val disposed = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!
+        cache.invalidate()
+        assertFalse(disposed.isCurrent())
+    }
+
+    @Test fun `capacity eviction retires lineage and late complete or partial workers cannot revive it`() {
+        val cache = VersionResultCache(VersionResultCache.Limits(contexts = 2))
+        val first = snapshot("npm", "/first")
+        val revision = cache.begin(first)
+        assertTrue(cache.put(first, revision, report(first)))
+        val prepared = cache.getResult(first, UpdateMode.MAJOR)!!
+        val heldFix = cache.inspectionReport(presentationAdapter, first)!!.lease!!
+        listOf("/second", "/third").forEach { root ->
+            val other = snapshot("npm", root)
+            assertTrue(cache.put(other, cache.begin(other), report(other)))
+        }
+        assertNull(cache.get(first))
+        assertFalse(heldFix.isCurrent())
+        assertFalse(cache.isCurrent(first.context, UpdateMode.MAJOR, prepared))
+        assertFalse(cache.put(first, revision, report(first)))
+        assertFalse(cache.putProgress(presentationAdapter, first, revision, Any(), InspectionUpdate(report(first), emptySet())))
+        val fresh = cache.begin(first)
+        assertNotEquals(revision, fresh)
+        assertFalse(cache.put(first, revision, report(first)))
+        // Even the same report object and timestamp cannot restore the previous preview lease.
+        assertTrue(cache.put(first, fresh, prepared.report))
+        assertFalse(cache.isCurrent(first.context, UpdateMode.MAJOR, prepared))
+    }
+
+    @Test fun `recently used contexts survive result count pressure across update modes`() {
+        val cache = VersionResultCache(VersionResultCache.Limits(results = 3))
+        val first = snapshot(root = "/first"); val second = snapshot(root = "/second")
+        assertTrue(cache.put(first, cache.begin(first), report(first), UpdateMode.PATCH))
+        assertTrue(cache.put(first, cache.begin(first), report(first), UpdateMode.MINOR))
+        assertTrue(cache.put(second, cache.begin(second), report(second)))
+        assertNotNull(cache.get(first, UpdateMode.PATCH))
+        val third = snapshot(root = "/third")
+        assertTrue(cache.put(third, cache.begin(third), report(third)))
+        assertNull(cache.get(second))
+        assertNotNull(cache.get(first, UpdateMode.PATCH))
+        assertNotNull(cache.get(first, UpdateMode.MINOR))
+        assertEquals(3, cache.retention().results)
+    }
+
+    @Test fun `payload budget includes partial rows input paths and large text`() {
+        val sample = snapshot("npm")
+        val measure = VersionResultCache()
+        measure.put(sample, measure.begin(sample), report(sample))
+        val budget = measure.retention().payloadUnits * 2
+        val cache = VersionResultCache(VersionResultCache.Limits(payloadUnits = budget))
+        val stable = snapshot("maven", "/stable")
+        assertTrue(cache.put(stable, cache.begin(stable), report(stable)))
+        val oversized = sample.copy(fingerprint = BuildFingerprint(mapOf("/config" to "x".repeat((budget * 256).toInt())), "config"))
+        val revision = cache.begin(oversized)
+        assertFalse(cache.put(oversized, revision, report(oversized)))
+        assertNotNull("An oversized single result must not evict other providers", cache.get(stable))
+        val owner = Any()
+        val fresh = cache.begin(sample)
+        assertTrue(cache.putProgress(presentationAdapter, sample, fresh, owner, InspectionUpdate(report(sample), emptySet())))
+        assertFalse(cache.putProgress(presentationAdapter, sample, fresh, owner, InspectionUpdate(
+            UpdateReport(notices = listOf(UpdateNotice(sample.declarations.single(), NoticeKind.MANUAL_REVIEW,
+                "x".repeat((budget * 256).toInt())))), emptySet())))
+        assertNull(cache.inspectionProgress(presentationAdapter, sample))
+        assertNotNull(cache.get(stable))
+        assertTrue(cache.retention().payloadUnits <= budget)
+    }
+
+    @Test fun `partial and complete results share one capacity budget and owner cleanup stays isolated`() {
+        val cache = VersionResultCache(VersionResultCache.Limits(results = 1))
+        val first = snapshot("npm", "/first"); val second = snapshot("npm", "/second")
+        val owner = Any(); val revision = cache.begin(first)
+        assertTrue(cache.putProgress(presentationAdapter, first, revision, owner, InspectionUpdate(report(first), emptySet())))
+        assertEquals(1, cache.retention().progress)
+        assertTrue(cache.put(second, cache.begin(second), report(second)))
+        assertEquals(0, cache.retention().progress)
+        assertFalse(cache.clearProgress(first.context, owner))
+        assertFalse(cache.putProgress(presentationAdapter, first, revision, owner, InspectionUpdate(report(first), emptySet())))
+        assertNotNull(cache.get(second))
+    }
+
+    @Test fun `expiry physically removes reports progress sources and unused generation records`() {
+        var time = 0L
+        val cache = VersionResultCache { time }
+        val complete = snapshot(root = "/complete"); val partial = snapshot("npm", "/partial")
+        cache.put(complete, cache.begin(complete), report(complete).copy(validUntilNanos = 100))
+        cache.putProgress(presentationAdapter, partial, cache.begin(partial), Any(),
+            InspectionUpdate(report(partial).copy(validUntilNanos = 100), emptySet()))
+        val detached = snapshot(root = "/detached"); val oldRevision = cache.begin(detached)
+        time = 100
+        assertEquals(0, cache.retention().results)
+        assertEquals(0, cache.retention().progress)
+        assertEquals(0L, cache.retention().payloadUnits)
+        time = java.util.concurrent.TimeUnit.MINUTES.toNanos(11)
+        assertEquals(VersionResultCache.Retention(0, 0, 0, 0, 0), cache.retention())
+        assertFalse(cache.put(detached, oldRevision, report(detached)))
+        assertNotEquals(oldRevision, cache.begin(detached))
+    }
+
+    @Test fun `provider and global cleanup retire never cached workers without keeping tombstones`() {
+        val cache = VersionResultCache()
+        val first = snapshot(); val other = snapshot("npm")
+        val firstRevision = cache.begin(first); val otherRevision = cache.begin(other)
+        cache.invalidateAdapter("maven")
+        assertEquals(1, cache.retention().contexts)
+        assertFalse(cache.put(first, firstRevision, report(first)))
+        assertTrue(cache.put(other, otherRevision, report(other)))
+        val replacement = cache.begin(first)
+        assertNotEquals(firstRevision, replacement)
+        cache.invalidate()
+        assertEquals(VersionResultCache.Retention(0, 0, 0, 0, 0), cache.retention())
+        assertFalse(cache.put(first, replacement, report(first)))
+        assertFalse(cache.put(other, otherRevision, report(other)))
+    }
+
+    @Test fun `import rename and scope churn remains bounded and late workers stay retired`() {
+        val cache = VersionResultCache(VersionResultCache.Limits(contexts = 32, results = 16, payloadUnits = 2_000))
+        val old = snapshot(root = "/removed"); val oldRevision = cache.begin(old)
+        repeat(10_000) { index ->
+            val current = snapshot(if (index % 2 == 0) "npm" else "maven", "/renamed-$index")
+            val revision = cache.begin(current)
+            if (index % 3 == 0) cache.putProgress(presentationAdapter, current, revision, Any(), InspectionUpdate(report(current), emptySet()))
+            else cache.put(current, revision, report(current), UpdateMode.entries[index % 3])
+            if (index % 7 == 0) cache.invalidateSource(current.context.adapterId, current.sourceFile)
+            val retained = cache.retention()
+            assertTrue(retained.contexts <= 32)
+            assertTrue(retained.sources <= 32)
+            assertTrue(retained.results + retained.progress <= 16)
+            assertTrue(retained.payloadUnits <= 2_000)
+        }
+        assertFalse(cache.put(old, oldRevision, report(old)))
+        assertNotEquals(oldRevision, cache.begin(old))
+    }
+
     @Test fun `derived reports preserve original metadata age and deadline across modes`() {
         var time = 100L
         val cache = VersionResultCache { time }

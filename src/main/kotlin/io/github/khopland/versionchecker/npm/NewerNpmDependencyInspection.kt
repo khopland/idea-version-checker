@@ -48,8 +48,8 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
                 val fixes = candidate?.let {
                     val key = it.declaration.artifact to it.version
                     if (key !in workspaceFixes) workspaceFixes[key] = adapter.workspaceFix(holder.project, snapshot, it,
-                        workspaceDeclarationsByArtifact[it.declaration.artifact].orEmpty())
-                    adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral, workspaceFixes[key]) + IgnorePublishedVersionFix(IgnoredVersion("npm", it.declaration.artifact, it.version))
+                        workspaceDeclarationsByArtifact[it.declaration.artifact].orEmpty(), report.lease)
+                    adapter.quickFixes(holder.project, snapshot, it, element as JsonStringLiteral, workspaceFixes[key], report.lease) + IgnorePublishedVersionFix(IgnoredVersion("npm", it.declaration.artifact, it.version))
                 }.orEmpty()
                 holder.registerProblem(element, message, highlight, *fixes)
             }

@@ -128,6 +128,14 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         assertEquals("1.0", (plan.changes.first().element as com.intellij.psi.xml.XmlTag).value.trimmedText)
     }
 
+    fun testRejectedResultLeaseDoesNotReadProviderInputsInsideTheWriteCommand() {
+        var inputReads = 0
+        val guarded = BulkUpdatePlan(emptyList(), emptyList(), isCurrent = { inputReads++; true })
+            .guardedBy { false }
+        assertFalse(guarded.apply(project))
+        assertEquals("Expired/refreshed results must reject before provider disk reads", 0, inputReads)
+    }
+
     fun testMultipleMavenEditsUndoTogether() {
         val plan = plan("<dependencies>" + dep("a", "1.0") + dep("b", "1.0") + "</dependencies>",
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0", DependencyVersion("g", "b", "1.0") to "2.0"))

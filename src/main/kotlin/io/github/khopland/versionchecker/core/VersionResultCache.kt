@@ -4,65 +4,148 @@ import io.github.khopland.versionchecker.UpdateMode
 import java.util.concurrent.TimeUnit
 
 /** Provider/context isolation and refresh generations are shared across build systems. */
-internal class VersionResultCache(private val now: () -> Long = System::nanoTime) {
-    data class Revision(val global: Long, val adapter: Long, val context: Long)
-    private data class Key(val context: BuildContextId, val mode: UpdateMode)
-    data class CachedResult(val report: UpdateReport, val checkedAtNanos: Long, val expiresAtNanos: Long, val revision: Revision)
+internal class VersionResultCache(
+    private val limits: Limits = Limits(),
+    private val now: () -> Long = System::nanoTime
+) {
+    /** Payload units count declarations, input paths and report rows, plus their text in 256-char blocks. */
+    data class Limits(val contexts: Int = 2_048, val results: Int = 1_024, val payloadUnits: Long = 1_000_000) {
+        init { require(contexts > 0 && results > 0 && payloadUnits > 0) }
+    }
+    data class Retention(val contexts: Int, val sources: Int, val results: Int, val progress: Int, val payloadUnits: Long)
+    data class Revision(val global: Long, val context: Long)
+    data class CachedResult(val report: UpdateReport, val lease: VersionResultLease) {
+        val checkedAtNanos get() = lease.checkedAtNanos
+        val expiresAtNanos get() = lease.expiresAtNanos
+        val revision get() = lease.revision
+    }
     private data class Entry(
         val snapshot: BuildSnapshot,
         val revision: Revision,
         val checkedAtNanos: Long,
         val expiresAtNanos: Long,
-        val report: UpdateReport
+        val report: UpdateReport,
+        val weight: Long = snapshot.weight() + report.weight(),
+        val identity: Any = Any()
     )
     private class ProgressEntry(
         val snapshot: BuildSnapshot,
         val revision: Revision,
         val owner: Any,
         var expiresAtNanos: Long,
+        var checkedAtNanos: Long,
         initial: UpdateReport?
     ) {
         private val candidates = initial?.candidates.orEmpty().groupBy { it.declaration.id }.toMutableMap()
         private val notices = initial?.notices.orEmpty().groupBy { it.declaration.id }.toMutableMap()
         private val failures = linkedSetOf<String>().apply { initial?.failure?.let(::add) }
+        var weight: Long = snapshot.weight() + payloadWeight()
+            private set
+        var identity: Any = Any()
+            private set
+
+        private fun payloadWeight() = candidates.values.sumOf { rows -> rows.sumOf { it.weight() } } +
+            notices.values.sumOf { rows -> rows.sumOf { it.weight() } } + failures.sumOf { it.textWeight() }
 
         fun add(update: InspectionUpdate) {
+            // A later partial observation must not silently authorize a descriptor from an older one.
+            identity = Any()
+            update.report.checkedAtNanos?.let { checkedAtNanos = minOf(checkedAtNanos, it) }
             update.completedDeclarations.forEach { id ->
-                candidates.remove(id)
-                notices.remove(id)
+                weight -= candidates.remove(id).orEmpty().sumOf { it.weight() }
+                weight -= notices.remove(id).orEmpty().sumOf { it.weight() }
             }
-            candidates.putAll(update.report.candidates.groupBy { it.declaration.id })
-            notices.putAll(update.report.notices.groupBy { it.declaration.id })
-            update.report.failure?.let(failures::add)
+            update.report.candidates.groupBy { it.declaration.id }.forEach { (id, rows) ->
+                weight -= candidates.put(id, rows).orEmpty().sumOf { it.weight() }
+                weight += rows.sumOf { it.weight() }
+            }
+            update.report.notices.groupBy { it.declaration.id }.forEach { (id, rows) ->
+                weight -= notices.put(id, rows).orEmpty().sumOf { it.weight() }
+                weight += rows.sumOf { it.weight() }
+            }
+            update.report.failure?.let { if (failures.add(it)) weight += it.textWeight() }
         }
         fun report() = UpdateReport(
             candidates = candidates.values.flatten(),
             notices = notices.values.flatten(),
             failure = failures.takeIf { it.isNotEmpty() }?.joinToString("\n"),
-            validUntilNanos = expiresAtNanos
+            validUntilNanos = expiresAtNanos,
+            checkedAtNanos = checkedAtNanos
         )
         fun counts(include: ((UpdateCandidate) -> Boolean)?) =
             candidates.values.sumOf { if (include == null) it.size else it.count(include) } to notices.values.sumOf { it.size }
     }
+    private class ContextState(val revision: Revision, var expiresAtNanos: Long, var source: String? = null) {
+        val entries = mutableMapOf<UpdateMode, Entry>()
+        var progress: ProgressEntry? = null
+        val weight get() = entries.values.sumOf { it.weight } + (progress?.weight ?: 0)
+        val results get() = entries.size + if (progress == null) 0 else 1
+    }
     private var globalGeneration = 0L
-    private val adapterGenerations = mutableMapOf<String, Long>()
-    private val contextGenerations = mutableMapOf<BuildContextId, Long>()
-    private val entries = mutableMapOf<Key, Entry>()
-    private val progress = mutableMapOf<BuildContextId, ProgressEntry>()
-    private val sources = mutableMapOf<BuildContextId, String>()
+    private var nextContextGeneration = 0L // Never reused, even after eviction, refresh or global cleanup.
+    private val contexts = LinkedHashMap<BuildContextId, ContextState>(16, 0.75f, true)
+    private var nextSweepAtNanos = Long.MIN_VALUE
+    private val contextTtl = TimeUnit.MINUTES.toNanos(10)
+    private val sweepInterval = TimeUnit.SECONDS.toNanos(30)
 
-    @Synchronized fun revision(context: BuildContextId) = Revision(
-        globalGeneration,
-        adapterGenerations[context.adapterId] ?: 0,
-        contextGenerations[context] ?: 0
-    )
-
-    @Synchronized fun begin(snapshot: BuildSnapshot): Revision {
-        sources[snapshot.context] = snapshot.sourceFile
-        return revision(snapshot.context)
+    private fun state(context: BuildContextId): ContextState? {
+        sweep()
+        val state = contexts[context] ?: return null
+        if (state.expiresAtNanos <= now()) { contexts.remove(context); return null }
+        prune(state, now())
+        return state
     }
 
-    private fun entry(snapshot: BuildSnapshot, mode: UpdateMode): Entry? = entries[Key(snapshot.context, mode)]?.takeIf {
+    private fun prune(state: ContextState, time: Long) {
+        state.entries.values.removeAll { it.expiresAtNanos <= time }
+        if (state.progress?.expiresAtNanos?.let { it <= time } == true) state.progress = null
+    }
+
+    private fun sweep(force: Boolean = false) {
+        val time = now()
+        if (!force && time < nextSweepAtNanos) return
+        nextSweepAtNanos = time + sweepInterval
+        val iterator = contexts.values.iterator()
+        while (iterator.hasNext()) {
+            val state = iterator.next()
+            prune(state, time)
+            if (state.expiresAtNanos <= time) iterator.remove()
+        }
+    }
+
+    private fun trim() {
+        var results = contexts.values.sumOf { it.results }
+        var weight = contexts.values.sumOf { it.weight }
+        val iterator = contexts.values.iterator()
+        while (contexts.size > limits.contexts || results > limits.results || weight > limits.payloadUnits) {
+            val evicted = iterator.next()
+            results -= evicted.results
+            weight -= evicted.weight
+            iterator.remove()
+        }
+    }
+
+    @Synchronized fun retention(): Retention {
+        sweep(force = true)
+        return Retention(contexts.size, contexts.values.count { it.source != null },
+            contexts.values.sumOf { it.entries.size }, contexts.values.count { it.progress != null },
+            contexts.values.sumOf { it.weight })
+    }
+
+    @Synchronized fun revision(context: BuildContextId): Revision = state(context)?.revision ?: run {
+        val revision = Revision(globalGeneration, ++nextContextGeneration)
+        contexts[context] = ContextState(revision, now() + contextTtl)
+        trim()
+        revision
+    }
+
+    @Synchronized fun begin(snapshot: BuildSnapshot): Revision {
+        val revision = revision(snapshot.context)
+        contexts[snapshot.context]?.let { it.source = snapshot.sourceFile; it.expiresAtNanos = now() + contextTtl }
+        return revision
+    }
+
+    private fun entry(snapshot: BuildSnapshot, mode: UpdateMode): Entry? = state(snapshot.context)?.entries?.get(mode)?.takeIf {
         it.snapshot.hasSameDeclarations(snapshot) &&
             it.snapshot.coverageDescription == snapshot.coverageDescription &&
             it.revision == revision(snapshot.context) && it.expiresAtNanos > now()
@@ -70,23 +153,51 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
 
     @Synchronized fun get(snapshot: BuildSnapshot, mode: UpdateMode = UpdateMode.MAJOR): UpdateReport? = entry(snapshot, mode)?.report
     @Synchronized fun getResult(snapshot: BuildSnapshot, mode: UpdateMode): CachedResult? =
-        entry(snapshot, mode)?.let { CachedResult(it.report, it.checkedAtNanos, it.expiresAtNanos, it.revision) }
+        entry(snapshot, mode)?.let { CachedResult(it.report,
+            lease(snapshot.context, mode, it.revision, it.checkedAtNanos, it.expiresAtNanos, it.identity)) }
 
     @Synchronized fun isCurrent(context: BuildContextId, mode: UpdateMode, result: CachedResult): Boolean {
-        val entry = entries[Key(context, mode)] ?: return false
-        return entry.revision == revision(context) && entry.revision == result.revision &&
-            entry.checkedAtNanos == result.checkedAtNanos && entry.report === result.report && entry.expiresAtNanos > now()
+        return result.lease.context == context && result.lease.mode == mode && result.lease.isCurrent()
+    }
+
+    private fun lease(context: BuildContextId, mode: UpdateMode, revision: Revision,
+                      checkedAtNanos: Long, expiresAtNanos: Long, identity: Any,
+                      partial: Boolean = false) = VersionResultLease(context, mode, revision, checkedAtNanos, expiresAtNanos) {
+        isLeaseCurrent(context, mode, revision, expiresAtNanos, identity, partial)
+    }
+
+    @Synchronized private fun isLeaseCurrent(context: BuildContextId, mode: UpdateMode, revision: Revision,
+                                             expiresAtNanos: Long, identity: Any, partial: Boolean): Boolean {
+        val state = state(context) ?: return false
+        if (state.revision != revision || now() >= expiresAtNanos) return false
+        return if (partial) state.progress?.identity === identity else state.entries[mode]?.identity === identity
+    }
+
+    /** Retained/partial hints carry their originating lease; copying/filtering cannot renew it. */
+    @Synchronized fun inspectionReport(adapter: BuildSystemAdapter, snapshot: BuildSnapshot): UpdateReport? {
+        getResult(snapshot, UpdateMode.MAJOR)?.let { return it.report.copy(lease = it.lease) }
+        val state = state(snapshot.context) ?: return null
+        state.progress?.let { progress ->
+            inspectionProgress(adapter, snapshot)?.let { report ->
+                return report.copy(lease = lease(snapshot.context, UpdateMode.MAJOR, progress.revision,
+                    progress.checkedAtNanos, progress.expiresAtNanos, progress.identity, partial = true))
+            }
+        }
+        val entry = state.entries[UpdateMode.MAJOR] ?: return null
+        val retained = retainedInspectionReport(adapter, snapshot) ?: return null
+        return retained.copy(lease = lease(snapshot.context, UpdateMode.MAJOR, entry.revision,
+            entry.checkedAtNanos, entry.expiresAtNanos, entry.identity))
     }
 
     @Synchronized fun retainedInspectionReport(adapter: BuildSystemAdapter, snapshot: BuildSnapshot): UpdateReport? {
-        val entry = entries[Key(snapshot.context, UpdateMode.MAJOR)]?.takeIf {
+        val entry = state(snapshot.context)?.entries?.get(UpdateMode.MAJOR)?.takeIf {
             it.revision == revision(snapshot.context) && it.expiresAtNanos > now() && it.report.successful
         } ?: return null
         return adapter.retainInspectionReport(entry.snapshot, entry.report, snapshot)
     }
 
     @Synchronized fun inspectionProgress(adapter: BuildSystemAdapter, snapshot: BuildSnapshot): UpdateReport? {
-        val entry = progress[snapshot.context]?.takeIf {
+        val entry = state(snapshot.context)?.progress?.takeIf {
             it.revision == revision(snapshot.context) && it.expiresAtNanos > now()
         } ?: return null
         val report = entry.report()
@@ -97,7 +208,7 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
     /** Status counts avoid allocating a complete partial report for every UI refresh. */
     @Synchronized fun inspectionProgressCounts(snapshot: BuildSnapshot,
                                                include: ((UpdateCandidate) -> Boolean)? = null): Triple<Int, Int, Long>? {
-        val entry = progress[snapshot.context]?.takeIf {
+        val entry = state(snapshot.context)?.progress?.takeIf {
             it.revision == revision(snapshot.context) && it.expiresAtNanos > now() &&
                 it.snapshot.hasSameDeclarations(snapshot)
         } ?: return null
@@ -107,11 +218,11 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
 
     @Synchronized fun putProgress(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, revision: Revision,
                                   owner: Any, update: InspectionUpdate): Boolean {
-        if (revision != revision(snapshot.context)) return false
+        val state = state(snapshot.context)?.takeIf { it.revision == revision } ?: return false
         val time = now()
-        val active = progress[snapshot.context]?.takeIf { it.revision == revision && it.expiresAtNanos > time }
+        val active = state.progress?.takeIf { it.revision == revision && it.expiresAtNanos > time }
         val entry = if (active?.owner === owner && active.snapshot == snapshot) active else {
-            val previous = entries[Key(snapshot.context, UpdateMode.MAJOR)]?.takeIf {
+            val previous = state.entries[UpdateMode.MAJOR]?.takeIf {
                 it.revision == revision && it.expiresAtNanos > time && it.report.successful
             }
             val previousSnapshot = active?.snapshot ?: previous?.snapshot
@@ -123,11 +234,14 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
             }
             // Retaining warnings must also retain the metadata's original freshness deadline.
             val retainedExpiry = if (retained != null) active?.expiresAtNanos ?: previous?.expiresAtNanos else null
+            val checkedAt = if (retained != null) active?.checkedAtNanos ?: previous?.checkedAtNanos ?: time
+                else update.report.checkedAtNanos ?: time
             ProgressEntry(
                 snapshot = snapshot,
                 revision = revision,
                 owner = owner,
                 expiresAtNanos = retainedExpiry ?: time + TimeUnit.MINUTES.toNanos(10),
+                checkedAtNanos = minOf(time, checkedAt),
                 initial = retained
             )
         }
@@ -135,59 +249,70 @@ internal class VersionResultCache(private val now: () -> Long = System::nanoTime
         if (expires <= time) return false
         entry.expiresAtNanos = expires
         entry.add(update)
-        sources[snapshot.context] = snapshot.sourceFile
-        progress[snapshot.context] = entry
+        if (entry.weight > limits.payloadUnits) { contexts.remove(snapshot.context); return false }
+        state.source = snapshot.sourceFile
+        state.progress = entry
+        state.expiresAtNanos = maxOf(state.expiresAtNanos, expires)
         // A newer partial check must not leave an older complete report authorizing edits.
-        entries.remove(Key(snapshot.context, UpdateMode.MAJOR))
-        return true
+        state.entries.remove(UpdateMode.MAJOR)
+        trim()
+        return contexts[snapshot.context] === state
     }
 
     /** An older cancelled job must not erase a replacement check's progress. */
     @Synchronized fun clearProgress(context: BuildContextId, owner: Any): Boolean {
-        if (progress[context]?.owner !== owner) return false
-        progress.remove(context)
+        val state = state(context) ?: return false
+        if (state.progress?.owner !== owner) return false
+        state.progress = null
         return true
     }
 
     @Synchronized fun put(snapshot: BuildSnapshot, revision: Revision, report: UpdateReport, mode: UpdateMode = UpdateMode.MAJOR): Boolean {
-        if (revision != revision(snapshot.context)) return false
+        val state = state(snapshot.context)?.takeIf { it.revision == revision } ?: return false
         val time = now()
         val ttl = TimeUnit.MINUTES.toNanos(if (report.successful) 10 else 1)
         val expires = minOf(time + ttl, report.validUntilNanos ?: Long.MAX_VALUE)
         if (expires <= time) return false
-        sources[snapshot.context] = snapshot.sourceFile
-        entries[Key(snapshot.context, mode)] = Entry(snapshot, revision, minOf(time, report.checkedAtNanos ?: time), expires, report)
-        if (mode == UpdateMode.MAJOR) progress.remove(snapshot.context)
-        return true
+        val entry = Entry(snapshot, revision, minOf(time, report.checkedAtNanos ?: time), expires, report)
+        if (entry.weight > limits.payloadUnits) { contexts.remove(snapshot.context); return false }
+        state.source = snapshot.sourceFile
+        state.entries[mode] = entry
+        state.expiresAtNanos = maxOf(state.expiresAtNanos, expires)
+        if (mode == UpdateMode.MAJOR) state.progress = null
+        trim()
+        return contexts[snapshot.context] === state
     }
 
     @Synchronized fun invalidate(context: BuildContextId? = null) {
         if (context == null) {
             globalGeneration++
-            entries.clear()
-            contextGenerations.clear()
-            adapterGenerations.clear()
-            sources.clear()
-            progress.clear()
+            contexts.clear()
         } else {
-            contextGenerations[context] = (contextGenerations[context] ?: 0) + 1
-            entries.keys.removeAll { it.context == context }
-            progress.remove(context)
+            contexts.remove(context)
         }
     }
 
     @Synchronized fun invalidateAdapter(adapterId: String) {
-        adapterGenerations[adapterId] = (adapterGenerations[adapterId] ?: 0) + 1
-        entries.keys.removeAll { it.context.adapterId == adapterId }
-        progress.keys.removeAll { it.adapterId == adapterId }
+        contexts.keys.removeAll { it.adapterId == adapterId }
     }
 
     @Synchronized fun invalidateSource(adapterId: String, sourceFile: String) {
-        sources.filter { (context, file) -> context.adapterId == adapterId && file == sourceFile }
-            .keys.toList().forEach { invalidate(it) }
+        contexts.entries.removeAll { (context, state) -> context.adapterId == adapterId && state.source == sourceFile }
     }
 
     /** Inspection hints can match declarations without claiming the same audit coverage. */
     private fun BuildSnapshot.hasSameDeclarations(other: BuildSnapshot): Boolean =
         fingerprint == other.fingerprint && declarations == other.declarations
 }
+
+private fun String?.textWeight(): Long = if (this == null) 0 else 1 + length.toLong() / 256
+private fun VersionDeclaration.weight(): Long = 1 + id.file.textWeight() + id.location.textWeight() +
+    artifact.namespace.textWeight() + artifact.name.textWeight() + selector.textWeight() +
+    baseline.textWeight() + resolvedVersion.textWeight()
+private fun BuildFingerprint.weight(): Long = configuration.textWeight() +
+    files.entries.sumOf { 1 + it.key.textWeight() + it.value.textWeight() }
+private fun BuildSnapshot.weight(): Long = 1 + sourceFile.textWeight() + fingerprint.weight() +
+    (inspectionFingerprint?.weight() ?: 0) + coverageDescription.textWeight() + declarations.sumOf { it.weight() }
+private fun UpdateCandidate.weight(): Long = 1 + declaration.weight() + version.textWeight() + replacementSelector.textWeight()
+private fun UpdateNotice.weight(): Long = 1 + declaration.weight() + message.textWeight()
+private fun UpdateReport.weight(): Long = 1 + candidates.sumOf { it.weight() } + notices.sumOf { it.weight() } + failure.textWeight()

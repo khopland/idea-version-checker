@@ -148,16 +148,18 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
 
     /** Local edits belong to their declaration; a prepared workspace action may be shared by a pass. */
     internal fun quickFixes(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
-                            value: JsonStringLiteral, workspaceFix: LocalQuickFix?): Array<LocalQuickFix> {
+                            value: JsonStringLiteral, workspaceFix: LocalQuickFix?, lease: VersionResultLease? = null): Array<LocalQuickFix> {
         val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
-        val current = { isCurrent(project, snapshot) && project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy }
+        val current = { (lease == null || lease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
+            project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && isCurrent(project, snapshot) }
         if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, isCurrent = current))
         return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, "Update locally to ${candidate.replacementSelector}", current),
             workspaceFix)
     }
 
     internal fun workspaceFix(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
-                              declarations: List<Pair<VersionDeclaration, JsonStringLiteral>>): LocalQuickFix? {
+                              declarations: List<Pair<VersionDeclaration, JsonStringLiteral>>,
+                              lease: VersionResultLease? = null): LocalQuickFix? {
         val latest = NpmVersion.parse(candidate.version) ?: return null
         val edits = declarations.mapNotNull { (declaration, target) ->
             if (declaration.artifact != candidate.declaration.artifact || declaration.baseline.isEmpty()) return@mapNotNull null
@@ -169,7 +171,8 @@ internal class NpmBuildSystemAdapter : BuildSystemAdapter {
         if (edits.mapNotNull { it.element?.containingFile?.virtualFile?.path }.distinct().size < 2) return null
         val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
         return UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits) {
-            isCurrent(project, snapshot) && project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy
+            (lease == null || lease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
+                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && isCurrent(project, snapshot)
         }
     }
     private fun findFile(project: Project, path: String): VirtualFile? =

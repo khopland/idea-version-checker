@@ -6,6 +6,7 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.components.service
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
@@ -20,9 +21,68 @@ import io.github.khopland.versionchecker.npm.NpmManifest
 import io.github.khopland.versionchecker.npm.NpmVersionEdit
 import io.github.khopland.versionchecker.npm.UpdateNpmVersionFix
 import io.github.khopland.versionchecker.npm.UpdateNpmWorkspaceVersionFix
+import io.github.khopland.versionchecker.npm.NpmBuildSystemAdapter
+import io.github.khopland.versionchecker.core.*
 import java.util.concurrent.CopyOnWriteArrayList
 
 class VersionFixRecoveryTest : BasePlatformTestCase() {
+    fun testPausedChecksRejectAHeldFixWithALiveResultLease() {
+        val cache = VersionResultCache()
+        val file = myFixture.addFileToProject("lease-paused/package.json", """{"dependencies":{"library":"^1.0.0"}}""")
+        val adapter = NpmBuildSystemAdapter(); val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val candidate = UpdateCandidate(snapshot.declarations.single(), "1.0.1", "^1.0.1")
+        cache.put(snapshot, cache.begin(snapshot), UpdateReport(listOf(candidate)))
+        val lease = cache.inspectionReport(adapter, snapshot)!!.lease!!
+        val value = NpmManifest.values(file).values.single()
+        val fix = adapter.quickFixes(project, snapshot, candidate, value, workspaceFix = null, lease = lease).single()
+        val before = file.text; val notifications = recovery()
+        val options = project.service<VersionCheckerSettings>().state
+        val previous = options.enabled
+        try {
+            options.enabled = false
+            assertTrue(lease.isCurrent())
+            apply(fix, value)
+            assertEquals(before, file.text)
+            assertRecovery(notifications)
+        } finally { options.enabled = previous }
+    }
+
+    fun testExpiredNpmResultRejectsAHeldLocalFixWithUnchangedInputs() {
+        var time = 0L
+        val cache = VersionResultCache { time }
+        val file = myFixture.addFileToProject("lease-local/package.json", """{"dependencies":{"library":"^1.0.0"}}""")
+        val adapter = NpmBuildSystemAdapter()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val candidate = UpdateCandidate(snapshot.declarations.single(), "1.0.1", "^1.0.1")
+        cache.put(snapshot, cache.begin(snapshot), UpdateReport(listOf(candidate), validUntilNanos = 100))
+        val lease = cache.inspectionReport(adapter, snapshot)!!.lease!!
+        val value = NpmManifest.values(file).values.single()
+        val fix = adapter.quickFixes(project, snapshot, candidate, value, workspaceFix = null, lease = lease).single()
+        val before = file.text; val notifications = recovery()
+        time = 100
+        assertTrue("Inputs alone still pass", adapter.isCurrent(project, snapshot))
+        apply(fix, value)
+        assertEquals(before, file.text)
+        assertRecovery(notifications)
+    }
+
+    fun testRefreshedNpmResultRejectsAHeldWorkspaceFixAtomically() {
+        val cache = VersionResultCache()
+        val root = myFixture.addFileToProject("lease-workspace/package.json", """{"workspaces":["packages/*"],"dependencies":{"library":"^1.0.0"}}""")
+        val child = myFixture.addFileToProject("lease-workspace/packages/app/package.json", """{"name":"app","dependencies":{"library":"~1.0.0"}}""")
+        val adapter = NpmBuildSystemAdapter(); val snapshot = adapter.snapshot(project, root.virtualFile)!!
+        val candidate = UpdateCandidate(snapshot.declarations.single(), "1.0.1", "^1.0.1")
+        cache.put(snapshot, cache.begin(snapshot), UpdateReport(listOf(candidate)))
+        val lease = cache.inspectionReport(adapter, snapshot)!!.lease!!
+        val fix = adapter.workspaceFix(project, snapshot, candidate, adapter.workspaceDeclarations(project, snapshot), lease)!!
+        val before = listOf(root.text, child.text); val notifications = recovery()
+        cache.invalidateSource(adapter.id, snapshot.sourceFile)
+        assertTrue(adapter.isCurrent(project, snapshot))
+        apply(fix, NpmManifest.values(root).values.single())
+        assertEquals(before, listOf(root.text, child.text))
+        assertRecovery(notifications)
+    }
+
     private fun recovery(): List<Notification> {
         val captured = CopyOnWriteArrayList<Notification>()
         project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {

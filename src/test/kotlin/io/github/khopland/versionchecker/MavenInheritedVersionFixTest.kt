@@ -126,6 +126,23 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertEquals("\${junit.version}", declaration(file).findFirstSubTag("version")!!.value.trimmedText)
     }
 
+    fun testHeldParentUpdateAndLocalOverrideRejectRefreshWithUnchangedPoms() {
+        val parent = imported("lease-parent", management("4.12"))
+        val child = imported("lease-child", dependency(), "lease-parent")
+        val descriptor = inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results.single()
+        val fixes = descriptor.fixes!!.filterIsInstance<LocalQuickFix>().filter {
+            it is UpdateDependencyVersionFix || it is OverrideDependencyVersionFix
+        }
+        assertEquals(2, fixes.size)
+        val adapter = BuildSystemAdapter.find("maven")!!
+        val snapshot = adapter.snapshot(project, child.virtualFile)!!
+        val before = listOf(parent.text, child.text)
+        child.project.service<VersionCheckService>().invalidateForPreview(adapter, child.virtualFile)
+        assertTrue("POM/settings guards alone still pass", adapter.isCurrent(project, snapshot))
+        fixes.forEach { apply(it, declaration(child)) }
+        assertEquals(before, listOf(parent.text, child.text))
+    }
+
     fun testChildPropertyOverrideWarnsWithoutAnyChildDependencyDeclaration() {
         val parent = imported("property-parent", "<properties><junit.version>4.11</junit.version></properties>" +
             management("\${junit.version}"))

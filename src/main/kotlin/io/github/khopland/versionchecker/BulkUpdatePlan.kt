@@ -50,7 +50,8 @@ internal data class BulkUpdatePlan(
         return copy(changes = selectedChanges, followUp = selectedFollowUp)
     }
 
-    fun guardedBy(valid: () -> Boolean) = copy(isCurrent = { isCurrent() && valid() })
+    /** Reject expired/refreshed authorization before potentially expensive provider input validation. */
+    fun guardedBy(valid: () -> Boolean) = copy(isCurrent = { valid() && isCurrent() })
 
     /** Validate every edit and the discovery snapshot before applying one undoable command. */
     fun apply(

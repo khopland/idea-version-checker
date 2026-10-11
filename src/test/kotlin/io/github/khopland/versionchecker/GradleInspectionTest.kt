@@ -39,6 +39,8 @@ class GradleInspectionTest : BasePlatformTestCase() {
             override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) = report(snapshot)
         }
         val service = project.service<VersionCheckService>()
+        // Light fixtures reuse their project; identical catalog text can match a previous mock report.
+        service.invalidateForPreview(checking, file.virtualFile)
         service.updates(checking, snapshot)
         PlatformTestUtil.waitWithEventsDispatching("Gradle report cached", { service.cached(snapshot) != null }, 10_000)
         val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
@@ -71,6 +73,25 @@ class GradleInspectionTest : BasePlatformTestCase() {
             UpdateReport(listOf(UpdateCandidate(declaration, "1.2.9"), UpdateCandidate(declaration, "1.2.8")))
         }
         assertTrue(holder.results.isEmpty())
+    }
+
+    fun testHeldSharedCatalogFixRejectsARefreshDespiteUnchangedInputs() {
+        val file = file("gradle/libs.versions.toml", """
+            [versions]
+            shared = "1.2.3"
+            [libraries]
+            alpha = { module = "g:alpha", version.ref = "shared" }
+            beta = { module = "g:beta", version.ref = "shared" }
+        """.trimIndent())
+        val holder = inspect(file) { snapshot -> UpdateReport(snapshot.declarations.map { UpdateCandidate(it, "1.2.9", kind = VersionChangeKind.PATCH) }) }
+        val descriptor = holder.results.single()
+        val fix = descriptor.fixes!!.filterIsInstance<UpdateGradleVersionFix>().single()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val before = file.text
+        project.service<VersionCheckService>().invalidateForPreview(adapter, file.virtualFile)
+        assertTrue(adapter.isCurrent(project, snapshot))
+        fix.applyFix(project, descriptor)
+        assertEquals(before, file.text)
     }
 
     fun testSharedVersionPreservesFirstNoticeInReportOrderAndWithholdsFixes() {

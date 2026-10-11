@@ -44,7 +44,9 @@ internal data class UpdateReport(
     /** Preserve the native failure type/details when a complete interactive check is rejected. */
     val failureCause: Exception? = null,
     /** Original metadata observation, including reuse; deriving a result cannot make it younger. */
-    val checkedAtNanos: Long? = null
+    val checkedAtNanos: Long? = null,
+    /** Presentation-only authorization. Providers return raw metadata; inspection views attach a lease. */
+    val lease: VersionResultLease? = null
 ) {
     val successful: Boolean get() = failure == null
 }

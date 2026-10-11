@@ -58,7 +58,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         else project.getServiceIfCreated(DiagnosticVisibilityTrace::class.java)?.activated(emptySet())
     }
 
-    override fun dispose() { disposed = true }
+    override fun dispose() { disposed = true; cache.invalidate() }
 
     private fun queue(adapterId: String) = scanQueues.computeIfAbsent(adapterId) { CheckQueue { path -> path in selectedPaths } }
     internal fun queuedChecks(adapterId: String) = scanQueues[adapterId]?.waitingCount ?: 0
@@ -103,7 +103,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         if (!project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project)) return null
         val entry = cache.get(snapshot)
         if (entry == null && adapter.canCheckInBackground(project, snapshot)) schedule(adapter, snapshot)
-        return (entry ?: cache.inspectionProgress(adapter, snapshot) ?: cache.retainedInspectionReport(adapter, snapshot))
+        return cache.inspectionReport(adapter, snapshot)
             ?.withoutIgnored(adapter.id, project.service<VersionCheckerSettings>().state)
     }
 
