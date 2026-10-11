@@ -15,18 +15,26 @@ class NativeGradleFixtureTest(unittest.TestCase):
             repository = base / "repo/fixture/alpha"
             repository.mkdir(parents=True)
             (repository / "maven-metadata.xml").write_text("<metadata/>")
-            root = base / "dense"
-            command = [sys.executable, str(SCRIPT), str(root), "--repository", str(base / "repo"),
-                       "--declarations-per-module", "1000", "--repeat-artifact", "alpha"]
-            subprocess.run(command, check=True, capture_output=True)
-            build = root / "build.gradle"
-            original = build.read_bytes()
-            self.assertEqual(1000, original.count(b"implementation 'fixture:alpha:1.0.0'"))
-            self.assertTrue((root / "gradle/wrapper/gradle-wrapper.jar").is_file())
-            second = subprocess.run(command, capture_output=True)
-            self.assertNotEqual(0, second.returncode)
-            self.assertIn(b"must be empty", second.stderr)
-            self.assertEqual(original, build.read_bytes())
+            for dsl, suffix, literal in (
+                    ("groovy", ".gradle", b"implementation 'fixture:alpha:1.0.0'"),
+                    ("kotlin", ".gradle.kts", b'implementation("fixture:alpha:1.0.0")')):
+                with self.subTest(dsl=dsl):
+                    root = base / ("dense-" + dsl)
+                    command = [sys.executable, str(SCRIPT), str(root), "--repository", str(base / "repo"),
+                               "--declarations-per-module", "10000", "--repeat-artifact", "alpha",
+                               "--dsl", dsl]
+                    subprocess.run(command, check=True, capture_output=True)
+                    build = root / ("build" + suffix)
+                    original = build.read_bytes()
+                    self.assertEqual(10000, original.count(literal))
+                    self.assertEqual(100, original.count(b"dependencies {"))
+                    for block in original.split(b"dependencies {\n")[1:]:
+                        self.assertEqual(100, block.split(b"}\n", 1)[0].count(literal))
+                    self.assertTrue((root / "gradle/wrapper/gradle-wrapper.jar").is_file())
+                    second = subprocess.run(command, capture_output=True)
+                    self.assertNotEqual(0, second.returncode)
+                    self.assertIn(b"must be empty", second.stderr)
+                    self.assertEqual(original, build.read_bytes())
 
     def test_repeated_artifact_cannot_escape_repository_or_script_literal(self):
         with tempfile.TemporaryDirectory() as directory:

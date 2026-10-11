@@ -55,15 +55,19 @@ def main():
         module = root if args.modules == 1 else root / f"module-{index:03d}"
         module.mkdir(parents=True, exist_ok=True)
         build = "plugins { java }\n" if args.dsl == "kotlin" else "plugins { id 'java' }\n"
-        build += "dependencies {\n"
         for declaration, name in enumerate(names):
+            # Keep each closure below the JVM method-size limit in dense fixtures.
+            if declaration % 100 == 0:
+                build += "dependencies {\n"
             if args.catalog:
                 build += f"    implementation(libs.library{declaration:04d})\n"
             elif args.dsl == "kotlin":
                 build += f'    implementation("fixture:{name}:1.0.0")\n'
             else:
                 build += f"    implementation 'fixture:{name}:1.0.0'\n"
-        (module / ("build" + suffix)).write_text(build + "}\n", encoding="utf-8")
+            if declaration % 100 == 99 or declaration == len(names) - 1:
+                build += "}\n"
+        (module / ("build" + suffix)).write_text(build, encoding="utf-8")
         source = module / "src/main/java/Fixture.java"
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text("public class Fixture {}\n", encoding="utf-8")

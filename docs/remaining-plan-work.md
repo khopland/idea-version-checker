@@ -413,6 +413,15 @@ accessibility matrix. These single functional checks do not close performance
 acceptance. Aggregation stays off by default; minimum-IDE npm remains blocked,
 and RC/EAP release gates remain open.
 
+The [dense setup follow-up](native-validation-2026-10-11/gradle-dense.md) corrected
+a fixture-only Groovy method-size failure and verified 10,000-declaration Groovy
+and Kotlin CLI configuration plus native Groovy import. Review input is currently
+blocked by the disposable window's offscreen automation surface, including after
+restart. Method tracing and a post-import heap baseline are ready; no dense edit,
+controlled latency, retained-heap or 15-minute idle gate is closed by this setup.
+The user chose validation before stable release; keep the snapshot identity until
+the remaining checks and release artifact gates are resolved.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.

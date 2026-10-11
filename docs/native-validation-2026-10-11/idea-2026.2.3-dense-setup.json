@@ -1,0 +1,340 @@
+{
+  "archiveSha256": "1fb04a19f48ff67dcda8be92c05b53d5cc2e24b179c8e14f2286e4694266c12a",
+  "idea": "2026.2.3",
+  "jbr": "25.0.4",
+  "recordingSeconds": 110,
+  "phase": "instrumentation setup and unsuccessful native UI automation; no review or Apply",
+  "methodTraceSummary": [
+    {
+      "class": "com.intellij.ide.IdeEventQueue",
+      "method": "dispatchEvent",
+      "descriptor": "(Ljava/awt/AWTEvent;)V",
+      "spans": 36064,
+      "medianMs": 0.01175,
+      "p95Ms": 0.087167,
+      "maxMs": 84.59491600000001,
+      "over100Ms": 0
+    }
+  ],
+  "pluginApplySpans": 0,
+  "limitations": [
+    "Generic dispatch method durations include scheduling, IDE work and instrumentation overhead.",
+    "Method overload spans may nest; these are not independent input events.",
+    "No keystroke-to-render, controlled pause budget or dense edit acceptance conclusion is supported."
+  ],
+  "heapBaseline": {
+    "timestampUTC": "2026-10-11T19:45:20.343570+00:00",
+    "fixtureDeclarations": 10000,
+    "phase": "after corrected Groovy import, before plugin review",
+    "histogramTriggersFullGC": true,
+    "pluginClasses": [
+      {
+        "class": "io.github.khopland.versionchecker.CheckPerformance$Stage",
+        "instances": 51,
+        "shallowBytes": 1224
+      },
+      {
+        "class": "io.github.khopland.versionchecker.CheckPhase",
+        "instances": 11,
+        "shallowBytes": 264
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleProjectCache$Digest",
+        "instances": 7,
+        "shallowBytes": 168
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionSeverity",
+        "instances": 4,
+        "shallowBytes": 128
+      },
+      {
+        "class": "io.github.khopland.versionchecker.UpdateMode",
+        "instances": 3,
+        "shallowBytes": 72
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.AdapterCapabilities",
+        "instances": 3,
+        "shallowBytes": 72
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.UpdateScope",
+        "instances": 3,
+        "shallowBytes": 72
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.VersionResultCache",
+        "instances": 1,
+        "shallowBytes": 64
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckService",
+        "instances": 1,
+        "shallowBytes": 56
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget$install$7$1",
+        "instances": 1,
+        "shallowBytes": 56
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckerSettings$Options",
+        "instances": 1,
+        "shallowBytes": 56
+      },
+      {
+        "class": "io.github.khopland.versionchecker.npm.NpmProjectCache",
+        "instances": 1,
+        "shallowBytes": 56
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget",
+        "instances": 1,
+        "shallowBytes": 48
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.InspectionInputCache",
+        "instances": 1,
+        "shallowBytes": 48
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatus",
+        "instances": 1,
+        "shallowBytes": 40
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget$install$7",
+        "instances": 1,
+        "shallowBytes": 40
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.VersionResultCache$1",
+        "instances": 1,
+        "shallowBytes": 40
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleBuildSystemAdapter$1",
+        "instances": 1,
+        "shallowBytes": 40
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleProjectCache",
+        "instances": 1,
+        "shallowBytes": 40
+      },
+      {
+        "class": "io.github.khopland.versionchecker.npm.NpmBuildSystemAdapter$1",
+        "instances": 1,
+        "shallowBytes": 40
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.VersionResultCache$ContextState",
+        "instances": 1,
+        "shallowBytes": 32
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleBuildSystemAdapter",
+        "instances": 1,
+        "shallowBytes": 32
+      },
+      {
+        "class": "io.github.khopland.versionchecker.npm.NpmBuildSystemAdapter",
+        "instances": 1,
+        "shallowBytes": 32
+      },
+      {
+        "class": "io.github.khopland.versionchecker.CheckPerformance$Interaction",
+        "instances": 1,
+        "shallowBytes": 24
+      },
+      {
+        "class": "io.github.khopland.versionchecker.DiagnosticVisibilityTrace",
+        "instances": 1,
+        "shallowBytes": 24
+      },
+      {
+        "class": "io.github.khopland.versionchecker.ScheduledVersionChecks",
+        "instances": 1,
+        "shallowBytes": 24
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.BuildContextId",
+        "instances": 1,
+        "shallowBytes": 24
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.VersionResultCache$Limits",
+        "instances": 1,
+        "shallowBytes": 24
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.VersionResultCache$Revision",
+        "instances": 1,
+        "shallowBytes": 24
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleProjectCache$Inputs",
+        "instances": 1,
+        "shallowBytes": 24
+      },
+      {
+        "class": "io.github.khopland.versionchecker.maven.MavenBuildSystemAdapter",
+        "instances": 1,
+        "shallowBytes": 24
+      },
+      {
+        "class": "io.github.khopland.versionchecker.DiagnosticVisibilityTrace$1",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckService$$Lambda/0x000018000328da00",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckService$1",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget$$Lambda/0x0000180003114000",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget$$Lambda/0x000018000312c400",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget$install$2",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget$install$3",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget$install$4",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget$install$5",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidget$install$6",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckerSettings",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleProjectCache$1",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.NewerGradleDependencyInspection",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.npm.NpmProjectCache$1",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.npm.NpmProjectCache$2",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.npm.NpmProjectCache$3",
+        "instances": 1,
+        "shallowBytes": 16
+      },
+      {
+        "class": "io.github.khopland.versionchecker.CheckPerformance",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.IgnoredVersionsKt$$Lambda/0x0000180003294c00",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusListener$Companion",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckStatusWidgetFactory",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.VersionCheckerStartupActivity",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.core.BuildSystemAdapter$Companion",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleBuildSystemAdapter$$Lambda/0x0000180003229e00",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleBuildSystemAdapter$Companion",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleDeclarations",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleProjectCache$Companion",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.gradle.GradleVersions",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.npm.NpmManifest",
+        "instances": 1,
+        "shallowBytes": 8
+      },
+      {
+        "class": "io.github.khopland.versionchecker.npm.NpmProjectCache$Companion",
+        "instances": 1,
+        "shallowBytes": 8
+      }
+    ],
+    "instances": 135,
+    "shallowBytes": 3272,
+    "heapInfo": "garbage-first heap   total reserved 2097152K, committed 800768K, used 335471K [0x0000007000800000, 0x0000007080800000)\n region size 1024K, 3 young (3072K), 0 survivors (0K)\n",
+    "limitations": [
+      "Shallow object bytes are not transitive retained heap.",
+      "No rename, review/apply or plugin-unload comparison has run."
+    ]
+  }
+}
