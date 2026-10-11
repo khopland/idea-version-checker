@@ -10,8 +10,9 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
 import io.github.khopland.versionchecker.maven.MavenBuildSystemAdapter
+import io.github.khopland.versionchecker.maven.MavenProjectInputs
 import io.github.khopland.versionchecker.maven.coordinate
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.model.MavenModel
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
@@ -59,6 +60,108 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
         ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { action() } }), 60_000)
 
     private val dependency = "<dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>1.2.3</version></dependency></dependencies>"
+
+    fun testBackgroundCaptureReadsExternalInputsOnceOutsideReadLocksAndMatchesExistingGuards() {
+        val first = imported("capture/first", dependency)
+        imported("capture/second", dependency)
+        val userSettings = directory.resolve("capture-settings/settings.xml")
+        Files.createDirectories(userSettings.parent)
+        Files.writeString(userSettings, "<settings/>")
+        val security = userSettings.resolveSibling("settings-security.xml")
+        val target = userSettings.resolveSibling("credentials/master.xml")
+        Files.createDirectories(target.parent)
+        Files.writeString(security, "<settingsSecurity><relocation>credentials/master.xml</relocation></settingsSecurity>")
+        Files.writeString(target, "<settingsSecurity><master>original</master></settingsSecurity>")
+        val previous = manager.generalSettings.userSettingsFile
+        try {
+            manager.generalSettings.setUserSettingsFile(userSettings.toString())
+            val reads = mutableListOf<Path>()
+            val adapter = MavenBuildSystemAdapter { path ->
+                assertFalse(ApplicationManager.getApplication().isReadAccessAllowed)
+                assertFalse(ApplicationManager.getApplication().isDispatchThread)
+                reads.add(path)
+                MavenProjectInputs.savedDiskStamp(path)
+            }
+            val snapshots = background { adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
+            assertEquals(2, snapshots.size)
+            assertEquals("Shared input paths are read once", reads.toSet().size, reads.size)
+            assertTrue(reads.contains(target))
+            assertEquals(MavenBuildSystemAdapter().snapshot(project, first.file), snapshots.single { it.sourceFile == first.path })
+            reads.clear()
+            assertTrue(background { adapter.isCurrentInBackground(project, snapshots.first()) })
+            assertEquals(reads.toSet().size, reads.size)
+            reads.clear()
+            assertEquals(2, background { adapter.prepareUpdates(project, reports(snapshots)) }.changes.size)
+            assertEquals(reads.toSet().size, reads.size)
+            Files.writeString(target, "<settingsSecurity><master>changed</master></settingsSecurity>")
+            assertFalse(background { adapter.isCurrentInBackground(project, snapshots.first()) })
+        } finally { manager.generalSettings.setUserSettingsFile(previous) }
+    }
+
+    fun testSettingsPathChangedDuringExternalCaptureDiscardsOldPaths() {
+        val selected = imported("capture-path", dependency)
+        val old = directory.resolve("old/settings.xml")
+        val next = directory.resolve("new/settings.xml")
+        for (path in listOf(old, next)) {
+            Files.createDirectories(path.parent)
+            Files.writeString(path, "<settings/>")
+        }
+        val previous = manager.generalSettings.userSettingsFile
+        try {
+            manager.generalSettings.setUserSettingsFile(old.toString())
+            var changed = false
+            val adapter = MavenBuildSystemAdapter { path ->
+                if (!changed) {
+                    changed = true
+                    ApplicationManager.getApplication().invokeAndWait { manager.generalSettings.setUserSettingsFile(next.toString()) }
+                }
+                MavenProjectInputs.savedDiskStamp(path)
+            }
+            val snapshot = background { adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, selected.path)) }.single()
+            assertEquals(MavenBuildSystemAdapter().snapshot(project, selected.file), snapshot)
+            assertTrue(snapshot.fingerprint.files.containsKey(next.toString()))
+            assertFalse(snapshot.fingerprint.files.containsKey(old.toString()))
+        } finally { manager.generalSettings.setUserSettingsFile(previous) }
+    }
+
+    fun testUnsavedUnselectedPomChangedDuringDiskCaptureInvalidatesTheOriginalResult() {
+        val selected = imported("capture-selected", dependency)
+        val sibling = imported("capture-sibling", dependency)
+        val original = MavenBuildSystemAdapter().snapshot(project, selected.file)!!
+        val document = FileDocumentManager.getInstance().getDocument(sibling.file)!!
+        var changed = false
+        val adapter = MavenBuildSystemAdapter { path ->
+            if (!changed) {
+                changed = true
+                ApplicationManager.getApplication().invokeAndWait {
+                    WriteCommandAction.runWriteCommandAction(project) { document.setText(document.text + "\n") }
+                }
+            }
+            MavenProjectInputs.savedDiskStamp(path)
+        }
+        assertFalse(background { adapter.isCurrentInBackground(project, original) })
+        assertTrue(background { runCatching { adapter.prepareUpdates(project, reports(listOf(original))) }.isFailure })
+    }
+
+    fun testCancelledExternalCaptureDoesNotReadAnotherInputOrReturnSnapshots() {
+        val selected = imported("capture-cancelled", dependency)
+        var reads = 0
+        assertTrue(background {
+            supervisorScope {
+                val capture = async {
+                    val job = currentCoroutineContext().job
+                    val adapter = MavenBuildSystemAdapter { path ->
+                        reads++
+                        job.cancel(CancellationException("stop external capture"))
+                        MavenProjectInputs.savedDiskStamp(path)
+                    }
+                    adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, selected.path))
+                }
+                try { capture.await(); false } catch (_: CancellationException) { true }
+            }
+        })
+        assertEquals(1, reads)
+    }
 
     fun testPlatformScopeFindsTheEditableOwnerThroughAReactorParentChain() {
         val owner = imported("boot-owner", """<parent><groupId>org.springframework.boot</groupId>

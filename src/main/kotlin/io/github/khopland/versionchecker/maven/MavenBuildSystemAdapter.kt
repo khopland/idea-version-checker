@@ -19,7 +19,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-internal class MavenBuildSystemAdapter : BuildSystemAdapter {
+internal class MavenBuildSystemAdapter(
+    private val readSavedStamp: (Path) -> String = MavenProjectInputs::savedDiskStamp
+) : BuildSystemAdapter {
     private data class SaveInputs(val poms: List<String>, val settings: Path,
                                   val distributions: List<Path>, val directories: List<Path>)
     override suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,
@@ -123,6 +125,11 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
         return areCurrent(project, listOf(snapshot))
     }
 
+    override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
+        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedStamp) { inputs ->
+            !project.isDisposed && areCurrent(inputs, listOf(snapshot))
+        }
+
     internal fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>): Boolean {
         if (snapshots.isEmpty()) return true
         return areCurrent(MavenProjectInputs(MavenProjectsManager.getInstance(project)), snapshots)
@@ -131,9 +138,9 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
     private fun areCurrent(inputs: MavenProjectInputs, snapshots: Collection<BuildSnapshot>): Boolean =
         snapshots.all { snapshot -> inputs.find(snapshot.sourceFile)?.let { snapshot.fingerprint == inputs.fingerprint(it) } == true }
 
-    override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = readAction {
+    override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> =
+        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedStamp) { inputs ->
         val manager = MavenProjectsManager.getInstance(project)
-        val inputs = MavenProjectInputs(manager)
         selectedProjects(manager, selection).mapNotNull { mavenProject ->
             CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
                 val snapshot = captureSnapshot(project, mavenProject, inputs) ?: return@measure null
@@ -196,9 +203,9 @@ internal class MavenBuildSystemAdapter : BuildSystemAdapter {
         )
     }
 
-    override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
+    override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan =
+        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedStamp) { inputs ->
         val manager = MavenProjectsManager.getInstance(project)
-        val inputs = MavenProjectInputs(manager)
         check(areCurrent(inputs, reports.keys)) { "Maven files or settings changed during the check. Run it again." }
         val files = reports.map { (snapshot, report) ->
             val mavenProject = inputs.find(snapshot.sourceFile) ?: error("Maven POM is no longer imported")

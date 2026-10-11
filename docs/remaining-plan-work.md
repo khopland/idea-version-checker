@@ -187,6 +187,22 @@ experimental API uses, no deprecated/scheduled uses). The run took 1m 53s.
 Archive SHA-256: `9b1971289ff0848aa665774e104b6861e0a3b972f08b69cea5800d8cfe82b9c0`.
 Commands, archive identity and scope limits are in the linked capture record.
 
+## Maven background external capture (F09)
+
+Settings/credential relocation discovery and saved file-state reads now run on IO
+outside read actions for Maven discovery, coordinator validation and preview
+preparation. One immutable capture covers all imported module paths and shared
+settings; the final read overlays current POM/editor/import state. Changed settings
+or distribution paths discard the capture and retry. Existing synchronous apply
+validation is retained. Focused Maven/coordinator/lifecycle tests passed, including
+new thread-boundary, relocated-credential, path-change, unsaved-sibling and
+cancellation cases. Log: `/tmp/version-checker-maven-capture-focused.log`.
+
+Maven currently retains its saved size/mtime identity, plus unsaved document
+stamps; this change does not claim same-timestamp content detection for Maven.
+Full native integration and compatibility validation will be repeated after the
+remaining provider capture work.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.

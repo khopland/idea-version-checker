@@ -11,10 +11,12 @@ internal object MavenSettingsInputs {
         .takeIf { it.isNotBlank() }?.let(Path::of)
         ?: Path.of(System.getProperty("user.home"), ".m2/settings.xml")
 
-    fun files(userSettings: Path, mavenHome: Path? = null): Set<Path> {
+    fun files(userSettings: Path, mavenHome: Path? = null,
+              checkCancellation: () -> Unit = { com.intellij.openapi.progress.ProgressManager.checkCanceled() }): Set<Path> {
         val files = linkedSetOf(userSettings.toAbsolutePath().normalize())
         val visited = hashSetOf<Path>()
         fun security(path: Path) {
+            checkCancellation()
             val normalized = path.toAbsolutePath().normalize()
             // Track missing targets too: creating one must invalidate an existing result.
             files.add(normalized)
