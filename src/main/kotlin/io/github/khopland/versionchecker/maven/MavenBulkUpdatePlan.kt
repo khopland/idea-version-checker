@@ -13,6 +13,9 @@ internal data class MavenVersionEdit(
 ) : VersionEdit {
     override val element: XmlTag? get() = pointer.element
     override fun isValid() = element?.value?.trimmedText == expected
+    override fun preview(): VersionEditPreview? = element?.let {
+        VersionEditPreview.capture(this, it.value.textRange, com.intellij.openapi.util.text.StringUtil.escapeXmlEntities(latest))
+    }
     override fun apply() { element!!.value.setText(latest) }
 }
 

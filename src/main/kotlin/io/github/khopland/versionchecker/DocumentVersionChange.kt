@@ -23,6 +23,13 @@ internal class DocumentVersionChange(
         return PsiDocumentManager.getInstance(file.project).getDocument(file)?.text == original
     }
 
+    fun preview(): VersionEditPreview? {
+        if (!isValid()) return null
+        val virtual = file?.virtualFile ?: return null
+        return VersionEditPreview(virtual, range.startOffset, original,
+            original.replaceRange(range.startOffset, range.endOffset, replacement))
+    }
+
     internal class Prepared(private val document: Document, private val manager: PsiDocumentManager,
                             private val edits: List<DocumentVersionChange>) {
         fun apply() {

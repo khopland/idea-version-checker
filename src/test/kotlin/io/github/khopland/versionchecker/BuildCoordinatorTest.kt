@@ -354,11 +354,10 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertEquals("Current-file refresh invalidates all modes", 4, adapter.checked.size)
     }
 
-    fun testPreviewModeAndRefreshControlsRebuildBeforeApplying() = withTracing {
+    fun testPreviewModeAndRefreshControlsKeepOneWindowBeforeApplying() = withTracing {
         val file = myFixture.addFileToProject("preview-controls/build.txt", "1.0")
         val checks = CopyOnWriteArrayList<CheckPerformance.Interaction>()
         val preparations = CopyOnWriteArrayList<CheckPerformance.Interaction>()
-        var checksBeforeApply = emptyList<CheckPerformance.Interaction>()
         val native = TestAdapter("preview-controls-test", file).apply {
             beforeCheck = { checks += CheckPerformance.current()!! }
         }
@@ -370,42 +369,81 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         }
         BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
         var shown = 0
-        fun intercept(action: (BulkUpdateDialog) -> Unit) {
-            UiInterceptors.registerPossible(testRootDisposable,
-                object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
-                    override fun doIntercept(component: DialogWrapper) {
-                        shown++
-                        assertSame(preparations.last(), CheckPerformance.current())
-                        action(component as BulkUpdateDialog)
-                    }
-                })
-        }
-        intercept { patch ->
-            assertEquals(UpdateMode.PATCH, patch.modeSelector.selectedItem)
-            assertEquals("1.0", file.text)
-            intercept { minor ->
-                assertEquals(UpdateMode.MINOR, minor.modeSelector.selectedItem)
-                assertEquals(2, native.checked.size)
-                assertEquals(0, native.metadataRefreshes)
-                intercept { refreshed ->
-                    assertEquals(UpdateMode.MINOR, refreshed.modeSelector.selectedItem)
-                    assertEquals(3, native.checked.size)
-                    assertEquals(1, native.metadataRefreshes)
-                    assertEquals("1.0", file.text)
-                    checksBeforeApply = checks.toList()
-                    refreshed.performOKAction()
+        var review: BulkUpdateDialog? = null
+        UiInterceptors.registerPossible(testRootDisposable,
+            object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
+                override fun doIntercept(component: DialogWrapper) {
+                    shown++
+                    assertSame(preparations.last(), CheckPerformance.current())
+                    review = component as BulkUpdateDialog
                 }
-                minor.refreshAction.actionPerformed(ActionEvent(minor, ActionEvent.ACTION_PERFORMED, "Refresh"))
-            }
-            patch.modeSelector.selectedItem = UpdateMode.MINOR
-        }
+            })
         project.service<BulkUpdateService>().preview(UpdateMode.PATCH, UpdateScope.CURRENT_FILE, file.virtualFile)
-        val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
-        PlatformTestUtil.waitWithEventsDispatching("Refreshed preview applied", { document.text == "1.1" }, 10_000)
-        assertEquals(3, shown)
-        assertEquals("Each rebuilt preview owns its native check and preparation", checksBeforeApply, preparations)
-        assertEquals(3, preparations.map { it.id }.distinct().size)
-        assertTrue(preparations.zipWithNext().all { (before, after) -> after.started > before.started })
+        PlatformTestUtil.waitWithEventsDispatching("Initial preview ready", { review != null }, 10_000)
+        val dialog = review!!
+        try {
+            dialog.filter.text = "build.txt"
+            dialog.modeSelector.selectedItem = UpdateMode.MINOR
+            PlatformTestUtil.waitWithEventsDispatching("Minor results replace the existing model", {
+                preparations.size == 2 && !dialog.checking
+            }, 10_000)
+            assertSame(dialog, review)
+            assertFalse(dialog.isDisposed)
+            assertEquals("build.txt", dialog.filter.text)
+            assertEquals(0, native.metadataRefreshes)
+            dialog.refreshAction.actionPerformed(ActionEvent(dialog, ActionEvent.ACTION_PERFORMED, "Refresh"))
+            PlatformTestUtil.waitWithEventsDispatching("Fresh results replace the existing model", {
+                preparations.size == 3 && !dialog.checking
+            }, 10_000)
+            assertEquals(1, native.metadataRefreshes)
+            assertEquals(UpdateMode.MINOR, dialog.modeSelector.selectedItem)
+            assertEquals("1.0", file.text)
+            val beforeApply = checks.toList()
+            dialog.performOKAction()
+            val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
+            PlatformTestUtil.waitWithEventsDispatching("Refreshed preview applied", { document.text == "1.1" }, 10_000)
+            assertEquals(1, shown)
+            assertEquals("Each request keeps its own check/preparation trace", beforeApply, preparations)
+            assertEquals(3, preparations.map { it.id }.distinct().size)
+            assertTrue(preparations.zipWithNext().all { (before, after) -> after.started > before.started })
+        } finally { if (!dialog.isDisposed) dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
+    fun testRejectedApplyRefreshesTheSameWindowAndPreservesChoicesUntilSuccessfulRetry() {
+        val file = myFixture.addFileToProject("rejected-preview/build.txt", "1.0")
+        val native = TestAdapter("rejected-preview-test", file)
+        BuildSystemAdapter.EP.point.registerExtension(native, testRootDisposable)
+        var shown = 0
+        var review: BulkUpdateDialog? = null
+        UiInterceptors.registerPossible(testRootDisposable,
+            object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
+                override fun doIntercept(component: DialogWrapper) { shown++; review = component as BulkUpdateDialog }
+            })
+        project.service<BulkUpdateService>().preview(UpdateMode.PATCH, UpdateScope.CURRENT_FILE, file.virtualFile)
+        PlatformTestUtil.waitWithEventsDispatching("Initial preview ready", { review != null }, 10_000)
+        val dialog = review!!
+        try {
+            dialog.filter.text = "build"
+            native.current = false
+            dialog.performOKAction()
+            PlatformTestUtil.waitWithEventsDispatching("Rejected plan finishes its fresh check", {
+                native.metadataRefreshes == 1 && !dialog.checking
+            }, 10_000)
+            assertFalse(dialog.isDisposed)
+            assertFalse(dialog.isOKActionEnabled)
+            assertEquals("build", dialog.filter.text)
+            assertEquals("1.0", file.text)
+            native.current = true
+            dialog.refreshAction.actionPerformed(ActionEvent(dialog, ActionEvent.ACTION_PERFORMED, "Refresh"))
+            PlatformTestUtil.waitWithEventsDispatching("Fresh retry returns to the existing review", {
+                native.metadataRefreshes == 2 && dialog.isOKActionEnabled
+            }, 10_000)
+            assertEquals(1, shown)
+            assertEquals(setOf(0), dialog.model.selectedIndices)
+            dialog.performOKAction()
+            assertTrue(dialog.isDisposed)
+            assertEquals("1.1", FileDocumentManager.getInstance().getDocument(file.virtualFile)!!.text)
+        } finally { if (!dialog.isDisposed) dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
 
     fun testEarlyInspectionHintsDoNotAuthorizeAPreviewWhileTheCheckIsStillRunning() {

@@ -17,6 +17,8 @@
 
 ### Changed
 
+- Version review keeps one window during mode/scope changes and Refresh, preserving filters, sorting and choices for unchanged targets. New targets require selection; pending/replaced results cannot authorize older plans. Rejected applies and failed rechecks recover in the same window.
+- Review rows can open their source declaration and show a read-only before/after diff. npm bulk edits preserve original spacing and share the captured-text validation used by their previews.
 - Gradle background discovery, result validation and preview preparation capture user-home properties and init scripts outside IDE read locks, sharing one capture across linked builds and preserving unsaved-input guards.
 - Gradle metadata checks index requested source owners and configurations once and reuse identical probes within each source and mode. A development-only `versionchecker.gradleScanAggregation` JVM switch enables bounded checks across compatible files in one linked build; it defaults to off while native UI validation continues.
 - Gradle bulk updates validate captured text once per file and apply selected replacements in a bulk document update with one PSI commit. Combined plans preserve file batching, caret and unchanged ranges, and one-command undo, including dense files with different-length replacements.

@@ -17,6 +17,8 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
@@ -100,7 +102,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                 var nextInteraction = interaction
                 while (isActive && !disposed) {
                     val recheck = CheckPerformance.traced(nextInteraction) {
-                        val matching = readAction { BuildSystemAdapter.matching(project, BuildSelection(selectedScope, currentFile?.path)) }
+                        var matching = readAction { BuildSystemAdapter.matching(project, BuildSelection(selectedScope, currentFile?.path)) }
                         if (matching.isEmpty()) return@traced false
                         buildSystems = matching.joinToString { it.displayName }
                         val currentAvailable = currentFile != null && readAction {
@@ -119,9 +121,85 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                         withContext(Dispatchers.EDT) {
                             if (disposed || project.isDisposed) return@withContext
                             var dialog: BulkUpdateDialog? = null
+                            var request: Job? = null
+                            var requestSerial = 0L
+                            var appliedInDialog = false
                             val accepted = showDialog {
                                 BulkUpdateDialog(project, selectedMode, selectedScope.label, matching.joinToString { it.displayName }, prepared.plan).also {
                                     dialog = it; it.configure(prepared, currentAvailable, platformAvailable)
+                                    val review = it
+                                    Disposer.register(review.disposable) { request?.cancel() }
+                                    review.onApplyRequested = apply@{ plan, trace ->
+                                        try {
+                                            if (disposed || project.isDisposed || plan.changes.isEmpty()) return@apply
+                                            if (!FileModificationService.getInstance().preparePsiElementsForWrite(plan.changes.mapNotNull { it.element })) return@apply
+                                            if (disposed || review.isDisposed) return@apply
+                                            if (!plan.apply(project, trace)) {
+                                                review.refreshAction.actionPerformed(java.awt.event.ActionEvent(review, 0, "Refresh"))
+                                                return@apply
+                                            }
+                                            saveChangedVersionFiles(plan)
+                                            notifyVersionUpdates(project, plan.followUp)
+                                            project.service<VersionCheckService>().recheckAfterEdits(matching,
+                                                BuildSelection(selectedScope, currentFile?.path))
+                                            appliedInDialog = true
+                                            review.close(DialogWrapper.OK_EXIT_CODE)
+                                        } catch (cancelled: ProcessCanceledException) {
+                                            review.recheckFailed("Update cancelled.")
+                                            throw cancelled
+                                        } catch (failure: Exception) {
+                                            log.warn("Could not apply reviewed updates", failure)
+                                            review.recheckFailed("Could not apply updates. Review the build files before retrying.")
+                                        }
+                                    }
+                                    review.onRecheckRequested = { mode, updateScope, forceRefresh, trace ->
+                                        selectedMode = mode
+                                        selectedScope = updateScope
+                                        val serial = ++requestSerial
+                                        request?.cancel()
+                                        request = scope.launch(Dispatchers.IO + CheckPerformance.context(trace)) {
+                                            try {
+                                                val adapters = readAction {
+                                                    BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path))
+                                                }
+                                                val refreshed = withBackgroundProgress(project, "Checking versions: ${updateScope.label} — ${mode.label}", cancellable = true) {
+                                                    saveBuildInputs(project, BuildSelection(updateScope, currentFile?.path), adapters)
+                                                    preparePreview(mode, updateScope, currentFile, adapters, forceRefresh)
+                                                }
+                                                val current = currentFile != null && readAction {
+                                                    BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
+                                                }
+                                                val platform = currentFile != null && readAction {
+                                                    BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, currentFile.path)).isNotEmpty()
+                                                }
+                                                withContext(Dispatchers.EDT) {
+                                                    if (!disposed && !review.isDisposed && serial == requestSerial) {
+                                                        matching = adapters
+                                                        review.replacePrepared(refreshed, mode, updateScope, adapters.joinToString { it.displayName }, current, platform)
+                                                    }
+                                                }
+                                            } catch (cancelled: CancellationException) {
+                                                withContext(NonCancellable + Dispatchers.EDT) {
+                                                    if (!disposed && !review.isDisposed && serial == requestSerial)
+                                                        review.recheckFailed("Check cancelled.")
+                                                }
+                                                throw cancelled
+                                            } catch (cancelled: ProcessCanceledException) {
+                                                withContext(Dispatchers.EDT) {
+                                                    if (!disposed && !review.isDisposed && serial == requestSerial)
+                                                        review.recheckFailed("Check cancelled.")
+                                                }
+                                                throw cancelled
+                                            } catch (failure: Exception) {
+                                                log.warn("Version preview recheck failed", failure)
+                                                withContext(Dispatchers.EDT) {
+                                                    if (!disposed && !review.isDisposed && serial == requestSerial)
+                                                        review.recheckFailed((failure as? VersionCheckFailureAdvice)?.recoveryMessage
+                                                            ?: "Could not check dependency versions. Check the build tool and repository settings.")
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             val shown = dialog ?: return@withContext
@@ -131,7 +209,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                 refreshRequired = shown.refreshRequested
                                 nextInteraction = shown.recheckInteraction
                                 recheck = true
-                            } else if (accepted) {
+                            } else if (accepted && !appliedInDialog) {
                                 val plan = shown.selectedPlan()
                                 if (plan.changes.isEmpty()) return@withContext
                                 val targets = plan.changes.mapNotNull { it.element }
@@ -182,6 +260,39 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
     internal fun showDetails(title: String, message: String) {
         if (disposed || project.isDisposed) return
         scope.launch { showDialog { BulkUpdateMessageDialog(project, title, message) } }
+    }
+
+    internal fun openDeclaration(edit: VersionEdit) {
+        scope.launch(Dispatchers.IO) {
+            val target = readAction {
+                edit.element?.let { element -> element.containingFile?.virtualFile?.let { file ->
+                    file to (edit.documentChange?.range?.startOffset ?: element.textOffset)
+                } }
+            } ?: return@launch
+            withContext(Dispatchers.EDT) {
+                if (!disposed && !project.isDisposed && target.first.isValid)
+                    com.intellij.openapi.fileEditor.OpenFileDescriptor(project, target.first, target.second).navigate(true)
+            }
+        }
+    }
+
+    internal fun previewEdit(edit: VersionEdit) {
+        scope.launch(Dispatchers.IO) {
+            val preview = readAction { edit.preview() }
+            withContext(Dispatchers.EDT) {
+                if (disposed || project.isDisposed) return@withContext
+                if (preview == null) {
+                    showDialog { BulkUpdateMessageDialog(project, "Refresh the review", "The declaration changed or is unavailable. Refresh the review before opening its diff.") }
+                } else {
+                    val factory = com.intellij.diff.DiffContentFactory.getInstance()
+                    val request = com.intellij.diff.requests.SimpleDiffRequest(
+                        edit.location, factory.create(project, preview.before, preview.file.fileType),
+                        factory.create(project, preview.after, preview.file.fileType), "Current", "Proposed")
+                    request.putUserData(com.intellij.diff.util.DiffUserDataKeys.FORCE_READ_ONLY, true)
+                    com.intellij.diff.DiffManager.getInstance().showDiff(project, request)
+                }
+            }
+        }
     }
 
     internal suspend fun preparePreview(mode: UpdateMode, updateScope: UpdateScope, currentFile: VirtualFile?,

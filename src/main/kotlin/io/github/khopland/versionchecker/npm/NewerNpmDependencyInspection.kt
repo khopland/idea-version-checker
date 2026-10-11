@@ -13,10 +13,13 @@ import io.github.khopland.versionchecker.core.*
 internal class NpmVersionEdit(value: JsonStringLiteral, override val latest: String,
                               override val location: String) : VersionEdit {
     private val pointer = SmartPointerManager.createPointer(value)
+    override val documentChange = DocumentVersionChange(value.containingFile, value.textRange,
+        JsonElementGenerator(value.project).createStringLiteral(latest).text, value.containingFile.text)
     override val element: JsonStringLiteral? get() = pointer.element
     override val expected = value.value
-    override fun isValid() = element?.value == expected
-    override fun apply() { element!!.replace(JsonElementGenerator(element!!.project).createStringLiteral(latest)) }
+    override fun isValid() = element?.value == expected && documentChange.isValid()
+    override fun preview(): VersionEditPreview? = documentChange.preview()
+    override fun apply() { DocumentVersionChange.prepare(listOf(documentChange))?.forEach { it.apply() } }
 }
 
 class NewerNpmDependencyInspection : LocalInspectionTool() {

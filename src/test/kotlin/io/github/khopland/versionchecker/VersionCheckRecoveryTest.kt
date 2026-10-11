@@ -249,45 +249,49 @@ class VersionCheckRecoveryTest : BasePlatformTestCase() {
         assertEquals(1, adapter.checked.size)
     }
 
-    fun testFailedPreviewAfterModeAndScopeChangeRetriesFreshWithTheLatestSelection() {
+    fun testFailedPreviewAfterModeAndScopeChangeRetriesFreshInTheSameWindow() {
         val files = files("preview-retry", 2)
         val adapter = Adapter(files, "Preview provider")
         BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
         val notifications = notifications()
+        var shown = 0
+        var review: BulkUpdateDialog? = null
         UiInterceptors.registerPossible(testRootDisposable,
             object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
                 override fun doIntercept(component: DialogWrapper) {
-                    val preview = component as BulkUpdateDialog
-                    assertEquals(UpdateMode.PATCH, preview.modeSelector.selectedItem)
-                    assertEquals(UpdateScope.WHOLE_PROJECT, preview.scopeSelector.selectedItem)
-                    adapter.beforeCheck = { throw NpmViewFailure("E401", "native authentication cause") }
-                    preview.modeSelector.selectedItem = UpdateMode.MINOR
-                    preview.scopeSelector.selectedItem = UpdateScope.CURRENT_FILE
+                    shown++
+                    review = component as BulkUpdateDialog
                 }
             })
         project.service<BulkUpdateService>().preview(UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, files.first())
-        PlatformTestUtil.waitWithEventsDispatching("Changed preview fails", { notifications.size == 1 }, 10)
-        assertTrue(notifications.single().content.contains("registry access was denied"))
-        assertEquals(listOf(UpdateMode.PATCH, UpdateMode.PATCH, UpdateMode.MINOR), adapter.checkedModes.toList())
-        assertEquals(0, adapter.metadataRefreshes)
-        adapter.beforeCheck = {}
-        var shown = false
-        UiInterceptors.registerPossible(testRootDisposable,
-            object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
-                override fun doIntercept(component: DialogWrapper) {
-                    val preview = component as BulkUpdateDialog
-                    assertEquals(UpdateMode.MINOR, preview.modeSelector.selectedItem)
-                    assertEquals(UpdateScope.CURRENT_FILE, preview.scopeSelector.selectedItem)
-                    assertEquals(1, adapter.metadataRefreshes)
-                    shown = true
-                    preview.close(DialogWrapper.CANCEL_EXIT_CODE)
-                }
-            })
-        invoke(notifications.single(), "Retry Preview")
-        PlatformTestUtil.waitWithEventsDispatching("Retry preserves selection", { shown }, 10)
-        assertEquals(listOf(files[0].path, files[1].path, files[0].path, files[0].path), adapter.checked.toList())
-        assertEquals(UpdateMode.MINOR, adapter.checkedModes.last())
-        assertTrue(notifications.single().isExpired)
-        assertTrue(files.all { it.contentsToByteArray().toString(Charsets.UTF_8) == "1.0" })
+        PlatformTestUtil.waitWithEventsDispatching("Initial preview ready", { review != null }, 10)
+        val preview = review!!
+        try {
+            assertEquals(UpdateMode.PATCH, preview.modeSelector.selectedItem)
+            assertEquals(UpdateScope.WHOLE_PROJECT, preview.scopeSelector.selectedItem)
+            adapter.beforeCheck = { throw NpmViewFailure("E401", "native authentication cause") }
+            preview.modeSelector.selectedItem = UpdateMode.MINOR
+            preview.scopeSelector.selectedItem = UpdateScope.CURRENT_FILE
+            PlatformTestUtil.waitWithEventsDispatching("Changed preview fails", {
+                adapter.checkedModes.lastOrNull() == UpdateMode.MINOR && !preview.checking
+            }, 10)
+            assertFalse(preview.isDisposed)
+            assertFalse(preview.isOKActionEnabled)
+            assertFalse(preview.selectedPlan().apply(project))
+            assertTrue("In-window recovery does not create another failure notification", notifications.isEmpty())
+            assertEquals(0, adapter.metadataRefreshes)
+            adapter.beforeCheck = {}
+            preview.refreshAction.actionPerformed(java.awt.event.ActionEvent(preview, 0, "Refresh"))
+            PlatformTestUtil.waitWithEventsDispatching("Retry preserves selection", {
+                adapter.metadataRefreshes == 1 && !preview.checking
+            }, 10)
+            assertEquals(1, shown)
+            assertFalse(preview.isDisposed)
+            assertEquals(UpdateMode.MINOR, preview.modeSelector.selectedItem)
+            assertEquals(UpdateScope.CURRENT_FILE, preview.scopeSelector.selectedItem)
+            assertEquals(files[0].path, adapter.checked.last())
+            assertEquals(UpdateMode.MINOR, adapter.checkedModes.last())
+            assertTrue(files.all { it.contentsToByteArray().toString(Charsets.UTF_8) == "1.0" })
+        } finally { if (!preview.isDisposed) preview.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
 }

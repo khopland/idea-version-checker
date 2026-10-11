@@ -222,6 +222,31 @@ project-configuration validation (1m 40s). Log:
 after the remaining engineering changes. Synchronous inspection/edit reads remain
 an F09 gap; no slow-disk/native latency claim is made.
 
+## Stable review window and source diffs (F13)
+
+Production mode/scope changes and Refresh now replace results in the existing
+review window. Exact declaration/old-version/target choices survive compatible
+rechecks and temporary scope exclusion; new or changed targets start unchecked.
+Search, sorting, focus and scroll stay in the existing controls. Starting a
+recheck immediately retires held plans, and failed/cancelled checks keep Apply
+disabled while offering Refresh for the latest selection. Rejected apply refreshes
+in place. Superseded requests and disposed windows cannot replace current results.
+
+A highlighted row can open its declaration or a read-only full-file before/after
+diff. Shared Maven properties and Gradle catalog owners preview the actual owner
+edit. npm bulk edits use captured document replacements so the applied text matches
+the diff and retains existing JSON spacing. Existing atomic validation and grouped
+undo remain in place. Native keyboard/focus, diff-window and supported-IDE usability
+acceptance are still required; headless UI/model tests do not establish those gates.
+
+Full validation passed: **453 plugin tests in 65 classes**, zero failures/errors/
+skips, all Maven/npm/Gradle native integration flags, `check`, `buildPlugin` and
+project-configuration validation (1m 37s). New tests cover retained choices,
+superseded plans, failure/rejected-apply recovery in one window and source/diff
+parity for Maven, npm and shared Gradle edits. Log:
+`/tmp/version-checker-review-full.log`. Compatibility verification will be repeated
+after the next engineering batch.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
@@ -236,7 +261,7 @@ an F09 gap; no slow-disk/native latency claim is made.
 3. **F10: validate bounded state in native workloads.** Result/source/generation budgets, expiry cleanup and late-worker regressions are implemented. Complete native import/rename/unload and heap observations; the model soak establishes map bounds, not retained heap size.
 4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; report-level partial leases currently retire descriptors on every new partial observation.
 5. **F12: explicit coverage.** Track checked, ignored, unsupported and manual-review declarations so status, empty previews and partial/failure states share an honest explanation.
-6. **F13: retain preview state.** Update mode/scope in one dialog while preserving search, sorting and compatible selections; pending checks must never authorize an old plan.
+6. **F13: native review acceptance.** Stable in-window refresh, compatible review choices, pending-plan rejection and source/diffs are implemented. Validate keyboard/focus, scrolling, diff windows and failed-scope recovery on the supported IDEs.
 7. **F14: consistent recovery.** Preview failures now offer fresh retry and npm-specific guidance. Complete the remaining status/automatic-check and native failure matrix, including npm offline/configuration behavior, without weakening native provider semantics.
 
 The broader onboarding, accessibility, repository diagnostics, persistent metadata and scheduling proposals remain in the HTML plan. Prioritize measured bottlenecks and release blockers; preserve the existing provider isolation, cancellation, authentication and shared-declaration safeguards during each change.

@@ -14,6 +14,7 @@ internal interface VersionEdit {
     val followUp: List<String>? get() = null
     /** Captured text edits can be validated and committed once per file, including combined plans. */
     val documentChange: DocumentVersionChange? get() = null
+    fun preview(): VersionEditPreview? = documentChange?.preview()
     fun isValid(): Boolean
     fun apply()
 }

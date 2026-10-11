@@ -33,6 +33,77 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
 
     private fun dialog(plan: BulkUpdatePlan) = BulkUpdateDialog(project, UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT.label, "Test", plan)
     private fun text(edit: VersionEdit) = FileDocumentManager.getInstance().getDocument(edit.element!!.containingFile.virtualFile)!!.text
+
+    fun testReplacingResultsKeepsFilterSortingAndChoicesAcrossScopesButNewTargetsNeedSelection() {
+        val alpha = edit("retained-alpha")
+        val beta = edit("retained-beta")
+        val new = edit("new-target")
+        val dialog = dialog(BulkUpdatePlan(listOf(alpha, beta), emptyList()))
+        try {
+            dialog.model.setValueAt(false, 1, 0)
+            dialog.filter.text = "retained"
+            dialog.table.rowSorter.toggleSortOrder(1)
+            val sorting = dialog.table.rowSorter.sortKeys.toList()
+            fun replace(edits: List<VersionEdit>, scope: UpdateScope) = dialog.replacePrepared(
+                PreparedVersionPreview(BulkUpdatePlan(edits, emptyList()), System.nanoTime(), 0, 1),
+                UpdateMode.PATCH, scope, "Test", true, false)
+            replace(listOf(beta, new), UpdateScope.CURRENT_FILE)
+            assertEquals("retained", dialog.filter.text)
+            assertEquals(sorting, dialog.table.rowSorter.sortKeys)
+            assertTrue(dialog.model.selectedIndices.isEmpty())
+            replace(listOf(new, beta, alpha), UpdateScope.WHOLE_PROJECT)
+            assertEquals(setOf(2), dialog.model.selectedIndices)
+            val changed = object : VersionEdit by alpha { override val latest = "3.0" }
+            replace(listOf(changed, beta), UpdateScope.WHOLE_PROJECT)
+            assertTrue("A different published target requires a new choice", dialog.model.selectedIndices.isEmpty())
+            replace(listOf(alpha, beta), UpdateScope.WHOLE_PROJECT)
+            assertEquals(setOf(0), dialog.model.selectedIndices)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
+    fun testPendingAndReplacedResultsRetireHeldPlansWithoutClosingTheReviewWindow() {
+        val edit = edit("held-plan")
+        val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
+        try {
+            var requested: UpdateMode? = null
+            dialog.onRecheckRequested = { mode, _, _, _ -> requested = mode }
+            val held = dialog.selectedPlan()
+            dialog.modeSelector.selectedItem = UpdateMode.MINOR
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(UpdateMode.MINOR, requested)
+            assertTrue(dialog.checking)
+            assertFalse(dialog.isDisposed)
+            assertFalse(dialog.isOKActionEnabled)
+            assertFalse(held.apply(project))
+            dialog.doOKAction()
+            assertFalse(dialog.isDisposed)
+            dialog.replacePrepared(PreparedVersionPreview(BulkUpdatePlan(listOf(edit), emptyList()), System.nanoTime(), 0, 1),
+                UpdateMode.MINOR, UpdateScope.WHOLE_PROJECT, "Test", true, false)
+            assertFalse(held.apply(project))
+            assertTrue(dialog.selectedPlan().apply(project))
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
+    fun testFailedRecheckPreservesReviewIntentAndRefreshUsesTheLatestSelection() {
+        val dialog = dialog(BulkUpdatePlan(listOf(edit("failed-refresh")), emptyList()))
+        try {
+            val requests = mutableListOf<Triple<UpdateMode, UpdateScope, Boolean>>()
+            dialog.onRecheckRequested = { mode, scope, refresh, _ -> requests += Triple(mode, scope, refresh) }
+            dialog.filter.text = "failed"
+            dialog.modeSelector.selectedItem = UpdateMode.MINOR
+            UIUtil.dispatchAllInvocationEvents()
+            dialog.modeSelector.selectedItem = UpdateMode.PATCH
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(listOf(UpdateMode.MINOR, UpdateMode.PATCH), requests.map { it.first })
+            dialog.recheckFailed("Repository authentication failed.")
+            assertFalse(dialog.isDisposed)
+            assertFalse(dialog.isOKActionEnabled)
+            assertFalse(dialog.selectedPlan().apply(project))
+            assertEquals("failed", dialog.filter.text)
+            dialog.refreshAction.actionPerformed(ActionEvent(dialog, ActionEvent.ACTION_PERFORMED, "Refresh"))
+            assertEquals(Triple(UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, true), requests.last())
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
     private fun buttons(container: Container): List<JButton> = container.components.flatMap {
         when (it) { is JButton -> listOf(it); is Container -> buttons(it); else -> emptyList() }
     }

@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.components.service
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.DocumentAdapter
@@ -23,8 +24,14 @@ import javax.swing.event.PopupMenuListener
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.TableRowSorter
 
-internal class VersionUpdateTableModel(val changes: List<VersionEdit>, private val basePath: String?) : AbstractTableModel() {
-    private val selected = BooleanArray(changes.size) { true }
+internal data class VersionEditIdentity(val location: String, val expected: String, val latest: String)
+internal fun VersionEdit.identity() = VersionEditIdentity(location, expected, latest)
+
+internal class VersionUpdateTableModel(changes: List<VersionEdit>, private val basePath: String?) : AbstractTableModel() {
+    var changes = changes
+        private set
+    private var selected = BooleanArray(changes.size) { true }
+    private val choices = LinkedHashMap<VersionEditIdentity, Boolean>()
     val selectedIndices: Set<Int> get() = changes.indices.filter { selected[it] }.toSet()
     override fun getRowCount() = changes.size
     override fun getColumnCount() = 4
@@ -46,11 +53,19 @@ internal class VersionUpdateTableModel(val changes: List<VersionEdit>, private v
         rows.forEach { selected[it] = value }
         fireTableDataChanged()
     }
+    /** Remember exact reviewed targets across scopes; new/replaced targets require explicit selection. */
+    fun replaceChanges(replacement: List<VersionEdit>) {
+        changes.forEachIndexed { index, edit -> choices[edit.identity()] = selected[index] }
+        while (choices.size > 20_000) choices.remove(choices.keys.first())
+        changes = replacement
+        selected = BooleanArray(changes.size) { choices[changes[it].identity()] == true }
+        fireTableDataChanged()
+    }
 }
 
 /** Each checkbox selects one prepared, atomic declaration/property/catalog edit. */
 internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: String,
-                                buildSystem: String, private val plan: BulkUpdatePlan) : DialogWrapper(project) {
+                                buildSystem: String, private var plan: BulkUpdatePlan) : DialogWrapper(project) {
     companion object { const val RECHECK_EXIT_CODE = 3 }
     internal val modeSelector = ComboBox(UpdateMode.entries.toTypedArray())
     internal val scopeSelector = ComboBox(UpdateScope.entries.filter {
@@ -65,7 +80,14 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     }
     internal val filter = JBTextField()
     private val sorter = TableRowSorter<VersionUpdateTableModel>(model)
+    private val tableScroll = JBScrollPane(table)
     private val freshness = JBLabel()
+    private val emptyMessage = JBLabel()
+    private val reviewText = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+    private val reviewToggle = JBCheckBox()
+    private val reviewScroll = JBScrollPane(reviewText).apply { preferredSize = Dimension(800, 100); isVisible = false }
+    private val openButton = JButton("Open declaration")
+    private val diffButton = JButton("Preview change")
     internal val summary = JBLabel()
     var refreshRequested = false
         private set
@@ -74,8 +96,15 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     internal var applyInteraction: CheckPerformance.Interaction? = null
         private set
     private var configuring = true
-    private val preparedMode = mode
+    private var preparedMode = mode
     private var preparedScope = scopeSelector.selectedItem
+    private var generation = 0L
+    internal var checking = false
+        private set
+    private var failed = false
+    internal var onRecheckRequested: ((UpdateMode, UpdateScope, Boolean, CheckPerformance.Interaction?) -> Unit)? = null
+    internal var onApplyRequested: ((BulkUpdatePlan, CheckPerformance.Interaction?) -> Unit)? = null
+    private val commitSelectors = mutableListOf<() -> Unit>()
     internal val refreshAction: Action = object : AbstractAction("Refresh") {
         override fun actionPerformed(event: ActionEvent) { refreshRequested = true; requestRecheck() }
     }
@@ -112,6 +141,12 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         scopeSelector.accessibleContext.accessibleName = "Update scope"
         init()
         model.addTableModelListener { updateSummary() }
+        table.selectionModel.addListSelectionListener { updateSummary() }
+        openButton.mnemonic = 'O'.code
+        diffButton.mnemonic = 'P'.code
+        fun highlighted(): VersionEdit? = table.selectedRows.singleOrNull()?.let { model.changes[table.convertRowIndexToModel(it)] }
+        openButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().openDeclaration(it) } }
+        diffButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().previewEdit(it) } }
         filter.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(event: DocumentEvent) {
                 sorter.rowFilter = filter.text.takeIf { it.isNotBlank() }?.let {
@@ -147,10 +182,54 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     fun selectedPlan(): BulkUpdatePlan {
         if (table.isEditing) table.cellEditor.stopCellEditing()
-        return plan.select(model.selectedIndices)
+        val preparedGeneration = generation
+        return plan.select(model.selectedIndices).guardedBy {
+            !checking && !failed && generation == preparedGeneration &&
+                modeSelector.selectedItem == preparedMode && scopeSelector.selectedItem == preparedScope
+        }
+    }
+
+    internal fun replacePrepared(prepared: PreparedVersionPreview, mode: UpdateMode, scope: UpdateScope,
+                                 buildSystems: String, currentFileAvailable: Boolean, platformAvailable: Boolean) {
+        if (isDisposed) return
+        val highlighted = table.selectedRows.map { model.changes[table.convertRowIndexToModel(it)].identity() }.toSet()
+        val position = tableScroll.viewport.viewPosition
+        plan = prepared.plan
+        preparedMode = mode
+        preparedScope = scope
+        generation++
+        configuring = true
+        try {
+            modeSelector.selectedItem = mode
+            scopeSelector.selectedItem = scope
+            model.replaceChanges(plan.changes)
+            configure(prepared, currentFileAvailable, platformAvailable)
+        } finally { configuring = false }
+        title = "Review $buildSystems updates"
+        checking = false
+        failed = false
+        refreshRequested = false
+        table.clearSelection()
+        model.changes.forEachIndexed { index, edit ->
+            val row = table.convertRowIndexToView(index)
+            if (row >= 0 && edit.identity() in highlighted) table.addRowSelectionInterval(row, row)
+        }
+        tableScroll.viewport.viewPosition = position
+        updatePlanDetails()
+        updateSummary()
+        CheckPerformance.record(CheckPerformance.Stage.PREVIEW_READY, recheckInteraction?.started ?: System.nanoTime(), model.rowCount)
+    }
+
+    internal fun recheckFailed(message: String) {
+        if (isDisposed) return
+        checking = false
+        failed = true
+        freshness.text = "$message Use Refresh to retry."
+        updateSummary()
     }
 
     public override fun doOKAction() {
+        if (checking || failed) return
         if (modeSelector.selectedItem != preparedMode || scopeSelector.selectedItem != preparedScope) {
             requestRecheck()
             return
@@ -158,17 +237,29 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         if (model.selectedIndices.isEmpty()) return
         applyInteraction = CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)
         if (table.isEditing && !table.cellEditor.stopCellEditing()) return
+        onApplyRequested?.let { callback -> callback(selectedPlan(), applyInteraction); return }
         super.doOKAction()
     }
 
     private fun requestRecheck() {
         if (isDisposed) return
         recheckInteraction = CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
-        close(RECHECK_EXIT_CODE)
+        generation++
+        val callback = onRecheckRequested
+        if (callback == null) close(RECHECK_EXIT_CODE) else {
+            checking = true
+            failed = false
+            commitSelectors.forEach { it() }
+            freshness.text = "Checking ${(scopeSelector.selectedItem as UpdateScope).label} · ${(modeSelector.selectedItem as UpdateMode).label}…"
+            updateSummary()
+            callback(modeSelector.selectedItem as UpdateMode, scopeSelector.selectedItem as UpdateScope, refreshRequested, recheckInteraction)
+            refreshRequested = false
+        }
     }
 
     private fun recheckOnCommittedSelection(selector: ComboBox<*>) {
         var preparedItem = selector.selectedItem
+        commitSelectors += { preparedItem = selector.selectedItem }
         var popupOpen = false
         var scheduled = false
         fun restorePreparedItem() {
@@ -220,7 +311,18 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         summary.text = "${selected.size} selected · ${table.rowCount} of ${model.rowCount} visible" +
             if (hidden > 0) " · $hidden selected hidden by filter" else ""
         setOKButtonText("Update ${selected.size} selected declarations")
-        setOKActionEnabled(selected.isNotEmpty())
+        setOKActionEnabled(selected.isNotEmpty() && !checking && !failed)
+        openButton.isEnabled = table.selectedRows.size == 1 && !checking && !failed
+        diffButton.isEnabled = openButton.isEnabled
+    }
+
+    private fun updatePlanDetails() {
+        emptyMessage.text = if (plan.changes.isEmpty()) "No automatic updates available for ${preparedMode.label}." else
+            "Each shared property or catalog version is one change affecting all listed consumers."
+        reviewText.text = plan.skipped.joinToString("\n")
+        reviewToggle.text = "Needs review (${plan.skipped.size})"
+        reviewToggle.isVisible = plan.skipped.isNotEmpty()
+        reviewScroll.isVisible = plan.skipped.isNotEmpty() && reviewToggle.isSelected
     }
 
     override fun getPreferredFocusedComponent(): JComponent = filter
@@ -239,35 +341,33 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         val header = JPanel(BorderLayout(0, 8)).apply {
             add(controls, BorderLayout.NORTH); add(freshness, BorderLayout.CENTER); add(search, BorderLayout.SOUTH)
         }
-        val selection = JPanel(FlowLayout(FlowLayout.LEADING)).apply {
+        val selectionButtons = JPanel(FlowLayout(FlowLayout.LEADING)).apply {
             add(JButton("Select visible").apply { mnemonic = 'V'.code; addActionListener {
                 this@BulkUpdateDialog.model.selectRows((0 until table.rowCount).map { table.convertRowIndexToModel(it) }.toSet(), true)
             } })
             add(JButton("Clear selection").apply { mnemonic = 'C'.code; addActionListener {
                 this@BulkUpdateDialog.model.selectRows(this@BulkUpdateDialog.model.changes.indices.toSet(), false)
             } })
-            add(summary)
+            add(openButton); add(diffButton)
+        }
+        val selection = JPanel(BorderLayout(0, 4)).apply {
+            add(selectionButtons, BorderLayout.NORTH); add(summary, BorderLayout.SOUTH)
         }
         val footer = JPanel(BorderLayout(0, 8)).apply {
             add(selection, BorderLayout.NORTH)
-            add(JBLabel(if (plan.changes.isEmpty()) "No automatic updates available for ${(modeSelector.selectedItem as UpdateMode).label}." else
-                "Each shared property or catalog version is one change affecting all listed consumers."), BorderLayout.CENTER)
-            if (plan.skipped.isNotEmpty()) {
-                val review = JBScrollPane(JBTextArea(plan.skipped.joinToString("\n")).apply {
-                    isEditable = false; lineWrap = true; wrapStyleWord = true
-                    accessibleContext.accessibleName = "Updates needing manual review"
-                }).apply { preferredSize = Dimension(800, 100); isVisible = false }
-                val details = JPanel(BorderLayout()).apply {
-                    add(JBCheckBox("Needs review (${plan.skipped.size})").apply { addActionListener {
-                        review.isVisible = isSelected; review.parent.revalidate(); review.parent.repaint()
-                    } }, BorderLayout.NORTH)
-                    add(review, BorderLayout.CENTER)
-                }
-                add(details, BorderLayout.SOUTH)
+            add(emptyMessage, BorderLayout.CENTER)
+            reviewText.accessibleContext.accessibleName = "Updates needing manual review"
+            reviewToggle.addActionListener {
+                reviewScroll.isVisible = reviewToggle.isSelected && plan.skipped.isNotEmpty()
+                reviewScroll.parent.revalidate(); reviewScroll.parent.repaint()
             }
+            add(JPanel(BorderLayout()).apply {
+                add(reviewToggle, BorderLayout.NORTH); add(reviewScroll, BorderLayout.CENTER)
+            }, BorderLayout.SOUTH)
+            updatePlanDetails()
         }
         return JPanel(BorderLayout(0, 12)).apply {
-            add(header, BorderLayout.NORTH); add(JBScrollPane(table), BorderLayout.CENTER); add(footer, BorderLayout.SOUTH)
+            add(header, BorderLayout.NORTH); add(tableScroll, BorderLayout.CENTER); add(footer, BorderLayout.SOUTH)
             preferredSize = Dimension(860, 480)
         }
     }
