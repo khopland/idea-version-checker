@@ -17,6 +17,8 @@
 
 ### Changed
 
+- Status and review show explicit checked, skipped, ignored, manual-review and failed declaration coverage, including partial progress and Maven narrow scopes. Shared Maven consumers count once in whole-project totals; unsupported empty reviews explain their exclusions.
+
 - Sanitize credentials, URL queries and local paths in displayed/copied failure details; show native npm recovery guidance in status and reject held bulk updates while checks are paused.
 
 - Version review keeps one window during mode/scope changes and Refresh, preserving filters, sorting and choices for unchanged targets. New targets require selection; pending/replaced results cannot authorize older plans. Rejected applies and failed rechecks recover in the same window.

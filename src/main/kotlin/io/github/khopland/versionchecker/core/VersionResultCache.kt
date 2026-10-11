@@ -39,13 +39,16 @@ internal class VersionResultCache(
         private val candidates = initial?.candidates.orEmpty().groupBy { it.declaration.id }.toMutableMap()
         private val notices = initial?.notices.orEmpty().groupBy { it.declaration.id }.toMutableMap()
         private val failures = linkedSetOf<String>().apply { initial?.failure?.let(::add) }
+        // Retained candidates are hints, not completed units of this new check.
+        private val coverage = snapshot.skippedCoverage().toMutableMap()
+        private var coverageKnown = coverage.isNotEmpty()
         var weight: Long = snapshot.weight() + payloadWeight()
             private set
         var identity: Any = Any()
             private set
 
         private fun payloadWeight() = candidates.values.sumOf { rows -> rows.sumOf { it.weight() } } +
-            notices.values.sumOf { rows -> rows.sumOf { it.weight() } } + failures.sumOf { it.textWeight() }
+            notices.values.sumOf { rows -> rows.sumOf { it.weight() } } + failures.sumOf { it.textWeight() } + coverage.entries.sumOf { it.weight() }
 
         fun add(update: InspectionUpdate) {
             // A later partial observation must not silently authorize a descriptor from an older one.
@@ -54,6 +57,7 @@ internal class VersionResultCache(
             update.completedDeclarations.forEach { id ->
                 weight -= candidates.remove(id).orEmpty().sumOf { it.weight() }
                 weight -= notices.remove(id).orEmpty().sumOf { it.weight() }
+                coverage.remove(id)?.let { weight -= coverageWeight(id, it) }
             }
             update.report.candidates.groupBy { it.declaration.id }.forEach { (id, rows) ->
                 weight -= candidates.put(id, rows).orEmpty().sumOf { it.weight() }
@@ -63,6 +67,13 @@ internal class VersionResultCache(
                 weight -= notices.put(id, rows).orEmpty().sumOf { it.weight() }
                 weight += rows.sumOf { it.weight() }
             }
+            update.report.coverage?.let { outcomes ->
+                coverageKnown = true
+                outcomes.forEach { (id, outcome) ->
+                    coverage.put(id, outcome)?.let { weight -= coverageWeight(id, it) }
+                    weight += coverageWeight(id, outcome)
+                }
+            }
             update.report.failure?.let { if (failures.add(it)) weight += it.textWeight() }
         }
         fun report() = UpdateReport(
@@ -70,8 +81,12 @@ internal class VersionResultCache(
             notices = notices.values.flatten(),
             failure = failures.takeIf { it.isNotEmpty() }?.joinToString("\n"),
             validUntilNanos = expiresAtNanos,
-            checkedAtNanos = checkedAtNanos
+            checkedAtNanos = checkedAtNanos,
+            coverage = coverage.takeIf { coverageKnown }?.toMap()
         )
+        fun coverageSummary(include: ((UpdateCandidate) -> Boolean)?): CoverageSummary? =
+            if (!coverageKnown) null else CoverageSummary.from(coverage, snapshot.declarationIds(),
+                if (include == null) emptySet() else candidates.filterValues { rows -> rows.any { !include(it) } }.keys)
         fun counts(include: ((UpdateCandidate) -> Boolean)?) =
             candidates.values.sumOf { if (include == null) it.size else it.count(include) } to notices.values.sumOf { it.size }
     }
@@ -216,6 +231,12 @@ internal class VersionResultCache(
         return Triple(candidateCount, noticeCount, entry.expiresAtNanos)
     }
 
+    @Synchronized fun inspectionProgressCoverage(snapshot: BuildSnapshot,
+                                                include: ((UpdateCandidate) -> Boolean)? = null): CoverageSummary? =
+        state(snapshot.context)?.progress?.takeIf {
+            it.revision == revision(snapshot.context) && it.expiresAtNanos > now() && it.snapshot.hasSameDeclarations(snapshot)
+        }?.coverageSummary(include)
+
     @Synchronized fun putProgress(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, revision: Revision,
                                   owner: Any, update: InspectionUpdate): Boolean {
         val state = state(snapshot.context)?.takeIf { it.revision == revision } ?: return false
@@ -302,17 +323,22 @@ internal class VersionResultCache(
 
     /** Inspection hints can match declarations without claiming the same audit coverage. */
     private fun BuildSnapshot.hasSameDeclarations(other: BuildSnapshot): Boolean =
-        fingerprint == other.fingerprint && declarations == other.declarations
+        fingerprint == other.fingerprint && declarations == other.declarations && skippedDeclarations == other.skippedDeclarations
 }
 
 private fun String?.textWeight(): Long = if (this == null) 0 else 1 + length.toLong() / 256
 private fun VersionDeclaration.weight(): Long = 1 + id.file.textWeight() + id.location.textWeight() +
     artifact.namespace.textWeight() + artifact.name.textWeight() + selector.textWeight() +
-    baseline.textWeight() + resolvedVersion.textWeight()
+    baseline.textWeight() + resolvedVersion.textWeight() + (sourceId?.let { it.file.textWeight() + it.location.textWeight() } ?: 0)
 private fun BuildFingerprint.weight(): Long = configuration.textWeight() +
     files.entries.sumOf { 1 + it.key.textWeight() + it.value.textWeight() }
 private fun BuildSnapshot.weight(): Long = 1 + sourceFile.textWeight() + fingerprint.weight() +
-    (inspectionFingerprint?.weight() ?: 0) + coverageDescription.textWeight() + declarations.sumOf { it.weight() }
+    (inspectionFingerprint?.weight() ?: 0) + coverageDescription.textWeight() + declarations.sumOf { it.weight() } +
+    skippedDeclarations.entries.sumOf { 1 + it.key.file.textWeight() + it.key.location.textWeight() + it.value.textWeight() }
 private fun UpdateCandidate.weight(): Long = 1 + declaration.weight() + version.textWeight() + replacementSelector.textWeight()
 private fun UpdateNotice.weight(): Long = 1 + declaration.weight() + message.textWeight()
-private fun UpdateReport.weight(): Long = 1 + candidates.sumOf { it.weight() } + notices.sumOf { it.weight() } + failure.textWeight()
+private fun UpdateReport.weight(): Long = 1 + candidates.sumOf { it.weight() } + notices.sumOf { it.weight() } + failure.textWeight() + coverage.orEmpty().entries.sumOf { it.weight() }
+
+private fun coverageWeight(id: DeclarationId, coverage: DeclarationCoverage): Long =
+    1 + id.file.textWeight() + id.location.textWeight() + coverage.reason.textWeight()
+private fun Map.Entry<DeclarationId, DeclarationCoverage>.weight(): Long = coverageWeight(key, value)

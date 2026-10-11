@@ -51,15 +51,20 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         }
         val fingerprint = fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace, external) }
         return BuildSnapshot(BuildContextId(id, workspace.root.path, file.path), file.path,
-            fingerprint, declarations, NpmBuildInputs.inspectionFingerprint(workspace, fingerprint))
+            fingerprint, declarations, NpmBuildInputs.inspectionFingerprint(workspace, fingerprint),
+            skippedDeclarations = declarations.filter { it.baseline.isEmpty() }.associate {
+                it.id to (NpmManifest.reviewReason(it) ?: "Unsupported npm selector needs manual review.")
+            })
     }
     override fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot): UpdateReport? {
         if (previous.context != current.context || previous.inspectionFingerprint == null ||
             previous.inspectionFingerprint != current.inspectionFingerprint) return null
         val declarations = current.declarations.toSet()
+        val unchangedIds = declarations.intersect(previous.declarations.toSet()).map { it.id }.toSet()
         return report.copy(
             candidates = report.candidates.filter { it.declaration in declarations },
-            notices = report.notices.filter { it.declaration in declarations }
+            notices = report.notices.filter { it.declaration in declarations },
+            coverage = report.coverage?.filterKeys { it in unchangedIds }
         )
     }
     override fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean {

@@ -87,12 +87,14 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         if (phase != null) {
             val counts = result?.let { Triple(presentation.count(it.report), it.report.notices.size, it.expiresAtNanos) }
                 ?: cache.inspectionProgressCounts(snapshot, presentation.candidateFilter)
-            return VersionCheckStatus(phase, counts?.first ?: 0, counts?.second ?: 0, counts?.third)
+            return VersionCheckStatus(phase, counts?.first ?: 0, counts?.second ?: 0, counts?.third,
+                coverage = cache.inspectionProgressCoverage(snapshot, presentation.candidateFilter))
         }
         if (result != null) return VersionCheckStatus(if (!result.report.successful) CheckPhase.FAILED else
             if (snapshot.coverageDescription != null) CheckPhase.PARTIAL else CheckPhase.CHECKED,
             presentation.count(result.report), result.report.notices.size, result.expiresAtNanos, snapshot.coverageDescription,
-            (result.report.failureCause as? VersionCheckFailureAdvice)?.recoveryMessage)
+            (result.report.failureCause as? VersionCheckFailureAdvice)?.recoveryMessage,
+            presentation.coverageSummary(result.report, snapshot))
         return VersionCheckStatus(CheckPhase.UNCHECKED)
     }
 
@@ -453,8 +455,12 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             throw cancelled
         } catch (failure: Exception) {
             log.warn("${adapter.displayName} version check failed for ${snapshot.sourceFile}", failure)
+            val completedCoverage = cache.inspectionProgress(adapter, snapshot)?.coverage.orEmpty()
             if (cache.put(snapshot, token.revision, UpdateReport(failure = failure.message ?: failure.javaClass.simpleName,
-                    failureCause = failure))) {
+                    failureCause = failure, coverage = snapshot.skippedCoverage() + snapshot.declarations.filter {
+                        it.id !in snapshot.skippedDeclarations
+                    }.associate { it.id to (completedCoverage[it.id]
+                        ?: DeclarationCoverage(DeclarationOutcome.FAILED, "Check stopped before a usable result was obtained.")) }))) {
                 published = true
                 recordFailure(adapter, snapshot, failure.message ?: failure.javaClass.simpleName, failure, failures)
             }

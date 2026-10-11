@@ -18,7 +18,8 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.server.MavenDistributionsCache
 
 internal data class MavenLookupDelta(val coordinates: Set<DependencyVersion>, val updates: Map<DependencyVersion, String>,
-                                     val failures: List<Exception>, val validUntil: Long?, val checkedAtNanos: Long? = null)
+                                     val failures: List<Exception>, val validUntil: Long?, val checkedAtNanos: Long? = null,
+                                     val failedCoordinates: Set<DependencyVersion> = emptySet())
 
 /** Explicit coordinates are resolved once per context; every baseline/mode is selected locally. */
 internal object MavenBatchedLookup {
@@ -52,6 +53,7 @@ internal object MavenBatchedLookup {
             remaining.filter { !it.plugin }.chunked(128) + remaining.filter { it.plugin }.chunked(128)
         val updates = linkedMapOf<DependencyVersion, String>()
         val failures = mutableListOf<Exception>()
+        val failedCoordinates = linkedSetOf<DependencyVersion>()
         var expires: Long? = null
         var checkedAt: Long? = null
         val session = currentCoroutineContext()[MavenScanSession]
@@ -72,6 +74,7 @@ internal object MavenBatchedLookup {
             val result = load(batch)
             val deltaUpdates = linkedMapOf<DependencyVersion, String>()
             val deltaFailures = mutableListOf<Exception>()
+            val deltaFailedCoordinates = linkedSetOf<DependencyVersion>()
             var deltaExpires: Long? = null
             var deltaCheckedAt: Long? = null
             fun observed(lease: MavenMetadataLease) {
@@ -87,7 +90,10 @@ internal object MavenBatchedLookup {
                             ?.let { deltaUpdates[coordinate] = it }
                         else plugins[coordinate] = ArrayDeque(lease.value.versionIndex.eligible(coordinate.version, mode))
                     }
-                }, { failure -> deltaFailures += failure as? Exception ?: Exception(failure) })
+                }, { failure ->
+                    deltaFailures += failure as? Exception ?: Exception(failure)
+                    deltaFailedCoordinates += keys.getValue(key)
+                })
             }
             // Validate only promising plugin POMs. Descend when a candidate requires newer Maven.
             while (plugins.values.any { it.isNotEmpty() }) {
@@ -111,17 +117,20 @@ internal object MavenBatchedLookup {
                         }
                     }, { failure ->
                         deltaFailures += failure as? Exception ?: Exception(failure)
+                        deltaFailedCoordinates += coordinate
                         iterator.remove()
                     })
                 }
             }
-            val delta = MavenLookupDelta(batch.flatMap { keys.getValue(it) }.toSet(), deltaUpdates, deltaFailures, deltaExpires, deltaCheckedAt)
+            val delta = MavenLookupDelta(batch.flatMap { keys.getValue(it) }.toSet(), deltaUpdates, deltaFailures,
+                deltaExpires, deltaCheckedAt, deltaFailedCoordinates)
             updates.putAll(deltaUpdates); failures += deltaFailures
+            failedCoordinates += deltaFailedCoordinates
             deltaExpires?.let { expires = minOf(expires ?: Long.MAX_VALUE, it) }
             deltaCheckedAt?.let { checkedAt = minOf(checkedAt ?: Long.MAX_VALUE, it) }
             publish?.invoke(delta)
         }
-        return MavenLookupDelta(coordinates.toSet(), updates, failures, expires, checkedAt)
+        return MavenLookupDelta(coordinates.toSet(), updates, failures, expires, checkedAt, failedCoordinates)
     }
 
     internal fun eligible(versions: List<String>, current: String, mode: UpdateMode): List<String> =

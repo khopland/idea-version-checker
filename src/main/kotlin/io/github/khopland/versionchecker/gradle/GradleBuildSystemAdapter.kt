@@ -127,8 +127,11 @@ internal class GradleBuildSystemAdapter(
         val inspectionFingerprint = inspectionFingerprints.getOrPut(root) {
             fingerprint.copy(files = fingerprint.files + project.service<GradleProjectCache>().inspectionHashes(root, files(project, root)))
         }
+        val parsed = GradleDeclarations.parse(file.path, psi.text)
         return BuildSnapshot(BuildContextId(id, root, file.path), file.path, fingerprint,
-            GradleDeclarations.parse(file.path, psi.text).map { it.declaration }, inspectionFingerprint)
+            parsed.map { it.declaration }, inspectionFingerprint, skippedDeclarations = parsed.filter {
+                it.declaration.baseline.isEmpty()
+            }.associate { it.declaration.id to (it.reason ?: "Unsupported Gradle version selector needs manual review.") })
     }
 
     override fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot): UpdateReport? {
@@ -144,6 +147,9 @@ internal class GradleBuildSystemAdapter(
             },
             notices = report.notices.mapNotNull { notice ->
                 declarations[notice.declaration]?.let { notice.copy(declaration = it) }
+            },
+            coverage = report.coverage?.let { outcomes ->
+                declarations.mapNotNull { (old, new) -> outcomes[old.id]?.let { new.id to it } }.toMap() + current.skippedCoverage()
             }
         )
     }
@@ -238,7 +244,20 @@ internal class GradleBuildSystemAdapter(
             } ?: results[declaration.id.location]?.reason?.let {
                 UpdateNotice(declaration, NoticeKind.MANUAL_REVIEW, it)
             }
-        }, validUntilNanos = checked.expiresAtNanos, checkedAtNanos = checked.checkedAtNanos)
+        }, validUntilNanos = checked.expiresAtNanos, checkedAtNanos = checked.checkedAtNanos,
+            coverage = snapshot.declarations.associate { declaration ->
+                val result = results[declaration.id.location]
+                declaration.id to when {
+                    declaration.baseline.isEmpty() -> DeclarationCoverage(DeclarationOutcome.SKIPPED,
+                        snapshot.skippedDeclarations[declaration.id] ?: "Unsupported Gradle version selector needs manual review.")
+                    "${declaration.artifact.namespace}:${declaration.artifact.name}" in policy -> DeclarationCoverage(
+                        DeclarationOutcome.MANUAL_REVIEW, "Artifact is explicitly marked deprecated; review its replacement.")
+                    result?.reason != null -> DeclarationCoverage(DeclarationOutcome.MANUAL_REVIEW, result.reason)
+                    result == null -> DeclarationCoverage(DeclarationOutcome.SKIPPED,
+                        "Native Gradle task returned no result for this declaration.")
+                    else -> DeclarationCoverage(DeclarationOutcome.CHECKED)
+                }
+            } + snapshot.skippedCoverage())
     }
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = withExternalInputs(project) { external ->
         check(areCurrent(project, reports.keys, external)) { "Gradle build files or settings changed. Run the check again." }
@@ -260,6 +279,9 @@ internal class GradleBuildSystemAdapter(
                 }
             }
             skipped += report.notices.map { "${it.declaration.id.file}: ${it.message}" }
+            skipped += report.coverage.orEmpty().filter { (id, result) ->
+                result.outcome == DeclarationOutcome.SKIPPED && id !in snapshot.skippedDeclarations
+            }.map { (id, result) -> "${id.file}: ${id.location}: ${result.reason}" }
         }
         BulkUpdatePlan(edits.sortedByDescending { (it as GradleVersionEdit).range.startOffset }, skipped, { areCurrent(project, reports.keys) }, if (edits.isEmpty()) emptyList() else listOf("Reload the Gradle project in IntelliJ after updating versions. Update dependency locks yourself if the build uses locking."))
     }

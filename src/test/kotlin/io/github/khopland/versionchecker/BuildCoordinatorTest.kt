@@ -654,4 +654,64 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertEquals(listOf(first.virtualFile.path to UpdateMode.PATCH), calls)
         assertEquals(listOf("Needs package-manager lockfile preparation"), plan.skipped)
     }
+    fun testStatusAndPreviewCoverageShareIgnorePolicyWithoutAnotherNativeQuery() {
+        val file = myFixture.addFileToProject("coverage/build.txt", "1.0")
+        val native = TestAdapter("npm", file)
+        val adapter = object : BuildSystemAdapter by native {
+            override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) =
+                native.check(project, snapshot, mode).copy(coverage = snapshot.declarations.associate {
+                    it.id to DeclarationCoverage(DeclarationOutcome.CHECKED)
+                })
+            override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>) =
+                native.prepareUpdates(project, reports).let { plan ->
+                    if (reports.values.all { it.candidates.isEmpty() }) plan.copy(changes = emptyList()) else plan
+                }
+        }
+        val settings = project.service<VersionCheckerSettings>().state
+        val original = settings.ignoredVersions
+        val service = project.service<VersionCheckService>()
+        fun prepare() = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+            runBlocking { project.service<BulkUpdateService>().preparePreview(UpdateMode.MAJOR, UpdateScope.CURRENT_FILE,
+                file.virtualFile, listOf(adapter), false) }
+        }), 10_000)
+        try {
+            settings.ignoredVersions = "npm library = 1.1"
+            val ignored = prepare()
+            val snapshot = adapter.snapshot(project, file.virtualFile)!!
+            assertTrue(ignored.plan.changes.isEmpty())
+            assertEquals(CoverageSummary(checked = 1, ignored = 1), ignored.coverage)
+            assertEquals(ignored.coverage, service.status(adapter, snapshot).coverage)
+            assertEquals(0, service.status(adapter, snapshot).updates)
+            settings.ignoredVersions = ""
+            val restored = prepare()
+            assertEquals(CoverageSummary(checked = 1), restored.coverage)
+            assertEquals(restored.coverage, service.status(adapter, snapshot).coverage)
+            assertEquals(1, restored.plan.changes.size)
+            assertEquals(1, native.checked.size)
+        } finally { settings.ignoredVersions = original }
+    }
+
+    fun testWholeProjectCoverageCountsSharedPhysicalDeclarationsOnceAndKeepsUnknownTotalsUnknown() {
+        val file = myFixture.addFileToProject("shared-coverage/build.txt", "1.0")
+        val native = TestAdapter("shared-coverage", file)
+        val child = native.snapshot(project, file.virtualFile)!!
+        val parent = child.copy(context = child.context.copy(resolutionId = "shared-owner"),
+            declarations = child.declarations.map { it.copy(id = it.id.copy(location = "shared-owner"), sourceId = it.id) })
+        val adapter = object : BuildSystemAdapter by native {
+            override suspend fun discover(project: Project, selection: BuildSelection) = listOf(parent, child)
+            override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) = UpdateReport(
+                coverage = snapshot.declarations.associate { it.id to DeclarationCoverage(DeclarationOutcome.CHECKED) })
+            override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>) = BulkUpdatePlan(emptyList(), emptyList())
+        }
+        fun prepare(adapters: List<BuildSystemAdapter>) = PlatformTestUtil.waitForFuture(
+            ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { project.service<BulkUpdateService>().preparePreview(UpdateMode.MAJOR, UpdateScope.WHOLE_PROJECT,
+                    null, adapters, false) }
+            }), 10_000)
+        assertEquals(CoverageSummary(checked = 1), prepare(listOf(adapter)).coverage)
+        val unknown = TestAdapter("unknown-coverage", file)
+        assertNull("A legacy provider must not silently turn unknown coverage into a complete total",
+            prepare(listOf(adapter, unknown)).coverage)
+    }
+
 }

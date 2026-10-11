@@ -289,4 +289,27 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             assertNull(dialog.applyInteraction)
         } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
+    fun testEmptyReviewDistinguishesCompletedChecksFromUnsupportedDeclarations() {
+        val empty = BulkUpdatePlan(emptyList(), listOf("Unsupported selectors"))
+        val dialog = dialog(empty)
+        fun labels(container: Container): List<String> = container.components.flatMap {
+            when (it) { is javax.swing.JLabel -> listOf(it.text.orEmpty()); is Container -> labels(it); else -> emptyList() }
+        }
+        try {
+            dialog.configure(PreparedVersionPreview(empty, System.nanoTime(), 0, 1,
+                io.github.khopland.versionchecker.core.CoverageSummary(checked = 24)), true)
+            assertEquals("Recognized declarations: 24 checked", dialog.coverageLabel.text)
+            assertTrue(dialog.coverageLabel.isVisible)
+            assertTrue(labels(dialog.createCenterPanel()).any { it.startsWith("No automatic updates available") })
+            dialog.replacePrepared(PreparedVersionPreview(empty, System.nanoTime(), 0, 1,
+                io.github.khopland.versionchecker.core.CoverageSummary(skipped = 8)), UpdateMode.PATCH,
+                UpdateScope.WHOLE_PROJECT, "Test", true, false)
+            assertEquals("Recognized declarations: 0 checked · 8 skipped", dialog.coverageLabel.text)
+            assertTrue(labels(dialog.createCenterPanel()).any { it.startsWith("No declarations were checked") })
+            dialog.onRecheckRequested = { _, _, _, _ -> }
+            dialog.refreshAction.actionPerformed(ActionEvent(dialog, 0, "Refresh"))
+            assertFalse("Previous coverage must not masquerade as completion of a pending refresh", dialog.coverageLabel.isVisible)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
 }

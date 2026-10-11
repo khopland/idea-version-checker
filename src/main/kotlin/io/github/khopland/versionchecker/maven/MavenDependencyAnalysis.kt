@@ -117,6 +117,23 @@ internal class MavenDependencyAnalysis(
         return DependencyVersion(resolvedGroup, resolvedArtifact, current, artifactKind)
     }
 
+    /** Called only for recognized forms that coordinate() excluded; no extra native lookup. */
+    fun skippedReason(tag: XmlTag): String? {
+        if (!isProjectDependency(tag) && !isProjectPlugin(tag) && !isProjectParent(tag)) return null
+        if (generateSequence(tag.parentTag) { it.parentTag }.any {
+                it.localName == "profile" && it.findFirstSubTag("id")?.value?.trimmedText !in
+                    mavenProject.activatedProfilesIds.enabledProfiles
+            }) return "Inactive Maven profile is outside the imported resolution context."
+        if (isProjectParent(tag)) {
+            val group = tag.findFirstSubTag("groupId")?.value?.trimmedText
+            val artifact = tag.findFirstSubTag("artifactId")?.value?.trimmedText
+            if (MavenProjectsManager.getInstance(tag.project).projects.any {
+                    it.mavenId.groupId == group && it.mavenId.artifactId == artifact
+                }) return "Reactor parent is versioned with this workspace."
+        }
+        return "Missing, unresolved or non-fixed Maven coordinates/version need manual review."
+    }
+
     private fun parentCoordinate(tag: XmlTag): DependencyVersion? {
         val group = tag.findFirstSubTag("groupId")?.value?.trimmedText ?: return null
         val artifact = tag.findFirstSubTag("artifactId")?.value?.trimmedText ?: return null

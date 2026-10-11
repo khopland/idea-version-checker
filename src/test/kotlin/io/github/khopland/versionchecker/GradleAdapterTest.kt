@@ -343,4 +343,23 @@ class GradleAdapterTest : BasePlatformTestCase() {
         linked.gradleHome = null
         assertTrue(adapter.isCurrent(project, original))
     }
+    fun testUnsupportedGradleVersionsReportZeroChecksAndKeepTheirReviewReasons() {
+        val file = myFixture.addFileToProject("gradle-project/build.gradle", """
+            dependencies {
+                implementation 'g:alpha:1.+'
+                implementation 'g:beta:latest.release'
+            }
+        """.trimIndent())
+        link()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        assertEquals(2, snapshot.skippedDeclarations.size)
+        val report = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+            runBlocking { adapter.check(project, snapshot, UpdateMode.MAJOR) }
+        }), 10_000)
+        assertEquals(CoverageSummary(skipped = 2), report.coverageSummary(snapshot))
+        assertTrue(report.candidates.isEmpty())
+        assertTrue(report.coverage!!.values.all { it.reason!!.contains("manual review") })
+        assertEquals(2, plan(snapshot, report).skipped.size)
+    }
+
 }

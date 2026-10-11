@@ -61,7 +61,11 @@ internal object MavenPlatformScope {
                 tag.findFirstSubTag("version") != null && (!managed(tag) || uncertain || (coordinate.groupId to coordinate.artifactId) in inherited)
             } == true
         }.sortedByDescending { it.coordinate() in platforms }
+        val selectedIds = selected.map { it.id }.toSet()
         return snapshot.copy(context = snapshot.context.copy(resolutionId = snapshot.context.resolutionId + SUFFIX), declarations = selected,
+            skippedDeclarations = snapshot.skippedDeclarations + snapshot.declarations.filter { it.id !in selectedIds }.associate {
+                it.id to "Maven platform scope omits this declaration; use Current File or Whole Project for a full audit."
+            },
             coverageDescription = "Maven platform scope checks ${selected.size} of ${snapshot.declarations.size} supported declarations: platform versions and explicit overrides. Use Current File or Whole Project for a full audit.")
     }
 

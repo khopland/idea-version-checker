@@ -439,4 +439,56 @@ class VersionResultCacheTest {
         assertFalse(cache.isCurrent(snapshot.context, UpdateMode.MAJOR, prepared))
         assertEquals("3.0", cache.inspectionProgress(presentationAdapter, snapshot)!!.candidates.single().version)
     }
+    @Test fun `partial coverage counts only fresh completions while retaining older hints`() {
+        val cache = VersionResultCache()
+        val base = snapshot("npm")
+        val declarations = (1..3).map { index -> base.declarations.single().copy(
+            id = DeclarationId(base.sourceFile, "dependency-$index"), artifact = ArtifactId("npm", "dependency-$index")) }
+        val skipped = DeclarationId(base.sourceFile, "peer")
+        val previous = base.copy(declarations = declarations, skippedDeclarations = mapOf(skipped to "Peer compatibility"))
+        cache.put(previous, cache.begin(previous), UpdateReport(declarations.map { UpdateCandidate(it, "2.0") },
+            coverage = declarations.associate { it.id to DeclarationCoverage(DeclarationOutcome.CHECKED) } + previous.skippedCoverage()))
+        val changed = previous.copy(fingerprint = previous.fingerprint.copy(configuration = "changed"))
+        val owner = Any(); val revision = cache.begin(changed)
+        fun publish(index: Int, outcome: DeclarationOutcome, candidate: Boolean = false) {
+            val declaration = declarations[index]
+            assertTrue(cache.putProgress(presentationAdapter, changed, revision, owner, InspectionUpdate(UpdateReport(
+                candidates = if (candidate) listOf(UpdateCandidate(declaration, "2.0")) else emptyList(),
+                coverage = mapOf(declaration.id to DeclarationCoverage(outcome))), setOf(declaration.id))))
+        }
+        publish(0, DeclarationOutcome.CHECKED)
+        assertEquals(2, cache.inspectionProgress(presentationAdapter, changed)!!.candidates.size)
+        val hidden = VersionPresentationPolicy("npm", "npm dependency-2 = 2.0\nnpm dependency-3 = 2.0")
+        assertEquals(CoverageSummary(checked = 1, skipped = 1, pending = 2),
+            cache.inspectionProgressCoverage(changed, hidden.candidateFilter))
+        publish(1, DeclarationOutcome.FAILED)
+        assertEquals(CoverageSummary(checked = 1, skipped = 1, failed = 1, pending = 1), cache.inspectionProgressCoverage(changed))
+        publish(2, DeclarationOutcome.CHECKED, candidate = true)
+        assertEquals(CoverageSummary(checked = 2, skipped = 1, failed = 1, ignored = 1),
+            cache.inspectionProgressCoverage(changed, hidden.candidateFilter))
+        assertEquals(cache.inspectionProgressCoverage(changed, hidden.candidateFilter),
+            hidden.filter(cache.inspectionProgress(presentationAdapter, changed)!!).coverageSummary(changed))
+    }
+
+    @Test fun `coverage reasons and excluded declarations participate in complete and partial payload budgets`() {
+        val base = snapshot("npm")
+        val huge = mapOf(base.declarations.single().id to DeclarationCoverage(DeclarationOutcome.SKIPPED, "reason".repeat(10_000)))
+        val cache = VersionResultCache(VersionResultCache.Limits(payloadUnits = 100))
+        assertFalse(cache.put(base, cache.begin(base), UpdateReport(coverage = huge)))
+        assertEquals(0, cache.retention().results)
+        assertFalse(cache.putProgress(presentationAdapter, base, cache.begin(base), Any(),
+            InspectionUpdate(UpdateReport(coverage = huge), huge.keys)))
+        assertEquals(0, cache.retention().progress)
+        val excluded = base.copy(skippedDeclarations = huge.mapValues { it.value.reason!! })
+        assertFalse(cache.put(excluded, cache.begin(excluded), UpdateReport()))
+        assertEquals(0L, cache.retention().payloadUnits)
+    }
+
+    @Test fun `changed exclusion coverage cannot reuse an otherwise matching complete result`() {
+        val cache = VersionResultCache()
+        val base = snapshot("maven")
+        cache.put(base, cache.begin(base), UpdateReport())
+        assertNull(cache.get(base.copy(skippedDeclarations = mapOf(DeclarationId(base.sourceFile, "inactive-profile") to "Inactive profile"))))
+    }
+
 }

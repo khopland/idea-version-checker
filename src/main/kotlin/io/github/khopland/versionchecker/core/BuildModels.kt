@@ -14,9 +14,11 @@ internal data class AdapterCapabilities(
 )
 internal data class BuildContextId(val adapterId: String, val root: String, val resolutionId: String)
 internal data class DeclarationId(val file: String, val location: String)
-internal data class VersionDeclaration(
+internal data class VersionDeclaration @JvmOverloads constructor(
     val id: DeclarationId, val artifact: ArtifactId,
-    val selector: String, val baseline: String, val resolvedVersion: String? = null
+    val selector: String, val baseline: String, val resolvedVersion: String? = null,
+    /** Physical declaration behind an additional shared-owner check, for project-wide coverage. */
+    val sourceId: DeclarationId? = null
 )
 internal data class BuildFingerprint(val files: Map<String, String>, val configuration: String)
 internal data class BuildSnapshot(
@@ -25,7 +27,9 @@ internal data class BuildSnapshot(
     /** Optional configuration identity for retaining inspection warnings across declaration edits. */
     val inspectionFingerprint: BuildFingerprint? = null,
     /** A deliberately narrower inspection scope cannot masquerade as a full audit. */
-    val coverageDescription: String? = null
+    val coverageDescription: String? = null,
+    /** Recognized declarations excluded before native resolution, including narrower scopes. */
+    val skippedDeclarations: Map<DeclarationId, String> = emptyMap()
 )
 internal enum class VersionChangeKind { PATCH, MINOR, MAJOR, OTHER, DEPRECATED }
 internal data class UpdateCandidate(
@@ -46,7 +50,9 @@ internal data class UpdateReport(
     /** Original metadata observation, including reuse; deriving a result cannot make it younger. */
     val checkedAtNanos: Long? = null,
     /** Presentation-only authorization. Providers return raw metadata; inspection views attach a lease. */
-    val lease: VersionResultLease? = null
+    val lease: VersionResultLease? = null,
+    /** Null means unreported coverage; an empty map is an explicit zero, never a guessed success. */
+    val coverage: Map<DeclarationId, DeclarationCoverage>? = null
 ) {
     val successful: Boolean get() = failure == null
 }

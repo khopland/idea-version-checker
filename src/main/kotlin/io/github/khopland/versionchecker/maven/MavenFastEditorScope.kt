@@ -43,7 +43,11 @@ internal object MavenFastEditorScope {
                 tag.findFirstSubTag("version")?.value?.trimmedText?.let(::versionPropertyName) != null
         }
         if (selected.size == snapshot.declarations.size) return snapshot
+        val selectedIds = selected.map { it.id }.toSet()
         return snapshot.copy(declarations = selected,
+            skippedDeclarations = snapshot.skippedDeclarations + snapshot.declarations.filter { it.id !in selectedIds }.associate {
+                it.id to "Fast Maven scope omits unused local management entries."
+            },
             coverageDescription = "Fast Maven scope checks ${selected.size} of ${snapshot.declarations.size} supported declarations. Unused local management entries are omitted.")
     }
 

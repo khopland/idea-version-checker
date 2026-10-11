@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker
 
 import com.intellij.util.messages.Topic
+import io.github.khopland.versionchecker.core.CoverageSummary
 
 /** Presentation events contain no repository data and never request a native check. */
 internal fun interface VersionCheckStatusListener {
@@ -22,6 +23,7 @@ internal data class VersionCheckStatus(
     val expiresAtNanos: Long? = null,
     val coverageDescription: String? = null,
     val recoveryMessage: String? = null,
+    val coverage: CoverageSummary? = null,
 ) {
     val text: String get() = "Versions: " + when (phase) {
         CheckPhase.UNCHECKED -> "unchecked"
@@ -30,6 +32,7 @@ internal data class VersionCheckStatus(
         CheckPhase.CHECKED -> when {
             updates > 0 -> "$updates updates"
             notices > 0 -> "needs review"
+            coverage != null && coverage.checked == 0 && (coverage.skipped > 0 || coverage.review > 0) -> "needs review"
             else -> "checked"
         }
         CheckPhase.FAILED -> "retry"
@@ -41,11 +44,12 @@ internal data class VersionCheckStatus(
         CheckPhase.UNAVAILABLE -> "unavailable"
     }
 
-    val tooltip: String get() = when (phase) {
+    val tooltip: String get() = (when (phase) {
         CheckPhase.UNCHECKED -> "This file has no current complete result. Refresh Current File to check."
         CheckPhase.QUEUED -> "This file is waiting for another native version check to finish."
         CheckPhase.CHECKING -> "Checking this file. Early hints may appear before every declaration is checked."
-        CheckPhase.CHECKED -> "Checked the supported declarations in this file. $updates updates and $notices notices. Click to review or refresh."
+        CheckPhase.CHECKED -> (if (coverage == null) "Checked the supported declarations in this file." else "Version check finished.") +
+            " $updates updates and $notices notices. Click to review or refresh."
         CheckPhase.FAILED -> recoveryMessage?.let { "$it Refresh Current File to retry." }
             ?: "The check did not finish successfully. Check repository authentication and configuration, then Refresh Current File to retry."
         CheckPhase.PARTIAL -> "$coverageDescription Refresh Current File or Review Dependency Updates for a full audit."
@@ -54,5 +58,5 @@ internal data class VersionCheckStatus(
         CheckPhase.PAUSED -> "Version checks are disabled in Settings → Tools → Version Checker."
         CheckPhase.INDEXING -> "Waiting for IDEA indexing to finish."
         CheckPhase.UNAVAILABLE -> "Build information is unavailable. Import or reload the project, then Refresh Current File."
-    }
+    }) + (coverage?.let { " Recognized declarations: ${it.description}." } ?: "")
 }

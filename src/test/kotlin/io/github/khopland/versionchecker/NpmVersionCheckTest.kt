@@ -185,4 +185,34 @@ class NpmVersionCheckTest {
         assertTrue(failure is com.intellij.openapi.progress.ProcessCanceledException)
         assertFalse(published)
     }
+    @Test fun `coverage reports aliases skipped forms explicit policy and failed packages without inventing checks`() = runBlocking {
+        val declarations = listOf(declaration("alpha"), declaration("alias", "npm:alpha@~1.0.0"),
+            declaration("local", "file:../local").copy(baseline = ""),
+            declaration("peer", location = "peerDependencies/peer").copy(baseline = ""),
+            declaration("retired"), declaration("failed"))
+        val queried = mutableListOf<String>()
+        val deltas = mutableListOf<InspectionUpdate>()
+        val report = checkNpmVersions(declarations, UpdateMode.MAJOR, mapOf("retired" to "Replace it"), Semaphore(4),
+            metadata = { name -> queried += name; if (name == "failed") throw NpmViewFailure("E401", "private native cause")
+                NpmPackageMetadata(listOf("1.0.0"), emptyMap()) }, deprecated = { _, _ -> error("Unexpected lookup") },
+            publish = { deltas += it })
+        assertEquals(setOf("alpha", "failed"), queried.toSet())
+        assertEquals(2, queried.size)
+        assertTrue(report.candidates.isEmpty())
+        assertEquals(CoverageSummary(checked = 2, skipped = 2, review = 1, failed = 1), report.coverageSummary())
+        assertEquals(declarations.map { it.id }.toSet(), report.coverage!!.keys)
+        assertEquals(DeclarationOutcome.SKIPPED, deltas.first().report.coverage!!.getValue(declarations[2].id).outcome)
+        assertEquals("peer compatibility requires manual review", report.coverage.getValue(declarations[3].id).reason)
+        assertFalse(report.coverage.getValue(declarations.last().id).reason!!.contains("private native cause"))
+        assertEquals(report.coverage, deltas.flatMap { it.report.coverage!!.entries }.associate { it.key to it.value })
+    }
+
+    @Test fun `an entirely unsupported npm file has explicit zero checks and no metadata queries`() = runBlocking {
+        val declarations = (1..8).map { declaration("local-$it", "workspace:*").copy(baseline = "") }
+        val report = checkNpmVersions(declarations, UpdateMode.MAJOR, emptyMap(), Semaphore(4),
+            metadata = { error("Unsupported declarations must not query npm") }, deprecated = { _, _ -> error("Unexpected lookup") })
+        assertTrue(report.successful)
+        assertEquals(CoverageSummary(skipped = 8), report.coverageSummary())
+    }
+
 }

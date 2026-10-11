@@ -31,6 +31,10 @@ internal suspend fun checkNpmVersions(
         val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector) ?: return@mapNotNull null
         NpmUsage(declaration, baseline, selector)
     }.groupBy { it.selector.packageName }
+    val supported = packages.values.flatten().map { it.declaration.id }.toSet()
+    val skipped = declarations.filter { it.id !in supported }.associate { it.id to
+        DeclarationCoverage(DeclarationOutcome.SKIPPED, NpmManifest.reviewReason(it) ?: "Unsupported npm selector needs manual review.") }
+    if (skipped.isNotEmpty()) publish(InspectionUpdate(UpdateReport(coverage = skipped), skipped.keys))
     val reports = packages.map { (name, usages) ->
         async {
             val report = try {
@@ -42,7 +46,9 @@ internal suspend fun checkNpmVersions(
             } catch (cancelled: ProcessCanceledException) {
                 throw cancelled
             } catch (failure: Exception) {
-                UpdateReport(failure = "$name: ${failure.message ?: failure.javaClass.simpleName}", failureCause = failure)
+                UpdateReport(failure = "$name: ${failure.message ?: failure.javaClass.simpleName}", failureCause = failure,
+                    coverage = usages.associate { it.declaration.id to DeclarationCoverage(DeclarationOutcome.FAILED,
+                        (failure as? VersionCheckFailureAdvice)?.recoveryMessage ?: "Native npm metadata check failed.") })
             }
             publish(InspectionUpdate(report, usages.map { it.declaration.id }.toSet()))
             report
@@ -53,7 +59,8 @@ internal suspend fun checkNpmVersions(
         candidates = reports.flatMap { it.candidates }.sortedBy { order[it.declaration.id] },
         notices = reports.flatMap { it.notices }.sortedBy { order[it.declaration.id] },
         failure = reports.mapNotNull { it.failure }.takeIf { it.isNotEmpty() }?.joinToString("\n"),
-        failureCause = reports.firstNotNullOfOrNull { it.failureCause })
+        failureCause = reports.firstNotNullOfOrNull { it.failureCause },
+        coverage = skipped + reports.flatMap { it.coverage.orEmpty().entries }.associate { it.key to it.value })
 }
 
 private suspend fun checkNpmPackage(
@@ -71,7 +78,9 @@ private suspend fun checkNpmPackage(
     )
 
     if (explicitDeprecation != null) {
-        return UpdateReport(notices = usages.map { deprecationNotice(it.declaration, explicitDeprecation) })
+        return UpdateReport(notices = usages.map { deprecationNotice(it.declaration, explicitDeprecation) },
+            coverage = usages.associate { it.declaration.id to DeclarationCoverage(DeclarationOutcome.MANUAL_REVIEW,
+                "Package is explicitly marked deprecated; review its replacement before checking versions.") })
     }
 
     val versions = metadata(name)
@@ -97,5 +106,7 @@ private suspend fun checkNpmPackage(
             break
         }
     }
-    return UpdateReport(candidates, notices)
+    return UpdateReport(candidates, notices, coverage = usages.associate {
+        it.declaration.id to DeclarationCoverage(DeclarationOutcome.CHECKED)
+    })
 }

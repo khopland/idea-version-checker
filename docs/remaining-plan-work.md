@@ -269,6 +269,41 @@ uses, no deprecated/scheduled-for-removal uses). The run took 3m 14s; log:
 `/tmp/version-checker-diagnostics-full.log`. A final focused run also checks paths
 containing spaces. Compatibility verdicts validate APIs, not native usability.
 
+## Explicit declaration coverage (F12)
+
+Provider reports now carry checked, skipped, manual-review and failed outcomes for
+each recognized declaration. Ignore filtering adds a presentation-only ignored
+outcome while retaining the raw report and original age. npm aliases still share
+metadata queries; explicit deprecation policies and local/peer/complex selectors
+are not counted as queried. Maven records inactive profiles, reactor parents and
+non-fixed/missing versions, plus fast/platform exclusions; native batch and fallback
+category failures identify affected declarations. Gradle records recognized
+unsupported forms and native manual-review outcomes without changing resolution.
+
+Status and prepared reviews share these outcomes. Empty reviews distinguish zero
+updates among completed checks from zero checked declarations with exclusions.
+Running coverage counts fresh completed units, pending units and known exclusions;
+retained hints do not count as completions of a new check. Whole-project coverage
+uses physical source identity to count shared Maven consumers once. Unreported
+provider coverage stays unknown rather than becoming a fabricated zero or total.
+Recognized unsupported inputs and reasons remain subject to result payload budgets.
+
+Counts cover recognized declarations in successfully discovered supported files;
+unparsed Gradle forms and wholly excluded managers/files are not a claimed audit.
+Native readability, screen-reader behavior and the remaining supported-IDE decision
+matrix still require acceptance.
+
+Full validation passed: **471 plugin tests in 67 classes**, zero failures/errors/
+skips, all native integration flags, packaging and project-configuration validation
+(1m 53s). All three IDEA verifier targets passed for the same production archive,
+with 10 existing experimental API uses and no deprecated/scheduled uses. Release
+and script suites passed **13 + 16 tests**. The Maven priority regression now checks
+the early exclusion publication separately from its native batches/session.
+Logs: `/tmp/version-checker-coverage-final-full.log`,
+`/tmp/version-checker-coverage-full.log` (verifier plus the corrected test failure),
+and `/tmp/version-checker-coverage-maven-priority.log`.
+Archive SHA-256: `92af330f135c3ce032b7f1f4d21eca08b610449ec13c8dc1cfa3676ce927e2f9`.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
@@ -282,7 +317,7 @@ containing spaces. Compatibility verdicts validate APIs, not native usability.
 2. **F09: move remaining external input reads off the EDT.** Save-path preparation now uses background discovery without fingerprinting; Gradle background discovery/validation/preview captures external disk inputs outside read locks. Background external capture is implemented for all three providers. Complete synchronous inspection/edit revalidation; keep fresh unsaved/external-input guards before apply and profile slow disks/large init trees.
 3. **F10: validate bounded state in native workloads.** Result/source/generation budgets, expiry cleanup and late-worker regressions are implemented. Complete native import/rename/unload and heap observations; the model soak establishes map bounds, not retained heap size.
 4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; report-level partial leases currently retire descriptors on every new partial observation.
-5. **F12: explicit coverage.** Track checked, ignored, unsupported and manual-review declarations so status, empty previews and partial/failure states share an honest explanation.
+5. **F12: native coverage acceptance.** Explicit provider outcomes, matching status/review counts, narrow-scope reasons, partial/failure totals and unknown-coverage handling are implemented. Validate readability/accessibility and document recognized-form limits; excluded managers and unparsed forms are not counted as an audit.
 6. **F13: native review acceptance.** Stable in-window refresh, compatible review choices, pending-plan rejection and source/diffs are implemented. Validate keyboard/focus, scrolling, diff windows and failed-scope recovery on the supported IDEs.
 7. **F14: native recovery acceptance.** In-window retry, npm preview/status guidance, sanitized displayed diagnostics and paused-plan guards are implemented. Complete the automatic/status and native failure matrix, including npm offline/configuration behavior, without weakening native provider semantics.
 

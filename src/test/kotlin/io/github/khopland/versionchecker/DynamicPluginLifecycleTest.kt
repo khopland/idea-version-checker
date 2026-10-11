@@ -142,8 +142,8 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         val fingerprintType = loader.loadClass("io.github.khopland.versionchecker.core.BuildFingerprint")
         val fingerprint = fingerprintType.constructors.single { it.parameterCount == 2 }.newInstance(emptyMap<String, String>(), "test")
         val snapshotType = loader.loadClass("io.github.khopland.versionchecker.core.BuildSnapshot")
-        val snapshot = snapshotType.constructors.single { it.parameterCount == 6 }
-            .newInstance(context, "test.build", fingerprint, emptyList<Any>(), null, null)
+        val snapshot = snapshotType.constructors.single { it.parameterCount == 7 }
+            .newInstance(context, "test.build", fingerprint, emptyList<Any>(), null, null, emptyMap<Any, Any>())
         val checks = service(plugin, "VersionCheckService")
         checks.javaClass.methods.single { it.name.startsWith("updates$") }.invoke(checks, adapter, snapshot)
         PlatformTestUtil.waitWithEventsDispatching("Check starts", { started.isCompleted }, 10)

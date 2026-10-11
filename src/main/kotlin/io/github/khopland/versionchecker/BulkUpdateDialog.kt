@@ -9,6 +9,7 @@ import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.*
 import com.intellij.ui.table.JBTable
 import io.github.khopland.versionchecker.core.UpdateScope
+import io.github.khopland.versionchecker.core.CoverageSummary
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
@@ -82,6 +83,8 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     private val sorter = TableRowSorter<VersionUpdateTableModel>(model)
     private val tableScroll = JBScrollPane(table)
     private val freshness = JBLabel()
+    internal val coverageLabel = JBLabel().apply { isVisible = false }
+    private var coverage: CoverageSummary? = null
     private val emptyMessage = JBLabel()
     private val reviewText = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
     private val reviewToggle = JBCheckBox()
@@ -178,6 +181,10 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             else -> " · some cached results"
         }
         freshness.text = "Results checked $age$cached"
+        coverage = prepared.coverage
+        coverageLabel.text = coverage?.let { "Recognized declarations: ${it.description}" }.orEmpty()
+        coverageLabel.isVisible = coverage != null
+        updatePlanDetails()
     }
 
     fun selectedPlan(): BulkUpdatePlan {
@@ -224,6 +231,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         if (isDisposed) return
         checking = false
         failed = true
+        coverageLabel.isVisible = false
         freshness.text = "$message Use Refresh to retry."
         updateSummary()
     }
@@ -251,6 +259,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             failed = false
             commitSelectors.forEach { it() }
             freshness.text = "Checking ${(scopeSelector.selectedItem as UpdateScope).label} · ${(modeSelector.selectedItem as UpdateMode).label}…"
+            coverageLabel.isVisible = false
             updateSummary()
             callback(modeSelector.selectedItem as UpdateMode, scopeSelector.selectedItem as UpdateScope, refreshRequested, recheckInteraction)
             refreshRequested = false
@@ -317,7 +326,12 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     }
 
     private fun updatePlanDetails() {
-        emptyMessage.text = if (plan.changes.isEmpty()) "No automatic updates available for ${preparedMode.label}." else
+        emptyMessage.text = if (plan.changes.isEmpty()) when {
+            coverage?.let { it.checked == 0 && (it.skipped > 0 || it.review > 0) } == true ->
+                "No declarations were checked. Review the skipped or unsupported items below."
+            coverage == CoverageSummary() -> "No recognized version declarations were found."
+            else -> "No automatic updates available for ${preparedMode.label}."
+        } else
             "Each shared property or catalog version is one change affecting all listed consumers."
         reviewText.text = plan.skipped.joinToString("\n")
         reviewToggle.text = "Needs review (${plan.skipped.size})"
@@ -339,7 +353,9 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             add(filter, BorderLayout.CENTER)
         }
         val header = JPanel(BorderLayout(0, 8)).apply {
-            add(controls, BorderLayout.NORTH); add(freshness, BorderLayout.CENTER); add(search, BorderLayout.SOUTH)
+            add(controls, BorderLayout.NORTH)
+            add(JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); add(freshness); add(coverageLabel) }, BorderLayout.CENTER)
+            add(search, BorderLayout.SOUTH)
         }
         val selectionButtons = JPanel(FlowLayout(FlowLayout.LEADING)).apply {
             add(JButton("Select visible").apply { mnemonic = 'V'.code; addActionListener {

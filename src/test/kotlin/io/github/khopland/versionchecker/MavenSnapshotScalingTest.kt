@@ -238,6 +238,8 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
             val fast = adapter.snapshot(project, platform.file)!!
             assertEquals(setOf("g:used", "g:platform-bom"), fast.declarations.map { it.artifact.name }.toSet())
             assertNotNull(fast.coverageDescription)
+            assertEquals(1, fast.skippedDeclarations.size)
+            assertTrue(fast.skippedDeclarations.values.single().contains("Fast Maven scope"))
             assertTrue(VersionCheckStatus(CheckPhase.PARTIAL, coverageDescription = fast.coverageDescription).text.contains("partial"))
             val full = background { adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, platform.file.path)) }.single()
             assertEquals(3, full.declarations.size)
@@ -492,4 +494,29 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
         WriteCommandAction.runWriteCommandAction(project) { document.setText(document.text.replace("dependency-100", "changed")) }
         assertFalse(adapter.areCurrent(project, listOf(selected)))
     }
+    fun testRecognizedInactiveDynamicAndReactorDeclarationsHaveExplicitSkipReasons() {
+        imported("coverage-parent", "")
+        val child = imported("coverage-child", """<parent><groupId>scaling</groupId><artifactId>coverage-parent</artifactId><version>1</version></parent>
+            <dependencies>
+            <dependency><groupId>g</groupId><artifactId>fixed</artifactId><version>1.0</version></dependency>
+            <dependency><groupId>g</groupId><artifactId>range</artifactId><version>[1,2)</version></dependency>
+            </dependencies>
+            <profiles><profile><id>inactive</id><dependencies><dependency><groupId>g</groupId><artifactId>inactive</artifactId><version>1.0</version></dependency>
+            </dependencies></profile></profiles>""")
+        val adapter = MavenBuildSystemAdapter()
+        val snapshot = adapter.snapshot(project, child.file)!!
+        assertEquals(listOf("g:fixed"), snapshot.declarations.map { it.artifact.name })
+        assertEquals(3, snapshot.skippedDeclarations.size)
+        assertTrue(snapshot.skippedDeclarations.values.any { it.contains("Reactor parent") })
+        assertTrue(snapshot.skippedDeclarations.values.any { it.contains("Inactive Maven profile") })
+        assertTrue(snapshot.skippedDeclarations.values.any { it.contains("non-fixed") })
+        val report = UpdateReport(coverage = snapshot.skippedCoverage() + snapshot.declarations.associate {
+            it.id to DeclarationCoverage(DeclarationOutcome.CHECKED)
+        })
+        assertEquals(CoverageSummary(checked = 1, skipped = 3), report.coverageSummary(snapshot))
+        val plan = background { adapter.prepareUpdates(project, mapOf(snapshot to report)) }
+        assertTrue(plan.changes.isEmpty())
+        assertEquals(3, plan.skipped.size)
+    }
+
 }

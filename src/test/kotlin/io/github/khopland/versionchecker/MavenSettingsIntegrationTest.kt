@@ -167,6 +167,13 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             var automaticSession: MavenScanSession? = null
             val fastReport = background {
                 adapter.checkIncrementally(project, fast, UpdateMode.MAJOR) { delta ->
+                    if (delta.report.coverage?.values?.all { it.outcome == DeclarationOutcome.SKIPPED } == true) {
+                        assertEquals("Excluded declarations are published before native work", fast.skippedDeclarations.keys,
+                            delta.completedDeclarations)
+                        assertEquals(CoverageSummary(skipped = 975), delta.report.coverageSummary())
+                        assertEquals(0, requests.size - fastBefore)
+                        return@checkIncrementally
+                    }
                     val session = currentCoroutineContext()[MavenScanSession]
                     assertNotNull("Automatic native batches must have a scan session", session)
                     if (automaticSession == null) automaticSession = session
@@ -353,6 +360,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val partial = background { adapter.check(project, snapshots.first(), UpdateMode.MAJOR) }
             assertFalse(partial.successful)
             assertEquals(99, partial.candidates.size)
+            assertEquals(CoverageSummary(checked = 99, failed = 1), partial.coverageSummary(snapshots.first()))
             assertTrue(partial.failure!!.contains("artifact-0"))
             failedArtifact.set(null)
             val retryBefore = requests.size
@@ -369,6 +377,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val malformed = background { adapter.check(project, snapshots.first(), UpdateMode.MAJOR) }
             assertFalse(malformed.successful)
             assertEquals("A malformed document must not poison the reused parser", 98, malformed.candidates.size)
+            assertEquals(CoverageSummary(checked = 98, failed = 2), malformed.coverageSummary(snapshots.first()))
             assertTrue(malformed.candidates.all { it.version == "3.0" })
             assertTrue(malformed.failure!!.contains("artifact-0"))
             assertTrue(malformed.failure.contains("artifact-1"))
