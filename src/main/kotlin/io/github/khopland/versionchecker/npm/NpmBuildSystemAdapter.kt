@@ -168,7 +168,8 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
     internal fun quickFixes(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
                             value: JsonStringLiteral, workspaceFix: LocalQuickFix?, lease: VersionResultLease? = null): Array<LocalQuickFix> {
         val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
-        val current = { (lease == null || lease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
+        val localLease = lease?.forDeclarations(setOf(candidate.declaration.id))
+        val current = { (localLease == null || localLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
             project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && isCurrent(project, snapshot) }
         if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, isCurrent = current))
         return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, "Update locally to ${candidate.replacementSelector}", current),
@@ -188,8 +189,13 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         }
         if (edits.mapNotNull { it.element?.containingFile?.virtualFile?.path }.distinct().size < 2) return null
         val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
+        val contributingIds = snapshot.declarations.filter { declaration ->
+            declaration.artifact == candidate.declaration.artifact && declaration.baseline.isNotEmpty() &&
+                NpmSelector.parse(declaration.artifact.name, declaration.selector)?.baseline?.let { it < latest } == true
+        }.map { it.id }.toSet() + candidate.declaration.id
+        val workspaceLease = lease?.forDeclarations(contributingIds)
         return UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits) {
-            (lease == null || lease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
+            (workspaceLease == null || workspaceLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
                 project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && isCurrent(project, snapshot)
         }
     }

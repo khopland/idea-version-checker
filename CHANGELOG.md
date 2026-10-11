@@ -44,6 +44,7 @@
 
 ### Fixed
 
+- Held inspection fixes remain usable when unrelated partial results arrive. Replacing any contributing declaration result still rejects local or shared edits; refresh, cancellation, expiry, eviction and final-result replacement retain their freshness guards.
 - Maven edit and result guards detect external settings, relocated credentials and ancestor configuration changes even when file size and timestamp are unchanged. Gradle bulk validation shares one fresh user-home input capture across linked builds.
 - Maven, npm and Gradle inspection fixes now share preview freshness checks: expired, refreshed, replaced or evicted version results require a fresh choice. Retained warnings keep their original metadata deadline, and stale authorization rejects before provider input reads.
 - Refresh, preview and retry collect build-input save paths in cancellable background work before saving relevant documents on the UI thread. Save preparation no longer hashes npm/Gradle inputs, and Gradle user-init/Maven credential-relocation discovery runs outside IDE read locks.

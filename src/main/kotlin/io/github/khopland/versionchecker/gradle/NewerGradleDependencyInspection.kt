@@ -51,8 +51,9 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
                     }
                     val highlight = kind.severity(options).highlight ?: continue
                     val safe = notice == null && consumers.all { it.reason == null } && candidates.all { it != null } && candidates.map { it!!.version }.distinct().size == 1
+                    val lease = report.lease?.forDeclarations(consumers.map { it.declaration.id }.toSet())
                     val updateFixes = if (safe) arrayOf<LocalQuickFix>(UpdateGradleVersionFix(GradleVersionEdit(file, range, candidate!!.version, file.name, original), {
-                        report.lease?.isCurrent() == true && options.enabled && options.ignoredVersions == ignoredPolicy &&
+                        lease?.isCurrent() == true && options.enabled && options.ignoredVersions == ignoredPolicy &&
                             adapter.isCurrent(holder.project, snapshot)
                     })) else emptyArray()
                     val fixes = updateFixes + (if (notice != null) emptyList() else consumers.mapNotNull { candidatesById[it.declaration.id] }.distinctBy { it.declaration.artifact to it.version }

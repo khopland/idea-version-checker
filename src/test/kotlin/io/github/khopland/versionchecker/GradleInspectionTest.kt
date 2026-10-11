@@ -12,6 +12,8 @@ import io.github.khopland.versionchecker.core.*
 import io.github.khopland.versionchecker.gradle.*
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 
 class GradleInspectionTest : BasePlatformTestCase() {
     private val adapter = GradleBuildSystemAdapter()
@@ -92,6 +94,61 @@ class GradleInspectionTest : BasePlatformTestCase() {
         assertTrue(adapter.isCurrent(project, snapshot))
         fix.applyFix(project, descriptor)
         assertEquals(before, file.text)
+    }
+
+    fun testHeldPartialCatalogFixSurvivesAnUnrelatedCompletion() = partialCatalogFix(replaceConsumer = false)
+
+    fun testHeldPartialCatalogFixRejectsAReplacedConsumerResult() = partialCatalogFix(replaceConsumer = true)
+
+    private fun partialCatalogFix(replaceConsumer: Boolean) {
+        val file = file("gradle/libs.versions.toml", """
+            [versions]
+            shared = "1.2.3"
+            other = "1.2.3"
+            [libraries]
+            alpha = { module = "g:alpha", version.ref = "shared" }
+            beta = { module = "g:beta", version.ref = "shared" }
+            gamma = { module = "g:gamma", version.ref = "other" }
+        """.trimIndent())
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val continueCheck = CompletableDeferred<Unit>(); val published = CompletableDeferred<Unit>()
+        val checking = object : BuildSystemAdapter by adapter {
+            override val capabilities = adapter.capabilities.copy(incrementalInspections = true)
+            override suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
+                                                   publish: suspend (InspectionUpdate) -> Unit): UpdateReport {
+                val shared = snapshot.declarations.filter { it.artifact.name != "gamma" }
+                publish(InspectionUpdate(UpdateReport(shared.map { UpdateCandidate(it, "1.2.9", kind = VersionChangeKind.PATCH) }),
+                    shared.map { it.id }.toSet()))
+                continueCheck.await()
+                val next = snapshot.declarations.single { it.artifact.name == if (replaceConsumer) "beta" else "gamma" }
+                publish(InspectionUpdate(UpdateReport(listOf(UpdateCandidate(next, if (replaceConsumer) "1.3.0" else "1.2.9",
+                    kind = VersionChangeKind.PATCH))), setOf(next.id)))
+                published.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        val service = project.service<VersionCheckService>()
+        service.invalidateForPreview(checking, file.virtualFile)
+        try {
+            service.updates(checking, snapshot)
+            PlatformTestUtil.waitWithEventsDispatching("Shared partial candidates arrive", {
+                service.updates(checking, snapshot)?.candidates?.size == 2
+            }, 10_000)
+            val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
+            file.accept(NewerGradleDependencyInspection().buildVisitor(holder, true))
+            val descriptor = holder.results.single()
+            val fix = descriptor.fixes!!.filterIsInstance<UpdateGradleVersionFix>().single()
+            continueCheck.complete(Unit)
+            PlatformTestUtil.waitWithEventsDispatching("Another partial observation arrives", { published.isCompleted }, 10_000)
+            assertNull(service.cached(snapshot))
+            val before = file.text
+            fix.applyFix(project, descriptor)
+            if (replaceConsumer) assertEquals(before, file.text)
+            else {
+                assertTrue(file.text.contains("shared = \"1.2.9\""))
+                assertTrue(file.text.contains("other = \"1.2.3\""))
+            }
+        } finally { service.invalidateForPreview(checking, file.virtualFile) }
     }
 
     fun testSharedVersionPreservesFirstNoticeInReportOrderAndWithholdsFixes() {

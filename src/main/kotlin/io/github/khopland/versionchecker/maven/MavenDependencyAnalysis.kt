@@ -86,7 +86,33 @@ internal class MavenDependencyAnalysis(
             quickFixAdapter.snapshot(model.manager.project, it)
         }
     }
-    private fun resultIsCurrent(): Boolean = inspection?.let { it.report.lease?.isCurrent() == true } ?: true
+    private val resultDeclarationIds by lazy {
+        inspection?.report?.candidates.orEmpty().groupBy { it.declaration.coordinate() }
+            .mapValues { (_, candidates) -> candidates.map { it.declaration.id } }
+    }
+    private val resultGuards = mutableMapOf<Set<DependencyVersion>, () -> Boolean>()
+    private val sharedResultGuards = mutableMapOf<XmlTag, () -> Boolean>()
+    private fun resultGuard(coordinates: Set<DependencyVersion>): () -> Boolean {
+        val result = inspection ?: return { true }
+        return resultGuards.getOrPut(coordinates) {
+            val ids = coordinates.flatMap { resultDeclarationIds[it].orEmpty() }.toSet()
+            val lease = result.report.lease?.let { origin ->
+                // Unrepresented shared consumers keep the conservative whole-observation guard.
+                if (coordinates.isEmpty() || coordinates.any { resultDeclarationIds[it].isNullOrEmpty() }) origin
+                else origin.forDeclarations(ids)
+            }
+            return@getOrPut { lease?.isCurrent() == true }
+        }
+    }
+
+    private fun sharedResultGuard(target: XmlTag, coordinate: DependencyVersion): () -> Boolean =
+        sharedResultGuards.getOrPut(target) {
+            val consumers = sharedConsumers[target].orEmpty().map { it.third }.toSet()
+            if (consumers.isEmpty() && inspection != null) {
+                val lease = inspection.report.lease
+                return@getOrPut { lease?.isCurrent() == true }
+            } else resultGuard(consumers.ifEmpty { setOf(coordinate) })
+        }
 
     fun coordinate(tag: XmlTag): DependencyVersion? {
         if (isProjectParent(tag)) return parentCoordinate(tag)
@@ -186,6 +212,7 @@ internal class MavenDependencyAnalysis(
         val latest = problems.map { it?.latest }.distinct().singleOrNull() ?: return emptyArray()
         if (problems.any { it?.notice != null } || !sharedAllowed(property, latest)) return emptyArray()
         val snapshot = quickFixSnapshot ?: return emptyArray()
+        val resultIsCurrent = resultGuard(consumers.map { it.coordinate }.toSet())
         return arrayOf(UpdateDependencyVersionFix(property, latest,
             isCurrent = { resultIsCurrent() && property.project.service<VersionCheckerSettings>().state.enabled &&
                 property.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy &&
@@ -199,12 +226,15 @@ internal class MavenDependencyAnalysis(
         val project = tag.project
         val adapter = quickFixAdapter
         val snapshot = quickFixSnapshot ?: return emptyArray()
-        val isCurrent = { resultIsCurrent() && project.service<VersionCheckerSettings>().state.enabled &&
-            project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && adapter.isCurrent(project, snapshot) }
+        fun guard(resultIsCurrent: () -> Boolean): () -> Boolean = {
+            resultIsCurrent() && project.service<VersionCheckerSettings>().state.enabled &&
+                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && adapter.isCurrent(project, snapshot)
+        }
         problem.target?.let {
             val shared = it.parentTag?.localName == "properties" || it.parentTag?.parentTag?.parentTag?.localName == "dependencyManagement"
             if (shared && !sharedAllowed(it, latest)) return emptyArray()
-            val fix = UpdateDependencyVersionFix(it, latest, isCurrent = isCurrent)
+            val fix = UpdateDependencyVersionFix(it, latest,
+                isCurrent = guard(if (shared) sharedResultGuard(it, problem.coordinate) else resultGuard(setOf(problem.coordinate))))
             if (shared) fix.withActionName { scopedAction(it, latest) }
             return arrayOf(fix)
         }
@@ -212,14 +242,14 @@ internal class MavenDependencyAnalysis(
         val version = tag.findFirstSubTag("version")
         // Composite expressions and ranges retain their existing manual-review behavior.
         if (version != null && versionPropertyName(version.value.trimmedText) == null) return emptyArray()
-        val fixes = mutableListOf<LocalQuickFix>(OverrideDependencyVersionFix(tag, latest, isCurrent))
+        val fixes = mutableListOf<LocalQuickFix>(OverrideDependencyVersionFix(tag, latest, guard(resultGuard(setOf(problem.coordinate)))))
         val target = sharedVersionTarget(version ?: managingVersion(tag), problem.coordinate.version)
         if (target != null && sharedAllowed(target, latest)) {
             val file = target.containingFile.virtualFile
             val base = project.basePath?.trimEnd('/')
             val path = if (base != null && file.path.startsWith("$base/")) file.path.removePrefix("$base/") else file.path
             val location = if (file == tag.containingFile.virtualFile) "managed" else "parent"
-            fixes += UpdateDependencyVersionFix(target, latest, isCurrent = isCurrent).withActionName {
+            fixes += UpdateDependencyVersionFix(target, latest, isCurrent = guard(sharedResultGuard(target, problem.coordinate))).withActionName {
                 "Update $location version to $latest in $path (${sharedScopes[target] ?: "shared scope requires review"})"
             }
         }

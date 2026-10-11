@@ -76,6 +76,71 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
         WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
     }
 
+    private fun partialAnalysis(file: XmlFile, snapshot: BuildSnapshot, report: UpdateReport) =
+        MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, manager.findProject(file.virtualFile)!!,
+            report.mavenUpdates(), inspection = MavenInspectionResult(adapter, snapshot, report))
+
+    private fun applyPartialFix(target: com.intellij.psi.xml.XmlTag, fix: com.intellij.codeInspection.LocalQuickFix) {
+        val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(target, "update", fix, ProblemHighlightType.WARNING, true)
+        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+    }
+
+    fun testHeldPartialMavenLiteralFixSurvivesAnotherDependencyCompletion() {
+        val file = imported("partial-literal", "<dependencies>${dependency("a")}${dependency("b")}</dependencies>")
+        val snapshot = snapshot(file); val cache = VersionResultCache(); val revision = cache.begin(snapshot); val owner = Any()
+        val a = snapshot.declarations.first(); val b = snapshot.declarations.last()
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(listOf(UpdateCandidate(a, "2.0.10"))), setOf(a.id))))
+        val view = cache.inspectionReport(adapter, snapshot)!!
+        val analysis = partialAnalysis(file, snapshot, view)
+        val tag = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags.first()
+        val fix = analysis.quickFixes(tag, analysis.problem(tag)!!).single()
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(listOf(UpdateCandidate(b, "2.0.10"))), setOf(b.id))))
+        assertFalse(view.lease!!.isCurrent())
+        applyPartialFix(tag, fix)
+        assertEquals("2.0.10", tag.findFirstSubTag("version")!!.value.trimmedText)
+        assertTrue(file.text.contains("<artifactId>b</artifactId><version>1.0</version>"))
+    }
+
+    fun testHeldPartialMavenPropertyFixChecksAllConsumerResults() {
+        val file = imported("partial-property", "<properties><shared.version>1.0</shared.version></properties>" +
+            "<dependencies>${dependency("a", "\${shared.version}")}${dependency("b", "\${shared.version}")}${dependency("c")}</dependencies>")
+        val snapshot = snapshot(file); val cache = VersionResultCache(); val revision = cache.begin(snapshot); val owner = Any()
+        val shared = snapshot.declarations.filter { it.artifact.name != "g:c" }
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner, InspectionUpdate(
+            UpdateReport(shared.map { UpdateCandidate(it, "2.0.10") }), shared.map { it.id }.toSet())))
+        val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val first = partialAnalysis(file, snapshot, cache.inspectionReport(adapter, snapshot)!!).propertyQuickFixes(property).single()
+        val c = snapshot.declarations.single { it.artifact.name == "g:c" }
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(listOf(UpdateCandidate(c, "2.0.10"))), setOf(c.id))))
+        val second = partialAnalysis(file, snapshot, cache.inspectionReport(adapter, snapshot)!!).propertyQuickFixes(property).single()
+        val b = shared.single { it.artifact.name == "g:b" }
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(listOf(UpdateCandidate(b, "3.0"))), setOf(b.id))))
+        applyPartialFix(property, first); applyPartialFix(property, second)
+        assertEquals("Replacing either contributor retires the shared edit", "1.0", property.value.trimmedText)
+        assertTrue(partialAnalysis(file, snapshot, cache.inspectionReport(adapter, snapshot)!!).propertyQuickFixes(property).isEmpty())
+    }
+
+    fun testHeldPartialMavenPropertyFixSurvivesAnUnrelatedConsumerCompletion() {
+        val file = imported("partial-property-unrelated", "<properties><shared.version>1.0</shared.version></properties>" +
+            "<dependencies>${dependency("a", "\${shared.version}")}${dependency("b", "\${shared.version}")}${dependency("c")}</dependencies>")
+        val snapshot = snapshot(file); val cache = VersionResultCache(); val revision = cache.begin(snapshot); val owner = Any()
+        val shared = snapshot.declarations.filter { it.artifact.name != "g:c" }
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner, InspectionUpdate(
+            UpdateReport(shared.map { UpdateCandidate(it, "2.0.10") }), shared.map { it.id }.toSet())))
+        val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val fix = partialAnalysis(file, snapshot, cache.inspectionReport(adapter, snapshot)!!).propertyQuickFixes(property).single()
+        val c = snapshot.declarations.single { it.artifact.name == "g:c" }
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(listOf(UpdateCandidate(c, "2.0.10"))), setOf(c.id))))
+        applyPartialFix(property, fix)
+        assertEquals("2.0.10", property.value.trimmedText)
+        assertTrue(file.text.contains("<artifactId>c</artifactId><version>1.0</version>"))
+    }
+
     fun testInspectionSharesOneSnapshotForUpdatesRelocationsAndFixesButRevalidatesBeforeEditing() {
         val file = imported("inspection", "<dependencies>${dependency("a")}${dependency("b")}</dependencies>")
         val sibling = imported("sibling", "<dependencies>${dependency("c")}</dependencies>")

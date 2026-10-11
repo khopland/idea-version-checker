@@ -330,6 +330,31 @@ uses per target, no deprecated/scheduled uses). The run took 2m 3s; release and
 script suites passed **13 + 16 tests**. The linked record contains commands and
 archive identity. Log: `/tmp/version-checker-final-input-full.log`.
 
+## Held fixes during partial checks (F11)
+
+The [partial-fix freshness record](partial-fix-freshness.md) refines the earlier
+report-level policy. Fixes rendered from an exact partial snapshot bind to their
+contributing declaration tokens. Unrelated completions keep a held fix usable;
+reobserved, removed or replaced contributors retire it. Shared Maven properties,
+npm workspace aliases and Gradle catalog values guard their represented consumers.
+Unknown or remapped scopes keep whole-observation guards.
+
+Refresh, cancellation, expiry, owner/snapshot replacement, eviction, disposal
+and completion retire the partial lineage. Scope binding cannot broaden an
+existing authorization, revive removed rows, renew metadata age or authorize a
+complete preview. Token storage participates in the existing payload budget;
+Maven guard indexing/reuse remains local to an inspection pass.
+
+Native Alt+Enter and focus acceptance remain open. This implements the previously
+listed per-candidate refinement without claiming completion of native F11 gates.
+
+Final validation passed with **488 plugin tests in 67 classes**, zero failures,
+errors or skips, all native integration flags, packaging, project-configuration
+validation and all three IDEA verifier targets (ten existing experimental API
+uses per target, no deprecated/scheduled uses). The run took 1m 58s; release and
+script suites passed **13 + 16 tests**. The linked record preserves scope limits,
+commands and archive identity. Log: `/tmp/version-checker-scoped-lease-full.log`.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
@@ -342,7 +367,7 @@ archive identity. Log: `/tmp/version-checker-final-input-full.log`.
 1. **F06/F07: Gradle query batching.** Ownership indexing is enabled. The [bounded cross-file prototype](gradle-scan-prototype.md) is implemented behind a development-only JVM switch, with native resolver work/parity and cancellation/freshness regressions. Keep aggregation off by default until controlled native UI scale/typing and failure measurements pass; mode sharing and refresh-flag changes remain deferred.
 2. **F09: move remaining external input reads off the EDT.** Save-path preparation now uses background discovery without fingerprinting; Gradle background discovery/validation/preview captures external disk inputs outside read locks. Background external capture is implemented for all three providers. Complete synchronous inspection/edit revalidation; keep fresh unsaved/external-input guards before apply and profile slow disks/large init trees.
 3. **F10: validate bounded state in native workloads.** Result/source/generation budgets, expiry cleanup and late-worker regressions are implemented. Complete native import/rename/unload and heap observations; the model soak establishes map bounds, not retained heap size.
-4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; report-level partial leases currently retire descriptors on every new partial observation.
+4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; declaration-scoped partial leases now preserve held fixes across unrelated completions, while unknown/remapped scopes retain conservative report-level guards.
 5. **F12: native coverage acceptance.** Explicit provider outcomes, matching status/review counts, narrow-scope reasons, partial/failure totals and unknown-coverage handling are implemented. Validate readability/accessibility and document recognized-form limits; excluded managers and unparsed forms are not counted as an audit.
 6. **F13: native review acceptance.** Stable in-window refresh, compatible review choices, pending-plan rejection and source/diffs are implemented. Validate keyboard/focus, scrolling, diff windows and failed-scope recovery on the supported IDEs.
 7. **F14: native recovery acceptance.** In-window retry, npm preview/status guidance, sanitized displayed diagnostics and paused-plan guards are implemented. Complete the automatic/status and native failure matrix, including npm offline/configuration behavior, without weakening native provider semantics.

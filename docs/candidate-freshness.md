@@ -10,11 +10,12 @@ Its validation also checks the identity of the retained result observation.
 - Complete results receive a new identity on every publication, even when the
   report object and clock timestamp are identical. A held fix or preview cannot
   follow a replacement result.
-- Each incremental publication replaces the partial observation's identity.
-  Its hints can offer local/shared fixes, but it cannot supply a complete preview.
-  A descriptor held across another partial publication needs a newly rendered
-  descriptor. This deliberately uses report-level leases; per-candidate leases
-  that survive unrelated partial deltas are a possible later refinement.
+- Each incremental publication replaces the whole partial observation's identity.
+  Its hints cannot supply a complete preview. The later
+  [partial-fix follow-up](partial-fix-freshness.md) binds fixes to contributing
+  declaration tokens: unrelated deltas preserve those fixes, while replacing a
+  contributor retires them. Remapped or incompletely represented scopes retain
+  conservative whole-observation leases.
 - Warnings retained across version edits carry their originating result's
   deadline and observation time. Remapping declarations, filtering ignored
   versions and rebuilding a presentation cannot make that metadata younger.

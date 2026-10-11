@@ -39,10 +39,12 @@ internal class VersionResultCache(
         private val candidates = initial?.candidates.orEmpty().groupBy { it.declaration.id }.toMutableMap()
         private val notices = initial?.notices.orEmpty().groupBy { it.declaration.id }.toMutableMap()
         private val failures = linkedSetOf<String>().apply { initial?.failure?.let(::add) }
+        val lineage: Any = Any()
+        private val declarationIdentities = (candidates.keys + notices.keys).associateWith { Any() }.toMutableMap()
         // Retained candidates are hints, not completed units of this new check.
         private val coverage = snapshot.skippedCoverage().toMutableMap()
         private var coverageKnown = coverage.isNotEmpty()
-        var weight: Long = snapshot.weight() + payloadWeight()
+        var weight: Long = snapshot.weight() + payloadWeight() + declarationIdentities.size
             private set
         var identity: Any = Any()
             private set
@@ -51,7 +53,7 @@ internal class VersionResultCache(
             notices.values.sumOf { rows -> rows.sumOf { it.weight() } } + failures.sumOf { it.textWeight() } + coverage.entries.sumOf { it.weight() }
 
         fun add(update: InspectionUpdate) {
-            // A later partial observation must not silently authorize a descriptor from an older one.
+            // Whole-report observations are replaced; scoped fixes keep only untouched declaration tokens.
             identity = Any()
             update.report.checkedAtNanos?.let { checkedAtNanos = minOf(checkedAtNanos, it) }
             update.completedDeclarations.forEach { id ->
@@ -75,7 +77,21 @@ internal class VersionResultCache(
                 }
             }
             update.report.failure?.let { if (failures.add(it)) weight += it.textWeight() }
+            val previousTokens = declarationIdentities.size
+            val touched = update.completedDeclarations + update.report.candidates.map { it.declaration.id } +
+                update.report.notices.map { it.declaration.id } + update.report.coverage.orEmpty().keys
+            for (id in touched) {
+                if (candidates[id].orEmpty().isNotEmpty() || notices[id].orEmpty().isNotEmpty())
+                    declarationIdentities[id] = Any()
+                else declarationIdentities.remove(id)
+            }
+            weight += declarationIdentities.size - previousTokens
         }
+        fun identities(ids: Set<DeclarationId>): Map<DeclarationId, Any>? =
+            if (ids.isEmpty() || ids.any { it !in declarationIdentities }) null
+            else ids.associateWith { declarationIdentities.getValue(it) }
+        fun containsIdentities(identities: Map<DeclarationId, Any>): Boolean =
+            identities.all { (id, identity) -> declarationIdentities[id] === identity }
         fun report() = UpdateReport(
             candidates = candidates.values.flatten(),
             notices = notices.values.flatten(),
@@ -177,8 +193,32 @@ internal class VersionResultCache(
 
     private fun lease(context: BuildContextId, mode: UpdateMode, revision: Revision,
                       checkedAtNanos: Long, expiresAtNanos: Long, identity: Any,
-                      partial: Boolean = false) = VersionResultLease(context, mode, revision, checkedAtNanos, expiresAtNanos) {
+                      partial: Boolean = false, scoped: Boolean = false) = VersionResultLease(context, mode, revision, checkedAtNanos, expiresAtNanos,
+        bindDeclarations = if (scoped) { ids ->
+            scopedPartialLease(context, mode, revision, checkedAtNanos, expiresAtNanos, identity, ids)
+        } else null) {
         isLeaseCurrent(context, mode, revision, expiresAtNanos, identity, partial)
+    }
+
+    @Synchronized private fun scopedPartialLease(context: BuildContextId, mode: UpdateMode, revision: Revision,
+                                                checkedAtNanos: Long, expiresAtNanos: Long, observation: Any,
+                                                ids: Set<DeclarationId>): VersionResultLease {
+        val progress = state(context)?.takeIf { it.revision == revision }?.progress
+            ?.takeIf { it.identity === observation && now() < expiresAtNanos }
+        val lineage = progress?.lineage
+        val identities = progress?.identities(ids)
+        return VersionResultLease(context, mode, revision, checkedAtNanos, expiresAtNanos,
+            declarationIds = identities?.keys ?: emptySet()) {
+            identities != null && isScopedPartialLeaseCurrent(context, revision, expiresAtNanos, lineage, identities)
+        }
+    }
+
+    @Synchronized private fun isScopedPartialLeaseCurrent(context: BuildContextId, revision: Revision,
+                                                         expiresAtNanos: Long, lineage: Any?,
+                                                         identities: Map<DeclarationId, Any>): Boolean {
+        val state = state(context) ?: return false
+        if (state.revision != revision || now() >= expiresAtNanos) return false
+        return state.progress?.let { it.lineage === lineage && it.containsIdentities(identities) } == true
     }
 
     @Synchronized private fun isLeaseCurrent(context: BuildContextId, mode: UpdateMode, revision: Revision,
@@ -195,7 +235,8 @@ internal class VersionResultCache(
         state.progress?.let { progress ->
             inspectionProgress(adapter, snapshot)?.let { report ->
                 return report.copy(lease = lease(snapshot.context, UpdateMode.MAJOR, progress.revision,
-                    progress.checkedAtNanos, progress.expiresAtNanos, progress.identity, partial = true))
+                    progress.checkedAtNanos, progress.expiresAtNanos, progress.identity, partial = true,
+                    scoped = progress.snapshot.hasSameDeclarations(snapshot)))
             }
         }
         val entry = state.entries[UpdateMode.MAJOR] ?: return null

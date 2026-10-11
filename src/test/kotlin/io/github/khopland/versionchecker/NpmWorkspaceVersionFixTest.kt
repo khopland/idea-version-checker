@@ -23,6 +23,8 @@ import io.github.khopland.versionchecker.core.VersionChangeKind
 import io.github.khopland.versionchecker.core.BuildSnapshot
 import io.github.khopland.versionchecker.core.BuildSystemAdapter
 import io.github.khopland.versionchecker.core.UpdateReport
+import io.github.khopland.versionchecker.core.VersionResultCache
+import io.github.khopland.versionchecker.core.InspectionUpdate
 import io.github.khopland.versionchecker.npm.*
 
 class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
@@ -88,6 +90,53 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         val fix = problem.fixes!![index] as LocalQuickFix
         if (fix.startInWriteAction()) WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, problem) }
         else fix.applyFix(project, problem)
+    }
+
+    fun testHeldPartialWorkspaceFixSurvivesAnUnrelatedPackageCompletion() {
+        val root = add("package.json", """{"workspaces":["packages/*"],"dependencies":{"alpha":"^1.2.3","beta":"^1.2.3"},
+            "devDependencies":{"alias":"npm:alpha@~1.2.3"}}""")
+        val member = child()
+        val snapshot = adapter.snapshot(project, root.virtualFile)!!
+        val cache = VersionResultCache(); val revision = cache.begin(snapshot); val owner = Any()
+        val alpha = snapshot.declarations.filter { it.artifact.name == "alpha" }
+        val candidates = alpha.map { UpdateCandidate(it, "1.2.9", NpmSelector.parse(it.artifact.name, it.selector)!!.replace("1.2.9")) }
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner, InspectionUpdate(UpdateReport(candidates), alpha.map { it.id }.toSet())))
+        val view = cache.inspectionReport(adapter, snapshot)!!
+        val candidate = candidates.first { it.declaration.id.location == "dependencies/alpha" }
+        val workspaceFix = adapter.workspaceFix(project, snapshot, candidate, adapter.workspaceDeclarations(project, snapshot), view.lease)!!
+        val beta = snapshot.declarations.single { it.artifact.name == "beta" }
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(listOf(UpdateCandidate(beta, "1.2.9"))), setOf(beta.id))))
+        assertFalse("The old report lease is retired", view.lease!!.isCurrent())
+        apply(root, workspaceFix)
+        assertEquals("^1.2.9", selectors(root)["dependencies/alpha"])
+        assertEquals("npm:alpha@~1.2.9", selectors(root)["devDependencies/alias"])
+        assertEquals("1.2.9", selectors(member)["dependencies/alpha"])
+        assertEquals("^1.2.3", selectors(root)["dependencies/beta"])
+    }
+
+    fun testReplacingPartialAliasRetiresWorkspaceFixButPreservesUntouchedLocalFix() {
+        val root = root(); val member = child()
+        val snapshot = adapter.snapshot(project, root.virtualFile)!!
+        val cache = VersionResultCache(); val revision = cache.begin(snapshot); val owner = Any()
+        val candidates = snapshot.declarations.filter { it.baseline.isNotEmpty() }.map {
+            UpdateCandidate(it, "1.2.9", NpmSelector.parse(it.artifact.name, it.selector)!!.replace("1.2.9"))
+        }
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner, InspectionUpdate(UpdateReport(candidates), candidates.map { it.declaration.id }.toSet())))
+        val view = cache.inspectionReport(adapter, snapshot)!!
+        val candidate = candidates.first { it.declaration.id.location == "dependencies/alpha" }
+        val workspaceFix = adapter.workspaceFix(project, snapshot, candidate, adapter.workspaceDeclarations(project, snapshot), view.lease)!!
+        val localFix = adapter.quickFixes(project, snapshot, candidate, NpmManifest.values(root).getValue(candidate.declaration.id), workspaceFix, view.lease)[0]
+        val alias = candidates.single { it.declaration.id.location == "devDependencies/alias" }.declaration
+        assertTrue(cache.putProgress(adapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(listOf(UpdateCandidate(alias, "1.3.0", "npm:alpha@~1.3.0"))), setOf(alias.id))))
+        val before = listOf(root.text, member.text)
+        apply(root, workspaceFix)
+        assertEquals("A changed contributor rejects every workspace edit", before, listOf(root.text, member.text))
+        apply(root, localFix)
+        assertEquals("^1.2.9", selectors(root)["dependencies/alpha"])
+        assertEquals("npm:alpha@~1.2.3", selectors(root)["devDependencies/alias"])
+        assertEquals(before[1], member.text)
     }
 
     fun testIgnoringOneRegistryReleaseHidesItsAliasesAndKeepsOtherPackagesAndCachedResults() {

@@ -8,6 +8,126 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 
 class VersionResultCacheTest {
+    @Test fun `scoped partial fixes survive unrelated rows but retire touched declarations without revival`() {
+        val cache = VersionResultCache { 100L }
+        val original = snapshot("npm")
+        val a = original.declarations.single()
+        val b = a.copy(id = a.id.copy(location = "second"), artifact = ArtifactId("npm", "second"))
+        val snapshot = original.copy(declarations = listOf(a, b))
+        val revision = cache.begin(snapshot); val owner = Any()
+        fun publish(declaration: VersionDeclaration, version: String? = "2.0") = cache.putProgress(presentationAdapter,
+            snapshot, revision, owner, InspectionUpdate(UpdateReport(candidates = version?.let {
+                listOf(UpdateCandidate(declaration, it))
+            }.orEmpty()), setOf(declaration.id)))
+        assertTrue(publish(a))
+        val observation = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!
+        val fixA = observation.forDeclarations(setOf(a.id))
+        assertTrue(publish(b))
+        assertFalse(observation.isCurrent())
+        assertTrue("Unrelated completion must keep a held fix actionable", fixA.isCurrent())
+        val fixB = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!.forDeclarations(setOf(b.id))
+        assertTrue(publish(a))
+        assertFalse("Even an identical reobservation replaces this declaration", fixA.isCurrent())
+        assertTrue(fixB.isCurrent())
+        val replacedA = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!.forDeclarations(setOf(a.id))
+        assertTrue(publish(a, null)); assertFalse(replacedA.isCurrent())
+        assertTrue(publish(a)); assertFalse(replacedA.isCurrent())
+        assertTrue(fixB.isCurrent())
+        assertNull("Partial facts cannot authorize a complete preview", cache.getResult(snapshot, UpdateMode.MAJOR))
+    }
+
+    @Test fun `shared partial scopes guard every contributor and fail closed for absent or late bindings`() {
+        val cache = VersionResultCache { 100L }
+        val original = snapshot("npm"); val a = original.declarations.single()
+        val b = a.copy(id = a.id.copy(location = "second"))
+        val c = a.copy(id = a.id.copy(location = "third"), artifact = ArtifactId("npm", "other"))
+        val snapshot = original.copy(declarations = listOf(a, b, c))
+        val owner = Any(); val revision = cache.begin(snapshot)
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(listOf(UpdateCandidate(a, "2.0"), UpdateCandidate(b, "2.0"))), setOf(a.id, b.id))))
+        val observation = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!
+        val shared = observation.forDeclarations(setOf(a.id, b.id))
+        val local = observation.forDeclarations(setOf(a.id))
+        assertFalse("A local authorization cannot broaden into a shared edit", local.forDeclarations(setOf(a.id, b.id)).isCurrent())
+        assertSame("Narrowing retains the original conservative contributors", shared, shared.forDeclarations(setOf(a.id)))
+        assertFalse(observation.forDeclarations(emptySet()).isCurrent())
+        assertFalse(observation.forDeclarations(setOf(a.id, c.id)).isCurrent())
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(failure = "other package failed", coverage = mapOf(c.id to
+                DeclarationCoverage(DeclarationOutcome.FAILED, "offline"))), setOf(c.id))))
+        assertTrue(shared.isCurrent()); assertTrue(local.isCurrent())
+        assertFalse("Binding a retired observation cannot bless its old rows", observation.forDeclarations(setOf(a.id)).isCurrent())
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(notices = listOf(UpdateNotice(b, NoticeKind.DEPRECATED, "retired"))), setOf(b.id))))
+        assertFalse(shared.isCurrent()); assertTrue(local.isCurrent())
+    }
+
+    @Test fun `scoped partial leases keep original deadlines and cannot outlive shorter later deadlines`() {
+        var time = 100L
+        val cache = VersionResultCache { time }; val snapshot = snapshot("npm")
+        val owner = Any(); val revision = cache.begin(snapshot)
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner, InspectionUpdate(
+            report(snapshot).copy(checkedAtNanos = 10, validUntilNanos = 1_000), emptySet())))
+        val lease = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!.forDeclarations(snapshot.declarations.map { it.id }.toSet())
+        assertEquals(10L, lease.checkedAtNanos); assertEquals(1_000L, lease.expiresAtNanos)
+        time = 500
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(validUntilNanos = 600), emptySet())))
+        assertTrue(lease.isCurrent())
+        time = 600
+        assertFalse(lease.isCurrent())
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner,
+            InspectionUpdate(report(snapshot).copy(validUntilNanos = 2_000), emptySet())))
+        assertFalse("A new progress entry cannot revive expired lineage", lease.isCurrent())
+    }
+
+    @Test fun `refresh cancellation owner replacement eviction and completion retire scoped partial leases`() {
+        for (retire in listOf<(VersionResultCache, BuildSnapshot, Any) -> Unit>(
+            { cache, snapshot, _ -> cache.invalidateSource(snapshot.context.adapterId, snapshot.sourceFile) },
+            { cache, snapshot, _ -> cache.invalidateAdapter(snapshot.context.adapterId) },
+            { cache, snapshot, owner -> cache.clearProgress(snapshot.context, owner) },
+            { cache, snapshot, _ -> cache.putProgress(presentationAdapter, snapshot, cache.revision(snapshot.context), Any(),
+                InspectionUpdate(report(snapshot), emptySet())) },
+            { cache, snapshot, _ -> cache.put(snapshot, cache.revision(snapshot.context), report(snapshot)) },
+            { cache, _, _ -> cache.invalidate() },
+            { cache, _, _ -> val other = snapshot("maven", "/other"); cache.put(other, cache.begin(other), report(other)) }
+        )) {
+            val cache = VersionResultCache(VersionResultCache.Limits(contexts = 1))
+            val snapshot = snapshot("npm"); val owner = Any()
+            assertTrue(cache.putProgress(presentationAdapter, snapshot, cache.begin(snapshot), owner, InspectionUpdate(report(snapshot), emptySet())))
+            val scoped = cache.inspectionReport(presentationAdapter, snapshot)!!.lease!!.forDeclarations(snapshot.declarations.map { it.id }.toSet())
+            assertTrue(scoped.isCurrent())
+            retire(cache, snapshot, owner)
+            assertFalse(scoped.isCurrent())
+            cache.putProgress(presentationAdapter, snapshot, cache.begin(snapshot), owner, InspectionUpdate(report(snapshot), emptySet()))
+            assertFalse("Retired tokens cannot follow an identical replacement", scoped.isCurrent())
+        }
+    }
+
+    @Test fun `remapped partial hints retain conservative whole observation authorization`() {
+        val cache = VersionResultCache(); val snapshot = snapshot("npm"); val owner = Any()
+        val revision = cache.begin(snapshot)
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner, InspectionUpdate(report(snapshot), emptySet())))
+        val edited = snapshot.copy(fingerprint = snapshot.fingerprint.copy(configuration = "edited"))
+        val view = cache.inspectionReport(presentationAdapter, edited)!!.lease!!
+        assertSame(view, view.forDeclarations(snapshot.declarations.map { it.id }.toSet()))
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner, InspectionUpdate(UpdateReport(), emptySet())))
+        assertFalse(view.isCurrent())
+    }
+
+    @Test fun `partial declaration token history remains bounded and removed rows release its weight`() {
+        val cache = VersionResultCache(); val snapshot = snapshot("npm"); val owner = Any(); val revision = cache.begin(snapshot)
+        fun publish(report: UpdateReport, completed: Set<DeclarationId> = emptySet()) =
+            cache.putProgress(presentationAdapter, snapshot, revision, owner, InspectionUpdate(report, completed))
+        assertTrue(publish(UpdateReport()))
+        val emptyWeight = cache.retention().payloadUnits
+        assertTrue(publish(report(snapshot)))
+        val filledWeight = cache.retention().payloadUnits
+        repeat(1_000) { assertTrue(publish(report(snapshot))); assertEquals(filledWeight, cache.retention().payloadUnits) }
+        assertTrue(publish(UpdateReport(), snapshot.declarations.map { it.id }.toSet()))
+        assertEquals(emptyWeight, cache.retention().payloadUnits)
+    }
+
     @Test fun `quick fix and preview leases share original complete result identity and deadline`() {
         var time = 100L
         val cache = VersionResultCache { time }
