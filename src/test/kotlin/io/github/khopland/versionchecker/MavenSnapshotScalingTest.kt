@@ -90,6 +90,12 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
             reads.clear()
             assertTrue(background { adapter.isCurrentInBackground(project, snapshots.first()) })
             assertEquals(reads.toSet().size, reads.size)
+            val captured = background { adapter.prepareInspectionSnapshot(project, first.file) }
+            val validation = background { adapter.prepareEditValidation(project, snapshots) }
+            val capturedReads = reads.size
+            assertEquals(snapshots.single { it.sourceFile == first.path }, captured())
+            assertTrue(validation())
+            assertEquals("Live IDE overlay performs no saved-input reads", capturedReads, reads.size)
             reads.clear()
             assertEquals(2, background { adapter.prepareUpdates(project, reports(snapshots)) }.changes.size)
             assertEquals(reads.toSet().size, reads.size)

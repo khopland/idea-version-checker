@@ -136,6 +136,22 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         assertEquals("Expired/refreshed results must reject before provider disk reads", 0, inputReads)
     }
 
+    fun testAuthorizationIsRecheckedAfterBackgroundCaptureAndCombinedSelectedPlansPrepareEveryProvider() {
+        var authorized = true
+        var captures = 0
+        val guard = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = {
+            assertFalse(com.intellij.openapi.application.ApplicationManager.getApplication().isDispatchThread)
+            assertFalse(com.intellij.openapi.application.ApplicationManager.getApplication().isReadAccessAllowed)
+            captures++; authorized = false
+            { true }
+        }).guardedBy { authorized }
+        assertFalse(guard.apply(project)); assertEquals(1, captures)
+        val first = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = { captures++; { true } })
+        val second = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = { captures++; { false } })
+        assertFalse(BulkUpdatePlan.combine(listOf(first, second)).select(emptySet()).apply(project))
+        assertEquals(3, captures)
+    }
+
     fun testMultipleMavenEditsUndoTogether() {
         val plan = plan("<dependencies>" + dep("a", "1.0") + dep("b", "1.0") + "</dependencies>",
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0", DependencyVersion("g", "b", "1.0") to "2.0"))

@@ -130,6 +130,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                     val review = it
                                     Disposer.register(review.disposable) { request?.cancel() }
                                     review.onApplyRequested = apply@{ plan, trace ->
+                                        var changed = false
                                         try {
                                             if (disposed || project.isDisposed || plan.changes.isEmpty()) return@apply
                                             if (!FileModificationService.getInstance().preparePsiElementsForWrite(plan.changes.mapNotNull { it.element })) return@apply
@@ -138,6 +139,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                                 review.refreshAction.actionPerformed(java.awt.event.ActionEvent(review, 0, "Refresh"))
                                                 return@apply
                                             }
+                                            changed = true
                                             saveChangedVersionFiles(plan)
                                             notifyVersionUpdates(project, plan.followUp)
                                             project.service<VersionCheckService>().recheckAfterEdits(matching,
@@ -149,7 +151,9 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                             throw cancelled
                                         } catch (failure: Exception) {
                                             log.warn("Could not apply reviewed updates", failure)
-                                            review.recheckFailed("Could not apply updates. Review the build files before retrying.")
+                                            review.recheckFailed(if (changed)
+                                                "Versions changed in the editor, but follow-up work failed. Save the changed files and refresh the review."
+                                                else "Could not apply updates. Review the build files before retrying.")
                                         }
                                     }
                                     review.onRecheckRequested = { mode, updateScope, forceRefresh, trace ->

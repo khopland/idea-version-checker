@@ -21,7 +21,7 @@ internal class MavenVersionCheckService(private val project: Project) {
     private val adapter: BuildSystemAdapter get() = BuildSystemAdapter.find("maven") ?: error("Maven adapter unavailable")
     fun inspection(mavenProject: MavenProject): MavenInspectionResult? {
         val adapter = adapter
-        val snapshot = adapter.snapshot(project, mavenProject.file) ?: return null
+        val snapshot = project.service<VersionCheckService>().inspectionSnapshot(adapter, mavenProject.file) ?: return null
         val report = project.service<VersionCheckService>().updates(adapter, snapshot) ?: UpdateReport()
         return MavenInspectionResult(adapter, snapshot, report)
     }

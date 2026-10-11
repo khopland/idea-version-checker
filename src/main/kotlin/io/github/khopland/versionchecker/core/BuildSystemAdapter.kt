@@ -19,11 +19,17 @@ internal interface BuildSystemAdapter {
     fun snapshot(project: Project, file: VirtualFile): BuildSnapshot?
     /** Inspections may retain warnings from unsaved editor text while native checks wait for save. */
     fun inspectionSnapshot(project: Project, file: VirtualFile): BuildSnapshot? = snapshot(project, file)
+    /** Capture external inputs without a read lock; the reader overlays live PSI under the caller's read. */
+    suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? =
+        { inspectionSnapshot(project, file) }
     fun canCheckInBackground(project: Project, snapshot: BuildSnapshot): Boolean = true
     fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean
     /** Coordinator validation. Providers can capture external bytes outside IDE read actions. */
     suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
         readAction { !project.isDisposed && isCurrent(project, snapshot) }
+    /** Fresh disk capture before an edit; the returned guard only reads current IDE state. */
+    suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean =
+        { !project.isDisposed && snapshots.all { isCurrent(project, it) } }
     suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot>
     /** Provider-owned, short-lived native resources/results for one ordered scan. */
     suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,

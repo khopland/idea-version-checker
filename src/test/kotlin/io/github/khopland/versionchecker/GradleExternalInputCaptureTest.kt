@@ -75,6 +75,11 @@ class GradleExternalInputCaptureTest : BasePlatformTestCase() {
         val plan = background { adapter.prepareUpdates(project, snapshots.associateWith(::report)) }
         assertEquals(2, plan.changes.size)
         assertEquals("Preview preparation captures one external input set", 78, reads)
+        val captured = background { adapter.prepareInspectionSnapshot(project, first.virtualFile) }
+        assertEquals(sync, captured())
+        val beforeApply = reads
+        assertTrue(plan.apply(project))
+        assertEquals("Apply captures once outside EDT/read locks", beforeApply + 26, reads)
     }
 
     fun testBackgroundValidationDetectsSameStampChangesAndFinalApplyStillRejectsThem() = withHome { home ->

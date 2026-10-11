@@ -109,7 +109,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         service.updates(checking, snapshot)
         PlatformTestUtil.waitWithEventsDispatching("Maven property report cached", { service.cached(snapshot) != null }, 10_000)
         val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-        val visitor = NewerMavenDependencyInspection().buildVisitor(holder, true)
+        val visitor = NewerMavenDependencyInspection().buildCapturedVisitor(holder, true)
         PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(visitor) }
         return holder
     }
@@ -396,7 +396,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
     private fun apply(fix: LocalQuickFix, tag: XmlTag) {
         val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
             tag, "Newer version available", fix, ProblemHighlightType.WARNING, true)
-        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        fix.applyFix(project, descriptor)
     }
 
     fun testLocalChoiceAddsVersionWithoutChangingParentManagement() {

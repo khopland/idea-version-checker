@@ -68,7 +68,8 @@ class NpmExternalInputCaptureTest : BasePlatformTestCase() {
         assertTrue(background { adapter.isCurrentInBackground(project, snapshots.first()) })
         assertEquals(reads.toSet().size, reads.size)
         reads.clear()
-        assertEquals(2, background { adapter.prepareUpdates(project, snapshots.associateWith(::report)) }.changes.size)
+        val plan = background { adapter.prepareUpdates(project, snapshots.associateWith(::report)) }
+        assertEquals(2, plan.changes.size)
         assertEquals(reads.toSet().size, reads.size)
         val roots = snapshots.map { it.context.root }.toSet()
         val contexts = background {
@@ -81,6 +82,11 @@ class NpmExternalInputCaptureTest : BasePlatformTestCase() {
         roots.forEach { root ->
             assertEquals(NpmBuildInputs.resolutionContext(project, LocalFileSystem.getInstance().findFileByPath(root)!!), contexts[root])
         }
+        val captured = background { adapter.prepareInspectionSnapshot(project, file()) }
+        assertEquals(snapshots.single { it.sourceFile == file().path }, captured())
+        reads.clear()
+        assertTrue(plan.apply(project))
+        assertEquals(reads.toSet().size, reads.size)
     }
 
     fun testSameStampDiskConfigAndOtherManagerChangesStillRejectBackgroundResultsAndFinalEdits() {

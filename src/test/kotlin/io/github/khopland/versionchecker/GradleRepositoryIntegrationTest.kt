@@ -510,7 +510,7 @@ class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
             PlatformTestUtil.waitWithEventsDispatching("Gradle background check", { service.cached(snapshot) != null }, 120_000)
             val psi = PsiManager.getInstance(project).findFile(source)!!
             val holder = ProblemsHolder(InspectionManager.getInstance(project), psi, true)
-            NewerGradleDependencyInspection().buildVisitor(holder, true).visitFile(psi)
+            NewerGradleDependencyInspection().buildCapturedVisitor(holder, true).visitFile(psi)
             assertEquals(2, holder.results.size)
             val literalProblem = holder.results.single { it.descriptionTemplate.contains(":literal") }
             assertTrue(literalProblem.descriptionTemplate.contains("1.2.3 → 2.0.0"))
@@ -518,7 +518,7 @@ class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
             assertEquals(1, literalProblem.fixes!!.filterIsInstance<IgnorePublishedVersionFix>().size)
             project.service<VersionCheckerSettings>().state.majorSeverity = VersionSeverity.DISABLED
             val hidden = ProblemsHolder(InspectionManager.getInstance(project), psi, true)
-            NewerGradleDependencyInspection().buildVisitor(hidden, true).visitFile(psi)
+            NewerGradleDependencyInspection().buildCapturedVisitor(hidden, true).visitFile(psi)
             assertTrue(hidden.results.isEmpty())
             project.service<VersionCheckerSettings>().state.majorSeverity = VersionSeverity.WARNING
             literalProblem.fixes!!.filterIsInstance<UpdateGradleVersionFix>().single().applyFix(project, literalProblem)

@@ -26,7 +26,9 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
         val file = holder.file.virtualFile ?: return PsiElementVisitor.EMPTY_VISITOR
         val adapter = BuildSystemAdapter.find("gradle") as? GradleBuildSystemAdapter ?: return PsiElementVisitor.EMPTY_VISITOR
-        val snapshot = adapter.inspectionSnapshot(holder.project, file) ?: return PsiElementVisitor.EMPTY_VISITOR
+        if (!adapter.supports(holder.project, BuildSelection(UpdateScope.CURRENT_FILE, file.path)))
+            return PsiElementVisitor.EMPTY_VISITOR
+        val snapshot = holder.project.service<VersionCheckService>().inspectionSnapshot(adapter, file) ?: return PsiElementVisitor.EMPTY_VISITOR
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR
         val options = holder.project.service<VersionCheckerSettings>().state
         val ignoredPolicy = options.ignoredVersions
@@ -53,9 +55,8 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
                     val safe = notice == null && consumers.all { it.reason == null } && candidates.all { it != null } && candidates.map { it!!.version }.distinct().size == 1
                     val lease = report.lease?.forDeclarations(consumers.map { it.declaration.id }.toSet())
                     val updateFixes = if (safe) arrayOf<LocalQuickFix>(UpdateGradleVersionFix(GradleVersionEdit(file, range, candidate!!.version, file.name, original), {
-                        lease?.isCurrent() == true && options.enabled && options.ignoredVersions == ignoredPolicy &&
-                            adapter.isCurrent(holder.project, snapshot)
-                    })) else emptyArray()
+                        lease?.isCurrent() == true && options.enabled && options.ignoredVersions == ignoredPolicy
+                    }).withInputValidation { adapter.prepareEditValidation(holder.project, listOf(snapshot)) }) else emptyArray()
                     val fixes = updateFixes + (if (notice != null) emptyList() else consumers.mapNotNull { candidatesById[it.declaration.id] }.distinctBy { it.declaration.artifact to it.version }
                         .map { IgnorePublishedVersionFix(IgnoredVersion("gradle", it.declaration.artifact, it.version)) })
                     val message = notice?.message ?: updateHint(candidate!!.declaration.artifact, candidate.kind, candidate.declaration.baseline, candidate.version) + if (!safe) " (shared version needs review)" else ""
@@ -67,6 +68,8 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
 }
 
 internal class UpdateGradleVersionFix(private val edit: GradleVersionEdit, private val isCurrent: () -> Boolean) : LocalQuickFix {
+    private var prepareValidation: (suspend () -> (() -> Boolean))? = null
+    internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
     override fun getFamilyName() = "Update Gradle version"
     override fun getName() = "Update declared version to ${edit.latest}"
     override fun startInWriteAction() = false
@@ -79,7 +82,7 @@ internal class UpdateGradleVersionFix(private val edit: GradleVersionEdit, priva
                 return@locally
             }
             if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOfNotNull(edit.element))) return@locally
-            if (!BulkUpdatePlan(listOf(edit), emptyList(), isCurrent).apply(project, interaction))
+            if (!BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
                 notifyStaleVersionFix(project, "gradle", descriptor)
         }
 }

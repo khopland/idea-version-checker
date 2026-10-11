@@ -36,6 +36,12 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     private data class PendingScan(val token: ScanToken, val job: Job? = null)
     private data class StatusCheck(val context: BuildContextId, val token: ScanToken, val running: Boolean)
     private val cache = VersionResultCache()
+    private val inspectionInputs = InspectionInputCache(project, scope, { path ->
+        if (!disposed && !project.isDisposed) {
+            project.service<FileProblemRefresh>().request(path)
+            statusChanged(path)
+        }
+    })
     private val pending = ConcurrentHashMap<BuildContextId, PendingScan>()
     private val statusChecks = ConcurrentHashMap<Any, StatusCheck>()
     private val scanQueues = ConcurrentHashMap<String, CheckQueue>()
@@ -58,7 +64,10 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         else project.getServiceIfCreated(DiagnosticVisibilityTrace::class.java)?.activated(emptySet())
     }
 
-    override fun dispose() { disposed = true; cache.invalidate() }
+    override fun dispose() { disposed = true; inspectionInputs.dispose(); cache.invalidate() }
+
+    internal fun inspectionSnapshot(adapter: BuildSystemAdapter, file: VirtualFile): BuildSnapshot? =
+        inspectionInputs.snapshot(adapter, file)
 
     private fun queue(adapterId: String) = scanQueues.computeIfAbsent(adapterId) { CheckQueue { path -> path in selectedPaths } }
     internal fun queuedChecks(adapterId: String) = scanQueues[adapterId]?.waitingCount ?: 0
@@ -246,6 +255,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     }
 
     private fun invalidate(adapterId: String, currentFile: VirtualFile?) {
+        inspectionInputs.invalidate(adapterId, currentFile?.path)
         if (currentFile == null) {
             // A provider refresh must preserve cached results for other build systems.
             cache.invalidateAdapter(adapterId)

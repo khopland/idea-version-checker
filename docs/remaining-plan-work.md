@@ -355,6 +355,33 @@ uses per target, no deprecated/scheduled uses). The run took 1m 58s; release and
 script suites passed **13 + 16 tests**. The linked record preserves scope limits,
 commands and archive identity. Log: `/tmp/version-checker-scoped-lease-full.log`.
 
+## Inspection and edit captures (F09)
+
+The [inspection/edit capture record](inspection-edit-inputs.md) closes the
+remaining production synchronous external-input paths for Maven, npm and Gradle.
+Visitors use bounded, short-lived background captures; the status widget also
+prepares outside read locks. Every quick fix and review invocation obtains a new
+saved-input capture, then rechecks current IDE state and result authorization
+before the atomic edit command. Display captures cannot authorize edits.
+
+Native current-IDE testing found and corrected two additional issues: selected
+document saving lacked write-intent access on accessibility-dispatched Apply,
+and unsupported Gradle inspection inputs created a highlighting feedback loop.
+The [2026-10-11 native record](native-validation-2026-10-11/README.md) distinguishes
+the failing archives from the corrected archive and preserves the remaining
+minimum-IDE npm and controlled performance gaps.
+
+Final validation passed **493 plugin tests in 68 classes**, 13 release tests and
+16 script tests, all native integration flags, packaging/project-configuration
+checks and all three verifier targets. The compatible archive has 14 experimental
+API usages per target (ten existing progress usages and four write-intent
+references), with no deprecated/scheduled usages. Its exact hash and final-archive
+native Apply/undo and idle-smoke outcomes are in the linked records.
+
+This completes the explicit external disk-read boundary work. Slow-disk,
+large-init-directory, VFS/PSI cost, native typing/EDT and retained-heap acceptance
+remain open. No aggregation default or release identity changed.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
@@ -365,7 +392,7 @@ commands and archive identity. Log: `/tmp/version-checker-scoped-lease-full.log`
 ## Next engineering work
 
 1. **F06/F07: Gradle query batching.** Ownership indexing is enabled. The [bounded cross-file prototype](gradle-scan-prototype.md) is implemented behind a development-only JVM switch, with native resolver work/parity and cancellation/freshness regressions. Keep aggregation off by default until controlled native UI scale/typing and failure measurements pass; mode sharing and refresh-flag changes remain deferred.
-2. **F09: move remaining external input reads off the EDT.** Save-path preparation now uses background discovery without fingerprinting; Gradle background discovery/validation/preview captures external disk inputs outside read locks. Background external capture is implemented for all three providers. Complete synchronous inspection/edit revalidation; keep fresh unsaved/external-input guards before apply and profile slow disks/large init trees.
+2. **F09: validate the completed input boundary in native workloads.** Background external capture now covers discovery, validation, previews, inspections and per-invocation edits for all three providers. Fresh saved inputs and final unsaved/import/settings/result guards remain required before Apply. Profile slow disks, large init trees and live VFS/PSI work; see the [capture record](inspection-edit-inputs.md).
 3. **F10: validate bounded state in native workloads.** Result/source/generation budgets, expiry cleanup and late-worker regressions are implemented. Complete native import/rename/unload and heap observations; the model soak establishes map bounds, not retained heap size.
 4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; declaration-scoped partial leases now preserve held fixes across unrelated completions, while unknown/remapped scopes retain conservative report-level guards.
 5. **F12: native coverage acceptance.** Explicit provider outcomes, matching status/review counts, narrow-scope reasons, partial/failure totals and unknown-coverage handling are implemented. Validate readability/accessibility and document recognized-form limits; excluded managers and unparsed forms are not counted as an audit.

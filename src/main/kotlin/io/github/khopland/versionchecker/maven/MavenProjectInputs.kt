@@ -20,7 +20,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /** A read-pass input view, never retained across repository work or preview application. */
-internal class MavenProjectInputs(private val manager: MavenProjectsManager, private val external: External? = null) {
+internal class MavenProjectInputs(private val manager: MavenProjectsManager, private val external: External? = null,
+                                 private val layoutIsCurrent: () -> Boolean = { true }) {
     internal data class External(val fingerprints: Map<Path, String>, val settings: Map<Path?, Set<Path>>)
     private data class Distribution(val home: Path, val version: String?)
     private data class Layout(val settings: Path, val userHome: String, val distributions: Map<Path, Distribution>)
@@ -77,7 +78,7 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
                 }, settings)
                 context.ensureActive()
                 val captured = readAction {
-                    if (layout != layout(manager)) null else Captured(action(MavenProjectInputs(manager, external)))
+                    if (layout != layout(manager)) null else Captured(action(MavenProjectInputs(manager, external) { layout == layout(manager) }))
                 }
                 if (captured != null) return@withContext captured.value
             }
@@ -111,6 +112,10 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
     }
 
     fun find(path: String): MavenProject? = byPath[path]
+
+    /** Overlay live imports/documents/settings without reusing the preparation read-pass caches. */
+    fun currentView(): MavenProjectInputs? = if (layoutIsCurrent())
+        MavenProjectInputs(manager, external, layoutIsCurrent) else null
 
     fun fingerprint(project: MavenProject): BuildFingerprint {
         val directory = project.file.toNioPath().parent

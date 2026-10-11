@@ -4,6 +4,7 @@ import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.codeInspection.ProblemsHolder
+import com.intellij.codeInsight.FileModificationService
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.PsiElement
@@ -87,11 +88,14 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
                                  private val actionName: String? = null,
                                  private val isCurrent: () -> Boolean = { true }) : LocalQuickFix {
     private var actionNameProvider: (() -> String)? = null
+    private var prepareValidation: (suspend () -> (() -> Boolean))? = null
+    internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
     internal fun withActionName(provider: () -> String) = apply { actionNameProvider = provider }
     private val pointer: SmartPsiElementPointer<XmlTag> = SmartPointerManager.createPointer(target)
     private val expected = target.value.trimmedText
     override fun getFamilyName(): String = "Update Maven version"
     override fun getName(): String = actionNameProvider?.invoke() ?: actionName ?: "Update ${pointer.element?.localName ?: "version"} to $latest"
+    override fun startInWriteAction() = false
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = pointer.element
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
         CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
@@ -101,18 +105,29 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
                 notifyStaleVersionFix(project, "maven", descriptor)
                 return@locally
             }
-            tag.value.setText(latest)
-            CheckPerformance.record(CheckPerformance.Stage.EDITOR_TEXT_CHANGED,
-                interaction?.started ?: System.nanoTime(), interaction = interaction)
+            if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(tag))) return@locally
+            val edit = object : VersionEdit {
+                override val element get() = pointer.element
+                override val expected = this@UpdateDependencyVersionFix.expected
+                override val latest = this@UpdateDependencyVersionFix.latest
+                override val location = tag.containingFile.name
+                override fun isValid() = element?.value?.trimmedText == expected
+                override fun apply() { element!!.value.setText(latest) }
+            }
+            if (!BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
+                notifyStaleVersionFix(project, "maven", descriptor)
         }
 }
 
 class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: String,
                                    private val isCurrent: () -> Boolean = { true }) : LocalQuickFix {
+    private var prepareValidation: (suspend () -> (() -> Boolean))? = null
+    internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
     private val pointer = SmartPointerManager.createPointer(dependency)
     private val expected = dependency.text
     override fun getFamilyName() = "Override Maven dependency version locally"
     override fun getName() = "Override version locally with $latest"
+    override fun startInWriteAction() = false
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = pointer.element
     override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
         CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
@@ -122,14 +137,25 @@ class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: Strin
                 notifyStaleVersionFix(project, "maven", descriptor)
                 return@locally
             }
-            val version = dependency.findFirstSubTag("version")
-            if (version != null) version.value.setText(latest)
-            else {
-                val artifact = dependency.findFirstSubTag("artifactId") ?: return@locally
-                dependency.addAfter(dependency.createChildTag("version", dependency.namespace, latest, false), artifact)
-                CodeStyleManager.getInstance(project).reformat(dependency)
+            if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(dependency))) return@locally
+            val edit = object : VersionEdit {
+                override val element get() = pointer.element
+                override val expected = this@OverrideDependencyVersionFix.expected
+                override val latest = this@OverrideDependencyVersionFix.latest
+                override val location = dependency.containingFile.name
+                override fun isValid() = element?.let { it.text == expected &&
+                    (it.findFirstSubTag("version") != null || it.findFirstSubTag("artifactId") != null) } == true
+                override fun apply() {
+                    val tag = element!!
+                    val version = tag.findFirstSubTag("version")
+                    if (version != null) version.value.setText(latest)
+                    else {
+                        tag.addAfter(tag.createChildTag("version", tag.namespace, latest, false), tag.findFirstSubTag("artifactId"))
+                        CodeStyleManager.getInstance(project).reformat(tag)
+                    }
+                }
             }
-            CheckPerformance.record(CheckPerformance.Stage.EDITOR_TEXT_CHANGED,
-                interaction?.started ?: System.nanoTime(), interaction = interaction)
+            if (!BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
+                notifyStaleVersionFix(project, "maven", descriptor)
         }
 }

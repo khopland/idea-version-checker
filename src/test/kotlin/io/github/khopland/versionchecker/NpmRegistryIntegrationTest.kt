@@ -103,7 +103,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             assertNull("Early hints are inspection-only", service.cached(snapshot))
             val psi = PsiManager.getInstance(project).findFile(file)!!
             val holder = ProblemsHolder(InspectionManager.getInstance(project), psi, true)
-            val visitor = NewerNpmDependencyInspection().buildVisitor(holder, true)
+            val visitor = NewerNpmDependencyInspection().buildCapturedVisitor(holder, true)
             PsiTreeUtil.collectElements(psi) { true }.forEach { it.accept(visitor) }
             assertEquals(1, holder.results.size)
             assertTrue(holder.results.single().descriptionTemplate.contains("@early/fast"))
@@ -464,7 +464,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             val psi = PsiManager.getInstance(project).findFile(rootFile)!!
             fun problems(): List<ProblemDescriptor> {
                 val holder = ProblemsHolder(InspectionManager.getInstance(project), psi, true)
-                val visitor = NewerNpmDependencyInspection().buildVisitor(holder, true)
+                val visitor = NewerNpmDependencyInspection().buildCapturedVisitor(holder, true)
                 PsiTreeUtil.collectElements(psi) { true }.forEach { it.accept(visitor) }
                 return holder.results
             }

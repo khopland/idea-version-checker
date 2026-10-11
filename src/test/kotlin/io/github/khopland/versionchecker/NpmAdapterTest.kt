@@ -262,9 +262,9 @@ class NpmAdapterTest : BasePlatformTestCase() {
         val fix = UpdateNpmVersionFix(value, "^1.2.9")
         val descriptor = com.intellij.codeInspection.InspectionManager.getInstance(project)
             .createProblemDescriptor(value, "update", fix, com.intellij.codeInspection.ProblemHighlightType.WARNING, false)
-        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        fix.applyFix(project, descriptor)
         assertEquals("^1.2.9", NpmManifest.values(file).values.single().value)
-        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        fix.applyFix(project, descriptor)
         assertEquals("^1.2.9", NpmManifest.values(file).values.single().value)
     }
 }

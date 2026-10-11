@@ -35,6 +35,14 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
 
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? = snapshot(project, file, mutableMapOf())
 
+    override suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? =
+        capture(project, { listOf(file).filter { it.isValid } }) { external ->
+            val capture = { if (project.isDisposed || !file.isValid ||
+                !external.layoutIsCurrent(project, setOf(NpmWorkspaces.resolve(project, file).root.path))) null else
+                snapshot(project, file, mutableMapOf(), external) }
+            capture
+        }
+
     private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>,
                          external: NpmBuildInputs.External? = null): BuildSnapshot? {
         return CheckPerformance.measure(CheckPerformance.Stage.NPM_SNAPSHOT) { captureSnapshot(project, file, fingerprints, external) }
@@ -75,6 +83,16 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
     override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
         capture(project, { listOfNotNull(findFile(project, snapshot.sourceFile)) }) { external ->
             !project.isDisposed && areCurrent(project, listOf(snapshot), external)
+        }
+
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean =
+        capture(project, { snapshots.mapNotNull { findFile(project, it.sourceFile) } }) { external ->
+            val guard = {
+                !project.isDisposed && external.layoutIsCurrent(project, snapshots.mapNotNull { snapshot ->
+                    findFile(project, snapshot.sourceFile)?.let { NpmWorkspaces.resolve(project, it).root.path }
+                }.toSet()) && areCurrent(project, snapshots, external)
+            }
+            guard
         }
 
     override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> =
@@ -144,8 +162,9 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             report.notices.filter { notice -> report.candidates.none { it.declaration.id == notice.declaration.id } }
                 .forEach { skipped += "${it.declaration.id.file}: ${it.message}" }
         }
-        BulkUpdatePlan(edits, skipped.distinct(), isCurrent = { areCurrent(project, reports.keys) },
-            followUp = if (edits.isEmpty()) emptyList() else listOf(NpmUpdateGuidance.message))
+        BulkUpdatePlan(edits, skipped.distinct(),
+            followUp = if (edits.isEmpty()) emptyList() else listOf(NpmUpdateGuidance.message),
+            prepareValidation = { prepareEditValidation(project, reports.keys) })
     }
 
     internal fun workspaceDeclarations(project: Project, snapshot: BuildSnapshot): List<Pair<VersionDeclaration, JsonStringLiteral>> =
@@ -170,9 +189,11 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
         val localLease = lease?.forDeclarations(setOf(candidate.declaration.id))
         val current = { (localLease == null || localLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
-            project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && isCurrent(project, snapshot) }
-        if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, isCurrent = current))
-        return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, "Update locally to ${candidate.replacementSelector}", current),
+            project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy }
+        if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, isCurrent = current)
+            .withInputValidation { prepareEditValidation(project, listOf(snapshot)) })
+        return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, "Update locally to ${candidate.replacementSelector}", current)
+            .withInputValidation { prepareEditValidation(project, listOf(snapshot)) },
             workspaceFix)
     }
 
@@ -196,8 +217,8 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         val workspaceLease = lease?.forDeclarations(contributingIds)
         return UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits) {
             (workspaceLease == null || workspaceLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
-                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && isCurrent(project, snapshot)
-        }
+                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy
+        }.withInputValidation { prepareEditValidation(project, listOf(snapshot)) }
     }
     private fun findFile(project: Project, path: String): VirtualFile? =
         NpmManifest.files(project, BuildSelection(UpdateScope.CURRENT_FILE, path)).singleOrNull()

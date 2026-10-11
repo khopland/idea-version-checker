@@ -24,7 +24,8 @@ import kotlinx.coroutines.withContext
 /** Track native resolution configuration separately from the manifests a prepared edit can change. */
 internal object NpmBuildInputs {
     internal data class External(val digests: Map<Path, String>, val manifests: Map<Path, String?>,
-                                 val existing: Map<Path, Boolean>, val runtimes: Map<Path, String>)
+                                 val existing: Map<Path, Boolean>, val runtimes: Map<Path, String>,
+                                 val layoutIsCurrent: (Project, Set<String>) -> Boolean)
     private data class Layout(val roots: Set<String>, val environment: Map<String, String>,
                               val node: String?, val interpreter: String?, val npm: String?)
     private data class Captured<T>(val value: T)
@@ -77,7 +78,8 @@ internal object NpmBuildInputs {
             }
             val external = External(saved, manifestText,
                 existence.associateWith { context.ensureActive(); Files.exists(it) },
-                runtimes.associateWith { context.ensureActive(); runtimeStamp(it) })
+                runtimes.associateWith { context.ensureActive(); runtimeStamp(it) },
+                { currentProject, currentRoots -> layout == layout(currentProject, currentRoots) })
             context.ensureActive()
             val captured = readAction {
                 if (layout != layout(project, roots())) null else Captured(action(external))

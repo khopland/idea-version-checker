@@ -120,6 +120,8 @@ class VersionCheckStatusWidgetTest : BasePlatformTestCase() {
             override val capabilities = AdapterCapabilities(incrementalInspections = true)
             override fun snapshot(project: Project, file: VirtualFile) = native.snapshot(project, file)!!.copy(declarations = listOf(declaration))
             override fun inspectionSnapshot(project: Project, file: VirtualFile) = snapshot(project, file)
+            override suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? =
+                { inspectionSnapshot(project, file) }
             override suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
                                                     publish: suspend (InspectionUpdate) -> Unit): UpdateReport {
                 nativeChecks.incrementAndGet()
@@ -166,6 +168,8 @@ class VersionCheckStatusWidgetTest : BasePlatformTestCase() {
             override val capabilities = AdapterCapabilities(incrementalInspections = true)
             override fun snapshot(project: Project, file: VirtualFile) = native.snapshot(project, file)!!.copy(declarations = declarations)
             override fun inspectionSnapshot(project: Project, file: VirtualFile) = snapshot(project, file)
+            override suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? =
+                { inspectionSnapshot(project, file) }
             override suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
                                                     publish: suspend (InspectionUpdate) -> Unit): UpdateReport {
                 nativeChecks.incrementAndGet()

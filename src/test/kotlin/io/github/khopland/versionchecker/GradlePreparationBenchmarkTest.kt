@@ -47,7 +47,7 @@ class GradlePreparationBenchmarkTest : BasePlatformTestCase() {
             PlatformTestUtil.waitWithEventsDispatching("Cached Gradle benchmark report", { service.cached(snapshot) != null }, 10)
             fun visit(): Long {
                 val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-                val elapsed = measureNanoTime { file.accept(NewerGradleDependencyInspection().buildVisitor(holder, true)) }
+                val elapsed = measureNanoTime { file.accept(NewerGradleDependencyInspection().buildCapturedVisitor(holder, true)) }
                 assertEquals(count, holder.results.size)
                 assertTrue(holder.results.all { it.fixes!!.filterIsInstance<UpdateGradleVersionFix>().single().name == "Update declared version to 1.2.9" })
                 return elapsed

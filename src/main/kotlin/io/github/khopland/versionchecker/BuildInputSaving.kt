@@ -3,6 +3,7 @@ package io.github.khopland.versionchecker
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.project.Project
 import io.github.khopland.versionchecker.core.*
 import kotlinx.coroutines.Dispatchers
@@ -23,16 +24,21 @@ internal suspend fun saveBuildInputs(project: Project, selection: BuildSelection
     withContext(Dispatchers.EDT) save@{
         currentCoroutineContext().ensureActive()
         if (project.isDisposed) return@save
-        val documents = FileDocumentManager.getInstance()
-        documents.unsavedDocuments.filter { documents.getFile(it)?.path in paths }.forEach {
-            currentCoroutineContext().ensureActive()
-            documents.saveDocument(it)
-        }
+        val context = currentCoroutineContext()
+        WriteIntentReadAction.run(Runnable {
+            val documents = FileDocumentManager.getInstance()
+            documents.unsavedDocuments.filter { documents.getFile(it)?.path in paths }.forEach {
+                context.ensureActive()
+                documents.saveDocument(it)
+            }
+        })
     }
 }
 
 internal fun saveChangedVersionFiles(plan: BulkUpdatePlan) {
-    val documents = FileDocumentManager.getInstance()
-    plan.changes.mapNotNull { it.element?.containingFile?.virtualFile }.distinct()
-        .mapNotNull(documents::getCachedDocument).forEach(documents::saveDocument)
+    WriteIntentReadAction.run(Runnable {
+        val documents = FileDocumentManager.getInstance()
+        plan.changes.mapNotNull { it.element?.containingFile?.virtualFile }.distinct()
+            .mapNotNull(documents::getCachedDocument).forEach(documents::saveDocument)
+    })
 }

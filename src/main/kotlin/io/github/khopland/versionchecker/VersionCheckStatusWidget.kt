@@ -130,7 +130,7 @@ internal class VersionCheckStatusWidget(project: Project, parentScope: Coroutine
                     if (disposed || project.isDisposed) null else FileEditorManager.getInstance(project).selectedFiles.firstOrNull()
                 }
                 val result = try {
-                    file?.let { readAction { evaluate(it) } }
+                    file?.let { evaluate(it) }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (cancelled: ProcessCanceledException) {
@@ -157,17 +157,20 @@ internal class VersionCheckStatusWidget(project: Project, parentScope: Coroutine
         requestUpdate()
     }
 
-    private fun evaluate(file: VirtualFile): VersionCheckStatus? {
+    private suspend fun evaluate(file: VirtualFile): VersionCheckStatus? {
         if (!file.isValid || disposed || project.isDisposed) return null
         if (DumbService.isDumb(project)) return if (file.name in setOf("pom.xml", "package.json", "build.gradle", "build.gradle.kts", "libs.versions.toml"))
             VersionCheckStatus(CheckPhase.INDEXING) else null
-        val adapters = BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, file.path))
+        val adapters = readAction { BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, file.path)) }
         if (adapters.isEmpty()) return null
         if (!project.service<VersionCheckerSettings>().state.enabled) return VersionCheckStatus(CheckPhase.PAUSED)
         val statuses = adapters.map { adapter ->
-            if (adapter.isOffline(project)) VersionCheckStatus(CheckPhase.OFFLINE)
-            else adapter.inspectionSnapshot(project, file)?.let { project.service<VersionCheckService>().status(adapter, it) }
-                ?: VersionCheckStatus(CheckPhase.UNAVAILABLE)
+            if (readAction { adapter.isOffline(project) }) VersionCheckStatus(CheckPhase.OFFLINE)
+            else {
+                val capture = adapter.prepareInspectionSnapshot(project, file)
+                readAction { capture()?.let { project.service<VersionCheckService>().status(adapter, it) }
+                    ?: VersionCheckStatus(CheckPhase.UNAVAILABLE) }
+            }
         }
         return statuses.firstOrNull { it.phase != CheckPhase.CHECKED } ?: VersionCheckStatus(CheckPhase.CHECKED,
             statuses.sumOf { it.updates }, statuses.sumOf { it.notices }, statuses.mapNotNull { it.expiresAtNanos }.minOrNull())

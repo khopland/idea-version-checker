@@ -79,6 +79,6 @@ class PomVersionFixTest : BasePlatformTestCase() {
         val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
             version, "Newer version available", fix, ProblemHighlightType.GENERIC_ERROR, true
         )
-        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        fix.applyFix(project, descriptor)
     }
 }

@@ -113,6 +113,14 @@ internal class GradleBuildSystemAdapter(
     override fun inspectionSnapshot(project: Project, file: VirtualFile): BuildSnapshot? =
         snapshot(project, file, mutableMapOf(), mutableMapOf(), allowUnsaved = true)
 
+    override suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? =
+        withExternalInputs(project) { external ->
+            val home = externalHome(project)
+            val capture = { if (project.isDisposed || !file.isValid || home != externalHome(project)) null else
+                snapshot(project, file, mutableMapOf(), mutableMapOf(), allowUnsaved = true, externalHashes = external) }
+            capture
+        }
+
     override fun canCheckInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
         files(project, snapshot.context.root).none { FileDocumentManager.getInstance().isFileModified(it) }
 
@@ -215,6 +223,13 @@ internal class GradleBuildSystemAdapter(
     override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
         withExternalInputs(project) { external -> !project.isDisposed && areCurrent(project, listOf(snapshot), external) }
 
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean =
+        withExternalInputs(project) { external ->
+            val home = externalHome(project)
+            val guard = { !project.isDisposed && externalHome(project) == home && areCurrent(project, snapshots, external) }
+            guard
+        }
+
     private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>, externalHashes: Map<String, String>? = null): Boolean {
         val fingerprints = mutableMapOf<String, BuildFingerprint>()
         // Final synchronous validation needs fresh disk bytes too, shared across linked builds.
@@ -287,6 +302,8 @@ internal class GradleBuildSystemAdapter(
                 result.outcome == DeclarationOutcome.SKIPPED && id !in snapshot.skippedDeclarations
             }.map { (id, result) -> "${id.file}: ${id.location}: ${result.reason}" }
         }
-        BulkUpdatePlan(edits.sortedByDescending { (it as GradleVersionEdit).range.startOffset }, skipped, { areCurrent(project, reports.keys) }, if (edits.isEmpty()) emptyList() else listOf("Reload the Gradle project in IntelliJ after updating versions. Update dependency locks yourself if the build uses locking."))
+        BulkUpdatePlan(edits.sortedByDescending { (it as GradleVersionEdit).range.startOffset }, skipped,
+            followUp = if (edits.isEmpty()) emptyList() else listOf("Reload the Gradle project in IntelliJ after updating versions. Update dependency locks yourself if the build uses locking."),
+            prepareValidation = { prepareEditValidation(project, reports.keys) })
     }
 }

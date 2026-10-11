@@ -40,7 +40,7 @@ class NpmInspectionBenchmarkTest : BasePlatformTestCase() {
             fun visit(): Sample {
                 val started = System.nanoTime()
                 val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-                val visitor = NewerNpmDependencyInspection().buildVisitor(holder, true)
+                val visitor = NewerNpmDependencyInspection().buildCapturedVisitor(holder, true)
                 var first = 0L
                 PsiTreeUtil.processElements(file) { element ->
                     element.accept(visitor)

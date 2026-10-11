@@ -53,12 +53,12 @@ class OtherManagerWarningRetentionTest : BasePlatformTestCase() {
         val fix = npm.quickFixes(project, snapshot(npm, file), candidate, value).first()
         val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
             value, "Newer version", fix, ProblemHighlightType.WARNING, false)
-        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        fix.applyFix(project, descriptor)
     }
 
     private fun applyGradle(file: PsiFile, report: UpdateReport) {
         val holder = ProblemsHolder(InspectionManager.getInstance(project), file, false)
-        NewerGradleDependencyInspection().buildVisitor(holder, false).visitFile(file)
+        NewerGradleDependencyInspection().buildCapturedVisitor(holder, false).visitFile(file)
         assertEquals(report.candidates.size, holder.results.size)
         val descriptor = holder.results.first()
         descriptor.fixes!!.filterIsInstance<UpdateGradleVersionFix>().single().applyFix(project, descriptor)
@@ -96,7 +96,7 @@ class OtherManagerWarningRetentionTest : BasePlatformTestCase() {
                 assertEquals("Unsaved Gradle edits must not start native resolution", 2, checked.size)
                 // Prove the retained warning is exposed through the actual Gradle inspection.
                 val holder = ProblemsHolder(InspectionManager.getInstance(project), first, false)
-                NewerGradleDependencyInspection().buildVisitor(holder, false).visitFile(first)
+                NewerGradleDependencyInspection().buildCapturedVisitor(holder, false).visitFile(first)
                 assertEquals(1, holder.results.size)
                 assertNotNull(holder.results.single().fixes?.filterIsInstance<UpdateGradleVersionFix>()?.singleOrNull())
                 FileDocumentManager.getInstance().saveAllDocuments()

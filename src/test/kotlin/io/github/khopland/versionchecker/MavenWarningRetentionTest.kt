@@ -73,7 +73,7 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
         val fix = analysis.quickFixes(tag, problem).single()
         val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
             tag, problem.message, fix, ProblemHighlightType.WARNING, true)
-        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        fix.applyFix(project, descriptor)
     }
 
     private fun partialAnalysis(file: XmlFile, snapshot: BuildSnapshot, report: UpdateReport) =
@@ -82,7 +82,7 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
 
     private fun applyPartialFix(target: com.intellij.psi.xml.XmlTag, fix: com.intellij.codeInspection.LocalQuickFix) {
         val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(target, "update", fix, ProblemHighlightType.WARNING, true)
-        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        fix.applyFix(project, descriptor)
     }
 
     fun testHeldPartialMavenLiteralFixSurvivesAnotherDependencyCompletion() {
@@ -149,13 +149,13 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
         val validations = AtomicInteger()
         val checkingAdapter = object : BuildSystemAdapter by adapter {
             override val capabilities = adapter.capabilities.copy(incrementalInspections = false)
-            override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
+            override suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? {
                 snapshots.incrementAndGet()
-                return adapter.snapshot(project, file)
+                return adapter.prepareInspectionSnapshot(project, file)
             }
-            override fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean {
+            override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean {
                 validations.incrementAndGet()
-                return adapter.isCurrent(project, snapshot)
+                return adapter.prepareEditValidation(project, snapshots)
             }
             override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) =
                 report(snapshot).copy(notices = listOf(UpdateNotice(snapshot.declarations.last(), NoticeKind.RELOCATED, "replacement:b")))
@@ -165,6 +165,7 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
         service.updates(checkingAdapter, original)
         PlatformTestUtil.waitWithEventsDispatching("Inspection report cached", { service.cached(original) != null }, 10_000)
 
+        awaitInspectionInputs("maven", file)
         val analysis = MavenDependencyAnalysis.forFile(file)!!
         val tags = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags
         assertEquals("2.0.10", analysis.problem(tags.first())!!.latest)
@@ -179,7 +180,7 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
         val checksBeforeApply = validations.get()
         val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
             tags.first(), "update", fix, ProblemHighlightType.WARNING, true)
-        WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+        fix.applyFix(project, descriptor)
         assertEquals(checksBeforeApply + 1, validations.get())
         assertEquals("1.0", tags.first().findFirstSubTag("version")!!.value.trimmedText)
     }

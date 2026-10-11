@@ -17,6 +17,10 @@
 
 ### Changed
 
+- Inspection input captures and fresh quick-fix/review validation read external Maven, npm and Gradle configuration in cancellable background work. Final edits recheck current documents, imports, settings and result authorization inside their undoable command.
+- Selected-file saving acquires write-intent access explicitly, including review clicks through accessibility on newer IDEs. Follow-up failures after a successful edit explain that the editor text changed.
+- Unsupported or unavailable inspection snapshots do not trigger repeated background captures and highlighting restarts; Gradle checks file ownership before preparing inspection inputs.
+
 - Status and review show explicit checked, skipped, ignored, manual-review and failed declaration coverage, including partial progress and Maven narrow scopes. Shared Maven consumers count once in whole-project totals; unsupported empty reviews explain their exclusions.
 
 - Sanitize credentials, URL queries and local paths in displayed/copied failure details; show native npm recovery guidance in status and reject held bulk updates while checks are paused.

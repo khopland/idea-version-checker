@@ -73,8 +73,22 @@ internal class MavenBuildSystemAdapter(
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? =
         CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
             val manager = MavenProjectsManager.getInstance(project)
+            inspectionSnapshot(project, file, MavenProjectInputs(manager))
+        }
+
+    override suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? =
+        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
+            val capture = { if (project.isDisposed || !file.isValid) null else inputs.currentView()?.let {
+                inspectionSnapshot(project, file, it)
+            } }
+            capture
+        }
+
+    private fun inspectionSnapshot(project: Project, file: VirtualFile, inputs: MavenProjectInputs): BuildSnapshot? {
+        return CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
+            val manager = MavenProjectsManager.getInstance(project)
             val mavenProject = manager.findProject(file)?.takeUnless { manager.isIgnored(it) } ?: return@measure null
-            val snapshot = captureSnapshot(project, mavenProject, MavenProjectInputs(manager)) ?: return@measure null
+            val snapshot = captureSnapshot(project, mavenProject, inputs) ?: return@measure null
             // Retain the full audit's coverage and failures until it expires or is invalidated.
             if (!project.service<VersionCheckerSettings>().state.mavenFastEditorChecks ||
                 project.service<VersionCheckService>().cached(snapshot) != null) snapshot else {
@@ -83,6 +97,7 @@ internal class MavenBuildSystemAdapter(
                 MavenFastEditorScope.select(manager, model, snapshot)
             }
         }
+    }
 
     private fun captureSnapshot(project: Project, mavenProject: MavenProject, inputs: MavenProjectInputs): BuildSnapshot? {
         val file = mavenProject.file
@@ -141,6 +156,11 @@ internal class MavenBuildSystemAdapter(
     override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
         MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
             !project.isDisposed && areCurrent(inputs, listOf(snapshot))
+        }
+
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean =
+        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
+            { !project.isDisposed && inputs.currentView()?.let { areCurrent(it, snapshots) } == true }
         }
 
     internal fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>): Boolean {
@@ -235,7 +255,8 @@ internal class MavenBuildSystemAdapter(
             file to MavenDependencyAnalysis(model, mavenProject, report.mavenUpdates(), project.service<VersionCheckerSettings>().state, report.mavenRelocations())
         }.toMap()
         val usages = inputs.projects.mapNotNull { PsiManager.getInstance(project).findFile(it.file) }
-        val plan = MavenBulkUpdatePlan.create(files, usageFiles = usages, isCurrent = { areCurrent(project, reports.keys) })
+        val plan = MavenBulkUpdatePlan.create(files, usageFiles = usages).copy(
+            prepareValidation = { prepareEditValidation(project, reports.keys) })
         plan.copy(skipped = (plan.skipped + reports.keys.flatMap { it.skippedDeclarations.entries }.map {
             "${it.key.file}: ${it.key.location}: ${it.value}"
         }).distinct())

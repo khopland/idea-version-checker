@@ -81,7 +81,7 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         service.updates(checking, snapshot)
         PlatformTestUtil.waitWithEventsDispatching("npm report cached", { service.cached(snapshot) != null }, 10)
         val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-        val visitor = NewerNpmDependencyInspection().buildVisitor(holder, true)
+        val visitor = NewerNpmDependencyInspection().buildCapturedVisitor(holder, true)
         PsiTreeUtil.processElements(file) { element -> element.accept(visitor); true }
         return holder.results
     }

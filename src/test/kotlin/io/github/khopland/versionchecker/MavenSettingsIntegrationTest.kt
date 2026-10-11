@@ -479,7 +479,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                     val fix = analysis.quickFixes(dependency, problem).single()
                     val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
                         problem.anchor, "Newer version", fix, ProblemHighlightType.WARNING, true)
-                    WriteCommandAction.runWriteCommandAction(project) { fix.applyFix(project, descriptor) }
+                    fix.applyFix(project, descriptor)
                 } else {
                     val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
                     assertEquals(1, plan.changes.size)
@@ -899,7 +899,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 assertNull("A partial category cannot authorize a bulk preview", coordinator.cached(snapshot))
                 val earlyFile = PsiManager.getInstance(project).findFile(virtualFile)!!
                 val earlyProblems = ProblemsHolder(InspectionManager.getInstance(project), earlyFile, true)
-                val earlyVisitor = NewerMavenDependencyInspection().buildVisitor(earlyProblems, true)
+                val earlyVisitor = NewerMavenDependencyInspection().buildCapturedVisitor(earlyProblems, true)
                 PsiTreeUtil.findChildrenOfType(earlyFile, XmlTag::class.java).forEach { it.accept(earlyVisitor) }
                 assertEquals(2, earlyProblems.results.size)
                 assertTrue(earlyProblems.results.all { it.fixes!!.any { fix -> fix is IgnorePublishedVersionFix } })
@@ -978,7 +978,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             }, 120_000)
             val file = PsiManager.getInstance(project).findFile(virtualFile)!!
             val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-            val visitor = NewerMavenDependencyInspection().buildVisitor(holder, true)
+            val visitor = NewerMavenDependencyInspection().buildCapturedVisitor(holder, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(visitor) }
             val problem = holder.results.single { it.psiElement is XmlTag && (it.psiElement as XmlTag).localName == "fixture.version" }
             val pluginProblem = holder.results.single { it.psiElement is XmlTag && (it.psiElement as XmlTag).localName == "fixture-plugin.version" }
@@ -995,32 +995,30 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val options = project.service<VersionCheckerSettings>().state
             options.majorSeverity = VersionSeverity.ERROR
             val errorHolder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-            val errorVisitor = NewerMavenDependencyInspection().buildVisitor(errorHolder, true)
+            val errorVisitor = NewerMavenDependencyInspection().buildCapturedVisitor(errorHolder, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(errorVisitor) }
             assertEquals(4, errorHolder.results.size)
             assertTrue(errorHolder.results.all { it.highlightType == ProblemHighlightType.GENERIC_ERROR })
             options.majorSeverity = VersionSeverity.DISABLED
             val disabledHolder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-            val disabledVisitor = NewerMavenDependencyInspection().buildVisitor(disabledHolder, true)
+            val disabledVisitor = NewerMavenDependencyInspection().buildCapturedVisitor(disabledHolder, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(disabledVisitor) }
             assertTrue(disabledHolder.results.isEmpty())
             options.majorSeverity = VersionSeverity.WARNING
             val standard = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-            val standardVisitor = NewerMavenDependencyInspection().buildVisitor(standard, true)
+            val standardVisitor = NewerMavenDependencyInspection().buildCapturedVisitor(standard, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(standardVisitor) }
             assertEquals(4, standard.results.size)
             assertTrue(standard.results.all { it.highlightType == ProblemHighlightType.WARNING })
 
             // Use the refreshed descriptor after editor setup has changed the POM's modification stamp.
             val currentProblem = standard.results.single { it.psiElement is XmlTag && (it.psiElement as XmlTag).localName == "fixture.version" }
-            WriteCommandAction.runWriteCommandAction(project) {
-                currentProblem.fixes!!.filterIsInstance<UpdateDependencyVersionFix>().single().applyFix(project, currentProblem)
-            }
+            currentProblem.fixes!!.filterIsInstance<UpdateDependencyVersionFix>().single().applyFix(project, currentProblem)
             val tags = PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java)
             assertEquals("2.0", tags.single { it.localName == "fixture.version" }.value.trimmedText)
             assertTrue(tags.any { it.localName == "version" && it.value.trimmedText == "\${fixture.version}" })
             val after = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-            val afterVisitor = NewerMavenDependencyInspection().buildVisitor(after, true)
+            val afterVisitor = NewerMavenDependencyInspection().buildCapturedVisitor(after, true)
             tags.forEach { it.accept(afterVisitor) }
             assertTrue("Edited versions must not get stale errors", after.results.none { !it.descriptionTemplate.contains("Maven plugin") })
             com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()

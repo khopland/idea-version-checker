@@ -46,7 +46,7 @@ class GradleInspectionTest : BasePlatformTestCase() {
         service.updates(checking, snapshot)
         PlatformTestUtil.waitWithEventsDispatching("Gradle report cached", { service.cached(snapshot) != null }, 10_000)
         val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-        file.accept(NewerGradleDependencyInspection().buildVisitor(holder, true))
+        file.accept(NewerGradleDependencyInspection().buildCapturedVisitor(holder, true))
         return holder
     }
 
@@ -135,7 +135,7 @@ class GradleInspectionTest : BasePlatformTestCase() {
                 service.updates(checking, snapshot)?.candidates?.size == 2
             }, 10_000)
             val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-            file.accept(NewerGradleDependencyInspection().buildVisitor(holder, true))
+            file.accept(NewerGradleDependencyInspection().buildCapturedVisitor(holder, true))
             val descriptor = holder.results.single()
             val fix = descriptor.fixes!!.filterIsInstance<UpdateGradleVersionFix>().single()
             continueCheck.complete(Unit)

@@ -215,8 +215,8 @@ internal class MavenDependencyAnalysis(
         val resultIsCurrent = resultGuard(consumers.map { it.coordinate }.toSet())
         return arrayOf(UpdateDependencyVersionFix(property, latest,
             isCurrent = { resultIsCurrent() && property.project.service<VersionCheckerSettings>().state.enabled &&
-                property.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy &&
-                quickFixAdapter.isCurrent(property.project, snapshot) })
+                property.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy })
+            .withInputValidation { quickFixAdapter.prepareEditValidation(property.project, listOf(snapshot)) }
             .withActionName { scopedAction(property, latest) })
     }
 
@@ -228,13 +228,14 @@ internal class MavenDependencyAnalysis(
         val snapshot = quickFixSnapshot ?: return emptyArray()
         fun guard(resultIsCurrent: () -> Boolean): () -> Boolean = {
             resultIsCurrent() && project.service<VersionCheckerSettings>().state.enabled &&
-                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy && adapter.isCurrent(project, snapshot)
+                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy
         }
         problem.target?.let {
             val shared = it.parentTag?.localName == "properties" || it.parentTag?.parentTag?.parentTag?.localName == "dependencyManagement"
             if (shared && !sharedAllowed(it, latest)) return emptyArray()
             val fix = UpdateDependencyVersionFix(it, latest,
                 isCurrent = guard(if (shared) sharedResultGuard(it, problem.coordinate) else resultGuard(setOf(problem.coordinate))))
+                .withInputValidation { adapter.prepareEditValidation(project, listOf(snapshot)) }
             if (shared) fix.withActionName { scopedAction(it, latest) }
             return arrayOf(fix)
         }
@@ -242,14 +243,16 @@ internal class MavenDependencyAnalysis(
         val version = tag.findFirstSubTag("version")
         // Composite expressions and ranges retain their existing manual-review behavior.
         if (version != null && versionPropertyName(version.value.trimmedText) == null) return emptyArray()
-        val fixes = mutableListOf<LocalQuickFix>(OverrideDependencyVersionFix(tag, latest, guard(resultGuard(setOf(problem.coordinate)))))
+        val fixes = mutableListOf<LocalQuickFix>(OverrideDependencyVersionFix(tag, latest, guard(resultGuard(setOf(problem.coordinate))))
+            .withInputValidation { adapter.prepareEditValidation(project, listOf(snapshot)) })
         val target = sharedVersionTarget(version ?: managingVersion(tag), problem.coordinate.version)
         if (target != null && sharedAllowed(target, latest)) {
             val file = target.containingFile.virtualFile
             val base = project.basePath?.trimEnd('/')
             val path = if (base != null && file.path.startsWith("$base/")) file.path.removePrefix("$base/") else file.path
             val location = if (file == tag.containingFile.virtualFile) "managed" else "parent"
-            fixes += UpdateDependencyVersionFix(target, latest, isCurrent = guard(sharedResultGuard(target, problem.coordinate))).withActionName {
+            fixes += UpdateDependencyVersionFix(target, latest, isCurrent = guard(sharedResultGuard(target, problem.coordinate)))
+                .withInputValidation { adapter.prepareEditValidation(project, listOf(snapshot)) }.withActionName {
                 "Update $location version to $latest in $path (${sharedScopes[target] ?: "shared scope requires review"})"
             }
         }

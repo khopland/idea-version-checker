@@ -3,6 +3,7 @@ package io.github.khopland.versionchecker
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 
 /** Platform edit bridge: the coordinator never needs XML/JSON/TOML types. */
 internal interface VersionEdit {
@@ -23,7 +24,8 @@ internal data class BulkUpdatePlan(
     val changes: List<VersionEdit>,
     val skipped: List<String>,
     private val isCurrent: () -> Boolean = { true },
-    val followUp: List<String> = emptyList()
+    val followUp: List<String> = emptyList(),
+    val prepareValidation: (suspend () -> (() -> Boolean))? = null
 ) {
     companion object {
         fun combine(plans: List<BulkUpdatePlan>): BulkUpdatePlan {
@@ -38,7 +40,12 @@ internal data class BulkUpdatePlan(
                 changes = changes,
                 skipped = plans.flatMap { it.skipped }.distinct(),
                 isCurrent = { plans.all { it.isCurrent() } },
-                followUp = plans.flatMap { it.followUp }.distinct()
+                followUp = plans.flatMap { it.followUp }.distinct(),
+                prepareValidation = if (plans.any { it.prepareValidation != null }) ({
+                    val guards = plans.map { it.prepareValidation?.invoke() ?: { true } }
+                    val guard = { guards.all { it() } }
+                    guard
+                }) else null
             )
         }
     }
@@ -60,9 +67,13 @@ internal data class BulkUpdatePlan(
         interaction: CheckPerformance.Interaction? = CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)
     ): Boolean =
         CheckPerformance.locally(interaction) {
+            if (prepareValidation != null && !isCurrent()) return@locally false
+            val inputGuard = prepareValidation?.let { prepare ->
+                runWithModalProgressBlocking(project, "Validating version update inputs") { prepare() }
+            } ?: { true }
             var applied = false
             WriteCommandAction.runWriteCommandAction(project, "Update versions", null, Runnable {
-                if (!isCurrent()) return@Runnable
+                if (project.isDisposed || !isCurrent() || !inputGuard()) return@Runnable
                 val textChanges = changes.mapNotNull { it.documentChange }
                 val prepared = DocumentVersionChange.prepare(textChanges) ?: return@Runnable
                 val elementChanges = changes.filter { it.documentChange == null }
