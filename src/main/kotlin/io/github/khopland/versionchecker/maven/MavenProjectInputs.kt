@@ -12,6 +12,8 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.server.MavenDistributionsCache
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
+import java.util.HexFormat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -19,13 +21,30 @@ import kotlinx.coroutines.withContext
 
 /** A read-pass input view, never retained across repository work or preview application. */
 internal class MavenProjectInputs(private val manager: MavenProjectsManager, private val external: External? = null) {
-    internal data class External(val stamps: Map<Path, String>, val settings: Map<Path?, Set<Path>>)
+    internal data class External(val fingerprints: Map<Path, String>, val settings: Map<Path?, Set<Path>>)
     private data class Distribution(val home: Path, val version: String?)
     private data class Layout(val settings: Path, val userHome: String, val distributions: Map<Path, Distribution>)
 
     companion object {
-        fun savedDiskStamp(path: Path): String =
-            if (Files.exists(path)) "${Files.getLastModifiedTime(path)}:${Files.size(path)}" else "missing"
+        /** External configuration can change without a VFS event, size change or new timestamp. */
+        fun savedDiskFingerprint(path: Path): String =
+            savedDiskFingerprint(path) { com.intellij.openapi.progress.ProgressManager.checkCanceled() }
+
+        private fun savedDiskFingerprint(path: Path, checkCancellation: () -> Unit): String {
+            checkCancellation()
+            if (!Files.exists(path)) return "missing"
+            val digest = MessageDigest.getInstance("SHA-256")
+            Files.newInputStream(path).use { input ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    checkCancellation()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return HexFormat.of().formatHex(digest.digest())
+        }
 
         private fun layout(manager: MavenProjectsManager): Layout = Layout(MavenSettingsInputs.userSettings(manager),
             System.getProperty("user.home"), manager.nonIgnoredProjects.associate { project ->
@@ -34,7 +53,7 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
             })
 
         /** Only immutable paths cross the disk phase; current IDE state is overlaid afterward. */
-        suspend fun <T> capture(manager: MavenProjectsManager, readStamp: (Path) -> String = ::savedDiskStamp,
+        suspend fun <T> capture(manager: MavenProjectsManager, readFingerprint: ((Path) -> String)? = null,
                                 action: (MavenProjectInputs) -> T): T = withContext(Dispatchers.IO) {
             val context = currentCoroutineContext()
             repeat(3) {
@@ -52,7 +71,10 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
                         ancestor = ancestor.parent
                     }
                 }
-                val external = External(paths.associateWith { path -> context.ensureActive(); readStamp(path) }, settings)
+                val external = External(paths.associateWith { path ->
+                    context.ensureActive()
+                    readFingerprint?.invoke(path) ?: savedDiskFingerprint(path) { context.ensureActive() }
+                }, settings)
                 context.ensureActive()
                 val captured = readAction {
                     if (layout != layout(manager)) null else Captured(action(MavenProjectInputs(manager, external)))
@@ -65,7 +87,7 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
     }
     val projects: List<MavenProject> = manager.nonIgnoredProjects.toList()
     private val byPath = projects.associateBy { it.path }
-    private val diskStamps = mutableMapOf<Path, String>()
+    private val diskFingerprints = mutableMapOf<Path, String>()
     private val fingerprints = mutableMapOf<Path, BuildFingerprint>()
     private val inspectionFingerprints = mutableMapOf<Path, BuildFingerprint>()
     private val settingsFiles = mutableMapOf<Path, Set<Path>>()
@@ -83,7 +105,7 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
             val files = projects.associate { pom ->
                 pom.path to "${pom.file.modificationStamp}:${documents.getCachedDocument(pom.file)?.takeIf { documents.isDocumentUnsaved(it) }?.modificationStamp}"
             }.toMutableMap()
-            settingsPaths().forEach { files[it.toString()] = diskStamp(it) }
+            settingsPaths().forEach { files[it.toString()] = diskFingerprint(it) }
             BuildFingerprint(files, "${manager.modificationTracker.modificationCount}:$configuration")
         }
     }
@@ -96,12 +118,12 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
             val files = shared.files.toMutableMap()
             val distribution = MavenDistributionsCache.getInstance(manager.project).getMavenDistribution(project.file)
             settingsFiles.getOrPut(distribution.mavenHome) { settingsPaths(distribution.mavenHome) }
-                .forEach { files[it.toString()] = diskStamp(it) }
+                .forEach { files[it.toString()] = diskFingerprint(it) }
             var ancestor: Path? = directory
             while (ancestor != null) {
                 for (name in listOf("maven.config", "jvm.config", "extensions.xml", "wrapper/maven-wrapper.properties")) {
                     val config = ancestor.resolve(".mvn").resolve(name)
-                    files[config.toString()] = diskStamp(config)
+                    files[config.toString()] = diskFingerprint(config)
                 }
                 ancestor = ancestor.parent
             }
@@ -119,8 +141,8 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
     private fun settingsPaths(home: Path? = null): Set<Path> =
         external?.settings?.getValue(home) ?: MavenSettingsInputs.files(userSettings, home)
 
-    private fun diskStamp(path: Path): String = diskStamps.getOrPut(path) {
-        val saved = external?.stamps?.getValue(path.toAbsolutePath().normalize()) ?: savedDiskStamp(path)
+    private fun diskFingerprint(path: Path): String = diskFingerprints.getOrPut(path) {
+        val saved = external?.fingerprints?.getValue(path.toAbsolutePath().normalize()) ?: savedDiskFingerprint(path)
         val documents = FileDocumentManager.getInstance()
         val document = LocalFileSystem.getInstance().findFileByNioFile(path.toAbsolutePath())
             ?.let(documents::getCachedDocument)?.takeIf { documents.isDocumentUnsaved(it) }

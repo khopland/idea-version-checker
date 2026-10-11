@@ -80,7 +80,7 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
                 assertFalse(ApplicationManager.getApplication().isReadAccessAllowed)
                 assertFalse(ApplicationManager.getApplication().isDispatchThread)
                 reads.add(path)
-                MavenProjectInputs.savedDiskStamp(path)
+                MavenProjectInputs.savedDiskFingerprint(path)
             }
             val snapshots = background { adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
             assertEquals(2, snapshots.size)
@@ -115,7 +115,7 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
                     changed = true
                     ApplicationManager.getApplication().invokeAndWait { manager.generalSettings.setUserSettingsFile(next.toString()) }
                 }
-                MavenProjectInputs.savedDiskStamp(path)
+                MavenProjectInputs.savedDiskFingerprint(path)
             }
             val snapshot = background { adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, selected.path)) }.single()
             assertEquals(MavenBuildSystemAdapter().snapshot(project, selected.file), snapshot)
@@ -137,7 +137,7 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
                     WriteCommandAction.runWriteCommandAction(project) { document.setText(document.text + "\n") }
                 }
             }
-            MavenProjectInputs.savedDiskStamp(path)
+            MavenProjectInputs.savedDiskFingerprint(path)
         }
         assertFalse(background { adapter.isCurrentInBackground(project, original) })
         assertTrue(background { runCatching { adapter.prepareUpdates(project, reports(listOf(original))) }.isFailure })
@@ -153,7 +153,7 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
                     val adapter = MavenBuildSystemAdapter { path ->
                         reads++
                         job.cancel(CancellationException("stop external capture"))
-                        MavenProjectInputs.savedDiskStamp(path)
+                        MavenProjectInputs.savedDiskFingerprint(path)
                     }
                     adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, selected.path))
                 }
@@ -391,6 +391,65 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
             assertFalse(plan.apply(project))
             assertTrue(FileDocumentManager.getInstance().getDocument(selected.file)!!.text.contains("<version>1.2.3</version>"))
         } finally { manager.generalSettings.setUserSettingsFile(previousSettings) }
+    }
+
+    fun testSameSizeSameTimestampExternalInputsRejectAllEditsWithoutVfsRefresh() {
+        imported("same-stamp/first", dependency)
+        imported("same-stamp/second", dependency)
+        val settings = directory.resolve("same-stamp-settings/settings.xml")
+        Files.createDirectories(settings.parent)
+        val security = settings.resolveSibling("settings-security.xml")
+        val credentials = Files.createDirectories(settings.parent.resolve("credentials")).resolve("master.xml")
+        val config = Files.createDirectories(directory.resolve("same-stamp/.mvn"))
+        Files.writeString(settings, "<settings><localRepository>old</localRepository></settings>")
+        Files.writeString(security, "<settingsSecurity><relocation>credentials/master.xml</relocation><!-- old --></settingsSecurity>")
+        Files.writeString(credentials, "<settingsSecurity><master>old</master></settingsSecurity>")
+        val paths = listOf(settings, security, credentials, config.resolve("maven.config"), config.resolve("jvm.config"),
+            config.resolve("extensions.xml"), Files.createDirectories(config.resolve("wrapper")).resolve("maven-wrapper.properties"))
+        paths.drop(3).forEach { Files.writeString(it, "old") }
+        val previousSettings = manager.generalSettings.userSettingsFile
+        try {
+            manager.generalSettings.setUserSettingsFile(settings.toString())
+            val adapter = MavenBuildSystemAdapter()
+            for (path in paths) {
+                val snapshots = background { adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
+                val plan = background { adapter.prepareUpdates(project, reports(snapshots)) }
+                assertEquals(2, plan.changes.size)
+                val stamp = Files.getLastModifiedTime(path)
+                val size = Files.size(path)
+                Files.writeString(path, Files.readString(path).replace("old", "new"))
+                Files.setLastModifiedTime(path, stamp)
+                assertEquals(size, Files.size(path))
+                assertEquals(stamp, Files.getLastModifiedTime(path))
+                assertFalse("Changed $path must reject synchronous validation", adapter.areCurrent(project, snapshots))
+                assertFalse("Changed $path must reject background validation",
+                    background { adapter.isCurrentInBackground(project, snapshots.first()) })
+                assertFalse("Changed $path must reject preview preparation",
+                    background { runCatching { adapter.prepareUpdates(project, reports(snapshots)) }.isSuccess })
+                assertFalse("Changed $path must reject the whole transaction", plan.apply(project))
+                assertTrue(plan.changes.all { it.element!!.containingFile.text.contains("<version>1.2.3</version>") })
+                val current = background { adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
+                assertTrue(adapter.areCurrent(project, current))
+                assertTrue(background { adapter.isCurrentInBackground(project, current.first()) })
+            }
+        } finally { manager.generalSettings.setUserSettingsFile(previousSettings) }
+    }
+
+    fun testExternalInputFingerprintTracksContentsAndCreationRatherThanTimestampOnly() {
+        val selected = imported("content-identity", dependency)
+        val config = Files.createDirectories(directory.resolve("content-identity/.mvn")).resolve("maven.config")
+        val adapter = MavenBuildSystemAdapter()
+        val missing = adapter.snapshot(project, selected.file)!!
+        assertTrue(adapter.isCurrent(project, missing))
+        Files.writeString(config, "-Dflag=one")
+        assertFalse("Creating a missing input changes identity", adapter.isCurrent(project, missing))
+        val saved = adapter.snapshot(project, selected.file)!!
+        val stamp = Files.getLastModifiedTime(config)
+        Files.setLastModifiedTime(config, java.nio.file.attribute.FileTime.fromMillis(stamp.toMillis() + 60_000))
+        assertTrue("Touching unchanged bytes retains identity", adapter.isCurrent(project, saved))
+        Files.delete(config)
+        assertFalse("Removing a present input changes identity", adapter.isCurrent(project, saved))
+        assertTrue("Restoring the missing state restores input identity", adapter.isCurrent(project, missing))
     }
 
     fun testRelocatedCredentialsAndUnsavedChangesRejectPreparedPreview() {

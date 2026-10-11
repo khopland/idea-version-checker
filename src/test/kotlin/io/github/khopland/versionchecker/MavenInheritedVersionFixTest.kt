@@ -143,6 +143,28 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertEquals(before, listOf(parent.text, child.text))
     }
 
+    fun testHeldParentUpdateAndLocalOverrideRejectSameStampSettingsChanges() {
+        val parent = imported("settings-parent", management("4.12"))
+        val child = imported("settings-child", dependency(), "settings-parent")
+        val settings = directory.resolve("settings.xml")
+        Files.writeString(settings, "<settings><localRepository>old</localRepository></settings>")
+        val previous = manager.generalSettings.userSettingsFile
+        try {
+            manager.generalSettings.setUserSettingsFile(settings.toString())
+            val descriptor = inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results.single()
+            val fixes = descriptor.fixes!!.filterIsInstance<LocalQuickFix>().filter {
+                it is UpdateDependencyVersionFix || it is OverrideDependencyVersionFix
+            }
+            assertEquals(2, fixes.size)
+            val before = listOf(parent.text, child.text)
+            val stamp = Files.getLastModifiedTime(settings)
+            Files.writeString(settings, "<settings><localRepository>new</localRepository></settings>")
+            Files.setLastModifiedTime(settings, stamp)
+            fixes.forEach { apply(it, declaration(child)) }
+            assertEquals("Held local and shared fixes reject changed settings", before, listOf(parent.text, child.text))
+        } finally { manager.generalSettings.setUserSettingsFile(previous) }
+    }
+
     fun testChildPropertyOverrideWarnsWithoutAnyChildDependencyDeclaration() {
         val parent = imported("property-parent", "<properties><junit.version>4.11</junit.version></properties>" +
             management("\${junit.version}"))

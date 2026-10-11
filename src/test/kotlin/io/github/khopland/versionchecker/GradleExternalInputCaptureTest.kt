@@ -98,6 +98,32 @@ class GradleExternalInputCaptureTest : BasePlatformTestCase() {
         assertFalse(background { adapter.isCurrentInBackground(project, withProperties) })
     }
 
+    fun testFinalBulkValidationSharesOneFreshExternalCaptureAcrossLinkedBuilds() = withHome { home ->
+        val files = (1..12).map { link("bulk-root-$it") }
+        val properties = home.resolve("gradle.properties")
+        Files.writeString(properties, "flag=original")
+        val init = Files.createDirectories(home.resolve("init.d/nested"))
+        repeat(8) { Files.writeString(init.resolve("config-$it.gradle"), "// config $it") }
+        var reads = 0
+        val adapter = GradleBuildSystemAdapter { path -> reads++; Files.readAllBytes(path) }
+        val snapshots = background { adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
+        val plan = background { adapter.prepareUpdates(project, snapshots.associateWith(::report)) }
+        assertEquals(12, plan.changes.size)
+        reads = 0
+        val stamp = Files.getLastModifiedTime(properties)
+        Files.writeString(properties, "flag=modified")
+        Files.setLastModifiedTime(properties, stamp)
+        assertFalse("Fresh disk bytes must reject changed inputs", plan.apply(project))
+        assertEquals(9, reads)
+        assertTrue(files.all { it.text.contains("g:library:1.2.3") })
+        Files.writeString(properties, "flag=original")
+        Files.setLastModifiedTime(properties, stamp)
+        reads = 0
+        assertTrue("A later validation must capture disk inputs again", plan.apply(project))
+        assertEquals("User-home inputs are read once, not once per linked build", 9, reads)
+        assertTrue(files.all { it.text.contains("g:library:1.2.9") })
+    }
+
     fun testUnsavedExternalDocumentChangedDuringDiskCaptureIsReadFromLatestEditorState() = withHome { home ->
         val file = link("unsaved-input")
         val path = home.resolve("gradle.properties")

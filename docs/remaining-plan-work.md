@@ -198,8 +198,9 @@ validation is retained. Focused Maven/coordinator/lifecycle tests passed, includ
 new thread-boundary, relocated-credential, path-change, unsaved-sibling and
 cancellation cases. Log: `/tmp/version-checker-maven-capture-focused.log`.
 
-Maven currently retains its saved size/mtime identity, plus unsaved document
-stamps; this change does not claim same-timestamp content detection for Maven.
+At this stage Maven retained its saved size/mtime identity, plus unsaved document
+stamps. The [external guard follow-up](external-input-guards.md) below replaces
+that saved identity with content fingerprints.
 Full native integration and compatibility validation will be repeated after the
 remaining provider capture work.
 
@@ -303,6 +304,31 @@ Logs: `/tmp/version-checker-coverage-final-full.log`,
 `/tmp/version-checker-coverage-full.log` (verifier plus the corrected test failure),
 and `/tmp/version-checker-coverage-maven-priority.log`.
 Archive SHA-256: `92af330f135c3ce032b7f1f4d21eca08b610449ec13c8dc1cfa3676ce927e2f9`.
+
+## Fresh external edit guards (F09/F11)
+
+The [external input guard record](external-input-guards.md) documents this
+follow-up. Maven saved settings, relocated credentials and ancestor `.mvn`
+configuration now use cancellable streamed content fingerprints. Same-size,
+same-timestamp rewrites reject old results, held local/shared quick fixes and
+prepared edits without a VFS refresh. Current unsaved document stamps remain
+part of the fingerprint; unchanged timestamp-only touches retain identity.
+
+Gradle final bulk validation shares one fresh user-home capture across linked
+roots and rereads it on every validation. A twelve-root regression reads nine
+external files nine times during an accepted apply, preserving atomic rejection
+when external bytes change. This establishes work counts, not native latency.
+
+Synchronous inspection/edit disk reads and native slow-disk/typing acceptance
+remain open. Maven hashing adds content reads to those synchronous paths; this
+batch closes an input-identity gap rather than claiming that F09 is complete.
+
+Final validation passed with **475 plugin tests in 67 classes**, zero failures,
+errors or skips, all native integration flags, packaging, project-configuration
+validation and all three IDEA verifier targets (ten existing experimental API
+uses per target, no deprecated/scheduled uses). The run took 2m 3s; release and
+script suites passed **13 + 16 tests**. The linked record contains commands and
+archive identity. Log: `/tmp/version-checker-final-input-full.log`.
 
 ## Remaining release gates
 

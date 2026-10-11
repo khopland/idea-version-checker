@@ -217,9 +217,13 @@ internal class GradleBuildSystemAdapter(
 
     private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>, externalHashes: Map<String, String>? = null): Boolean {
         val fingerprints = mutableMapOf<String, BuildFingerprint>()
+        // Final synchronous validation needs fresh disk bytes too, shared across linked builds.
+        val external by lazy {
+            externalHashes ?: readExternalInputs(externalHome(project)) { com.intellij.openapi.progress.ProgressManager.checkCanceled() }
+        }
         return snapshots.all { snapshot ->
             find(project, snapshot.sourceFile)?.let { owner(project, it) == snapshot.context.root &&
-                snapshot.fingerprint == fingerprints.getOrPut(snapshot.context.root) { fingerprint(project, snapshot.context.root, externalHashes) } } == true
+                snapshot.fingerprint == fingerprints.getOrPut(snapshot.context.root) { fingerprint(project, snapshot.context.root, external) } } == true
         }
     }
     override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = withExternalInputs(project) { external ->

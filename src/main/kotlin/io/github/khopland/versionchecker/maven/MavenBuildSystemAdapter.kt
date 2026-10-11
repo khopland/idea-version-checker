@@ -20,7 +20,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 internal class MavenBuildSystemAdapter(
-    private val readSavedStamp: (Path) -> String = MavenProjectInputs::savedDiskStamp
+    private val readSavedFingerprint: ((Path) -> String)? = null
 ) : BuildSystemAdapter {
     private data class SaveInputs(val poms: List<String>, val settings: Path,
                                   val distributions: List<Path>, val directories: List<Path>)
@@ -139,7 +139,7 @@ internal class MavenBuildSystemAdapter(
     }
 
     override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
-        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedStamp) { inputs ->
+        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
             !project.isDisposed && areCurrent(inputs, listOf(snapshot))
         }
 
@@ -152,7 +152,7 @@ internal class MavenBuildSystemAdapter(
         snapshots.all { snapshot -> inputs.find(snapshot.sourceFile)?.let { snapshot.fingerprint == inputs.fingerprint(it) } == true }
 
     override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> =
-        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedStamp) { inputs ->
+        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
         val manager = MavenProjectsManager.getInstance(project)
         selectedProjects(manager, selection).mapNotNull { mavenProject ->
             CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
@@ -225,7 +225,7 @@ internal class MavenBuildSystemAdapter(
     }
 
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan =
-        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedStamp) { inputs ->
+        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
         val manager = MavenProjectsManager.getInstance(project)
         check(areCurrent(inputs, reports.keys)) { "Maven files or settings changed during the check. Run it again." }
         val files = reports.map { (snapshot, report) ->
