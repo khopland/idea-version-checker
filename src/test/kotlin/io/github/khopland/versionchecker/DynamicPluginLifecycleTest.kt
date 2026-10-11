@@ -116,7 +116,7 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
                 "getId", "getDisplayName" -> "dynamic-lifecycle-test"
                 "getCapabilities" -> capabilities
                 "isOffline" -> false
-                "isCurrent", "canCheckInBackground" -> true
+                "isCurrent", "isCurrentInBackground", "canCheckInBackground" -> true
                 "check" -> {
                     @Suppress("UNCHECKED_CAST")
                     (check as Function1<Continuation<Any>, Any?>).invoke(args.last() as Continuation<Any>)

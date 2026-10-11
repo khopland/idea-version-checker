@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.core
 
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import io.github.khopland.versionchecker.BulkUpdatePlan
@@ -20,6 +21,9 @@ internal interface BuildSystemAdapter {
     fun inspectionSnapshot(project: Project, file: VirtualFile): BuildSnapshot? = snapshot(project, file)
     fun canCheckInBackground(project: Project, snapshot: BuildSnapshot): Boolean = true
     fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean
+    /** Coordinator validation. Providers can capture external bytes outside IDE read actions. */
+    suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
+        readAction { !project.isDisposed && isCurrent(project, snapshot) }
     suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot>
     /** Provider-owned, short-lived native resources/results for one ordered scan. */
     suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,

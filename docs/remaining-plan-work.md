@@ -163,6 +163,30 @@ experimental API uses, no deprecated/scheduled uses). The run took 2m 28s.
 Archive SHA-256: `eec872c887de4ec7bad0f2228826d7038592b9156e9f295024675b6ec4f160bc`.
 The candidate-freshness record preserves the policy and native acceptance gaps.
 
+## Gradle background fingerprint capture (F09)
+
+The [Gradle input-capture record](gradle-input-capture.md) documents the next F09
+slice. Gradle discovery, coordinator validation and preview preparation now read
+user-home properties and nested init scripts on IO outside IDE read actions,
+sharing one capture across linked builds. A final read overlays the latest
+unsaved document text and settings; a changed user-home selection retries the
+capture. The coordinator uses a suspend validation contract before native work
+and publication, leaving other providers' existing semantics intact.
+
+Same-size/same-timestamp disk edits, additions/removals, unsaved external edits
+during capture, user-home changes and cancellation have regression coverage.
+Synchronous inspection and final edit guards still read current contents, and
+reject outside-VFS edits before changing dependency text. Maven/npm external
+capture and those synchronous paths remain open; no native latency claim follows
+from the thread-boundary and work-count checks.
+
+Full validation passed on 2026-10-11: **436 plugin tests in 63 classes**, zero
+failures/errors/skips; 13 release and 16 script tests; `check`, `buildPlugin`,
+project-configuration validation and all three IDEA verifier targets (10 existing
+experimental API uses, no deprecated/scheduled uses). The run took 1m 53s.
+Archive SHA-256: `9b1971289ff0848aa665774e104b6861e0a3b972f08b69cea5800d8cfe82b9c0`.
+Commands, archive identity and scope limits are in the linked capture record.
+
 ## Remaining release gates
 
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
@@ -173,7 +197,7 @@ The candidate-freshness record preserves the policy and native acceptance gaps.
 ## Next engineering work
 
 1. **F06/F07: Gradle query batching.** Ownership indexing is enabled. The [bounded cross-file prototype](gradle-scan-prototype.md) is implemented behind a development-only JVM switch, with native resolver work/parity and cancellation/freshness regressions. Keep aggregation off by default until controlled native UI scale/typing and failure measurements pass; mode sharing and refresh-flag changes remain deferred.
-2. **F09: move remaining external input reads off the EDT.** Save-path preparation now uses background discovery without fingerprinting. Complete the snapshot and synchronous freshness capture/revalidation design; keep fresh unsaved/external-input guards before apply and profile slow disks/large init trees.
+2. **F09: move remaining external input reads off the EDT.** Save-path preparation now uses background discovery without fingerprinting; Gradle background discovery/validation/preview captures external disk inputs outside read locks. Complete Maven/npm capture and synchronous inspection/edit revalidation; keep fresh unsaved/external-input guards before apply and profile slow disks/large init trees.
 3. **F10: validate bounded state in native workloads.** Result/source/generation budgets, expiry cleanup and late-worker regressions are implemented. Complete native import/rename/unload and heap observations; the model soak establishes map bounds, not retained heap size.
 4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; report-level partial leases currently retire descriptors on every new partial observation.
 5. **F12: explicit coverage.** Track checked, ignored, unsupported and manual-review declarations so status, empty previews and partial/failure states share an honest explanation.

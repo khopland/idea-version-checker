@@ -221,6 +221,8 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         val checked = CopyOnWriteArrayList<BuildSnapshot>()
         val adapter = object : BuildSystemAdapter by native {
             override fun isCurrent(project: Project, snapshot: BuildSnapshot) = snapshot == blocking || snapshot == latest
+            override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot) =
+                com.intellij.openapi.application.readAction { isCurrent(project, snapshot) }
             override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
                 checked += snapshot
                 if (snapshot == blocking) gate.await()
@@ -241,6 +243,40 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             assertEquals(listOf(blocking, latest), checked.toList())
             assertNull(service.cached(old))
         } finally { gate.complete(Unit); running.cancel() }
+    }
+
+    fun testChecksUseProviderBackgroundValidationOutsideReadActions() {
+        val file = myFixture.addFileToProject("background-input/build.txt", "1.0")
+        val native = TestAdapter("background-input-test", file)
+        var validations = 0
+        val adapter = object : BuildSystemAdapter by native {
+            override fun isCurrent(project: Project, snapshot: BuildSnapshot): Boolean =
+                error("Coordinator must use provider background validation")
+            override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean {
+                assertFalse(ApplicationManager.getApplication().isReadAccessAllowed)
+                assertFalse(ApplicationManager.getApplication().isDispatchThread)
+                validations++
+                return native.current
+            }
+        }
+        val service = project.service<VersionCheckService>()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        fun check(reuse: Boolean) = PlatformTestUtil.waitForFuture(
+            ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runCatching { runBlocking { service.checkNow(adapter, snapshot, UpdateMode.PATCH, reuseCached = reuse) } }
+            }), 10_000)
+        assertTrue(check(false).getOrThrow().successful)
+        assertEquals(2, validations)
+        assertTrue(check(true).getOrThrow().successful)
+        assertEquals(3, validations)
+        service.invalidateForPreview(adapter, file.virtualFile)
+        service.updates(adapter, snapshot)
+        PlatformTestUtil.waitWithEventsDispatching("Automatic check uses the background validator", {
+            service.cached(snapshot) != null
+        }, 10_000)
+        assertEquals(5, validations)
+        native.current = false
+        assertTrue("A changed input must reject cached reuse", check(true).exceptionOrNull() is IllegalStateException)
     }
 
     fun testWholeProjectCombinesProvidersAndRetainsEveryStalePreviewGuard() {

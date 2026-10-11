@@ -18,7 +18,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-internal class GradleBuildSystemAdapter : BuildSystemAdapter {
+internal class GradleBuildSystemAdapter(
+    private val externalInputBytes: (Path) -> ByteArray = Files::readAllBytes
+) : BuildSystemAdapter {
     private companion object {
         // The Path getter was added in 2026.1; retain compatibility with 2025.3's String getter.
         val gradleHomeGetter = try {
@@ -115,12 +117,13 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
         files(project, snapshot.context.root).none { FileDocumentManager.getInstance().isFileModified(it) }
 
     private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<String, BuildFingerprint>, unsaved: MutableMap<String, Boolean>,
-                         allowUnsaved: Boolean = false, inspectionFingerprints: MutableMap<String, BuildFingerprint> = mutableMapOf()): BuildSnapshot? {
+                         allowUnsaved: Boolean = false, inspectionFingerprints: MutableMap<String, BuildFingerprint> = mutableMapOf(),
+                         externalHashes: Map<String, String>? = null): BuildSnapshot? {
         if (!supported(file)) return null
         val root = owner(project, file) ?: return null
         if (!allowUnsaved && unsaved.getOrPut(root) { files(project, root).any { FileDocumentManager.getInstance().isFileModified(it) } }) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
-        val fingerprint = fingerprints.getOrPut(root) { fingerprint(project, root) }
+        val fingerprint = fingerprints.getOrPut(root) { fingerprint(project, root, externalHashes) }
         val inspectionFingerprint = inspectionFingerprints.getOrPut(root) {
             fingerprint.copy(files = fingerprint.files + project.service<GradleProjectCache>().inspectionHashes(root, files(project, root)))
         }
@@ -144,41 +147,81 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
             }
         )
     }
-    private fun fingerprint(project: Project, root: String): BuildFingerprint {
+    private fun externalHome(project: Project): Path = Path.of(GradleSettings.getInstance(project).serviceDirectoryPath
+        ?: System.getenv("GRADLE_USER_HOME") ?: Path.of(System.getProperty("user.home"), ".gradle").toString())
+
+    private fun readExternalInputs(home: Path, checkCancellation: () -> Unit): Map<String, String> {
+        val hashes = mutableMapOf<String, String>()
+        fun capture(path: Path) {
+            checkCancellation()
+            hashes[path.toString()] = if (Files.exists(path)) GradleProjectCache.hash(externalInputBytes(path)) else "missing"
+        }
+        for (name in listOf("gradle.properties", "init.gradle", "init.gradle.kts")) capture(home.resolve(name))
+        val init = home.resolve("init.d")
+        if (Files.isDirectory(init)) Files.walk(init).use { paths ->
+            val iterator = paths.iterator()
+            while (iterator.hasNext()) {
+                checkCancellation()
+                val path = iterator.next()
+                if (Files.isRegularFile(path)) capture(path)
+            }
+        }
+        return hashes
+    }
+
+    private data class InputCapture<T>(val value: T)
+
+    /** Capture disk inputs once per operation, then overlay the latest editor/settings state. */
+    private suspend fun <T> withExternalInputs(project: Project, action: (Map<String, String>) -> T): T =
+        withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            repeat(3) {
+                context.ensureActive()
+                val home = readAction { externalHome(project) }
+                val hashes = readExternalInputs(home) { context.ensureActive() }
+                context.ensureActive()
+                val captured = readAction {
+                    if (home != externalHome(project)) null else InputCapture(action(hashes))
+                }
+                if (captured != null) return@withContext captured.value
+            }
+            error("Gradle user home changed during input capture. Run the check again.")
+        }
+
+    private fun fingerprint(project: Project, root: String, externalHashes: Map<String, String>? = null): BuildFingerprint {
         fun hash(bytes: ByteArray) = GradleProjectCache.hash(bytes)
         val settings = GradleSettings.getInstance(project)
         val linked = settings.getLinkedProjectSettings(root)
         val hashes = project.service<GradleProjectCache>().hashes(root, files(project, root)).toMutableMap()
         // These inputs can change outside IntelliJ's VFS, so always read their current contents.
-        val home = Path.of(settings.serviceDirectoryPath ?: System.getenv("GRADLE_USER_HOME") ?: Path.of(System.getProperty("user.home"), ".gradle").toString())
-        fun externalHash(path: Path): String {
-            val saved = if (Files.exists(path)) hash(Files.readAllBytes(path)) else "missing"
+        val external = externalHashes ?: readExternalInputs(externalHome(project)) { com.intellij.openapi.progress.ProgressManager.checkCanceled() }
+        for ((path, saved) in external) {
             val documents = FileDocumentManager.getInstance()
-            val unsaved = LocalFileSystem.getInstance().findFileByNioFile(path)?.let(documents::getCachedDocument)
+            val unsaved = LocalFileSystem.getInstance().findFileByNioFile(Path.of(path))?.let(documents::getCachedDocument)
                 ?.takeIf(documents::isDocumentUnsaved)?.let { hash(it.text.toByteArray()) }
-            return "$saved:$unsaved"
+            hashes[path] = "$saved:$unsaved"
         }
-        for (path in listOf(home.resolve("gradle.properties"), home.resolve("init.gradle"), home.resolve("init.gradle.kts"))) hashes[path.toString()] = externalHash(path)
-        val init = home.resolve("init.d")
-        if (Files.isDirectory(init)) Files.walk(init).use { paths -> paths.filter(Files::isRegularFile).forEach { hashes[it.toString()] = externalHash(it) } }
         val sdk = ProjectRootManager.getInstance(project).projectSdk
         val gradleHome = linked?.let { gradleHomeGetter.invoke(it)?.toString() }
         return BuildFingerprint(hashes, listOf(root, linked?.modules?.sorted(), linked?.gradleJvm, gradleHome, linked?.distributionType, sdk?.name, sdk?.homePath, settings.serviceDirectoryPath, settings.gradleVmOptions, settings.isOfflineWork, project.service<VersionCheckerSettings>().state.deprecatedDependencies, System.getenv().toSortedMap()).joinToString("|").let { hash(it.toByteArray()) })
     }
     override fun isCurrent(project: Project, snapshot: BuildSnapshot) = find(project, snapshot.sourceFile)?.let { owner(project, it) == snapshot.context.root && snapshot.fingerprint == fingerprint(project, snapshot.context.root) } == true
-    private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>): Boolean {
+    override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
+        withExternalInputs(project) { external -> !project.isDisposed && areCurrent(project, listOf(snapshot), external) }
+
+    private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>, externalHashes: Map<String, String>? = null): Boolean {
         val fingerprints = mutableMapOf<String, BuildFingerprint>()
         return snapshots.all { snapshot ->
             find(project, snapshot.sourceFile)?.let { owner(project, it) == snapshot.context.root &&
-                snapshot.fingerprint == fingerprints.getOrPut(snapshot.context.root) { fingerprint(project, snapshot.context.root) } } == true
+                snapshot.fingerprint == fingerprints.getOrPut(snapshot.context.root) { fingerprint(project, snapshot.context.root, externalHashes) } } == true
         }
     }
-    override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = readAction {
+    override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = withExternalInputs(project) { external ->
         val files = if (selection.scope == UpdateScope.CURRENT_FILE) listOfNotNull(selection.currentFile?.let { find(project, it) }) else roots(project).flatMap { files(project, it) }.distinct()
         val fingerprints = mutableMapOf<String, BuildFingerprint>()
         val unsaved = mutableMapOf<String, Boolean>()
         val inspectionFingerprints = mutableMapOf<String, BuildFingerprint>()
-        files.mapNotNull { snapshot(project, it, fingerprints, unsaved, inspectionFingerprints = inspectionFingerprints) }
+        files.mapNotNull { snapshot(project, it, fingerprints, unsaved, inspectionFingerprints = inspectionFingerprints, externalHashes = external) }
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
         val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }
@@ -197,8 +240,8 @@ internal class GradleBuildSystemAdapter : BuildSystemAdapter {
             }
         }, validUntilNanos = checked.expiresAtNanos, checkedAtNanos = checked.checkedAtNanos)
     }
-    override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = readAction {
-        check(areCurrent(project, reports.keys)) { "Gradle build files or settings changed. Run the check again." }
+    override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = withExternalInputs(project) { external ->
+        check(areCurrent(project, reports.keys, external)) { "Gradle build files or settings changed. Run the check again." }
         val edits = mutableListOf<VersionEdit>(); val skipped = mutableListOf<String>()
         for ((snapshot, report) in reports) {
             val psi = find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")

@@ -117,7 +117,7 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                                   reuseCached: Boolean = false): UpdateReport {
         if (reuseCached) {
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
-            check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
+            check(adapter.isCurrentInBackground(project, snapshot)) { "Build files or settings changed. Run the check again." }
             cache.get(snapshot, mode)?.takeIf { it.successful }?.let { return it }
         }
         val queued = System.nanoTime()
@@ -130,11 +130,11 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 statusChanged(snapshot.sourceFile)
                 CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
                 check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
-                check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed. Run the check again." }
+                check(adapter.isCurrentInBackground(project, snapshot)) { "Build files or settings changed. Run the check again." }
                 if (reuseCached) cache.get(snapshot, mode)?.takeIf { it.successful }?.let { return@withSlot it }
                 val revision = cache.begin(snapshot)
                 runCheck(adapter, snapshot, mode, revision) { result ->
-                    check(readAction { adapter.isCurrent(project, snapshot) }) { "Build files or settings changed during the check. Run it again." }
+                    check(adapter.isCurrentInBackground(project, snapshot)) { "Build files or settings changed during the check. Run it again." }
                     check(cache.revision(snapshot.context) == revision) { "Version checks were refreshed during this check. Run it again." }
                     check(cache.put(snapshot, revision, result, mode)) { "Repository results expired during this check. Run it again." }
                     CheckPerformance.record(CheckPerformance.Stage.RESULT_ACCEPTED, System.nanoTime(), result.candidates.size + result.notices.size)
@@ -162,9 +162,9 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 if (mode != UpdateMode.MAJOR || !adapter.capabilities.incrementalInspections)
                     return@measure adapter.check(project, snapshot, mode)
                 adapter.checkIncrementally(project, snapshot, mode) { update ->
-                    val valid = readAction {
+                    val valid = adapter.isCurrentInBackground(project, snapshot) && readAction {
                         !disposed && !project.isDisposed && project.service<VersionCheckerSettings>().state.enabled &&
-                            !adapter.isOffline(project) && adapter.isCurrent(project, snapshot)
+                            !adapter.isOffline(project)
                     }
                     if (valid && cache.putProgress(adapter, snapshot, revision, owner, update)) {
                         val useful = update.report.candidates.size + update.report.notices.size
@@ -428,9 +428,11 @@ class VersionCheckService(private val project: Project, private val scope: Corou
                 CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
                 if (project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project) ||
                     cache.revision(snapshot.context) != token.revision || cache.get(snapshot) != null) return@withSlot
-                if (!readAction { adapter.canCheckInBackground(project, snapshot) && adapter.isCurrent(project, snapshot) }) return@withSlot
+                if (!adapter.isCurrentInBackground(project, snapshot) ||
+                    !readAction { !project.isDisposed && adapter.canCheckInBackground(project, snapshot) }) return@withSlot
                 val finish: suspend (UpdateReport) -> Unit = { report ->
-                    if (readAction { !project.isDisposed && adapter.isCurrent(project, snapshot) } && cache.put(snapshot, token.revision, report)) {
+                    if (!project.isDisposed && adapter.isCurrentInBackground(project, snapshot) &&
+                        !project.isDisposed && cache.put(snapshot, token.revision, report)) {
                         published = true
                         CheckPerformance.record(CheckPerformance.Stage.RESULT_ACCEPTED, System.nanoTime(), report.candidates.size + report.notices.size)
                         if (!report.successful) recordFailure(adapter, snapshot, report.failure.orEmpty(), report.failureCause, failures)
