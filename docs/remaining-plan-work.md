@@ -1,6 +1,11 @@
 # Release implementation ledger
 
-Updated 2026-10-11. The [HTML release plan](release-plan-2026-10-10.html) records the audit of commit `17c4975`; this ledger tracks implementation after that audit. Development remains `1.3.0-SNAPSHOT` until the release gates are satisfied. A snapshot is intentionally not eligible for release automation.
+Updated 2026-10-12. The [HTML release plan](release-plan-2026-10-10.html) records the audit of commit `17c4975`; this ledger tracks implementation after that audit. Development remains `1.3.0-SNAPSHOT` until the release gates are satisfied. A snapshot is intentionally not eligible for release automation.
+
+**Acceptance scope, updated 2026-10-12:** the user excluded native npm validation
+on IDEA 2025.3 from the release gates. Historical blocked attempts below remain
+as evidence; that combination requires no further acceptance work. Automated npm
+integration tests and minimum-IDE Maven/Gradle coverage remain in scope.
 
 ## First implementation batch
 
@@ -424,15 +429,25 @@ the remaining checks and release artifact gates are resolved.
 
 ## Remaining release gates
 
+The [12 October dense follow-up](native-validation-2026-10-12/README.md) restores
+native input after the user moved the disposable window, reproduces and fixes a
+write-unsafe accessibility Apply, and verifies 1,000/10,000 dense edits with one
+commit and exact grouped undo on available IDEA 2026.2.0.1. Bulk/fix traces and
+atomic-write phases are now separate. Single observations do not close repeated
+latency/typing, idle/heap, supported-IDE or final-release acceptance gates.
+Validation passed 501 plugin tests, 13 release tests, 19 script tests, packaging,
+project configuration and all three verifier targets (existing 14 experimental
+API uses per target). Archive identities and measurement limits are in the record.
+
 - **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
-- **F03: native npm workflows.** Current-IDE editor/preview/local/workspace edit and authentication-recovery checks passed. Minimum-IDE npm is **blocked**: the isolated IDEA 2025.3 profile disables Ultimate/JavaScript support, and the user confirmed no licensed installation/profile is available. Complete the remaining ignore/recovery, cancellation and offline/runtime/configuration cases; preserve those gaps in the [native record](native-validation-2026-10-11/README.md).
+- **F03: native npm workflows.** Current-IDE editor/preview/local/workspace edit and authentication-recovery checks passed. Native npm on IDEA 2025.3 is **excluded from release acceptance at the user's request on 2026-10-12**; the previous licensing limitation is historical evidence, not an outstanding gate. Complete the remaining ignore/recovery, cancellation and offline/runtime/configuration cases on the newer IDEs; preserve results in the [native record](native-validation-2026-10-11/README.md).
 - **F04: supported-IDE Gradle UX.** Minimum-IDE Groovy diagnostics/local fix and current-IDE Groovy/shared Kotlin catalog workflows passed. Complete the per-version DSL/catalog and repeated performance matrix. Binary compatibility alone does not close this gate.
 - **Native scale and failure matrix.** Measure small projects, 100-module projects and dense edits on named hardware; record warm/cold states, authentication failures, offline behavior, cancellation, imports, plugin unload and typing/input delays. Retain completed/incomplete sample counts and archive hashes. The HTML plan's latency budgets remain proposed targets.
 
 ## Next engineering work
 
 1. **F06/F07: Gradle query batching.** Ownership indexing is enabled. The [bounded cross-file prototype](gradle-scan-prototype.md) is implemented behind a development-only JVM switch, with native resolver work/parity and cancellation/freshness regressions. Keep aggregation off by default until controlled native UI scale/typing and failure measurements pass; mode sharing and refresh-flag changes remain deferred.
-2. **F09: validate the completed input boundary in native workloads.** Background external capture now covers discovery, validation, previews, inspections and per-invocation edits for all three providers. Fresh saved inputs and final unsaved/import/settings/result guards remain required before Apply. Profile slow disks, large init trees and live VFS/PSI work; see the [capture record](inspection-edit-inputs.md).
+2. **F09: validate the completed input boundary in native workloads.** Background external capture now covers discovery, validation, previews, inspections and per-invocation edits for all three providers. Fresh saved inputs and final unsaved/import/settings/result guards remain required before Apply. Profile slow disks, large init trees and live VFS/PSI work; see the [capture record](inspection-edit-inputs.md). Add a controlled outside-VFS build-file race test for the stale VFS content observed during the [12 October fixture restart](native-validation-2026-10-12/README.md#automated-validation), including a held preview and an edit made while IDEA is stopped.
 3. **F10: validate bounded state in native workloads.** Result/source/generation budgets, expiry cleanup and late-worker regressions are implemented. Complete native import/rename/unload and heap observations; the model soak establishes map bounds, not retained heap size.
 4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; declaration-scoped partial leases now preserve held fixes across unrelated completions, while unknown/remapped scopes retain conservative report-level guards.
 5. **F12: native coverage acceptance.** Explicit provider outcomes, matching status/review counts, narrow-scope reasons, partial/failure totals and unknown-coverage handling are implemented. Validate readability/accessibility and document recognized-form limits; excluded managers and unparsed forms are not counted as an audit.

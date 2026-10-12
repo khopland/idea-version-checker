@@ -3,6 +3,9 @@ package io.github.khopland.versionchecker
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.LogLevel
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.TransactionGuard
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.util.ui.UIUtil
@@ -33,6 +36,59 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
 
     private fun dialog(plan: BulkUpdatePlan) = BulkUpdateDialog(project, UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT.label, "Test", plan)
     private fun text(edit: VersionEdit) = FileDocumentManager.getInstance().getDocument(edit.element!!.containingFile.virtualFile)!!.text
+
+    fun testAccessibilityApplyEntersAWriteSafeContextAndRepeatedClicksApplyOnce() {
+        val edit = edit("accessible-apply")
+        val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
+        var callbacks = 0
+        dialog.onApplyRequested = { plan, trace ->
+            assertTrue(TransactionGuard.getInstance().isWritingAllowed)
+            callbacks++
+            assertTrue(plan.apply(project, trace))
+        }
+        try {
+            ApplicationManager.getApplication().invokeLater({
+                assertFalse(TransactionGuard.getInstance().isWritingAllowed)
+                dialog.doOKAction()
+                dialog.doOKAction()
+                assertFalse(dialog.isOKActionEnabled)
+                assertEquals(0, callbacks)
+                assertEquals("1.0", text(edit))
+            }, ModalityState.any())
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(1, callbacks)
+            assertEquals("2.0", text(edit))
+            assertTrue(dialog.isOKActionEnabled)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
+    fun testClosingReviewBeforeScheduledApplyDoesNotModifyText() {
+        val edit = edit("closed-before-apply")
+        val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
+        var callbacks = 0
+        dialog.onApplyRequested = { _, _ -> callbacks++ }
+        dialog.doOKAction()
+        dialog.close(DialogWrapper.CANCEL_EXIT_CODE)
+        UIUtil.dispatchAllInvocationEvents()
+        assertEquals(0, callbacks)
+        assertEquals("1.0", text(edit))
+    }
+
+    fun testRecheckBeforeScheduledApplyRetiresTheRequestedSelection() {
+        val edit = edit("rechecked-before-apply")
+        val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
+        var callbacks = 0
+        dialog.onApplyRequested = { _, _ -> callbacks++ }
+        dialog.onRecheckRequested = { _, _, _, _ -> }
+        try {
+            dialog.doOKAction()
+            dialog.refreshAction.actionPerformed(ActionEvent(dialog, 0, "Refresh"))
+            UIUtil.dispatchAllInvocationEvents()
+            assertEquals(0, callbacks)
+            assertEquals("1.0", text(edit))
+            assertFalse(dialog.isOKActionEnabled)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
 
     fun testGrowingAndShrinkingTenThousandRowsNeverReadsAnOutdatedSorterMapping() {
         val template = edit("large-review")

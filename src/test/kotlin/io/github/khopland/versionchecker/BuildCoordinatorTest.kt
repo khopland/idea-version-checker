@@ -465,6 +465,9 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             assertEquals(1, shown)
             assertEquals(setOf(0), dialog.model.selectedIndices)
             dialog.performOKAction()
+            PlatformTestUtil.waitWithEventsDispatching("Write-safe retry applies and closes the review", {
+                dialog.isDisposed
+            }, 10_000)
             assertTrue(dialog.isDisposed)
             assertEquals("1.1", FileDocumentManager.getInstance().getDocument(file.virtualFile)!!.text)
         } finally { if (!dialog.isDisposed) dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }

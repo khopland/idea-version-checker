@@ -13,6 +13,7 @@ BOUNDARIES = {
     "editor_hint": ("FILE_ACTIVATED", "DIAGNOSTIC_VISIBLE"),
     "preview": ("PREVIEW_INVOKED", "PREVIEW_READY"),
     "local_fix": ("FIX_INVOKED", "EDITOR_TEXT_CHANGED"),
+    "bulk_apply": ("BULK_APPLY_INVOKED", "EDITOR_TEXT_CHANGED"),
 }
 # Count host invocations, rather than both Gradle's invocation and its nested query span.
 NATIVE_INVOCATIONS = {"MAVEN_DEPENDENCY_GOAL", "MAVEN_PLUGIN_GOAL", "MAVEN_PARENT_GOAL", "MAVEN_METADATA_BATCH", "MAVEN_PLUGIN_PREREQUISITES", "NPM_VIEW", "GRADLE_NATIVE"}
@@ -22,6 +23,11 @@ CATEGORIES = {
     "native_setup": {"MAVEN_SESSION_POOL", "MAVEN_SESSION", "MAVEN_MODEL", "MAVEN_SETTINGS", "MAVEN_METADATA_EXPIRATION", "NPM_RUNTIME_RESOLUTION", "NPM_COMMAND_SETUP", "GRADLE_SETUP", "GRADLE_CONFIGURATION"},
     "queue": {"CHECK_QUEUE", "HIGHLIGHT_QUEUE"},
     "shared_metadata_wait": {"MAVEN_METADATA_WAIT", "NPM_METADATA_WAIT"},
+    "document_replacements": {"DOCUMENT_REPLACEMENTS"},
+    "document_commit": {"DOCUMENT_COMMIT"},
+    "edit_validation": {"EDIT_PLAN_VALIDATION"},
+    "edit_write_other": {"EDIT_WRITE_COMMAND"},
+    "edit_input_capture": {"EDIT_INPUT_CAPTURE"},
     "preparation": {"MAVEN_SNAPSHOT", "NPM_SNAPSHOT", "GRADLE_SNAPSHOT", "MAVEN_PROJECT_INPUTS", "MAVEN_DECLARATIONS", "MAVEN_VERSION_INDEX", "MAVEN_METADATA_DISK_READ", "MAVEN_METADATA_DISK_WRITE", "NPM_VERSION_INDEX", "PREVIEW_PLAN", "HIGHLIGHT_RESTART"},
     "idea_highlighting": {"IDEA_HIGHLIGHTING"},
 }
@@ -66,7 +72,7 @@ def summarize(interactions):
         for name, (begin, finish) in BOUNDARIES.items():
             starts = [e["start"] for e in events if e["stage"] == begin]
             endpoints = [e for e in events if e["stage"] == finish and
-                         (name != "local_fix" or e.get("count", 1) > 0)]
+                         (name not in ("local_fix", "bulk_apply") or e.get("count", 1) > 0)]
             if not starts or not endpoints:
                 continue
             endpoint = min(endpoints, key=lambda e: e["end"])
@@ -87,6 +93,7 @@ def summarize(interactions):
         elapsed = sorted(v["elapsedMs"] for v in values)
         report[name] = dict(samples=len(values), medianMs=statistics.median(elapsed) if elapsed else None,
                             p95Ms=elapsed[math.ceil(len(elapsed)*0.95)-1] if elapsed else None,
+                            maxMs=max(elapsed) if elapsed else None,
                             incompleteInteractions=sum(any(e["stage"] == BOUNDARIES[name][0] for e in events)
                                                        for key, events in interactions.items() if key[0] != 0) - len(values),
                             nativeInvocations={metric: sum(v["nativeInvocations"][metric] for v in values)
@@ -106,19 +113,24 @@ def main():
     parser.add_argument("--cache", choices=("warm", "cold", "setup"), required=True)
     parser.add_argument("--modules", type=int, required=True)
     parser.add_argument("--declarations", type=int, required=True)
-    parser.add_argument("--idea-version", choices=("2025.3.6.1", "2026.1.4", "2026.2.3"), required=True)
+    parser.add_argument("--idea-version", required=True, help="Actual tested IDE version, e.g. 2026.2.3")
     parser.add_argument("--repository-case", choices=("fast-local", "remote", "private-delayed", "slow-package", "offline", "auth-failure"), required=True)
     args = parser.parse_args()
     if args.modules < 1 or args.declarations < 0:
         parser.error("modules must be positive and declarations non-negative")
+    if not re.fullmatch(r"\d+\.\d+(?:\.\d+)*", args.idea_version):
+        parser.error("idea-version must be a numeric dotted release version")
     with args.log.open(errors="replace") as source:
         interactions = parse(source, include_uncorrelated=True)
     stages = defaultdict(list)
+    stage_counts = defaultdict(int)
     for events in interactions.values():
         for event in events:
             stages[event["stage"]].append((event["end"] - event["start"]) / 1_000_000)
+            stage_counts[event["stage"]] += event["count"]
     stage_summary = {name: {"samples": len(values), "medianMs": statistics.median(values),
-                            "p95Ms": sorted(values)[math.ceil(len(values) * .95) - 1]}
+                            "p95Ms": sorted(values)[math.ceil(len(values) * .95) - 1],
+                            "maxMs": max(values), "totalCount": stage_counts[name]}
                      for name, values in stages.items()}
     result = {"case": args.case, "conditions": {"ecosystem": args.ecosystem, "scope": args.scope, "mode": args.mode,
               "cache": args.cache, "modules": args.modules, "declarations": args.declarations,
@@ -128,7 +140,7 @@ def main():
               "measurements": summarize(interactions), "stages": stage_summary}
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     for name, measurement in result["measurements"].items():
-        print(f"{name}: n={measurement['samples']} median={measurement['medianMs']} ms p95={measurement['p95Ms']} ms")
+        print(f"{name}: n={measurement['samples']} median={measurement['medianMs']} ms p95={measurement['p95Ms']} ms max={measurement['maxMs']} ms")
         print(f"  incomplete={measurement['incompleteInteractions']} native invocation observations={measurement['nativeInvocations']}")
     print("Complete-check and first-result spans remain separate from visible endpoints. Keep cold/setup cases separate.")
 

@@ -1,6 +1,8 @@
 package io.github.khopland.versionchecker
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.service
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogWrapper
@@ -100,6 +102,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         private set
     private var configuring = true
     private var replacingRows = false
+    private var applyPending = false
     private var preparedMode = mode
     private var preparedScope = scopeSelector.selectedItem
     private var generation = 0L
@@ -241,15 +244,32 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     }
 
     public override fun doOKAction() {
-        if (checking || failed) return
+        if (checking || failed || applyPending) return
         if (modeSelector.selectedItem != preparedMode || scopeSelector.selectedItem != preparedScope) {
             requestRecheck()
             return
         }
         if (model.selectedIndices.isEmpty()) return
-        applyInteraction = CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)
         if (table.isEditing && !table.cellEditor.stopCellEditing()) return
-        onApplyRequested?.let { callback -> callback(selectedPlan(), applyInteraction); return }
+        applyInteraction = CheckPerformance.start(CheckPerformance.Stage.BULK_APPLY_INVOKED)
+        onApplyRequested?.let { callback ->
+            val selected = selectedPlan()
+            val trace = applyInteraction
+            val preparedGeneration = generation
+            applyPending = true
+            updateSummary()
+            // Production reviews are modeless. Accessibility button handlers can run
+            // outside a write-safe transaction even on EDT; acquire one before applying.
+            ApplicationManager.getApplication().invokeLater({
+                try {
+                    if (!isDisposed && generation == preparedGeneration) callback(selected, trace)
+                } finally {
+                    applyPending = false
+                    if (!isDisposed) updateSummary()
+                }
+            }, ModalityState.nonModal())
+            return
+        }
         super.doOKAction()
     }
 
@@ -325,7 +345,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         summary.text = "${selected.size} selected · ${table.rowCount} of ${model.rowCount} visible" +
             if (hidden > 0) " · $hidden selected hidden by filter" else ""
         setOKButtonText("Update ${selected.size} selected declarations")
-        setOKActionEnabled(selected.isNotEmpty() && !checking && !failed)
+        setOKActionEnabled(selected.isNotEmpty() && !checking && !failed && !applyPending)
         openButton.isEnabled = table.selectedRows.size == 1 && !checking && !failed
         diffButton.isEnabled = openButton.isEnabled
     }

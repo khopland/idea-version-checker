@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Review Apply enters a write-safe IDE context before changing documents, including clicks through accessibility. Repeated pending clicks apply once; closing or refreshing the review cancels a queued Apply.
 - Inspection input captures and fresh quick-fix/review validation read external Maven, npm and Gradle configuration in cancellable background work. Final edits recheck current documents, imports, settings and result authorization inside their undoable command.
 - Selected-file saving acquires write-intent access explicitly, including review clicks through accessibility on newer IDEs. Follow-up failures after a successful edit explain that the editor text changed.
 - Unsupported or unavailable inspection snapshots do not trigger repeated background captures and highlighting restarts; Gradle checks file ownership before preparing inspection inputs.

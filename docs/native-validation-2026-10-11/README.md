@@ -86,6 +86,11 @@ license agreement or workaround was accepted. This attempt is not a pass.
 The user confirmed that no licensed IDEA 2025.3 installation/profile is available
 and instructed that minimum-IDE npm be recorded as **blocked**.
 
+**Scope update, 2026-10-12:** the user subsequently excluded native npm on IDEA
+2025.3 from release acceptance. The blocked attempt above remains historical
+evidence, not an outstanding release gate. Newer-IDE npm acceptance and automated
+integration tests remain in scope.
+
 Controlled 100-module/dense-file typing, EDT/write spans, slow-disk/large init
 trees, 15-minute IDE-baseline idle CPU, import/rename/unload heap observations,
 and the remaining supported-IDE failure/accessibility matrix remain open.

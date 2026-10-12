@@ -2,6 +2,10 @@
 
 The development version is `1.3.0-SNAPSHOT`. It uses the `Unreleased` change notes and cannot produce a release draft or pass tagged-release validation. Version `1.2.0` is already published; existing versions and tags are preserved. Complete the [release gates](remaining-plan-work.md) before finalizing a new version.
 
+Native npm acceptance on IDEA 2025.3 is excluded at the user's request on
+2026-10-12. Keep newer-IDE npm acceptance, automated npm integration tests,
+minimum-IDE Maven/Gradle acceptance and all three binary-verification targets.
+
 ## One-time setup
 
 1. Merge the pipeline changes into `main` before preparing the next version. GitHub must have Actions enabled; release creation uses the automatically supplied `GITHUB_TOKEN` with job-level `contents: write` permission.

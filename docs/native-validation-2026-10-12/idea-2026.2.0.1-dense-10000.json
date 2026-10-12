@@ -1,0 +1,162 @@
+{
+  "case": "dense-10000-functional-sample",
+  "conditions": {
+    "ecosystem": "gradle",
+    "scope": "current-file",
+    "mode": "patch",
+    "cache": "warm",
+    "modules": 1,
+    "declarations": 10000,
+    "ideaVersion": "2026.2.0.1",
+    "repositoryCase": "fast-local"
+  },
+  "interactionsObserved": 4,
+  "uncorrelatedEvents": 0,
+  "measurements": {
+    "editor_hint": {
+      "samples": 0,
+      "medianMs": null,
+      "p95Ms": null,
+      "maxMs": null,
+      "incompleteInteractions": 0,
+      "nativeInvocations": {
+        "owned": 0,
+        "startedDuringEndpoint": 0,
+        "overlappingEndpoint": 0,
+        "uncorrelatedOverlappingEndpoint": 0
+      },
+      "minimumSampleCountMet": false,
+      "interactions": []
+    },
+    "preview": {
+      "samples": 0,
+      "medianMs": null,
+      "p95Ms": null,
+      "maxMs": null,
+      "incompleteInteractions": 0,
+      "nativeInvocations": {
+        "owned": 0,
+        "startedDuringEndpoint": 0,
+        "overlappingEndpoint": 0,
+        "uncorrelatedOverlappingEndpoint": 0
+      },
+      "minimumSampleCountMet": false,
+      "interactions": []
+    },
+    "local_fix": {
+      "samples": 0,
+      "medianMs": null,
+      "p95Ms": null,
+      "maxMs": null,
+      "incompleteInteractions": 0,
+      "nativeInvocations": {
+        "owned": 0,
+        "startedDuringEndpoint": 0,
+        "overlappingEndpoint": 0,
+        "uncorrelatedOverlappingEndpoint": 0
+      },
+      "minimumSampleCountMet": false,
+      "interactions": []
+    },
+    "bulk_apply": {
+      "samples": 1,
+      "medianMs": 1089.75975,
+      "p95Ms": 1089.75975,
+      "maxMs": 1089.75975,
+      "incompleteInteractions": 0,
+      "nativeInvocations": {
+        "owned": 0,
+        "startedDuringEndpoint": 0,
+        "overlappingEndpoint": 0,
+        "uncorrelatedOverlappingEndpoint": 0
+      },
+      "minimumSampleCountMet": false,
+      "interactions": [
+        {
+          "interaction": 5,
+          "originNs": 24586425403333,
+          "elapsedMs": 1089.75975,
+          "endpointCount": 10000,
+          "nativeInvocations": {
+            "owned": 0,
+            "startedDuringEndpoint": 0,
+            "overlappingEndpoint": 0,
+            "uncorrelatedOverlappingEndpoint": 0
+          },
+          "exclusiveMs": {
+            "repository": 0.0,
+            "native_setup": 0.0,
+            "queue": 0.0,
+            "shared_metadata_wait": 0.0,
+            "document_replacements": 896.735916,
+            "document_commit": 178.976834,
+            "edit_validation": 4.395375,
+            "edit_write_other": 0.056958,
+            "edit_input_capture": 0.687125,
+            "preparation": 0.0,
+            "idea_highlighting": 0.0,
+            "other_or_unobserved": 8.907542
+          }
+        }
+      ]
+    }
+  },
+  "stages": {
+    "GRADLE_NATIVE": {
+      "samples": 4,
+      "medianMs": 723.149229,
+      "p95Ms": 3522.976792,
+      "maxMs": 3522.976792,
+      "totalCount": 22000
+    },
+    "BULK_APPLY_INVOKED": {
+      "samples": 1,
+      "medianMs": 0.002042,
+      "p95Ms": 0.002042,
+      "maxMs": 0.002042,
+      "totalCount": 1
+    },
+    "EDIT_INPUT_CAPTURE": {
+      "samples": 1,
+      "medianMs": 0.687125,
+      "p95Ms": 0.687125,
+      "maxMs": 0.687125,
+      "totalCount": 1
+    },
+    "EDIT_PLAN_VALIDATION": {
+      "samples": 1,
+      "medianMs": 4.395375,
+      "p95Ms": 4.395375,
+      "maxMs": 4.395375,
+      "totalCount": 10000
+    },
+    "DOCUMENT_REPLACEMENTS": {
+      "samples": 1,
+      "medianMs": 896.735916,
+      "p95Ms": 896.735916,
+      "maxMs": 896.735916,
+      "totalCount": 10000
+    },
+    "DOCUMENT_COMMIT": {
+      "samples": 1,
+      "medianMs": 178.976834,
+      "p95Ms": 178.976834,
+      "maxMs": 178.976834,
+      "totalCount": 1
+    },
+    "EDITOR_TEXT_CHANGED": {
+      "samples": 1,
+      "medianMs": 1089.75975,
+      "p95Ms": 1089.75975,
+      "maxMs": 1089.75975,
+      "totalCount": 10000
+    },
+    "EDIT_WRITE_COMMAND": {
+      "samples": 1,
+      "medianMs": 1080.168041,
+      "p95Ms": 1080.168041,
+      "maxMs": 1080.168041,
+      "totalCount": 10000
+    }
+  }
+}

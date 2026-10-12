@@ -64,29 +64,37 @@ internal data class BulkUpdatePlan(
     /** Validate every edit and the discovery snapshot before applying one undoable command. */
     fun apply(
         project: Project,
-        interaction: CheckPerformance.Interaction? = CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)
+        interaction: CheckPerformance.Interaction? = CheckPerformance.start(CheckPerformance.Stage.BULK_APPLY_INVOKED)
     ): Boolean =
         CheckPerformance.locally(interaction) {
             if (prepareValidation != null && !isCurrent()) return@locally false
             val inputGuard = prepareValidation?.let { prepare ->
-                runWithModalProgressBlocking(project, "Validating version update inputs") { prepare() }
+                CheckPerformance.measure(CheckPerformance.Stage.EDIT_INPUT_CAPTURE) {
+                    runWithModalProgressBlocking(project, "Validating version update inputs") { prepare() }
+                }
             } ?: { true }
             var applied = false
             WriteCommandAction.runWriteCommandAction(project, "Update versions", null, Runnable {
-                if (project.isDisposed || !isCurrent() || !inputGuard()) return@Runnable
-                val textChanges = changes.mapNotNull { it.documentChange }
-                val prepared = DocumentVersionChange.prepare(textChanges) ?: return@Runnable
-                val elementChanges = changes.filter { it.documentChange == null }
-                if (elementChanges.any { !it.isValid() }) return@Runnable
-                prepared.forEach { it.apply() }
-                elementChanges.forEach { it.apply() }
-                applied = true
-                CheckPerformance.record(
-                    CheckPerformance.Stage.EDITOR_TEXT_CHANGED,
-                    interaction?.started ?: System.nanoTime(),
-                    changes.size,
-                    interaction
-                )
+                // Time the atomic callback after write access is acquired; input capture is separate.
+                CheckPerformance.measure(CheckPerformance.Stage.EDIT_WRITE_COMMAND, changes.size) write@{
+                    val validated = CheckPerformance.measure(CheckPerformance.Stage.EDIT_PLAN_VALIDATION, changes.size) validate@{
+                        if (project.isDisposed || !isCurrent() || !inputGuard()) return@validate null
+                        val textChanges = changes.mapNotNull { it.documentChange }
+                        val prepared = DocumentVersionChange.prepare(textChanges) ?: return@validate null
+                        val elementChanges = changes.filter { it.documentChange == null }
+                        if (elementChanges.any { !it.isValid() }) return@validate null
+                        prepared to elementChanges
+                    } ?: return@write
+                    validated.first.forEach { it.apply() }
+                    validated.second.forEach { it.apply() }
+                    applied = true
+                    CheckPerformance.record(
+                        CheckPerformance.Stage.EDITOR_TEXT_CHANGED,
+                        interaction?.started ?: System.nanoTime(),
+                        changes.size,
+                        interaction
+                    )
+                }
             })
             applied
         }
