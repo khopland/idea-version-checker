@@ -58,7 +58,7 @@ internal object NpmBuildInputs {
                     ancestor = ancestor.parent
                 }
             }
-            digests.addAll(userConfigurationPaths(layout.environment))
+            layout.roots.forEach { digests.addAll(userConfigurationPaths(layout.environment, Path.of(it))) }
             layout.node?.let { value ->
                 val node = Path.of(value)
                 runtimes.add(node)
@@ -100,9 +100,14 @@ internal object NpmBuildInputs {
         "NPM_CONFIG_USERCONFIG", "npm_config_userconfig", "NPM_CONFIG_GLOBALCONFIG", "npm_config_globalconfig"
     )
 
-    private fun userConfigurationPaths(environment: Map<String, String>): List<Path> =
-        listOf(Path.of(System.getProperty("user.home"), ".npmrc")) +
-            userConfigurationVariables.mapNotNull { environment[it]?.takeIf(String::isNotBlank)?.let(Path::of) }
+    internal fun userConfigurationPaths(environment: Map<String, String>, directory: Path): List<Path> {
+        val home = environment["HOME"] ?: System.getProperty("user.home")
+        val default = if (userConfigurationVariables.take(2).any { !environment[it].isNullOrBlank() }) emptyList()
+            else listOf(directory.resolve(home.ifEmpty { "~" }).resolve(".npmrc").normalize())
+        return default + userConfigurationVariables.mapNotNull { key ->
+            environment[key]?.takeIf(String::isNotBlank)?.let { directory.resolve(it).normalize() }
+        }
+    }
 
     /** Native input paths only: saving must not hash configuration or probe a runtime. */
     fun resolutionInputPaths(project: Project, root: String): Set<String> {
@@ -112,7 +117,7 @@ internal object NpmBuildInputs {
             for (name in runtimeConfigurationNames + "package.json" + NpmWorkspaces.otherManagerFiles) paths.add(ancestor.resolve(name))
             ancestor = ancestor.parent
         }
-        paths.addAll(userConfigurationPaths(EnvironmentUtil.getEnvironmentMap()))
+        paths.addAll(userConfigurationPaths(EnvironmentUtil.getEnvironmentMap(), Path.of(root)))
         (NodeJsInterpreterManager.getInstance(project).interpreter as? NodeJsLocalInterpreter)?.let {
             val node = Path.of(it.interpreterSystemDependentPath)
             paths.add(node)
@@ -156,7 +161,7 @@ internal object NpmBuildInputs {
             virtualAncestor = virtualAncestor.parent
         }
         val environment = EnvironmentUtil.getEnvironmentMap()
-        for (path in userConfigurationPaths(environment)) {
+        for (path in userConfigurationPaths(environment, Path.of(workspace.root.path))) {
             files[path.toString()] = diskDigest(path, external)
         }
         val policy = project.service<VersionCheckerSettings>().state.deprecatedDependencies
@@ -224,7 +229,7 @@ internal object NpmBuildInputs {
             runtimeFile(configured)
             for (name in listOf("package.json", "bin/npm-cli.js")) runtimeFile(configured.resolve(name))
         }
-        for (path in userConfigurationPaths(environment)) inputs[path.toString()] = diskDigest(path, external)
+        for (path in userConfigurationPaths(environment, Path.of(root.path))) inputs[path.toString()] = diskDigest(path, external)
         inputs["environment"] = environment.toSortedMap().toString()
         return NpmResolutionContext(root.path, digest(inputs.toString().toByteArray()))
     }

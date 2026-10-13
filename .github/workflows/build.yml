@@ -165,9 +165,9 @@ jobs:
         with:
           cache-read-only: true
 
-      # Run Verify Plugin task and IntelliJ Plugin Verifier tool
-      - name: Run Plugin Verification tasks
-        run: ./gradlew verifyPlugin
+      # Validate the project configuration and binary compatibility before drafting a release.
+      - name: Run plugin verification tasks
+        run: ./gradlew verifyPluginProjectConfiguration verifyPlugin
 
       # Collect Plugin Verifier Result
       - name: Collect Plugin Verifier Result

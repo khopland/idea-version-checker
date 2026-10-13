@@ -108,6 +108,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     override fun apply() {
         val state = project.service<VersionCheckerSettings>().state
         val persistenceChanged = state.mavenPersistentMetadata != persistentMaven!!.isSelected
+        val disabling = state.enabled && !enabled!!.isSelected
         state.enabled = enabled!!.isSelected
         state.scheduledChecks = scheduled!!.isSelected
         state.checkIntervalMinutes = interval!!.value as Int
@@ -122,6 +123,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         state.mavenMetadataThreads = mavenThreads!!.value as Int
         state.mavenFastEditorChecks = fastMaven!!.isSelected
         state.mavenPersistentMetadata = persistentMaven!!.isSelected
+        if (disabling) project.service<VersionCheckService>().pause()
         if (persistenceChanged) io.github.khopland.versionchecker.core.BuildSystemAdapter.find("maven")?.invalidateMetadata(project)
         project.service<ScheduledVersionChecks>().configure()
         project.service<VersionCheckService>().statusChanged()
