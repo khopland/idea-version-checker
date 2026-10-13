@@ -23,5 +23,8 @@
     "IU-262.10968.63": "Compatible. 14 usages of experimental API"
   },
   "nativeAcceptance": "See README.md; minimum-IDE Maven final-archive check remains pending",
-  "published": false
+  "published": false,
+  "finalFullValidationDate": "2026-10-13",
+  "finalGradleTests": "RERUN: 507 tests, zero failures/errors/skips",
+  "finalValidationLog": "build/reports/release-preparation/final-before-push-2026-10-13.log"
 }

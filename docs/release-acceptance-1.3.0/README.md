@@ -30,6 +30,13 @@ or scheduled-for-removal usages were reported. Build Java is SDKMAN Temurin
 21.0.12+1.1. Local reports remain in `build/reports` and `build/test-results/test`;
 the resumed run log is `build/reports/release-preparation/validation-2026-10-13.log`.
 
+The final pre-push run on 13 October explicitly reran the full plugin test task
+with all native integration flags enabled: **507 tests in 69 classes**, zero
+failures/errors/skips. Packaging, project configuration and all three verifier
+targets passed in 2m 3s; the Python suites and stable tagged metadata also passed.
+The ZIP checksum remained unchanged. Log:
+`build/reports/release-preparation/final-before-push-2026-10-13.log`.
+
 ```sh
 python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 python3 -B -m unittest discover -s scripts -p 'test_*.py'
