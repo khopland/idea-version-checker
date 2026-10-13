@@ -2,10 +2,29 @@ package io.github.khopland.versionchecker
 
 import io.github.khopland.versionchecker.npm.*
 import kotlinx.coroutines.*
+import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.openapi.util.SystemInfo
 import org.junit.Assert.*
 import org.junit.Test
 
 class NpmRegistryMetadataTest {
+    @Test fun `native stdout is bounded and overflow does not trigger metadata fallback`() = runBlocking {
+        if (SystemInfo.isWindows) return@runBlocking
+        assertEquals("ok", NpmRegistry.execute(GeneralCommandLine("sh", "-c", "printf ok")).stdout)
+        var queries = 0
+        try {
+            withTimeout(10_000) {
+                NpmRegistry.loadMetadata("pkg") {
+                    queries++
+                    NpmRegistry.execute(GeneralCommandLine("sh", "-c", "printf '%*s' 17000000 ' '")).stdout
+                }
+            }
+            fail("Unbounded output should be rejected")
+        } catch (failure: NpmViewFailure) {
+            assertTrue(failure.message.orEmpty().contains("output"))
+        }
+        assertEquals(1, queries)
+    }
     @Test fun `normalizes one version and retains later deprecations without a latest tag limit`() {
         val single = NpmRegistry.parseMetadata("""{"name":"@scope/pkg","version":"1.0.0"}""", "@scope/pkg")
         assertEquals(listOf("1.0.0"), single.versions)
