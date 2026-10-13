@@ -15,8 +15,8 @@ tasks.processResources {
 }
 
 dependencies {
-    compileOnly("org.apache.maven:maven-plugin-api:3.9.11")
-    compileOnly("org.apache.maven:maven-core:3.9.11")
+    compileOnly("org.apache.maven:maven-plugin-api:3.10.0")
+    compileOnly("org.apache.maven:maven-core:3.10.0")
     compileOnly("org.apache.maven.resolver:maven-resolver-api:1.9.24")
     compileOnly("org.apache.maven.resolver:maven-resolver-util:1.9.24")
 }
