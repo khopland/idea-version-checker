@@ -106,7 +106,7 @@ samples are retained separately from completed interaction measurements.
 
 ## Sorter and interaction follow-up
 
-The [review-fix batch](../plan-fixes-2026-10-11.md) reproduces and corrects the
+The [validation-fix batch](../validation-fixes-2026-10-11.md) reproduces and corrects the
 sorter notification order. Native IDEA 2026.2.3 was restarted with archive
 `1fb04a19f48ff67dcda8be92c05b53d5cc2e24b179c8e14f2286e4694266c12a` in the same
 isolated profile. Aggregation was enabled only in that disposable profile.

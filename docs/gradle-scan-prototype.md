@@ -1,6 +1,6 @@
 # Gradle scan prototype
 
-The F06 prototype defaults to off. Enable it in a disposable development/EAP
+The cross-file aggregation prototype defaults to off. Enable it in a disposable development/EAP
 IDE profile with the JVM option:
 
 ```text

@@ -1,6 +1,6 @@
 # Result retention and input preparation
 
-Implemented on 2026-10-11 as the next phase 3 engineering batch (F09/F10).
+Implemented and validated on 2026-10-11.
 
 ## Result budgets
 
@@ -65,8 +65,8 @@ are saved with their latest text. Project disposal and cancellation are checked
 before the callback and between document saves. Scheduled checks still leave
 unsaved inputs alone.
 
-This closes the action/save preparation portion of F09. Snapshot creation and
-synchronous quick-fix/apply freshness checks still read external inputs through
+This moves action/save preparation to background work. At this validation point,
+snapshot creation and synchronous quick-fix/apply freshness checks still read external inputs through
 the existing provider fingerprint implementations, sometimes under read actions
 or on EDT. Moving those reads requires a separate capture/revalidation design;
 they remain unchanged here to preserve edit safety. Controlled slow-disk/native

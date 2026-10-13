@@ -1,4 +1,4 @@
-# Held fixes during partial checks (F11)
+# Held fixes during partial checks
 
 Updated 2026-10-11. This refines the
 [shared quick-fix authorization policy](candidate-freshness.md).
@@ -62,7 +62,7 @@ replacement.
 
 Native Alt+Enter/focus acceptance on the supported IDEs remains open. This is an
 authorization and usability change; it does not establish native latency, screen
-reader behavior or completion of the release gates.
+reader behavior or complete native acceptance.
 
 ## Validation
 

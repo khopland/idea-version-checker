@@ -75,7 +75,7 @@ Use Java 21 or later; the Gradle wrapper uses a Java 21 toolchain. Java and Mave
 ./gradlew verifyPlugin
 ```
 
-Compatibility checks target IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Native integration tests are opt-in locally; commands and test coverage are in the [verification guide](docs/user-guide.md#development-and-verification). The [release implementation ledger](docs/remaining-plan-work.md) tracks completed work and outstanding native UX gates.
+Compatibility checks target IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Native integration tests are opt-in locally; commands and test coverage are in the [verification guide](docs/user-guide.md#development-and-verification). See the [release instructions](docs/releasing.md) and [1.3.0 acceptance record](docs/release-acceptance-1.3.0/README.md) for delivery and validation details.
 
 Demo projects: [Maven](src/test/resources/maven-demo/README.md), [npm](src/test/resources/npm-demo/README.md), [Gradle](src/test/resources/gradle-demo/README.md). Copy a demo to the Git-ignored `examples/` directory before trying updates.
 

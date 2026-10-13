@@ -1,4 +1,4 @@
-# External input guard follow-up (F09/F11)
+# External input guards
 
 Updated 2026-10-11. This continues the background input-capture and
 [candidate freshness](candidate-freshness.md) work.
@@ -41,7 +41,7 @@ write. No hashes from preview preparation are reused to authorize a later apply.
 ## Remaining scope
 
 This closes the saved-content identity gap documented in the Maven capture batch
-and reduces repeated Gradle work during apply. It does not close F09: synchronous
+and reduces repeated Gradle work during apply. At this validation point, synchronous
 inspection and edit guards still perform external disk work, and Maven content
 hashing adds byte reads to those paths. Background capture remains outside IDE
 read actions. Native slow-disk, typing/input-delay and supported-IDE acceptance

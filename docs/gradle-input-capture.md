@@ -1,4 +1,4 @@
-# Gradle background input capture (F09)
+# Gradle background input capture
 
 Updated 2026-10-11. This continues the [save preparation and retention work](result-retention.md)
 and [shared result freshness work](candidate-freshness.md).
@@ -31,7 +31,7 @@ unchanged. No saved-file timestamp shortcut or asynchronous watcher replaces thi
 content guard.
 
 This closes the Gradle external-disk portion of background discovery, validation
-and preview preparation. It does **not** close F09: Maven/npm external capture,
+and preview preparation. At this validation point, Maven/npm external capture,
 Gradle synchronous inspection/apply paths, project VFS/PSI capture costs and native
 slow-disk/typing measurements remain open. Editor and settings capture is still
 inside a read action; this change does not establish a maximum read-lock duration

@@ -2,7 +2,7 @@
 
 Small Maven cases ran in native IDEA windows with the packaged plugin. Both IDEA
 2025.3.6.1 and 2026.1.4 now have at least 100 completed samples for each measured
-endpoint. The full plan's performance and usability matrix is still incomplete.
+endpoint. The broader performance and usability matrix is still incomplete.
 Small warm Gradle editor, preview and literal-fix cases have also completed 100
 repetitions each in 2026.1.4; the 2025.3.6.1 Gradle preview has 100 repetitions.
 
@@ -29,8 +29,7 @@ latest scope/mode; the automated suite now contains 401 passing plugin tests.
 | 2026.1.4 | Cached preview, 3 rows | 100 | 25.42 ms | 34.23 ms | [Report](idea-2026.1.4-maven-small-preview.json), [trace](idea-2026.1.4-maven-small-preview.log) |
 | 2026.1.4 | Literal local fix | 100 | 3.89 ms | 6.58 ms | [Report](idea-2026.1.4-maven-small-fix.json), [trace](idea-2026.1.4-maven-small-fix.log) |
 
-The completed latency samples are below the plan's editor/preview/fix p95
-targets for this condition only. They do not establish performance for other
+These latency samples describe this condition only. They do not establish performance for other
 ecosystems, large projects, shared edits, cold caches or delayed repositories.
 
 Editor sampling alternated an ordinary Java source tab and a POM with cached,
@@ -294,5 +293,5 @@ and per-version Kotlin/catalog Gradle cases, shared/property/parent fixes,
 cold/setup and remaining per-ecosystem/per-version failure cases, controlled
 typing profiling and the remaining usability matrix. Minimum-IDE npm remains
 unvalidated; current-IDE npm functional evidence is recorded in [phase2.md](phase2.md).
-Conditional native-resolution experiments remain deferred pending evidence of
-the corresponding repeated work; see [remaining-plan-work.md](../remaining-plan-work.md).
+These measurements do not establish that further native-resolution experiments
+would improve performance.

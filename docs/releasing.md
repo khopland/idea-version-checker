@@ -1,6 +1,6 @@
 # Release pipeline
 
-Version `1.3.0` is prepared for the user's stable-release review, with dated change notes and a locally validated ZIP. It has not been published. See the [candidate acceptance record](release-acceptance-1.3.0/README.md) for the archive checksum, completed checks and the remaining minimum-IDE Maven smoke test. Version `1.2.0` is already published; existing versions and tags are preserved. The [implementation ledger](remaining-plan-work.md) also tracks the broader plan's outstanding acceptance work.
+Version `1.3.0` is prepared for stable-release review, with dated change notes and a locally validated ZIP. It has not been published. See the [candidate acceptance record](release-acceptance-1.3.0/README.md) for the archive checksum, completed checks and the remaining minimum-IDE Maven smoke test. Version `1.2.0` is already published; existing versions and tags are preserved.
 
 Native npm acceptance on IDEA 2025.3 is excluded at the user's request on
 2026-10-12. Keep newer-IDE npm acceptance, automated npm integration tests,

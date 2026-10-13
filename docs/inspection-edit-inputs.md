@@ -1,4 +1,4 @@
-# Inspection and edit input capture (F09)
+# Inspection and edit input capture
 
 Updated 2026-10-11. Maven, npm and Gradle production inspection visitors no
 longer synchronously capture external configuration. Each provider prepares an
@@ -83,6 +83,6 @@ Metadata still returns `channel=eap` and `releasable=false` for the snapshot.
 The [native acceptance record](native-validation-2026-10-11/README.md) records
 archive identities, the observed save/highlighting failures and their retests.
 Native slow-disk, large init-directory, 100-module typing/EDT and repeated heap
-measurements remain release gates. Moving explicit external reads off the EDT
-does not prove that VFS/PSI work is cheap or that the proposed latency budgets
-are met. Gradle cross-file aggregation remains off by default.
+measurements remain uncompleted. Moving explicit external reads off the EDT
+does not prove that VFS/PSI work is cheap or establish native latency bounds.
+Gradle cross-file aggregation remains off by default.

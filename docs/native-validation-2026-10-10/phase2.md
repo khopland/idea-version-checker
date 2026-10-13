@@ -67,7 +67,7 @@ Setting the fixture registry to reject metadata requests returned HTTP 401.
 Refresh displayed retry/authentication guidance and made no manifest changes.
 Show Details exposed the npm E401 explanation. Restoring registry access and
 refreshing returned three current-file updates. The notification itself used the
-generic `NpmViewFailure` label: this is evidence for the remaining F14 recovery
+generic `NpmViewFailure` label: this is evidence for the remaining recovery
 presentation work. The [registry observations](idea-2026.2.3-npm-workspace-registry.jsonl)
 also include a manual CLI metadata sanity check and the Gradle-disabled smoke;
 their total is not a plugin-only request count. No credentials are recorded.

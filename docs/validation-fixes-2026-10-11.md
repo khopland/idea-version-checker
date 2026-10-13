@@ -1,8 +1,8 @@
-# Review findings and large-table follow-up
+# Gradle, Maven and large-table validation fixes
 
-This implements the three findings in the [11 October project review](https://plan-api.k8r.no/p/2uBWeH8wm5V_jhrWnNZK7tuS)
-and continues the large-review task from the [release plan](https://plan-api.k8r.no/p/UetOAiITTXzNzuiU9ZPj2L4F).
-The source is `9950c4b` plus these working-tree changes; the candidate remains
+This records the Gradle target/ownership, Maven stability and review-table
+corrections validated on 11 October 2026.
+The source was `9950c4b` plus these working-tree changes; the validated candidate was
 `1.3.0-SNAPSHOT`.
 
 ## Implemented corrections
@@ -14,18 +14,18 @@ The source is `9950c4b` plus these working-tree changes; the candidate remains
   regression reproduces the warning before the fix and exercises growth from
   100 to 10,000 rows, sorting, filtering, keyboard selection, shrinking and an
   empty replacement afterward.
-- **R01, Gradle target authorization:** Detached configurations still discover
+- **Gradle target authorization:** Detached configurations still discover
   candidates. Before returning a candidate, copies of every matching resolvable
   source configuration must resolve that exact version. Copies retain source
   attributes, constraints and resolution rules; only matching copied dependencies
   receive the new version. Substitution, rejection or selection of another
   coordinate/version returns a manual-review reason and no automatic candidate.
-- **R02, Gradle ownership:** An empty source-owner set now returns an explicit
+- **Gradle ownership:** An empty source-owner set now returns an explicit
   manual-review reason. The adapter therefore cannot count that declaration as
   checked. This is conservative coverage, not new support for following
   cross-project declarations back to their source. Unused catalog declarations
   also need review when there is no consumer owner.
-- **R03, Maven stability:** The shared qualifier exclusion policy now includes
+- **Maven stability:** The shared qualifier exclusion policy now includes
   `dev` and `eap`. Native metadata, prepared histories, direct/wrapped reports and
   parent reports agree on dot/hyphen separators, case and numeric suffixes. Stable
   candidates remain available when a higher development version is published.
@@ -64,13 +64,13 @@ The packaged and native-tested archive is
 See the [native follow-up](native-validation-2026-10-11/gradle-large.md#sorter-and-interaction-follow-up)
 for Apply/undo and cancellation evidence and measurement limits.
 
-## Remaining work
+## Measurement limits
 
-This closes the reproduced sorter warning and R01–R03. Native functional checks
-cover the 10,000-declaration review, but repeated typing/EDT/write measurements,
+The reproduced sorter, target/ownership and stability failures are corrected.
+Native functional checks cover the 10,000-declaration review, but repeated typing/EDT/write measurements,
 slow-disk behavior, 15-minute baseline idle CPU, retained heap after import/rename/
 unload, other supported-IDE workflows and accessibility acceptance remain open.
-Minimum-IDE npm stays blocked by the previously recorded licensing limitation.
-Gradle aggregation remains experimental and off by default. RC identity,
-exact-RC acceptance, EAP feedback and stable promotion are still release gates;
-no release was published.
+Minimum-IDE npm was blocked during this run by the recorded licensing limitation.
+Gradle aggregation remains experimental and off by default. No release was
+published by this validation batch. See the [1.3.0 acceptance record](release-acceptance-1.3.0/README.md)
+for the subsequent stable candidate.

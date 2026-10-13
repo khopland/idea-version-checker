@@ -103,8 +103,8 @@ Native npm on IDEA 2025.3 was excluded from release acceptance by the user on
 2026-10-12. The earlier licensing limitation remains recorded as historical
 evidence; it is no longer an outstanding gate. npm acceptance on newer IDEs and
 automated npm integration tests remain in scope.
-Development remains `1.3.0-SNAPSHOT`; exact-RC acceptance, EAP feedback and stable
-promotion remain release gates.
+This run used `1.3.0-SNAPSHOT`. The subsequent stable candidate is documented in
+the [1.3.0 acceptance record](../release-acceptance-1.3.0/README.md).
 
 ## Automated validation
 

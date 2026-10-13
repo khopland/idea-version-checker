@@ -1,6 +1,6 @@
 # Quick-fix and preview freshness
 
-The F11 engineering follow-up introduces one `VersionResultLease` contract for
+The implementation uses one `VersionResultLease` contract for
 inspection fixes and complete previews. A lease contains the provider/context,
 update mode, refresh revision, original observation time and original deadline.
 Its validation also checks the identity of the retained result observation.
@@ -43,7 +43,7 @@ the existing write command. Expired or refreshed results now reject without
 performing that disk work. Writable-file preparation and all-edit prevalidation
 remain in place; shared edits still apply atomically and undo together.
 
-F09 remains open for live-result input validation. Snapshot creation and
+At this validation point, snapshot creation and
 quick-fix/apply fingerprints still perform external reads through their existing
 implementations. Moving those reads needs a capture/revalidation design that
 preserves changes made outside VFS, unsaved configuration and shared ownership.

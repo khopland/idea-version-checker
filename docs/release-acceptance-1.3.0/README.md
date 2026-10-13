@@ -86,7 +86,7 @@ remain separate historical evidence and are not relabeled as stable-ZIP traces.
 The typing report is one functional run, not a repeated p95/input-delay study.
 It does not measure typing during the atomic bulk write. Repeated native scale,
 slow-disk/init-tree, idle/retained-heap, and broader DSL/catalog/failure/accessibility
-acceptance from the original plan remain uncompleted.
+acceptance remain uncompleted.
 
 ## Remaining before publication
 
@@ -113,5 +113,5 @@ acceptance from the original plan remain uncompleted.
    been performed here.
 
 The candidate is prepared for review; the pending native check and broader
-measurement gaps remain explicit. No complete-plan or publication-ready
-certification follows from these local checks.
+measurement gaps remain explicit. These local checks do not certify complete
+native acceptance or readiness for publication.

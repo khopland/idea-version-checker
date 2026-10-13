@@ -88,4 +88,4 @@ JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem \
 This correction addresses the observed preview recovery gap. Minimum-IDE native
 npm, automatic/status failure presentation, remaining runtime/cancellation native
 cases, controlled scale and typing measurements and exact RC/stable archive
-validation remain open. It does not certify the plan's latency budgets.
+validation remain open. It does not establish native latency bounds.
