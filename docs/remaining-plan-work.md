@@ -1,6 +1,6 @@
 # Release implementation ledger
 
-Updated 2026-10-12. The [HTML release plan](release-plan-2026-10-10.html) records the audit of commit `17c4975`; this ledger tracks implementation after that audit. Development remains `1.3.0-SNAPSHOT` until the release gates are satisfied. A snapshot is intentionally not eligible for release automation.
+Updated 2026-10-13. The [HTML release plan](release-plan-2026-10-10.html) records the audit of commit `17c4975`; this ledger tracks implementation after that audit. Version `1.3.0` is now prepared for stable review at the user's request. The [candidate acceptance record](release-acceptance-1.3.0/README.md) identifies the exact ZIP and remaining checks; no release has been published. Earlier snapshot identities and failed attempts below remain historical evidence.
 
 **Acceptance scope, updated 2026-10-12:** the user excluded native npm validation
 on IDEA 2025.3 from the release gates. Historical blocked attempts below remain
@@ -429,6 +429,17 @@ the remaining checks and release artifact gates are resolved.
 
 ## Remaining release gates
 
+The [1.3.0 candidate record](release-acceptance-1.3.0/README.md) supersedes the
+snapshot-artifact gate below. The stable version, dated notes, descriptor and
+checksum are prepared. Validation passed 507 plugin tests and all three verifier
+targets. The exact ZIP passed current-IDE Maven/npm smoke, dense Gradle Apply/undo,
+outside-VFS source rejection and delayed-check typing, plus minimum-IDE Gradle
+review/local-fix smoke. Final-archive Maven native smoke on IDEA 2025.3.6.1 remains
+pending: temporary profiles were cleared and native automation is unavailable in
+the resumed session. Stable publication still requires the user's review and
+the repository release workflow. The broader repeated performance, heap and
+failure/accessibility matrix is not certified by this short candidate pass.
+
 The [12 October dense follow-up](native-validation-2026-10-12/README.md) restores
 native input after the user moved the disposable window, reproduces and fixes a
 write-unsafe accessibility Apply, and verifies 1,000/10,000 dense edits with one
@@ -439,7 +450,7 @@ Validation passed 501 plugin tests, 13 release tests, 19 script tests, packaging
 project configuration and all three verifier targets (existing 14 experimental
 API uses per target). Archive identities and measurement limits are in the record.
 
-- **F01: finalize the release artifact.** After validation and UX acceptance, choose a new RC such as `1.3.0-rc.1`, finalize a dated changelog entry, verify the packaged descriptor/change notes/checksum, then test the exact archive in IDEA. Promote with a new stable version after EAP acceptance. No release is published by this implementation batch.
+- **F01: release artifact prepared.** The user chose `1.3.0` for stable review instead of an RC/EAP step. Dated notes, tagged metadata, packaged identity and checksum are checked. Complete the remaining minimum-IDE Maven smoke and review the candidate before publication. No release is published by this implementation batch.
 - **F03: native npm workflows.** Current-IDE editor/preview/local/workspace edit and authentication-recovery checks passed. Native npm on IDEA 2025.3 is **excluded from release acceptance at the user's request on 2026-10-12**; the previous licensing limitation is historical evidence, not an outstanding gate. Complete the remaining ignore/recovery, cancellation and offline/runtime/configuration cases on the newer IDEs; preserve results in the [native record](native-validation-2026-10-11/README.md).
 - **F04: supported-IDE Gradle UX.** Minimum-IDE Groovy diagnostics/local fix and current-IDE Groovy/shared Kotlin catalog workflows passed. Complete the per-version DSL/catalog and repeated performance matrix. Binary compatibility alone does not close this gate.
 - **Native scale and failure matrix.** Measure small projects, 100-module projects and dense edits on named hardware; record warm/cold states, authentication failures, offline behavior, cancellation, imports, plugin unload and typing/input delays. Retain completed/incomplete sample counts and archive hashes. The HTML plan's latency budgets remain proposed targets.
@@ -447,7 +458,7 @@ API uses per target). Archive identities and measurement limits are in the recor
 ## Next engineering work
 
 1. **F06/F07: Gradle query batching.** Ownership indexing is enabled. The [bounded cross-file prototype](gradle-scan-prototype.md) is implemented behind a development-only JVM switch, with native resolver work/parity and cancellation/freshness regressions. Keep aggregation off by default until controlled native UI scale/typing and failure measurements pass; mode sharing and refresh-flag changes remain deferred.
-2. **F09: validate the completed input boundary in native workloads.** Background external capture now covers discovery, validation, previews, inspections and per-invocation edits for all three providers. Fresh saved inputs and final unsaved/import/settings/result guards remain required before Apply. Profile slow disks, large init trees and live VFS/PSI work; see the [capture record](inspection-edit-inputs.md). Add a controlled outside-VFS build-file race test for the stale VFS content observed during the [12 October fixture restart](native-validation-2026-10-12/README.md#automated-validation), including a held preview and an edit made while IDEA is stopped.
+2. **F09: validate the completed input boundary in native workloads.** Background external capture now covers discovery, validation, previews, inspections and per-invocation edits for all three providers. Fresh saved inputs and final unsaved/import/settings/result guards remain required before Apply. The [1.3.0 source-race correction](release-acceptance-1.3.0/README.md) adds physical saved-source validation and real-disk regressions, including same-size/same-timestamp changes without VFS refresh. A held native Gradle review rejected such a change. Profile slow disks, large init trees and live VFS/PSI work; see the [capture record](inspection-edit-inputs.md). A separate stopped-IDE native scenario remains unmeasured.
 3. **F10: validate bounded state in native workloads.** Result/source/generation budgets, expiry cleanup and late-worker regressions are implemented. Complete native import/rename/unload and heap observations; the model soak establishes map bounds, not retained heap size.
 4. **F11: native acceptance of shared freshness.** Common result leases and held-fix regressions are implemented. Validate expiry/refresh recovery with actual Alt+Enter descriptors on the supported IDEs; declaration-scoped partial leases now preserve held fixes across unrelated completions, while unknown/remapped scopes retain conservative report-level guards.
 5. **F12: native coverage acceptance.** Explicit provider outcomes, matching status/review counts, narrow-scope reasons, partial/failure totals and unknown-coverage handling are implemented. Validate readability/accessibility and document recognized-form limits; excluded managers and unparsed forms are not counted as an audit.

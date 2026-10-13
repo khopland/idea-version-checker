@@ -1,6 +1,6 @@
 # Release pipeline
 
-The development version is `1.3.0-SNAPSHOT`. It uses the `Unreleased` change notes and cannot produce a release draft or pass tagged-release validation. Version `1.2.0` is already published; existing versions and tags are preserved. Complete the [release gates](remaining-plan-work.md) before finalizing a new version.
+Version `1.3.0` is prepared for the user's stable-release review, with dated change notes and a locally validated ZIP. It has not been published. See the [candidate acceptance record](release-acceptance-1.3.0/README.md) for the archive checksum, completed checks and the remaining minimum-IDE Maven smoke test. Version `1.2.0` is already published; existing versions and tags are preserved. The [implementation ledger](remaining-plan-work.md) also tracks the broader plan's outstanding acceptance work.
 
 Native npm acceptance on IDEA 2025.3 is excluded at the user's request on
 2026-10-12. Keep newer-IDE npm acceptance, automated npm integration tests,
@@ -26,7 +26,12 @@ python3 .github/scripts/release_metadata.py
   -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain
 ```
 
-The native npm fixtures need Node/npm on `PATH`; CI uses Node 22.23.1 and its bundled npm. Maven uses IDEA's bundled server. Gradle fixtures download their distribution if needed. All three use authenticated local HTTP repositories; Maven's fixture also checks public demo metadata. Validation needs network access for toolchains and uncached artifacts. Reports are under `build/reports`; the current development archive is `build/distributions/version-checker-1.3.0-SNAPSHOT.zip`. Tagged release validation must additionally use `--tag <version> --prerelease <true|false>` after finalizing the changelog.
+The native npm fixtures need Node/npm on `PATH`; CI uses Node 22.23.1 and its bundled npm. Maven uses IDEA's bundled server. Gradle fixtures download their distribution if needed. All three use authenticated local HTTP repositories; Maven's fixture also checks public demo metadata. Validation needs network access for toolchains and uncached artifacts. Reports are under `build/reports`; the prepared archive is `build/distributions/version-checker-1.3.0.zip`. Tagged release validation must additionally use `--tag <version> --prerelease <true|false>` after finalizing the changelog. For this candidate:
+
+```sh
+python3 .github/scripts/release_metadata.py --tag 1.3.0 --prerelease false
+(cd build/distributions && shasum -a 256 -c SHA256SUMS)
+```
 
 ## Publish a stable version
 
@@ -74,7 +79,7 @@ python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 For a finalized version, validate release metadata without uploading:
 
 ```sh
-python3 .github/scripts/release_metadata.py --tag 1.0.1 --prerelease false
+python3 .github/scripts/release_metadata.py --tag 1.3.0 --prerelease false
 ```
 
 `publishPlugin` without additional properties uses Marketplace's stable channel. The workflow supplies `-PmarketplaceChannel=eap` for prereleases and `-PreleaseArchive=build/distributions/<selected ZIP>` to publish the same archive attached to GitHub. Delivery skips rebuild, signing, and automatic changelog patching after that archive has been selected.

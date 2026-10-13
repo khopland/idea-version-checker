@@ -51,6 +51,76 @@ class GradleExternalInputCaptureTest : BasePlatformTestCase() {
 
     private fun report(snapshot: BuildSnapshot) = UpdateReport(snapshot.declarations.map { UpdateCandidate(it, "1.2.9") })
 
+    fun testPhysicalBuildFileChangesWithoutVfsRefreshRejectHeldEdits() = withHome {
+        val root = Files.createTempDirectory("version-checker-gradle-source-race-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, root.toString())
+        val path = root.resolve("build.gradle")
+        val original = "dependencies { implementation 'g:library:1.2.3' }"
+        Files.writeString(path, original)
+        val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)!!
+        val settings = GradleSettings.getInstance(project)
+        settings.linkProject(GradleProjectSettings().apply { externalProjectPath = root.toString() })
+        try {
+            val adapter = GradleBuildSystemAdapter()
+            val snapshot = background { adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, file.path)) }.single()
+            val plan = background { adapter.prepareUpdates(project, mapOf(snapshot to report(snapshot))) }
+            val cached = FileDocumentManager.getInstance().getDocument(file)!!
+            assertEquals(original, cached.text)
+            val stamp = Files.getLastModifiedTime(path)
+            val modified = original.replace("1.2.3", "1.2.4")
+            Files.writeString(path, modified)
+            Files.setLastModifiedTime(path, stamp)
+            assertEquals("The regression must keep stale IDE text", original, cached.text)
+            assertFalse("Apply must reject physical bytes changed outside VFS", plan.apply(project))
+            assertEquals(original, cached.text)
+            assertEquals(modified, Files.readString(path))
+            Files.writeString(path, original)
+            Files.setLastModifiedTime(path, stamp)
+            assertTrue("Restoring the exact disk baseline permits a fresh validation", plan.apply(project))
+            assertTrue(cached.text.contains("g:library:1.2.9"))
+        } finally {
+            settings.unlinkExternalProject(root.toString())
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    fun testPhysicalSettingsChangeOrMissingInputRejectsEverySelectedFile() = withHome {
+        val root = Files.createTempDirectory("version-checker-gradle-settings-race-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, root.toString())
+        val properties = root.resolve("gradle.properties")
+        Files.writeString(properties, "flag=original")
+        val build = root.resolve("build.gradle")
+        val child = Files.createDirectories(root.resolve("child")).resolve("build.gradle")
+        val original = "dependencies { implementation 'g:library:1.2.3' }"
+        Files.writeString(build, original)
+        Files.writeString(child, original)
+        val virtualRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(root)!!
+        virtualRoot.refresh(false, true)
+        val settings = GradleSettings.getInstance(project)
+        settings.linkProject(GradleProjectSettings().apply { externalProjectPath = root.toString() })
+        try {
+            val adapter = GradleBuildSystemAdapter()
+            val snapshots = background { adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
+            val plan = background { adapter.prepareUpdates(project, snapshots.associateWith(::report)) }
+            assertEquals(2, plan.changes.size)
+            val stamp = Files.getLastModifiedTime(properties)
+            Files.writeString(properties, "flag=modified")
+            Files.setLastModifiedTime(properties, stamp)
+            assertFalse(plan.apply(project))
+            assertTrue(plan.changes.all { it.element!!.containingFile.text == original })
+            assertEquals(original, Files.readString(build))
+            assertEquals(original, Files.readString(child))
+            Files.writeString(properties, "flag=original")
+            Files.setLastModifiedTime(properties, stamp)
+            Files.delete(properties)
+            assertFalse("A missing tracked file must not authorize any edit", plan.apply(project))
+            assertTrue(plan.changes.all { it.element!!.containingFile.text == original })
+        } finally {
+            settings.unlinkExternalProject(root.toString())
+            root.toFile().deleteRecursively()
+        }
+    }
+
     fun testDiscoveryValidationAndPreviewReadDiskOutsideReadLocksOncePerOperation() = withHome { home ->
         val first = link("first")
         link("second")

@@ -158,10 +158,12 @@ internal class MavenBuildSystemAdapter(
             !project.isDisposed && areCurrent(inputs, listOf(snapshot))
         }
 
-    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean =
-        MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
-            { !project.isDisposed && inputs.currentView()?.let { areCurrent(it, snapshots) } == true }
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean {
+        val saved = prepareSavedBuildInputValidation(project, snapshots)
+        return MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
+            { saved() && !project.isDisposed && inputs.currentView()?.let { areCurrent(it, snapshots) } == true }
         }
+    }
 
     internal fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>): Boolean {
         if (snapshots.isEmpty()) return true

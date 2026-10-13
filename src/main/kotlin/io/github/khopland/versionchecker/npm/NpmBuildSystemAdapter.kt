@@ -85,15 +85,17 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             !project.isDisposed && areCurrent(project, listOf(snapshot), external)
         }
 
-    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean =
-        capture(project, { snapshots.mapNotNull { findFile(project, it.sourceFile) } }) { external ->
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean {
+        val saved = prepareSavedBuildInputValidation(project, snapshots)
+        return capture(project, { snapshots.mapNotNull { findFile(project, it.sourceFile) } }) { external ->
             val guard = {
-                !project.isDisposed && external.layoutIsCurrent(project, snapshots.mapNotNull { snapshot ->
+                saved() && !project.isDisposed && external.layoutIsCurrent(project, snapshots.mapNotNull { snapshot ->
                     findFile(project, snapshot.sourceFile)?.let { NpmWorkspaces.resolve(project, it).root.path }
                 }.toSet()) && areCurrent(project, snapshots, external)
             }
             guard
         }
+    }
 
     override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> =
         capture(project, { NpmManifest.files(project, selection) }) { external ->

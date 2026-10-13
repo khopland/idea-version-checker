@@ -19,7 +19,8 @@ import java.util.concurrent.atomic.AtomicLong
 internal class GradleProjectCache(private val project: Project) : Disposable {
     private data class Inputs(val directories: List<String>, val files: List<VirtualFile>, var hashes: Map<String, String>? = null,
                               var inspectionHashes: Map<String, String>? = null)
-    private data class Digest(val fileStamp: Long, val documentStamp: Long?, val value: String)
+    private data class Digest(val fileStamp: Long, val documentStamp: Long?, val value: String,
+                              val savedHash: String? = null)
     private val inputs = mutableMapOf<String, Inputs>()
     private val digests = mutableMapOf<VirtualFile, Digest>()
     private val inspectionDigests = mutableMapOf<VirtualFile, Digest>()
@@ -70,6 +71,13 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
         return cached?.hashes ?: files.associate { file -> file.path to digest(file) }.also { cached?.hashes = it }
     }
 
+    /** The saved VFS baseline is separate from legitimate unsaved editor changes. */
+    @Synchronized
+    fun savedHashes(root: String, files: List<VirtualFile>): Map<VirtualFile, String> {
+        hashes(root, files)
+        return files.associateWith { digests.getValue(it).savedHash!! }
+    }
+
     @Synchronized
     fun inspectionHashes(root: String, files: List<VirtualFile>): Map<String, String> {
         invalidateIfChanged()
@@ -114,7 +122,7 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
         // Read saved bytes once. Unsaved text is tracked separately so uncommitted edits reject stale fixes.
         val disk = hash(file.contentsToByteArray())
         val value = if (document == null) disk else hash("$disk|${hash(document.text.toByteArray())}".toByteArray())
-        digests[file] = Digest(fileStamp, documentStamp, value)
+        digests[file] = Digest(fileStamp, documentStamp, value, disk)
         return value
     }
 

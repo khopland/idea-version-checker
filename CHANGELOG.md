@@ -4,6 +4,14 @@
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [1.3.0] - 2026-10-12
+
+### Added
+
 - JetBrains Marketplace error and UI freeze reporting through the IDE's built-in reporter, respecting users' error-reporting settings.
 - Failed version-update previews offer a fresh retry that preserves the selected mode, scope and file. npm registry failures explain authentication, offline-cache, network and certificate recovery without exposing native output in the notification.
 - Maven metadata worker control (1–4, default 2), optional parents/Spring Boot BOM priority, and optional fast editor checks with explicit partial coverage. Refreshes and Current File / Whole Project previews perform full supported-declaration audits.
@@ -50,6 +58,7 @@
 
 ### Fixed
 
+- Reject stale version edits when tracked build files change on disk before IntelliJ notices them, including same-size/same-timestamp changes. Fresh source validation runs in the background before the atomic edit.
 - Large update reviews refresh their summary after Swing updates row mappings, avoiding sorter warnings when replacing the visible declarations.
 - Gradle validates proposed versions in every matching source configuration before offering an automatic edit. Target-only substitutions, rejected versions and conflicting constraints require review; declarations without a known source owner no longer count as checked.
 - Maven excludes development (`dev`) and early access (`eap`) qualifiers from stable candidates in both native metadata and legacy reports, including case and separator variants.

@@ -13,6 +13,9 @@ import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.nio.file.Files
 import java.nio.file.Path
+import java.io.IOException
+import java.security.MessageDigest
+import java.util.HexFormat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -229,12 +232,39 @@ internal class GradleBuildSystemAdapter(
     override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
         withExternalInputs(project) { external -> !project.isDisposed && areCurrent(project, listOf(snapshot), external) }
 
-    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean =
-        withExternalInputs(project) { external ->
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean {
+        // Native Gradle reads physical files. A same-stamp external write can leave
+        // both VFS and PSI stale, so an edit must compare fresh bytes to their baseline.
+        val saved = readAction {
+            if (project.isDisposed) emptyMap() else snapshots.map { it.context.root }.distinct().flatMap { root ->
+                project.service<GradleProjectCache>().savedHashes(root, files(project, root)).entries
+            }.filter { it.key.fileSystem.protocol == "file" }.associate { it.key to it.value }
+        }
+        val diskCurrent = withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
+            saved.all { (file, expected) ->
+                context.ensureActive()
+                val digest = MessageDigest.getInstance("SHA-256")
+                try {
+                    Files.newInputStream(Path.of(file.path)).use { input ->
+                        val buffer = ByteArray(16 * 1024)
+                        while (true) {
+                            context.ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            digest.update(buffer, 0, count)
+                        }
+                    }
+                    HexFormat.of().formatHex(digest.digest()) == expected
+                } catch (_: IOException) { false }
+            }
+        }
+        return withExternalInputs(project) { external ->
             val home = externalHome(project)
-            val guard = { !project.isDisposed && externalHome(project) == home && areCurrent(project, snapshots, external) }
+            val guard = { diskCurrent && !project.isDisposed && externalHome(project) == home && areCurrent(project, snapshots, external) }
             guard
         }
+    }
 
     private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>, externalHashes: Map<String, String>? = null): Boolean {
         val fingerprints = mutableMapOf<String, BuildFingerprint>()
