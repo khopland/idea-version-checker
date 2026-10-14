@@ -23,7 +23,11 @@ internal object NpmWorkspaces {
         val psi = PsiManager.getInstance(project).findFile(file) ?: return false
         val manifest = NpmManifest.root(psi) ?: return false
         val workspaceRoot = resolve(project, file).root
-        val rootManifest = workspaceRoot.findChild("package.json")?.let { PsiManager.getInstance(project).findFile(it) }?.let(NpmManifest::root)
+        val rootFile = workspaceRoot.findChild("package.json") ?: return false
+        // Opening only a member must not silently discard npm's real workspace root,
+        // overrides or registry. Its sibling inventory is unavailable outside project content.
+        if (!NpmManifest.supported(project, rootFile)) return false
+        val rootManifest = PsiManager.getInstance(project).findFile(rootFile)?.let(NpmManifest::root) ?: return false
         var explicitNpm = false
         for (root in listOfNotNull(rootManifest, manifest).distinct()) {
             val manager = root.findProperty("packageManager")?.value
@@ -70,7 +74,7 @@ internal object NpmWorkspaces {
     private fun workspaceOwner(project: Project, directory: VirtualFile): NpmWorkspace? {
         val rootFile = directory.findChild("package.json") ?: return null
         val owner = PsiManager.getInstance(project).findFile(rootFile)
-        val workspaceValue = owner?.let(NpmManifest::root)?.findProperty("workspaces")?.value
+        val workspaceValue = owner?.let(NpmManifest::ownershipRoot)?.findProperty("workspaces")?.value
         val workspaces = (workspaceValue as? JsonArray) ?: ((workspaceValue as? JsonObject)?.findProperty("packages")?.value as? JsonArray)
         val patterns = workspaces?.valueList?.mapNotNull { (it as? JsonStringLiteral)?.value }.orEmpty()
         if (patterns.isEmpty()) return null

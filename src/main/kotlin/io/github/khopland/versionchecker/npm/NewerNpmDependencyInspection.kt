@@ -25,7 +25,7 @@ internal class NpmVersionEdit(value: JsonStringLiteral, override val latest: Str
 class NewerNpmDependencyInspection : LocalInspectionTool() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
         val file = holder.file.virtualFile ?: return PsiElementVisitor.EMPTY_VISITOR
-        if (!NpmManifest.supported(file)) return PsiElementVisitor.EMPTY_VISITOR
+        if (!NpmManifest.supported(holder.project, file)) return PsiElementVisitor.EMPTY_VISITOR
         val adapter = BuildSystemAdapter.find("npm") as? NpmBuildSystemAdapter ?: return PsiElementVisitor.EMPTY_VISITOR
         val snapshot = holder.project.service<VersionCheckService>().inspectionSnapshot(adapter, file) ?: return PsiElementVisitor.EMPTY_VISITOR
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR

@@ -50,7 +50,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
 
     private fun captureSnapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>,
                                 external: NpmBuildInputs.External?): BuildSnapshot? {
-        if (!NpmManifest.supported(file) || !NpmWorkspaces.supportsManifest(project, file)) return null
+        if (!NpmManifest.supported(project, file) || !NpmWorkspaces.supportsManifest(project, file)) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
         val workspace = NpmWorkspaces.resolve(project, file)
         val localNames = workspace.names
