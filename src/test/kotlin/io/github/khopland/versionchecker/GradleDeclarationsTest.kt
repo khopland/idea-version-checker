@@ -5,6 +5,62 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GradleDeclarationsTest {
+    @Test fun classifierAndExtensionNotationRetainAnchoredReviewCoverage() {
+        for (extension in listOf("gradle", "gradle.kts")) {
+            val text = """dependencies {
+                implementation("g:classifier:1.2.3:tests")
+                implementation("g:extension:1.2.3@zip")
+                implementation("g:both:1.2.3:tests@jar")
+                implementation("g:plain:1.2.3")
+            }"""
+            val declarations = GradleDeclarations.parse("build.$extension", text)
+            assertEquals(listOf("classifier", "extension", "both", "plain"), declarations.map { it.declaration.artifact.name })
+            assertEquals(listOf("", "", "", "1.2.3"), declarations.map { it.declaration.baseline })
+            assertTrue(declarations.take(3).all { it.reason!!.contains("manual review") })
+            assertTrue(declarations.all { it.range!!.substring(text) == "1.2.3" })
+        }
+    }
+
+    @Test fun mapNotationIsAnchoredReviewOnlyIncludingComputedAndMissingFields() {
+        for ((file, notation) in listOf(
+            "build.gradle" to "implementation group: 'g', name: 'a', version: '1.2.3', classifier: 'tests'",
+            "build.gradle" to "implementation(group: 'g', name: 'a', version: '1.2.3', ext: 'jar')",
+            "build.gradle" to "implementation group: 'g',\n name: 'a',\n version: '1.2.3'",
+            "build.gradle" to "implementation([group: 'g', name: 'a', version: '1.2.3'])",
+            "build.gradle.kts" to "implementation(mapOf(\"group\" to \"g\", \"name\" to \"a\", \"version\" to \"1.2.3\"))",
+            "build.gradle" to "implementation group: groupName, name: 'a', version: versionName",
+            "build.gradle.kts" to "implementation(mapOf(\"group\" to groupName, \"name\" to \"a\"))"
+        )) {
+            val text = "dependencies {\n$notation\nimplementation(\"g:plain:1.2.3\")\n}"
+            val declarations = GradleDeclarations.parse(file, text)
+            assertEquals(notation, 2, declarations.size)
+            val map = declarations.first()
+            assertTrue(notation, map.declaration.baseline.isEmpty())
+            assertTrue(notation, map.reason!!.contains("manual review"))
+            assertTrue(notation, map.range!!.substring(text).startsWith("implementation"))
+            assertEquals("1.2.3", declarations.last().declaration.baseline)
+            assertEquals("1.2.3", declarations.last().range!!.substring(text))
+        }
+    }
+
+    @Test fun hugeNumericComponentsHaveConsistentOrderingAndChangeKinds() {
+        val cases = listOf(
+            Triple("2147483648.1.0", "2147483649.1.0", io.github.khopland.versionchecker.core.VersionChangeKind.MAJOR),
+            Triple("1.9223372036854775808.0", "1.9223372036854775809.0", io.github.khopland.versionchecker.core.VersionChangeKind.MINOR),
+            Triple("1.0.999999999999999999999999", "1.0.1000000000000000000000000", io.github.khopland.versionchecker.core.VersionChangeKind.PATCH),
+            Triple("2147483648.1.Final", "2147483649.1.GA", io.github.khopland.versionchecker.core.VersionChangeKind.MAJOR),
+            Triple("1.2147483648-jre", "1.2147483649.JRE", io.github.khopland.versionchecker.core.VersionChangeKind.MINOR),
+            Triple("1.0-sp2147483648", "1.0.sp2147483649", io.github.khopland.versionchecker.core.VersionChangeKind.PATCH)
+        )
+        for ((current, latest, kind) in cases) {
+            assertTrue("$current -> $latest", GradleVersions.newer(current, latest))
+            assertFalse("$latest -> $current", GradleVersions.newer(latest, current))
+            assertEquals(kind, GradleVersions.kind(current, latest))
+        }
+        assertFalse(GradleVersions.newer("1.2147483648-jre", "2.2147483649-android"))
+        assertFalse(GradleVersions.newer("2147483648.0", "2147483648.0.0.Final"))
+    }
+
     @Test fun helperArgumentsWithMatchingCoordinatesRequireReview() {
         for (extension in listOf("gradle", "gradle.kts")) {
             val text = """dependencies {
