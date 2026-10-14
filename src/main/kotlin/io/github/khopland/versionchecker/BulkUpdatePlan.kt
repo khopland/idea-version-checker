@@ -4,6 +4,9 @@ import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import io.github.khopland.versionchecker.core.CapturedEditInputs
+import io.github.khopland.versionchecker.core.EditAuthorization
+import io.github.khopland.versionchecker.core.EditInputCapture
 
 /** Platform edit bridge: the coordinator never needs XML/JSON/TOML types. */
 internal interface VersionEdit {
@@ -27,6 +30,12 @@ internal data class BulkUpdatePlan(
     val followUp: List<String> = emptyList(),
     val prepareValidation: (suspend () -> (() -> Boolean))? = null
 ) {
+    // Keep provider callback contracts compatible while making their roles distinct at apply.
+    private val authorization = EditAuthorization(isCurrent)
+    private val inputCapture = prepareValidation?.let { prepare ->
+        EditInputCapture { CapturedEditInputs(prepare()) }
+    }
+
     companion object {
         fun combine(plans: List<BulkUpdatePlan>): BulkUpdatePlan {
             val changes = plans.flatMap { plan ->
@@ -39,11 +48,11 @@ internal data class BulkUpdatePlan(
             return BulkUpdatePlan(
                 changes = changes,
                 skipped = plans.flatMap { it.skipped }.distinct(),
-                isCurrent = { plans.all { it.isCurrent() } },
+                isCurrent = { plans.all { it.authorization.isCurrent() } },
                 followUp = plans.flatMap { it.followUp }.distinct(),
                 prepareValidation = if (plans.any { it.prepareValidation != null }) ({
-                    val guards = plans.map { it.prepareValidation?.invoke() ?: { true } }
-                    val guard = { guards.all { it() } }
+                    val guards = plans.map { it.inputCapture?.capture() ?: CapturedEditInputs { true } }
+                    val guard = { guards.all { it.isCurrent() } }
                     guard
                 }) else null
             )
@@ -59,7 +68,7 @@ internal data class BulkUpdatePlan(
     }
 
     /** Reject expired/refreshed authorization before potentially expensive provider input validation. */
-    fun guardedBy(valid: () -> Boolean) = copy(isCurrent = { valid() && isCurrent() })
+    fun guardedBy(valid: () -> Boolean) = copy(isCurrent = { valid() && authorization.isCurrent() })
 
     /** Validate every edit and the discovery snapshot before applying one undoable command. */
     fun apply(
@@ -67,18 +76,18 @@ internal data class BulkUpdatePlan(
         interaction: CheckPerformance.Interaction? = CheckPerformance.start(CheckPerformance.Stage.BULK_APPLY_INVOKED)
     ): Boolean =
         CheckPerformance.locally(interaction) {
-            if (prepareValidation != null && !isCurrent()) return@locally false
-            val inputGuard = prepareValidation?.let { prepare ->
+            if (inputCapture != null && !authorization.isCurrent()) return@locally false
+            val inputGuard = inputCapture?.let { capture ->
                 CheckPerformance.measure(CheckPerformance.Stage.EDIT_INPUT_CAPTURE) {
-                    runWithModalProgressBlocking(project, "Validating version update inputs") { prepare() }
+                    runWithModalProgressBlocking(project, "Validating version update inputs") { capture.capture() }
                 }
-            } ?: { true }
+            } ?: CapturedEditInputs { true }
             var applied = false
             WriteCommandAction.runWriteCommandAction(project, "Update versions", null, Runnable {
                 // Time the atomic callback after write access is acquired; input capture is separate.
                 CheckPerformance.measure(CheckPerformance.Stage.EDIT_WRITE_COMMAND, changes.size) write@{
                     val validated = CheckPerformance.measure(CheckPerformance.Stage.EDIT_PLAN_VALIDATION, changes.size) validate@{
-                        if (project.isDisposed || !isCurrent() || !inputGuard()) return@validate null
+                        if (project.isDisposed || !authorization.isCurrent() || !inputGuard.isCurrent()) return@validate null
                         val textChanges = changes.mapNotNull { it.documentChange }
                         val prepared = DocumentVersionChange.prepare(textChanges) ?: return@validate null
                         val elementChanges = changes.filter { it.documentChange == null }

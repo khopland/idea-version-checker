@@ -152,6 +152,41 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         assertEquals(3, captures)
     }
 
+    fun testCapturedInputGuardRunsOnlyAfterWriteAccessIsAcquired() {
+        val application = com.intellij.openapi.application.ApplicationManager.getApplication()
+        val calls = mutableListOf<String>()
+        val plan = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = {
+            assertFalse(application.isDispatchThread)
+            assertFalse(application.isReadAccessAllowed)
+            calls += "capture"
+            val guard = {
+                assertTrue(application.isWriteAccessAllowed)
+                calls += "validate"
+                false
+            }
+            guard
+        })
+        assertFalse(plan.apply(project))
+        assertEquals(listOf("capture", "validate"), calls)
+    }
+
+    fun testFailedCombinedCaptureDoesNotEvaluateEarlierCapturedGuards() {
+        var validated = false
+        val first = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = {
+            { validated = true; true }
+        })
+        val second = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = {
+            throw IllegalStateException("Provider input capture failed")
+        })
+        val failure = try {
+            BulkUpdatePlan.combine(listOf(first, second)).apply(project)
+            fail("A failed provider capture must reject the entire edit")
+            null
+        } catch (failure: IllegalStateException) { failure }
+        assertEquals("Provider input capture failed", failure!!.message)
+        assertFalse(validated)
+    }
+
     fun testMultipleMavenEditsUndoTogether() {
         val plan = plan("<dependencies>" + dep("a", "1.0") + dep("b", "1.0") + "</dependencies>",
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0", DependencyVersion("g", "b", "1.0") to "2.0"))
