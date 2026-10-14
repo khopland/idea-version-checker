@@ -57,7 +57,7 @@ class NpmAdapterTest : BasePlatformTestCase() {
           "name":"demo", "version":"1.2.3", "scripts":{"test":"echo 1.2.3"},
           "dependencies":{"alpha":"^1.2.3"}, "devDependencies":{"beta":"~1.2.3"},
           "optionalDependencies":{"alias":"npm:@scope/pkg@^1.2.3"}, "peerDependencies":{"peer":"1.2.3"},
-          "overrides":{"alpha":"1.2.3"}
+          "overrides":{"unrelated":"1.2.3"}
         }""")
         val lock = myFixture.addFileToProject("npm/package-lock.json", "unchanged lockfile")
         val snapshot = adapter.snapshot(project, file.virtualFile)!!
@@ -77,6 +77,107 @@ class NpmAdapterTest : BasePlatformTestCase() {
         assertEquals("unchanged lockfile", lock.text)
         assertEquals(setOf("^1.2.9", "~1.2.9", "npm:@scope/pkg@^1.2.9", "1.2.3"), NpmManifest.values(file).values.map { it.value }.toSet())
     }
+    fun testDirectAndNestedOverridesBlockLocalWorkspaceAndBulkUpdates() {
+        for ((index, overrides) in listOf(
+            """{"alpha":"1.2.3"}""",
+            """{"alpha":{".":"1.2.3","transitive":"2.0.0"}}""",
+            """{"parent":{"alpha":"1.2.3"}}""",
+            """{"alpha@1.2.3":"1.2.3"}""",
+            """{"alias":"npm:alpha@1.2.3"}"""
+        ).withIndex()) {
+            val root = myFixture.addFileToProject("override-$index/package.json", """{
+                "workspaces":["packages/*"],"dependencies":{"alpha":"1.2.3"},
+                "devDependencies":{"alias":"npm:alpha@1.2.3"},"overrides":$overrides
+            }""")
+            val member = myFixture.addFileToProject("override-$index/packages/app/package.json",
+                """{"dependencies":{"alpha":"1.2.3"},"devDependencies":{"alias":"npm:alpha@1.2.3"}}""")
+            for (file in listOf(root, member)) {
+                val snapshot = adapter.snapshot(project, file.virtualFile)!!
+                // Test synthetic reports too: planning must independently enforce eligibility.
+                val candidate = report(snapshot).candidates.first { it.declaration.id in snapshot.skippedDeclarations }
+                val value = NpmManifest.values(file)[candidate.declaration.id]!!
+                assertTrue(adapter.quickFixes(project, snapshot, candidate, value).isEmpty())
+                assertNull(adapter.workspaceFix(project, snapshot, candidate, adapter.workspaceDeclarations(project, snapshot)))
+                val prepared = plan(mapOf(snapshot to UpdateReport(listOf(candidate))))
+                assertTrue(prepared.changes.isEmpty())
+                assertTrue(prepared.skipped.any { it.contains("overrides may conflict") })
+                assertEquals(candidate.declaration.selector, value.value)
+            }
+        }
+    }
+
+    fun testRootDollarReferencesFollowRootEditsButMembersRequireReview() {
+        val dollar = '$'
+        val root = myFixture.addFileToProject("override-reference/package.json", """{
+            "workspaces":["packages/*"],"dependencies":{"alpha":"1.2.3"},
+            "devDependencies":{"alias":"npm:beta@1.2.3"},
+            "overrides":{"alpha":{".":"${dollar}alpha"},"alias":"${dollar}alias"}
+        }""")
+        val member = myFixture.addFileToProject("override-reference/packages/app/package.json",
+            """{"dependencies":{"alpha":"1.2.3"}}""")
+        val snapshot = adapter.snapshot(project, root.virtualFile)!!
+        assertTrue(snapshot.skippedDeclarations.isEmpty())
+        val candidate = report(snapshot).candidates.first()
+        val fixes = adapter.quickFixes(project, snapshot, candidate, NpmManifest.values(root)[candidate.declaration.id]!!)
+        assertEquals(1, fixes.size)
+        assertFalse(fixes.single().familyName.contains("workspace"))
+        val prepared = plan(mapOf(snapshot to report(snapshot)))
+        assertEquals(2, prepared.changes.size)
+        assertTrue(prepared.apply(project))
+        assertTrue(root.text.contains("${dollar}alpha"))
+        assertTrue(root.text.contains("${dollar}alias"))
+        assertEquals("1.2.3", NpmManifest.values(member).values.single().value)
+        val memberSnapshot = adapter.snapshot(project, member.virtualFile)!!
+        assertTrue(memberSnapshot.skippedDeclarations.values.single().contains("overrides may conflict"))
+    }
+
+    fun testChangingCrossReferencedOverrideRequiresReview() {
+        val dollar = '$'
+        for ((index, overrides) in listOf(
+            """{"alpha":"${dollar}beta"}""",
+            """{"alpha":{".":"${dollar}beta"}}""",
+            """{"beta":"${dollar}alpha"}""",
+            """{"alias":{".":"${dollar}beta"}}"""
+        ).withIndex()) {
+            val file = myFixture.addFileToProject("cross-reference-$index/package.json", """{
+                "dependencies":{"alpha":"1.2.3","beta":"1.2.3","alias":"npm:alpha@1.2.3"},
+                "overrides":$overrides
+            }""")
+            val snapshot = adapter.snapshot(project, file.virtualFile)!!
+            val referenced = if (index == 2) "alpha" else "beta"
+            val candidate = report(snapshot).candidates.single { it.declaration.id.location == "dependencies/$referenced" }
+            assertTrue(snapshot.skippedDeclarations.containsKey(candidate.declaration.id))
+            assertTrue(adapter.quickFixes(project, snapshot, candidate, NpmManifest.values(file)[candidate.declaration.id]!!).isEmpty())
+            assertTrue(plan(mapOf(snapshot to UpdateReport(listOf(candidate)))).changes.isEmpty())
+        }
+    }
+
+    fun testAddingOverrideInvalidatesRetainedReportAndHeldPreview() {
+        val file = myFixture.addFileToProject("new-override/package.json", """{"dependencies":{"alpha":"1.2.3"}}""")
+        val before = adapter.snapshot(project, file.virtualFile)!!
+        val report = report(before)
+        val prepared = plan(mapOf(before to report))
+        val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
+        WriteCommandAction.runWriteCommandAction(project) {
+            document.setText("""{"dependencies":{"alpha":"1.2.3"},"overrides":{"alpha":"1.2.3"}}""")
+        }
+        com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+        val after = adapter.snapshot(project, file.virtualFile)!!
+        assertNull(adapter.retainInspectionReport(before, report, after))
+        assertFalse(prepared.apply(project))
+        assertEquals("1.2.3", NpmManifest.values(file).values.single().value)
+        assertTrue(plan(mapOf(after to UpdateReport())).skipped.single().contains("overrides may conflict"))
+    }
+
+    fun testMemberOverridesAreIgnoredByNpmRootResolution() {
+        myFixture.addFileToProject("ignored-overrides/package.json", """{"workspaces":["packages/*"]}""")
+        val member = myFixture.addFileToProject("ignored-overrides/packages/app/package.json",
+            """{"dependencies":{"alpha":"1.2.3"},"overrides":{"alpha":"1.2.3"}}""")
+        val snapshot = adapter.snapshot(project, member.virtualFile)!!
+        assertTrue(snapshot.skippedDeclarations.isEmpty())
+        assertEquals(1, plan(mapOf(snapshot to report(snapshot))).changes.size)
+    }
+
     fun testWorkspaceReferencesAndComplexRangesRequireReview() {
         myFixture.addFileToProject("workspace/package.json", """{"private":true,"workspaces":["packages/*"]}""")
         myFixture.addFileToProject("workspace/packages/library/package.json", """{"name":"@local/library","version":"1.0.0"}""")

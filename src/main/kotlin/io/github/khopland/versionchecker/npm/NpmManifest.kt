@@ -54,6 +54,48 @@ internal object NpmManifest {
             }
         }
     }
+    /** Only the workspace root's overrides participate in npm resolution. Never rewrite them implicitly. */
+    fun overrideReviewReason(project: Project, file: VirtualFile, declaration: VersionDeclaration): String? {
+        val workspace = NpmWorkspaces.resolve(project, file)
+        val rootFile = workspace.root.findChild("package.json") ?: return "npm root manifest is unavailable; review overrides"
+        val rootPsi = com.intellij.psi.PsiManager.getInstance(project).findFile(rootFile)
+            ?: return "npm root manifest is unavailable; review overrides"
+        val root = root(rootPsi) ?: return "npm root manifest is invalid; review overrides"
+        val overridesProperty = root.findProperty("overrides") ?: return null
+        val overrides = overridesProperty.value as? JsonObject
+            ?: return "npm overrides need manual review before updating dependencies"
+        val dependencyName = declaration.id.location.substringAfter('/')
+        val names = setOf(dependencyName, declaration.artifact.name)
+        val rootDeclaration = declaration.id.file == rootFile.path
+        // A $ reference follows its root declaration automatically, including npm aliases.
+        fun safeReference(value: JsonValue?): Boolean = rootDeclaration && value is JsonStringLiteral &&
+            value.value == "$" + dependencyName
+        fun packageName(key: String): String {
+            val versionSeparator = key.lastIndexOf('@')
+            return if (versionSeparator > 0) key.substring(0, versionSeparator) else key
+        }
+        fun affected(entries: JsonObject): Boolean {
+            if (entries.propertyList.map { it.name }.distinct().size != entries.propertyList.size) return true
+            return entries.propertyList.any { entry ->
+                // The parent already checks the object self override. It is not a package key.
+                if (entry.name == ".") return@any false
+                val value = entry.value
+                val self = if (value is JsonObject) value.findProperty(".")?.value else value
+                val overrideName = packageName(entry.name)
+                // Changing a referenced spec can also invalidate a different direct override:
+                // dependencies alpha=beta=1.2.3, overrides alpha=$beta, then update beta.
+                val changesOtherReference = self is JsonStringLiteral && self.value == "$" + dependencyName &&
+                    overrideName != dependencyName
+                changesOtherReference ||
+                    (overrideName in names && self != null && !safeReference(self)) ||
+                    (value is JsonObject && affected(value))
+            }
+        }
+        return if (affected(overrides))
+            "npm root overrides may conflict with this dependency update; review the dependency and override together"
+        else null
+    }
+
     fun reviewReason(declaration: VersionDeclaration): String? {
         if (declaration.id.location.startsWith("peerDependencies/")) return "peer compatibility requires manual review"
         if (declaration.baseline.isNotEmpty()) return null
