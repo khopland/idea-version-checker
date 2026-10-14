@@ -1,7 +1,6 @@
 package io.github.khopland.versionchecker.gradle
 
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
 import com.intellij.openapi.project.Project
@@ -64,15 +63,15 @@ internal object GradleVersionLookup {
         val setupStarted = System.nanoTime()
         val directory = Files.createTempDirectory("gradle-version-checker-")
         val task = "versionChecker" + directory.fileName.toString().filter(Char::isLetterOrDigit)
-        val requestFile = directory.resolve("requests.json")
+        val configurationFile = directory.resolve("configuration.json")
         val output = directory.resolve("result.json")
         val init = directory.resolve("check.gradle")
         val timings = if (CheckPerformance.enabled() || observeWork != null) directory.resolve("timings.json") else null
         try {
-            Files.writeString(requestFile, gson.toJson(requests))
-            Files.writeString(init, script(requestFile, output, first.sourceFile, mode, task, timings, indexed))
+            Files.writeString(configurationFile, configuration(requests, output, first.sourceFile, mode, task, timings, indexed))
+            Files.writeString(init, script())
             val settings = GradleExecutionSettings(ExternalSystemApiUtil.getExecutionSettings<GradleExecutionSettings>(project, first.context.root, GradleConstants.SYSTEM_ID))
-            settings.withArguments("--init-script", init.toString(), "--no-configuration-cache", "--no-configure-on-demand", "--refresh-dependencies")
+            settings.withArguments("-D$CONFIGURATION_PROPERTY=$configurationFile", "--init-script", init.toString(), "--no-configuration-cache", "--no-configure-on-demand", "--refresh-dependencies")
             settings.setTasks(listOf(":$task"))
             val id = ExternalSystemTaskId.create(GradleConstants.SYSTEM_ID, ExternalSystemTaskType.EXECUTE_TASK, project)
             val manager = GradleTaskManager()
@@ -115,7 +114,7 @@ internal object GradleVersionLookup {
                 }
             }
             check(Files.exists(output)) { "Gradle did not produce a version report" }
-            val results: Map<String, Result> = gson.fromJson(Files.readString(output), object : TypeToken<Map<String, Result>>() {}.type)
+            val results = parseResponse(Files.readString(output), requests.map { it.id })
             requestsBySnapshot.mapValues { (_, requested) -> requested.associate { request ->
                 request.id.substringAfter(':') to checkNotNull(results[request.id]) { "Gradle omitted a requested declaration" }
             } }
@@ -124,219 +123,33 @@ internal object GradleVersionLookup {
         }
     }
 
-    /** Resolve metadata only: never execute a build task or resolve artifact files. */
-    fun script(requests: Path, output: Path, source: String, mode: UpdateMode, task: String, timings: Path? = null,
-               indexed: Boolean = true): String {
-        fun literal(value: String) = "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
-        return """
-            import groovy.json.JsonSlurper
-            import groovy.json.JsonOutput
-            import org.gradle.api.artifacts.result.ResolvedDependencyResult
-            import org.gradle.api.artifacts.result.UnresolvedDependencyResult
-            import org.gradle.api.artifacts.component.ModuleComponentIdentifier
-            ${if (timings != null) "def versionCheckerInitStarted = System.nanoTime()" else ""}
-            gradle.projectsEvaluated {
-                if (gradle.parent != null) return
-                def requests = new JsonSlurper().parse(new File(${literal(requests.toString())}))
-                def source = new File(${literal(source)}).canonicalFile
-                gradle.rootProject.tasks.register(${literal(task)}) {
-                    doLast {
-                        def work = [ownerProjects: 0, ownerConfigurations: 0, semanticProbes: 0]
-                        ${if (timings != null) "def versionCheckerQueryStarted = System.nanoTime(); try {" else ""}
-                        def report = [:]
-                        def coordinate = { d -> [d.group, d.name, d.version] }
-                        def requested = requests.collect { [it.group, it.name, it.current] }.toSet()
-                        def sources = requests.collect { new File(it.source ?: source.path).canonicalFile }.toSet()
-                        def ownersByCoordinate = [:].withDefault { new LinkedHashSet() }
-                        def originalsByOwner = [:].withDefault { [] }
-                        def contextsByOwner = [:].withDefault { new LinkedHashSet() }
-                        if (${indexed}) {
-                            // Index only requested coordinates. Each source owner/configuration is visited once;
-                            // inheritance, attributes and owner identity remain part of every semantic probe.
-                            gradle.rootProject.allprojects.each { p ->
-                                work.ownerProjects++
-                                if (!sources.any { it.name.endsWith('.toml') || p.buildFile.canonicalFile == it }) return
-                                p.configurations.each { c ->
-                                    work.ownerConfigurations++
-                                    c.dependencies.each { d ->
-                                        def key = coordinate(d)
-                                        if (requested.contains(key)) {
-                                            ownersByCoordinate[key].add(p)
-                                            if (d instanceof org.gradle.api.artifacts.ModuleDependency)
-                                                originalsByOwner[[p.path, key]].add(d)
-                                        }
-                                    }
-                                    c.dependencyConstraints.each { d ->
-                                        def key = coordinate(d)
-                                        if (requested.contains(key)) ownersByCoordinate[key].add(p)
-                                    }
-                                    if (c.canBeResolved) c.allDependencies.each { d ->
-                                        def key = coordinate(d)
-                                        if (requested.contains(key)) contextsByOwner[[p.path, key]].add(c)
-                                    }
-                                }
-                            }
-                        }
-                        def checkedCoordinates = [:]
-                        requests.each { request ->
-                            def requestKey = [request.group, request.name, request.current]
-                            def requestSource = new File(request.source ?: source.path).canonicalFile
-                            def checkedKey = [requestSource, requestKey]
-                            if (${indexed} && checkedCoordinates.containsKey(checkedKey)) {
-                                report[request.id] = checkedCoordinates[checkedKey]
-                                return
-                            }
-                            def owners = ${if (indexed) "ownersByCoordinate[requestKey].findAll { p -> requestSource.name.endsWith('.toml') || p.buildFile.canonicalFile == requestSource }" else """gradle.rootProject.allprojects.findAll { p ->
-                                work.ownerProjects++
-                                (requestSource.name.endsWith('.toml') || p.buildFile.canonicalFile == requestSource) &&
-                                p.configurations.any { c ->
-                                    work.ownerConfigurations++
-                                    c.dependencies.any { d -> d.group == request.group && d.name == request.name && d.version == request.current } ||
-                                    c.dependencyConstraints.any { d -> d.group == request.group && d.name == request.name && d.version == request.current }
-                                }
-                            }"""}
-                            def reason = owners.empty ? 'No source configuration owner found; declaration needs manual review for ' + request.group + ':' + request.name : null
-                            def versions = owners.collect { p ->
-                                work.semanticProbes++
-                                def matches = { d -> d.group == request.group && d.name == request.name && d.version == request.current }
-                                // Keep dependency attributes, especially the category of platform/BOM calls.
-                                def originals = ${if (indexed) "originalsByOwner[[p.path, requestKey]]" else """p.configurations.collectMany { c -> c.dependencies.findAll { d ->
-                                    matches(d) &&
-                                    d instanceof org.gradle.api.artifacts.ModuleDependency
-                                }.toList() }"""}
-                                // Catalog consumers can request features without a literal wrapper in this file.
-                                if (originals.any { original -> !original.requestedCapabilities.empty ||
-                                    (original.hasProperty('capabilitySelectors') && !original.capabilitySelectors.empty) }) {
-                                    reason = 'Dependency capabilities or features need manual review for ' + request.group + ':' + request.name
-                                    return null
-                                }
-                                def contexts = ${if (indexed) "contextsByOwner[[p.path, requestKey]]" else "p.configurations.findAll { c -> c.canBeResolved && c.allDependencies.any(matches) }"}
-                                if (contexts.empty) {
-                                    reason = 'No resolvable source configuration for ' + request.group + ':' + request.name
-                                    return null
-                                }
-                                // A copy retains the source resolution strategy, including version-specific substitutions.
-                                // Read only the resolution graph; do not resolve artifact files or execute build tasks.
-                                for (context in contexts) {
-                                    def probe = context.copyRecursive(matches)
-                                    probe.transitive = false
-                                    def originalResults = probe.incoming.resolutionResult.root.dependencies
-                                    for (originalResult in originalResults) {
-                                        if (originalResult instanceof UnresolvedDependencyResult)
-                                            throw new GradleException('Could not check ' + request.group + ':' + request.name + ' in ' + p.path, originalResult.failure)
-                                        if (!(originalResult instanceof ResolvedDependencyResult) ||
-                                            !(originalResult.selected.id instanceof ModuleComponentIdentifier) ||
-                                            originalResult.selected.moduleVersion.group != request.group ||
-                                            originalResult.selected.moduleVersion.name != request.name ||
-                                            originalResult.selected.selectionReason.selectedByRule) {
-                                            reason = 'Dependency substitution needs manual review for ' + request.group + ':' + request.name
-                                            return null
-                                        }
-                                    }
-                                }
-                                def attributes = [:]
-                                originals.each { original -> original.attributes.keySet().each { key ->
-                                    def value = original.attributes.getAttribute(key)
-                                    if (attributes.containsKey(key) && attributes[key] != value)
-                                        throw new GradleException('Conflicting dependency attributes need review for ' + request.group + ':' + request.name)
-                                    attributes[key] = value
-                                } }
-                                def configuration = { version ->
-                                    def dep = p.dependencies.create(request.group + ':' + request.name + ':' + version)
-                                    dep.attributes { target -> attributes.each { key, value -> target.attribute(key, value) } }
-                                    def probe = p.configurations.detachedConfiguration(dep)
-                                    probe.transitive = false
-                                    probe
-                                }
-                                def numbers = { s -> (s =~ /^[0-9]+(?:\.[0-9]+)*/).with { it.find(); it.group().tokenize('.').collect { n -> new BigInteger(n) } } }
-                                def old = numbers(request.current)
-                                def qualifier = { s ->
-                                    def match = s =~ ${literal(GradleVersions.SUFFIX)}
-                                    match.find() ? match.group(1).toLowerCase(Locale.ROOT) : ''
-                                }
-                                def channel = { s -> def q = qualifier(s); q in ['jre', 'android'] ? q : '' }
-                                def servicePacks = qualifier(request.current).startsWith('sp')
-                                def supported = []
-                                def conf = configuration('+')
-                                conf.resolutionStrategy.componentSelection.all { selection ->
-                                    def v = selection.candidate.version
-                                    def stable = v ==~ ${literal(GradleVersions.STABLE)}
-                                    def next = stable ? numbers(v) : []
-                                    if (!stable || channel(v) != channel(request.current) ||
-                                        (${literal(mode.name)} != 'MAJOR' && old[0] != next[0]) ||
-                                        (${literal(mode.name)} == 'PATCH' && (old.size() > 1 ? old[1] : BigInteger.ZERO) != (next.size() > 1 ? next[1] : BigInteger.ZERO))) {
-                                        selection.reject('Outside stable update scope')
-                                    } else if (servicePacks) {
-                                        // Gradle orders mixed-case qualifiers differently. Ask its
-                                        // repository resolver for candidates, then order supported
-                                        // service packs numerically and resolve the chosen version.
-                                        supported.add(v)
-                                        selection.reject('Collecting supported service-pack versions')
-                                    }
-                                }
-                                def result = conf.incoming.resolutionResult.root.dependencies.find()
-                                if (servicePacks && !supported.empty) {
-                                    def compare = { a, b ->
-                                        def left = numbers(a); def right = numbers(b)
-                                        for (int i = 0; i < Math.max(left.size(), right.size()); i++) {
-                                            def c = (i < left.size() ? left[i] : BigInteger.ZERO) <=> (i < right.size() ? right[i] : BigInteger.ZERO)
-                                            if (c != 0) return c
-                                        }
-                                        def lq = qualifier(a); def rq = qualifier(b)
-                                        def lp = lq.startsWith('sp'); def rp = rq.startsWith('sp')
-                                        if (lp != rp) return lp ? 1 : -1
-                                        if (lp) {
-                                            def ln = new BigInteger(lq.substring(2) ?: '0'); def rn = new BigInteger(rq.substring(2) ?: '0')
-                                            def c = ln <=> rn
-                                            if (c != 0) return c
-                                        }
-                                        // Prefer the declared spelling for equivalent versions.
-                                        (a == request.current ? 1 : 0) <=> (b == request.current ? 1 : 0)
-                                    }
-                                    def chosen = supported.sort(compare).last()
-                                    result = configuration(chosen).incoming.resolutionResult.root.dependencies.find()
-                                    if (result instanceof ResolvedDependencyResult && result.selected.moduleVersion?.version != chosen)
-                                        throw new GradleException('Version replacement needs manual review for ' + request.group + ':' + request.name)
-                                }
-                                if (result instanceof UnresolvedDependencyResult) throw new GradleException('Could not check ' + request.group + ':' + request.name + ' in ' + p.path, result.failure)
-                                if (!(result instanceof ResolvedDependencyResult) || result.selected.moduleVersion == null ||
-                                    result.selected.moduleVersion.group != request.group || result.selected.moduleVersion.name != request.name)
-                                    throw new GradleException('Dependency substitution needs manual review for ' + request.group + ':' + request.name)
-                                def chosenVersion = result.selected.moduleVersion.version
-                                // Discovery uses a detached resolver, but only the source configurations
-                                // can authorize this exact target. Keep their attributes, constraints and
-                                // resolution rules, replacing only copies of the requested dependencies.
-                                for (context in contexts) {
-                                    def probe = context.copyRecursive(matches)
-                                    probe.transitive = false
-                                    probe.dependencies.findAll(matches).each { dependency ->
-                                        dependency.version { constraint -> constraint.require(chosenVersion) }
-                                    }
-                                    def targetResults = probe.incoming.resolutionResult.root.dependencies
-                                    if (targetResults.empty || targetResults.any { target ->
-                                        !(target instanceof ResolvedDependencyResult) ||
-                                        !(target.selected.id instanceof ModuleComponentIdentifier) ||
-                                        target.selected.moduleVersion.group != request.group ||
-                                        target.selected.moduleVersion.name != request.name ||
-                                        target.selected.moduleVersion.version != chosenVersion ||
-                                        target.selected.selectionReason.selectedByRule
-                                    }) {
-                                        reason = 'Proposed target is substituted, rejected or constrained in source configuration ' +
-                                            p.path + ':' + context.name + '; needs manual review for ' + request.group + ':' + request.name
-                                        return null
-                                    }
-                                }
-                                chosenVersion
-                            }
-                            def reportResult = [versions: reason == null ? versions : [], reason: reason]
-                            report[request.id] = reportResult
-                            if (${indexed}) checkedCoordinates[checkedKey] = reportResult
-                        }
-                        new File(${literal(output.toString())}).text = JsonOutput.toJson(report)
-                        ${if (timings != null) "} finally { try { new File(${literal(timings.toString())}).text = JsonOutput.toJson(work + [configurationNs: versionCheckerQueryStarted - versionCheckerInitStarted, queryNs: System.nanoTime() - versionCheckerQueryStarted]) } catch (Exception ignoredTimingFailure) {} }" else ""}
-                    }
-                }
-            }
-        """.trimIndent()
+    internal const val PROTOCOL_VERSION = 1
+    internal const val CONFIGURATION_PROPERTY = "io.github.khopland.versionchecker.probeConfiguration"
+
+    internal data class Configuration(
+        val protocolVersion: Int = PROTOCOL_VERSION,
+        val requests: List<Request>, val output: String, val source: String,
+        val mode: String, val task: String, val timings: String?, val indexed: Boolean,
+        val stablePattern: String = GradleVersions.STABLE,
+        val suffixPattern: String = GradleVersions.SUFFIX
+    )
+    private data class Response(val protocolVersion: Int, val results: Map<String, Result>?)
+
+    internal fun configuration(requests: List<Request>, output: Path, source: String, mode: UpdateMode,
+                               task: String, timings: Path? = null, indexed: Boolean = true): String =
+        gson.toJson(Configuration(requests = requests, output = output.toString(), source = source,
+            mode = mode.name, task = task, timings = timings?.toString(), indexed = indexed))
+
+    internal fun parseResponse(json: String, requestedIds: List<String> = emptyList()): Map<String, Result> {
+        val response = checkNotNull(gson.fromJson(json, Response::class.java)) { "Gradle produced an empty version report" }
+        check(response.protocolVersion == PROTOCOL_VERSION) { "Unsupported Gradle version report protocol: ${response.protocolVersion}" }
+        val results = checkNotNull(response.results) { "Gradle version report omitted results" }
+        check(requestedIds.all { results[it] != null }) { "Gradle omitted a requested declaration" }
+        return results
     }
+
+    /** Resolve metadata only: never execute a build task or resolve artifact files. */
+    internal fun script(): String = checkNotNull(GradleVersionLookup::class.java.getResourceAsStream("/gradle/version-checker.gradle")) {
+        "Missing packaged Gradle version checker script"
+    }.bufferedReader(Charsets.UTF_8).use { it.readText() }
 }
