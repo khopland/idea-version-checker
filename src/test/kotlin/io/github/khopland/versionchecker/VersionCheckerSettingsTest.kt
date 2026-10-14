@@ -25,8 +25,8 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             val interval = spinners.first()
             val mavenWorkers = spinners.last()
             val platformFirst = components(panel).filterIsInstance<JBCheckBox>().single { "BOMs" in it.text }
-            val fastMaven = components(panel).filterIsInstance<JBCheckBox>().single { "faster Maven" in it.text }
-            val persistentMaven = components(panel).filterIsInstance<JBCheckBox>().single { "between IDE sessions" in it.text }
+            val fastMaven = components(panel).filterIsInstance<JBCheckBox>().single { "unused managed" in it.text }
+            val persistentMaven = components(panel).filterIsInstance<JBCheckBox>().single { "across IDE sessions" in it.text }
             assertFalse(persistentMaven.isSelected)
             assertFalse(fastMaven.isSelected)
             assertFalse(platformFirst.isSelected)

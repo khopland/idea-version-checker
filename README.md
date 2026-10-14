@@ -61,7 +61,7 @@ See the [detailed guide](docs/user-guide.md) for complete scope, shared-property
 
 Configure **Settings → Tools → Version Checker** to enable or disable checks, set severity by update type, manage deprecated dependencies and ignored versions, or enable periodic checks. Periodic checking is off by default; its default interval is 30 minutes. Updates default to Warning; deprecated or relocated artifacts default to Error.
 
-Use **Alt+Enter → Ignore … in this project** to hide one published version. Restore it by removing its entry from **Ignored published versions** in settings. Individual inspections can also be disabled under **Settings → Editor → Inspections → Maven / npm / Gradle**.
+Use **Alt+Enter → Ignore … in this project** to hide one published version. Restore it by removing its entry from **Dependency rules → Ignored versions** in settings. Individual inspections can also be disabled under **Settings → Editor → Inspections → Maven / npm / Gradle**.
 
 Checks use each build system's existing repository and authentication configuration: IDEA's Maven settings, npm's `.npmrc`, or the linked Gradle build. No separate repository credentials are needed. Offline settings are respected. See the [repository and caching details](docs/user-guide.md#maven-repositories-and-settingsxml).
 
