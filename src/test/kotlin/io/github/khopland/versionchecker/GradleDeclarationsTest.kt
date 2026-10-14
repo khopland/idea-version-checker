@@ -94,6 +94,102 @@ class GradleDeclarationsTest {
     @Test fun malformedCatalogsAreNotEdited() {
         assertTrue(GradleDeclarations.parse("libs.versions.toml", "[libraries]\na='g:a:1.0'\na='g:a:2.0'").isEmpty())
     }
+    @Test fun malformedTypedLibrariesRetainValidSiblingsAndAnchoredReview() {
+        for (malformed in listOf(
+            "123", "true", "[1, 2]", "'g:missing-version'",
+            "{ module = 123, version = '1.2.3' }",
+            "{ group = false, name = 'alpha', version = '1.2.3' }",
+            "{ group = 'g', name = ['alpha'], version = '1.2.3' }",
+            "{ module = 'g:a', version = 123 }",
+            "{ module = 'g:a', version.ref = 123 }",
+            "{ module = 'g:a', version = { strictly = 123 } }"
+        )) {
+            val text = "[libraries]\nalpha = $malformed\nbeta = 'g:b:1.2.3'"
+            val declarations = GradleDeclarations.parse("gradle/libs.versions.toml", text)
+            assertEquals(malformed, 2, declarations.size)
+            val invalid = declarations.first()
+            assertEquals("libraries/alpha", invalid.declaration.id.location)
+            assertTrue(malformed, invalid.declaration.baseline.isEmpty())
+            assertNotNull(malformed, invalid.reason)
+            assertNotNull(malformed, invalid.range)
+            assertEquals("1.2.3", declarations.last().declaration.baseline)
+            assertEquals("1.2.3", declarations.last().range!!.substring(text))
+        }
+    }
+
+    @Test fun malformedCatalogSectionsDoNotThrowOrHideOtherSections() {
+        for (section in listOf("libraries", "versions", "plugins")) {
+            val text = "$section = 123\n" + if (section == "libraries") "" else
+                "[libraries]\nbeta = 'g:b:1.2.3'"
+            val declarations = GradleDeclarations.parse("gradle/libs.versions.toml", text)
+            val review = declarations.single { it.declaration.id.location == section }
+            assertTrue(review.declaration.baseline.isEmpty())
+            assertNotNull(review.reason)
+            assertNotNull(review.range)
+            if (section != "libraries") assertEquals("1.2.3", declarations.last().declaration.baseline)
+        }
+    }
+
+    @Test fun malformedVersionsAreReviewedWithoutDiscardingValidReferences() {
+        val text = """
+            [versions]
+            broken = 123
+            rich = { strictly = 123 }
+            valid = "1.2.3"
+            [libraries]
+            invalid = { module = "g:a", version.ref = "broken" }
+            missing = { module = "g:missing", version.ref = "absent" }
+            valid = { module = "g:b", version.ref = "valid" }
+        """.trimIndent()
+        val declarations = GradleDeclarations.parse("gradle/libs.versions.toml", text)
+        assertEquals(setOf("versions/broken", "versions/rich", "libraries/invalid", "libraries/missing"),
+            declarations.filter { it.reason != null }.map { it.declaration.id.location }.toSet())
+        assertTrue(declarations.filter { it.reason != null }.all { it.declaration.baseline.isEmpty() && it.range != null })
+        assertEquals("1.2.3", declarations.last().declaration.baseline)
+    }
+
+    @Test fun malformedPluginReferencesCannotAuthorizeSharedVersionEdits() {
+        for (plugin in listOf("123", "{ id = 'g.plugin', version.ref = 123 }", "{ id = 123, version.ref = 'shared' }")) {
+            val text = """
+                [versions]
+                shared = "1.2.3"
+                [libraries]
+                shared = { module = "g:a", version.ref = "shared" }
+                direct = "g:b:1.2.3"
+                [plugins]
+                broken = $plugin
+            """.trimIndent()
+            val declarations = GradleDeclarations.parse("gradle/libs.versions.toml", text)
+            assertEquals(3, declarations.size)
+            assertTrue(declarations.single { it.declaration.id.location == "libraries/shared" }.declaration.baseline.isEmpty())
+            assertEquals("1.2.3", declarations.single { it.declaration.id.location == "libraries/direct" }.declaration.baseline)
+            val review = declarations.single { it.declaration.id.location == "plugins/broken" }
+            assertTrue(review.declaration.baseline.isEmpty())
+            assertNotNull(review.reason)
+            assertNotNull(review.range)
+        }
+    }
+
+    @Test fun malformedLibraryConsumersBlockSharedVersionEdits() {
+        for (entry in listOf(
+            "{ module = 123, version.ref = 'shared' }",
+            "{ module = 'g:broken', version.ref = 123 }"
+        )) {
+            val text = """
+                [versions]
+                shared = "1.2.3"
+                [libraries]
+                broken = $entry
+                shared = { module = "g:shared", version.ref = "shared" }
+                direct = "g:direct:1.2.3"
+            """.trimIndent()
+            val declarations = GradleDeclarations.parse("gradle/libs.versions.toml", text)
+            assertTrue(declarations.single { it.declaration.id.location == "libraries/shared" }.declaration.baseline.isEmpty())
+            assertTrue(declarations.single { it.declaration.id.location == "libraries/shared" }.reason!!.contains("ownership"))
+            assertEquals("1.2.3", declarations.single { it.declaration.id.location == "libraries/direct" }.declaration.baseline)
+        }
+    }
+
     @Test fun kotlinDivisionDoesNotHideFollowingDependencies() {
         val text = """dependencies {
             val ratio = 8 / 2

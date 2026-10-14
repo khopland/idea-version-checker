@@ -3,6 +3,7 @@ package io.github.khopland.versionchecker.gradle
 import com.intellij.openapi.util.TextRange
 import io.github.khopland.versionchecker.core.*
 import org.tomlj.Toml
+import org.tomlj.TomlArray
 import org.tomlj.TomlPosition
 import org.tomlj.TomlTable
 
@@ -139,10 +140,86 @@ internal object GradleDeclarations {
     private fun catalog(file: String, text: String): List<GradleDeclaration> {
         val parsed = Toml.parse(text)
         if (parsed.hasErrors()) return emptyList()
-        val libraries = parsed.getTable("libraries") ?: return emptyList()
-        val versions = parsed.getTable("versions")
-        val plugins = parsed.getTable("plugins")
-        val pluginRefs = plugins?.keySet()?.mapNotNull { (plugins.get(listOf(it)) as? TomlTable)?.getString("version.ref") }?.toSet().orEmpty()
+        val result = mutableListOf<GradleDeclaration>()
+        // Walk raw values so schema errors do not throw TomlInvalidTypeException. Do not
+        // catch parsing/runtime failures: cancellation and unexpected bugs must propagate.
+        fun value(table: TomlTable, vararg path: String): Any? {
+            var current: Any? = table
+            for (key in path) current = (current as? TomlTable)?.get(listOf(key)) ?: return null
+            return current
+        }
+        fun anchor(table: TomlTable, path: List<String>): TextRange? =
+            table.inputPositionOf(path)?.let { position ->
+                val start = offset(text, position).coerceIn(0, text.length)
+                TextRange(start, (text.indexOf('\n', start).takeIf { it >= 0 } ?: text.length).coerceAtLeast(start))
+            }
+        fun review(table: TomlTable, path: List<String>, location: String, message: String) {
+            result += GradleDeclaration(VersionDeclaration(DeclarationId(file, location),
+                ArtifactId("catalog", location), "", ""), anchor(table, path), "$message; manual review required")
+        }
+        fun section(name: String): TomlTable? {
+            val raw = parsed.get(listOf(name))
+            if (raw != null && raw !is TomlTable) review(parsed, listOf(name), name, "Catalog $name must be a table")
+            return raw as? TomlTable
+        }
+        val libraries = section("libraries")
+        val versions = section("versions")
+        val plugins = section("plugins")
+        fun richVersion(table: TomlTable): Boolean = table.keySet().isNotEmpty() && table.keySet().all { key ->
+            val raw = table.get(listOf(key))
+            when (key) {
+                "require", "strictly", "prefer" -> raw is String
+                "rejectAll" -> raw is Boolean
+                "reject" -> raw is TomlArray && (0 until raw.size()).all { raw.get(it) is String }
+                else -> false
+            }
+        }
+        versions?.keySet()?.forEach { alias ->
+            val raw = versions.get(listOf(alias))
+            if (raw !is String && (raw !is TomlTable || !richVersion(raw)))
+                review(versions, listOf(alias), "versions/$alias", "Catalog version must be a string or rich version table")
+        }
+        val pluginRefs = mutableSetOf<String>()
+        var unknownPluginRefs = parsed.get(listOf("plugins")) != null && plugins == null
+        plugins?.keySet()?.forEach { alias ->
+            val entry = plugins.get(listOf(alias))
+            val version = (entry as? TomlTable)?.get(listOf("version"))
+            val ref = (version as? TomlTable)?.get(listOf("ref"))
+            if (ref is String && ref.isNotBlank()) pluginRefs += ref
+            val valid = when (entry) {
+                is String -> entry.split(':').let { it.size == 2 && it.all(String::isNotBlank) }
+                is TomlTable -> (value(entry, "id") as? String)?.isNotBlank() == true &&
+                    (version is String || version is TomlTable &&
+                        (if (ref == null) richVersion(version) else ref is String && ref.isNotBlank() && version.keySet() == setOf("ref")))
+                else -> false
+            }
+            if (!valid) {
+                review(plugins, listOf(alias), "plugins/$alias", "Malformed catalog plugin declaration")
+                // A malformed reference may still consume a shared version. Without a
+                // known reference, no shared library version can be authorized safely.
+                if (ref !is String || ref.isBlank()) unknownPluginRefs = true
+            }
+        }
+        val malformedLibraryRefs = mutableSetOf<String>()
+        var unknownLibraryRefs = false
+        libraries?.keySet()?.forEach { alias ->
+            val entry = libraries.get(listOf(alias)) as? TomlTable ?: return@forEach
+            val rawVersion = value(entry, "version") as? TomlTable ?: return@forEach
+            val ref = rawVersion.get(listOf("ref")) ?: return@forEach
+            if (ref !is String || ref.isBlank()) {
+                unknownLibraryRefs = true
+                return@forEach
+            }
+            val rawModule = value(entry, "module")
+            val group = value(entry, "group")
+            val name = value(entry, "name")
+            val module = if (rawModule != null) rawModule as? String else
+                if (group is String && name is String) "$group:$name" else null
+            val parts = module?.split(':')
+            if (parts == null || parts.size != 2 || parts.any { !Regex("[A-Za-z0-9_.-]+").matches(it) } ||
+                (group != null && group !is String) || (name != null && name !is String))
+                malformedLibraryRefs += ref
+        }
         fun range(table: TomlTable, path: List<String>, value: String): TextRange? {
             val position = table.inputPositionOf(path) ?: return null
             val start = offset(text, position)
@@ -151,34 +228,53 @@ internal object GradleDeclarations {
             if (text[quote] !in "\"'" || !text.startsWith(value + text[quote], quote + 1) || '\\' in value) return null
             return TextRange(quote + 1, quote + 1 + value.length)
         }
-        return libraries.keySet().mapNotNull { alias ->
+        libraries?.keySet()?.forEach { alias ->
             val entry = libraries.get(listOf(alias))
-            var version: String
+            var version = ""
             var target: TextRange? = null
             var reason: String? = null
-            val module: String
+            var module: String? = null
             if (entry is String) {
                 val parts = entry.split(':')
-                if (parts.size != 3) return@mapNotNull null
-                module = parts.take(2).joinToString(":"); version = parts[2]
-                target = range(libraries, listOf(alias), entry)?.let { TextRange(it.endOffset - version.length, it.endOffset) }
-            } else if (entry is TomlTable) {
-                module = entry.getString("module") ?: listOfNotNull(entry.getString("group"), entry.getString("name")).takeIf { it.size == 2 }?.joinToString(":") ?: return@mapNotNull null
-                val ref = entry.getString("version.ref")
-                if (ref != null) {
-                    version = versions?.get(listOf(ref)) as? String ?: ""
-                    target = versions?.let { range(it, listOf(ref), version) }
-                    if (ref in pluginRefs) reason = "Version reference is also used by a plugin"
-                } else {
-                    version = entry.get("version") as? String ?: ""
-                    target = range(entry, listOf("version"), version)
+                if (parts.size == 3) {
+                    module = parts.take(2).joinToString(":"); version = parts[2]
+                    target = range(libraries, listOf(alias), entry)?.let { TextRange(it.endOffset - version.length, it.endOffset) }
                 }
-            } else return@mapNotNull null
-            val parts = module.split(':')
-            if (parts.size != 2) return@mapNotNull null
-            if (!GradleVersions.fixed(version) || target == null) reason = "Rich, missing or dynamic catalog versions need manual review"
-            GradleDeclaration(VersionDeclaration(DeclarationId(file, "libraries/$alias"), ArtifactId(parts[0], parts[1]), version, if (reason == null) version else ""), target, reason)
+            } else if (entry is TomlTable) {
+                val rawModule = value(entry, "module")
+                val group = value(entry, "group")
+                val name = value(entry, "name")
+                module = if (rawModule != null) rawModule as? String else
+                    if (group is String && name is String) "$group:$name" else null
+                if ((group != null && group !is String) || (name != null && name !is String)) module = null
+                val rawVersion = value(entry, "version")
+                val rawRef = (rawVersion as? TomlTable)?.get(listOf("ref"))
+                if (rawRef is String && rawRef.isNotBlank()) {
+                    version = versions?.get(listOf(rawRef)) as? String ?: ""
+                    target = versions?.let { range(it, listOf(rawRef), version) }
+                    if (rawRef in pluginRefs) reason = "Version reference is also used by a plugin"
+                    if ((rawVersion as TomlTable).keySet() != setOf("ref")) reason = "Composite catalog version references need manual review"
+                    if (unknownPluginRefs) reason = "Malformed catalog plugins prevent proving shared version ownership"
+                    if (rawRef in malformedLibraryRefs || unknownLibraryRefs)
+                        reason = "Malformed catalog libraries prevent proving shared version ownership"
+                } else {
+                    version = rawVersion as? String ?: ""
+                    target = range(entry, listOf("version"), version)
+                    if (rawRef != null) reason = "Catalog version reference must be a string"
+                }
+            }
+            val parts = module?.split(':')
+            if (parts == null || parts.size != 2 || parts.any { !Regex("[A-Za-z0-9_.-]+").matches(it) }) {
+                review(libraries, listOf(alias), "libraries/$alias", "Malformed catalog library coordinates or declaration")
+            } else {
+                if (!GradleVersions.fixed(version) || target == null)
+                    reason = reason ?: "Rich, missing, malformed or dynamic catalog versions need manual review"
+                result += GradleDeclaration(VersionDeclaration(DeclarationId(file, "libraries/$alias"),
+                    ArtifactId(parts[0], parts[1]), version, if (reason == null) version else ""),
+                    target ?: anchor(libraries, listOf(alias)), reason)
+            }
         }
+        return result
     }
 
     private fun offset(text: String, position: TomlPosition): Int {
