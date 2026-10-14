@@ -37,9 +37,11 @@ python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
 `ProjectReviewProbeTest.kt.txt` contains six targeted probes. They assert PRESENT defects and are evidence,
 not desired-behavior regression tests. They were removed from the active source set after review.
-To rerun, temporarily copy this file to:
+To reproduce the original findings, use a separate checkout of reviewed commit `7642e16`, then temporarily copy this file to:
 
 `src/test/kotlin/io/github/khopland/versionchecker/ProjectReviewProbeTest.kt`
+
+The current implementation changes the observed behaviors and internal APIs; these probes are historical evidence, not current acceptance tests.
 
 Then run `./gradlew test --tests '*ProjectReviewProbeTest' --console=plain` and remove only that temporary file.
 For actual fixes, invert the relevant assertions and add native scenarios where indicated in the plan.
@@ -54,10 +56,10 @@ The generated HTML is self-contained, readable without JavaScript and designed f
 
 ## Implementation update — 14 October 2026
 
-The first implementation slice addresses F1–F4. It is committed and open for review, not merged or released.
-The hosted plan is updated in place at the same stable URL as version 3 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/3)); it expires 21 October 2026. F5–F7 and phases 2–4 remain open.
+The first implementation slice addresses F1–F4. Its original PRs are merged; #23 promotes the fixes that landed in the former baseline branch into main. No release has been made.
+The hosted plan is updated in place at the same stable URL with the first-slice history in version 3 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/3)); it expires 21 October 2026. The continuation below addresses F5–F7 and S5. Broader phase 2 architecture and phases 3–4 remain open.
 
-Merge the PR stack in this order:
+Original PR history (all merged; see #23 below for promotion into main):
 
 1. [#19: settings/Maven baseline and F3 test repair](https://github.com/khopland/idea-version-checker/pull/19) — preserves the previously unpublished local commit `7642e16` and includes stable checkbox identity with a wording-change regression (`111c63a`). The superseded standalone #18 is closed.
 2. [#20: F1 npm override guards](https://github.com/khopland/idea-version-checker/pull/20) — manual review across local/workspace/bulk edits, safe own references preserved, cross references guarded (`f200640`).
@@ -86,3 +88,27 @@ Implementation limits:
 - Static Gradle discovery cannot infer every file read by arbitrary executable build code. Known computed included-build and external/computed applied-script paths require review; included-build trees are captured conservatively. Ordinary application sources and generated build output remain excluded. No performance improvement is claimed.
 - Malformed typed catalog entries use existing skipped coverage and the bulk Needs review list. Syntactically invalid TOML retains its existing empty-result behavior; a broader diagnostic model remains future work.
 - The original observation probes assert the old defects. They remain historical evidence and are not acceptance tests for the corrected implementation.
+
+## Continuation — F5–F7 and Gradle probe extraction
+
+Latest hosted plan: version 4, at the same stable URL ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/4)); expires 21 October 2026.
+
+- [#23: promote approved first-slice fixes into main](https://github.com/khopland/idea-version-checker/pull/23). Original #20–#22 merged into the former baseline branch after #19 had merged, so a promotion is required. Merge this first.
+- [#24: F5 project ownership exclusions](https://github.com/khopland/idea-version-checker/pull/24), commit `91109b1`. Selected roots and enclosing generated names stay checkable; generated descendants stay excluded. Declared npm workspaces retain root overrides across imported content roots. An actual outside workspace root causes checks and edits to be declined; unrelated ancestor workspaces do not block independent projects.
+- [#25: F6 review coverage and F7 numeric classification](https://github.com/khopland/idea-version-checker/pull/25), commit `f7b9d9c`. Classifier/extension strings, Groovy named/bracket maps and Kotlin mapOf retain anchored, noneditable review declarations. Shared BigInteger parsing fixes overflow severity while preserving qualifiers, service packs and channels.
+- [#26: S5 packaged Gradle probe and plan update](https://github.com/khopland/idea-version-checker/pull/26), commit `a22b7b1` plus this documentation. Requests, paths, mode, task and patterns are JSON data; the response protocol rejects missing or incomplete results. Resolver branches and target validation remain native.
+
+All follow-up PRs target main directly and can merge in any order after #23. Before the promotion merges, their diffs include the pending first slice; afterward each shows only its own changes. No branch retargeting is required.
+
+Validation on the combined code:
+
+- Focused parser, ownership, adapter and protocol run: 80 tests passed before adding the two outside-workspace cases.
+- Final full/native run: **561 tests passed**, no failures, errors or skips: 542 default tests plus 19 native tests (Maven 7, npm 5, Gradle 7). Project configuration verification passed.
+- Native Gradle fixtures preserve indexed/legacy result parity, owner/configuration/attribute/capability/constraint/substitution checks, service-pack selection, changed buildSrc policy rejection, and bounded invocation counts.
+- Twelve dedicated ownership regressions cover selected/enclosing generated names, genuine generated descendants, current-file actions, nested projects, workspace-root overrides, outside workspace roots and symlinks. Their discovery helper waits for indexing; production still intentionally returns no npm files in dumb mode.
+- Four protocol tests cover JSON data escaping, version/result/declaration rejection and packaging of the script in the distributed plugin ZIP.
+- A separate temporary npm 10.9.8 fixture confirmed `npm prefix` from a member returns its parent workspace and an offline, package-lock-only, ignore-scripts command uses the parent .npmrc. The empty cache produced ENOTCACHED for a fake registry; no scripts, network requests or package installation occurred.
+- Plugin Verifier passed for IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Each target retains one deprecated API usage and 14 experimental API usages, matching the previous slice.
+- `git diff --check`: passed.
+
+The final native command is the same SDKMAN JDK 21 command recorded above. No performance improvement is claimed. Broader common update planning, provider input inventory design, synchronization/tool-window workflows and future product scope remain open in the plan. Classifier/map coverage adds recognition only; arbitrary helper calls, computed map objects and add(configuration, map) remain outside that added scope.
