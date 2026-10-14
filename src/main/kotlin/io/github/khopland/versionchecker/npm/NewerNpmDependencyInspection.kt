@@ -60,12 +60,12 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
     }
 }
 
-class UpdateNpmVersionFix internal constructor(value: JsonStringLiteral, latest: String, private val actionName: String?,
+class UpdateNpmVersionFix internal constructor(private val edit: NpmVersionEdit, private val actionName: String?,
                                               private val isCurrent: () -> Boolean) : LocalQuickFix {
     private var prepareValidation: (suspend () -> (() -> Boolean))? = null
     internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
-    constructor(value: JsonStringLiteral, latest: String, isCurrent: () -> Boolean = { true }) : this(value, latest, null, isCurrent)
-    private val edit = NpmVersionEdit(value, latest, "npm dependency")
+    constructor(value: JsonStringLiteral, latest: String, isCurrent: () -> Boolean = { true }) :
+        this(NpmVersionEdit(value, latest, "npm dependency"), null, isCurrent)
     override fun getFamilyName() = "Update npm version"
     override fun getName() = actionName ?: "Update declared version to ${edit.latest}"
     override fun startInWriteAction() = false
