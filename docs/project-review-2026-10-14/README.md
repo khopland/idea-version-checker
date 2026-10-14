@@ -55,15 +55,14 @@ The generated HTML is self-contained, readable without JavaScript and designed f
 ## Implementation update — 14 October 2026
 
 The first implementation slice addresses F1–F4. It is committed and open for review, not merged or released.
-The hosted plan is updated in place at the same stable URL as version 2 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/2)); it expires 21 October 2026. F5–F7 and phases 2–4 remain open.
+The hosted plan is updated in place at the same stable URL as version 3 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/3)); it expires 21 October 2026. F5–F7 and phases 2–4 remain open.
 
 Merge the PR stack in this order:
 
-1. [#19: existing settings/Maven baseline](https://github.com/khopland/idea-version-checker/pull/19) — preserves the previously unpublished local commit `7642e16`.
-2. [#18: F3 disable/resume test](https://github.com/khopland/idea-version-checker/pull/18) — stable checkbox identity, with a wording-change regression (`111c63a`).
-3. [#20: F1 npm override guards](https://github.com/khopland/idea-version-checker/pull/20) — manual review across local/workspace/bulk edits, safe own references preserved, cross references guarded (`f200640`).
-4. [#21: F2 Gradle build-logic inputs](https://github.com/khopland/idea-version-checker/pull/21) — sources/resources, literal included builds, unsaved changes, additions and coverage limits (`d1f8ba8`).
-5. [#22: F4 typed catalog parsing](https://github.com/khopland/idea-version-checker/pull/22) — valid siblings retained, anchored review diagnostics, malformed shared owners blocked (`a54ce7c`), plus this plan and validation update.
+1. [#19: settings/Maven baseline and F3 test repair](https://github.com/khopland/idea-version-checker/pull/19) — preserves the previously unpublished local commit `7642e16` and includes stable checkbox identity with a wording-change regression (`111c63a`). The superseded standalone #18 is closed.
+2. [#20: F1 npm override guards](https://github.com/khopland/idea-version-checker/pull/20) — manual review across local/workspace/bulk edits, safe own references preserved, cross references guarded (`f200640`).
+3. [#21: F2 Gradle build-logic inputs](https://github.com/khopland/idea-version-checker/pull/21) — sources/resources, literal included builds, unsaved changes, additions and coverage limits (`d1f8ba8`).
+4. [#22: F4 typed catalog parsing](https://github.com/khopland/idea-version-checker/pull/22) — valid siblings retained, anchored review diagnostics, malformed shared owners blocked (`a54ce7c`), plus this plan and validation update.
 
 Implementation validation on the combined code:
 
