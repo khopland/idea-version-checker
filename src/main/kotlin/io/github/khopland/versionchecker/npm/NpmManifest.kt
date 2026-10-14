@@ -5,6 +5,8 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbService
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiErrorElement
@@ -15,26 +17,39 @@ import io.github.khopland.versionchecker.core.*
 internal object NpmManifest {
     val sections = setOf("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
     private val excluded = setOf("node_modules", "bower_components", ".git", ".idea", ".npm", ".yarn", ".pnpm-store", "vendor", "dist", "build", "coverage", ".next", ".nuxt")
-    fun supported(file: VirtualFile): Boolean {
+    /** The deepest explicit content root owns exclusions, including nested independent projects. */
+    fun contentRoot(project: Project, file: VirtualFile): VirtualFile? =
+        ProjectRootManager.getInstance(project).contentRoots
+            .filter { VfsUtilCore.isAncestor(it, file, false) }
+            .maxByOrNull { it.path.length }
+
+    fun supported(project: Project, file: VirtualFile): Boolean {
         if (file.isDirectory || file.name != "package.json") return false
+        val root = contentRoot(project, file) ?: return false
         var parent = file.parent
-        while (parent != null) {
+        while (parent != null && parent != root) {
             if (parent.name in excluded) return false
             parent = parent.parent
         }
-        return true
+        return parent == root
     }
     fun files(project: Project, selection: BuildSelection): List<VirtualFile> {
         if (selection.scope == UpdateScope.CURRENT_FILE && selection.currentFile == null) return emptyList()
         if (DumbService.isDumb(project)) return emptyList()
         val files = project.service<NpmProjectCache>().files {
             FilenameIndex.getVirtualFilesByName("package.json", GlobalSearchScope.projectScope(project))
-                .filter(::supported).sortedBy { it.path }
+                .filter { supported(project, it) }.sortedBy { it.path }
         }
         return if (selection.scope == UpdateScope.WHOLE_PROJECT) files else files.filter { it.path == selection.currentFile }
     }
     fun root(file: PsiFile): JsonObject? {
-        if (file !is JsonFile || !supported(file.virtualFile ?: return null) ||
+        if (!supported(file.project, file.virtualFile ?: return null)) return null
+        return ownershipRoot(file)
+    }
+
+    /** Read ancestor workspace declarations only; this never grants check or edit eligibility. */
+    fun ownershipRoot(file: PsiFile): JsonObject? {
+        if (file !is JsonFile || file.virtualFile?.name != "package.json" ||
             PsiTreeUtil.findChildOfType(file, PsiErrorElement::class.java) != null) return null
         val root = file.topLevelValue as? JsonObject ?: return null
         return root.takeIf { it.propertyList.map { property -> property.name }.distinct().size == it.propertyList.size }

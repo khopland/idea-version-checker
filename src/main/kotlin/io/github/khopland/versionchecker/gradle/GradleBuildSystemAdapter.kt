@@ -50,9 +50,15 @@ internal class GradleBuildSystemAdapter(
         return withGradleScanSession(project, eligible, mode, action)
     }
     override fun isOffline(project: Project) = GradleSettings.getInstance(project).isOfflineWork
-    private fun supported(file: VirtualFile) = !file.isDirectory &&
-        (file.name in setOf("build.gradle", "build.gradle.kts") || file.name == "libs.versions.toml" && file.parent.name == "gradle") &&
-        generateSequence(file.parent) { it.parent }.none { it.name in excluded }
+    private fun supported(project: Project, file: VirtualFile): Boolean {
+        if (file.isDirectory || !(file.name in setOf("build.gradle", "build.gradle.kts") ||
+                file.name == "libs.versions.toml" && file.parent.name == "gradle")) return false
+        val root = owner(project, file) ?: return false
+        val directories = listOf(root) + GradleSettings.getInstance(project).getLinkedProjectSettings(root)?.modules.orEmpty()
+        val boundary = directories.mapNotNull { find(project, it) }
+            .filter { VfsUtilCore.isAncestor(it, file, false) }.maxByOrNull { it.path.length } ?: return false
+        return generateSequence(file.parent) { it.parent }.takeWhile { it != boundary }.none { it.name in excluded }
+    }
     private val excluded = setOf(".git", ".gradle", ".idea", "build", "out", "node_modules", "vendor")
     private fun roots(project: Project) = GradleSettings.getInstance(project).linkedProjectsSettings.mapNotNull { it.externalProjectPath }.sortedByDescending { it.length }
     private fun owner(project: Project, file: VirtualFile) = roots(project).firstOrNull { root ->
@@ -113,11 +119,14 @@ internal class GradleBuildSystemAdapter(
         // namespace, but compare VFS-known link targets before walking it again.
         val roots = directories.mapNotNull { find(project, it) }.distinctBy { it.canonicalPath ?: it.path }
         val locations = roots.associateWith { it.canonicalPath ?: it.path }
-        // Linked modules commonly sit inside the root; walking them again adds no inputs.
+        // Walk a nested root separately only when a generated-directory boundary would
+        // prune it from its parent's walk. Preserve the linked symlink namespace otherwise.
         for (file in roots.filter { candidate -> roots.none { parent ->
-            parent != candidate && locations.getValue(candidate).startsWith(locations.getValue(parent).trimEnd('/') + "/")
+            parent != candidate && locations.getValue(candidate).startsWith(locations.getValue(parent).trimEnd('/') + "/") &&
+                locations.getValue(candidate).removePrefix(locations.getValue(parent).trimEnd('/') + "/")
+                    .split('/').none { it in excluded }
         } }) {
-            VfsUtilCore.iterateChildrenRecursively(file, { it.name !in excluded }) {
+            VfsUtilCore.iterateChildrenRecursively(file, { it == file || it.name !in excluded }) {
                 val buildLogic = generateSequence(it.parent) { parent -> parent.parent }.takeWhile { parent ->
                     VfsUtilCore.isAncestor(file, parent, false)
                 }.any { parent -> parent.name == "buildSrc" || parent.path in logicDirectories }
@@ -134,8 +143,8 @@ internal class GradleBuildSystemAdapter(
     private fun find(project: Project, path: String): VirtualFile? = LocalFileSystem.getInstance().findFileByPath(path)
         ?: ProjectRootManager.getInstance(project).contentRoots.firstNotNullOfOrNull { it.fileSystem.findFileByPath(path) }
     override fun supports(project: Project, selection: BuildSelection): Boolean = when (selection.scope) {
-        UpdateScope.CURRENT_FILE -> selection.currentFile?.let { find(project, it) }?.let { supported(it) && owner(project, it) != null } == true
-        UpdateScope.WHOLE_PROJECT -> roots(project).any { root -> files(project, root).any(::supported) }
+        UpdateScope.CURRENT_FILE -> selection.currentFile?.let { find(project, it) }?.let { supported(project, it) } == true
+        UpdateScope.WHOLE_PROJECT -> roots(project).any { root -> files(project, root).any { supported(project, it) } }
         UpdateScope.MAVEN_PLATFORM -> false
     }
     override suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
@@ -184,7 +193,7 @@ internal class GradleBuildSystemAdapter(
     private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<String, BuildFingerprint>, unsaved: MutableMap<String, Boolean>,
                          allowUnsaved: Boolean = false, inspectionFingerprints: MutableMap<String, BuildFingerprint> = mutableMapOf(),
                          externalHashes: Map<String, String>? = null): BuildSnapshot? {
-        if (!supported(file)) return null
+        if (!supported(project, file)) return null
         val root = owner(project, file) ?: return null
         if (!allowUnsaved && unsaved.getOrPut(root) { files(project, root).any { FileDocumentManager.getInstance().isFileModified(it) } }) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
