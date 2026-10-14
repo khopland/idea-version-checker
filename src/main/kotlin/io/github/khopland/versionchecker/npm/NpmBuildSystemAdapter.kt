@@ -60,13 +60,16 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         val fingerprint = fingerprints.getOrPut(workspace.root) { NpmBuildInputs.fingerprint(project, workspace, external) }
         return BuildSnapshot(BuildContextId(id, workspace.root.path, file.path), file.path,
             fingerprint, declarations, NpmBuildInputs.inspectionFingerprint(workspace, fingerprint),
-            skippedDeclarations = declarations.filter { it.baseline.isEmpty() }.associate {
-                it.id to (NpmManifest.reviewReason(it) ?: "Unsupported npm selector needs manual review.")
-            })
+            skippedDeclarations = declarations.mapNotNull { declaration ->
+                val reason = NpmManifest.overrideReviewReason(project, file, declaration)
+                    ?: NpmManifest.reviewReason(declaration)
+                reason?.let { declaration.id to it }
+            }.toMap())
     }
     override fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot): UpdateReport? {
         if (previous.context != current.context || previous.inspectionFingerprint == null ||
-            previous.inspectionFingerprint != current.inspectionFingerprint) return null
+            previous.inspectionFingerprint != current.inspectionFingerprint ||
+            previous.skippedDeclarations != current.skippedDeclarations) return null
         val declarations = current.declarations.toSet()
         val unchangedIds = declarations.intersect(previous.declarations.toSet()).map { it.id }.toSet()
         return report.copy(
@@ -133,6 +136,9 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
                     lease.metadata
                 },
                 deprecated = { name, version -> NpmRegistry.deprecated(runtime.await(), directory, name, version) },
+                reviewReasons = snapshot.skippedDeclarations.filterKeys { id ->
+                    snapshot.declarations.any { it.id == id && it.baseline.isNotEmpty() }
+                },
                 publish = { update -> publish(update.copy(report = update.report.copy(
                     validUntilNanos = expires.get().takeUnless { it == Long.MAX_VALUE }))) })
         }
@@ -155,7 +161,16 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             for (declaration in snapshot.declarations.filter { it.baseline.isEmpty() }) {
                 skipped += "${declaration.id.file}: ${declaration.id.location}: ${NpmManifest.reviewReason(declaration)}"
             }
+            for (declaration in snapshot.declarations.filter { it.baseline.isNotEmpty() }) {
+                val reason = NpmManifest.overrideReviewReason(project, file, declaration) ?: continue
+                skipped += "${file.path}: ${declaration.id.location}: $reason"
+            }
             for (candidate in report.candidates) {
+                val reason = NpmManifest.overrideReviewReason(project, file, candidate.declaration)
+                if (reason != null) {
+                    skipped += "${file.path}: ${candidate.declaration.id.location}: $reason"
+                    continue
+                }
                 val value = values[candidate.declaration.id] ?: error("npm declaration no longer exists")
                 check(value.value == candidate.declaration.selector) { "npm selector changed during the check" }
                 edits += NpmVersionEdit(value, candidate.replacementSelector,
@@ -188,6 +203,8 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
     /** Local edits belong to their declaration; a prepared workspace action may be shared by a pass. */
     internal fun quickFixes(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
                             value: JsonStringLiteral, workspaceFix: LocalQuickFix?, lease: VersionResultLease? = null): Array<LocalQuickFix> {
+        if (NpmManifest.overrideReviewReason(project, value.containingFile.virtualFile, candidate.declaration) != null)
+            return emptyArray()
         val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
         val localLease = lease?.forDeclarations(setOf(candidate.declaration.id))
         val current = { (localLease == null || localLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
@@ -203,7 +220,15 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
                               declarations: List<Pair<VersionDeclaration, JsonStringLiteral>>,
                               lease: VersionResultLease? = null): LocalQuickFix? {
         val latest = NpmVersion.parse(candidate.version) ?: return null
-        val edits = declarations.mapNotNull { (declaration, target) ->
+        val eligible = declarations.filter { (declaration, _) ->
+            declaration.artifact == candidate.declaration.artifact && declaration.baseline.isNotEmpty() &&
+                NpmSelector.parse(declaration.artifact.name, declaration.selector)?.baseline?.let { it < latest } == true
+        }
+        // Do not offer a partly updated workspace when any participating declaration needs review.
+        if (eligible.any { (declaration, target) ->
+                NpmManifest.overrideReviewReason(project, target.containingFile.virtualFile, declaration) != null
+            }) return null
+        val edits = eligible.mapNotNull { (declaration, target) ->
             if (declaration.artifact != candidate.declaration.artifact || declaration.baseline.isEmpty()) return@mapNotNull null
             val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector) ?: return@mapNotNull null
             // Keep newer declarations; a workspace update must never downgrade another package.

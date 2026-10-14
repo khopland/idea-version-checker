@@ -35,7 +35,7 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         "workspaces":["packages/*","!packages/excluded"],
         "dependencies":{"alpha":"^1.2.3"},
         "devDependencies":{"alias":"npm:alpha@~1.2.3"},
-        "overrides":{"alpha":"1.2.3"},"version":"1.2.3"
+        "overrides":{"unrelated":"1.2.3"},"version":"1.2.3"
     }""")
     private fun child() = add("packages/app/package.json", """{
         "dependencies":{"alpha":"1.2.3"},"optionalDependencies":{"alpha-alias":"npm:alpha@^1.2.3"},
@@ -302,7 +302,7 @@ class NpmWorkspaceVersionFixTest : BasePlatformTestCase() {
         assertEquals("1.2.9", selectors(child)["dependencies/alpha"])
         assertEquals("npm:alpha@^1.2.9", selectors(child)["optionalDependencies/alpha-alias"])
         assertEquals("^1.2.3", selectors(child)["peerDependencies/alpha"])
-        assertTrue(root.text.contains("\"overrides\":{\"alpha\":\"1.2.3\"}"))
+        assertTrue(root.text.contains("\"overrides\":{\"unrelated\":\"1.2.3\"}"))
         assertTrue(root.text.contains("\"version\":\"1.2.3\""))
         assertTrue(child.text.contains("echo 1.2.3"))
         assertEquals("unchanged", lock.text)

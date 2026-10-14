@@ -24,16 +24,19 @@ internal suspend fun checkNpmVersions(
     slots: Semaphore,
     metadata: suspend (String) -> NpmPackageMetadata,
     deprecated: suspend (String, String) -> String?,
+    reviewReasons: Map<DeclarationId, String> = emptyMap(),
     publish: suspend (InspectionUpdate) -> Unit = {}
 ): UpdateReport = coroutineScope {
     val packages = declarations.mapNotNull { declaration ->
+        if (declaration.id in reviewReasons) return@mapNotNull null
         val baseline = NpmVersion.parse(declaration.baseline) ?: return@mapNotNull null
         val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector) ?: return@mapNotNull null
         NpmUsage(declaration, baseline, selector)
     }.groupBy { it.selector.packageName }
     val supported = packages.values.flatten().map { it.declaration.id }.toSet()
     val skipped = declarations.filter { it.id !in supported }.associate { it.id to
-        DeclarationCoverage(DeclarationOutcome.SKIPPED, NpmManifest.reviewReason(it) ?: "Unsupported npm selector needs manual review.") }
+        if (it.id in reviewReasons) DeclarationCoverage(DeclarationOutcome.MANUAL_REVIEW, reviewReasons[it.id])
+        else DeclarationCoverage(DeclarationOutcome.SKIPPED, NpmManifest.reviewReason(it) ?: "Unsupported npm selector needs manual review.") }
     if (skipped.isNotEmpty()) publish(InspectionUpdate(UpdateReport(coverage = skipped), skipped.keys))
     val reports = packages.map { (name, usages) ->
         async {
