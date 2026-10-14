@@ -73,8 +73,15 @@ internal class MavenDependencyAnalysis(
             "${contexts.distinctBy { it.first to it.second }.size} version declarations across ${contexts.map { it.second }.distinct().size} POMs"
         }
     }
-    private fun sharedAllowed(target: XmlTag, latest: String) = ignored.isEmpty() || sharedConsumers[target].orEmpty().none {
-        IgnoredVersion("maven", ArtifactId(it.third.groupId, it.third.artifactId), latest) in ignored
+    private fun sharedAllowed(target: XmlTag, latest: String): Boolean {
+        val consumers = sharedConsumers[target].orEmpty()
+        // Every affected coordinate must authorize the same update, including consumers in
+        // other imported POMs. Missing results and replacement notices require review.
+        return consumers.isNotEmpty() && consumers.all { (_, _, coordinate) ->
+            updates[coordinate] == latest && coordinate !in relocations &&
+                "${coordinate.groupId}:${coordinate.artifactId}" !in deprecated &&
+                IgnoredVersion("maven", ArtifactId(coordinate.groupId, coordinate.artifactId), latest) !in ignored
+        }
     }
     private fun scopedAction(target: XmlTag, latest: String): String {
         val scope = sharedScopes[target] ?: "shared scope requires review"

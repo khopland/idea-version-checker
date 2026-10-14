@@ -10,6 +10,8 @@ import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
+import com.intellij.ui.HideableDecorator
+import com.intellij.ui.TitledSeparator
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -17,6 +19,7 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.util.ui.FormBuilder
 import javax.swing.JComponent
+import javax.swing.JPanel
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 
@@ -57,43 +60,53 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     private var persistentMaven: JBCheckBox? = null
     override fun getDisplayName(): String = "Version Checker"
     override fun createComponent(): JComponent {
-        enabled = JBCheckBox("Check for newer dependency and build-plugin versions")
+        enabled = JBCheckBox("Enable version checks").apply { name = "versionChecker.enabled" }
         val form = FormBuilder.createFormBuilder().addComponent(enabled!!)
-        scheduled = JBCheckBox("Check repositories periodically while this project is open")
+        scheduled = JBCheckBox("Refresh periodically")
+        scheduled!!.toolTipText = "Check repositories while this project is open. Dependency versions are never changed automatically."
         interval = JSpinner(SpinnerNumberModel(30, 1, 1440, 1))
         scheduled!!.addActionListener { updateScheduleControls() }
         enabled!!.addActionListener { updateScheduleControls() }
-        form.addComponent(scheduled!!).addLabeledComponent("Check interval (minutes):", interval!!)
-            .addComponent(JBLabel("Scheduled checks refresh editor warnings and do not change dependency versions."))
-        platformFirst = JBCheckBox("Check Maven parents and Spring Boot BOMs first")
-        mavenThreads = JSpinner(SpinnerNumberModel(2, 1, 4, 1))
-        fastMaven = JBCheckBox("Use a faster Maven editor scope (omit unused local management entries)")
-        persistentMaven = JBCheckBox("Keep fresh Maven metadata between IDE sessions")
-        form.addComponent(platformFirst!!)
-            .addComponent(fastMaven!!)
-            .addComponent(persistentMaven!!)
-            .addLabeledComponent("Maven metadata workers:", mavenThreads!!)
-            .addComponent(JBLabel("Use fewer metadata workers for slow or rate-limited repositories."))
-            .addComponent(JBLabel("Fast scope is optional. Refresh and Current File / Whole Project previews perform full audits."))
+        form.addComponent(scheduled!!).addLabeledComponent("Refresh interval (minutes):", interval!!)
+            .addComponent(TitledSeparator("Warnings"))
         for ((kind, label) in linkedMapOf(
             VersionChangeKind.PATCH to "Patch updates:",
             VersionChangeKind.MINOR to "Minor updates:",
             VersionChangeKind.MAJOR to "Major updates:",
-            VersionChangeKind.OTHER to "Other version changes:",
-            VersionChangeKind.DEPRECATED to "Deprecated / relocated:"
+            VersionChangeKind.OTHER to "Other updates:",
+            VersionChangeKind.DEPRECATED to "Deprecated or relocated:"
         )) {
             val selector = ComboBox(VersionSeverity.entries.toTypedArray())
             severities[kind] = selector
             form.addLabeledComponent(label, selector)
         }
-        deprecated = JBTextArea(5, 50).apply { accessibleContext.accessibleName = "Deprecated artifacts" }
-        form.addComponent(JBLabel("Explicitly deprecated dependencies or plugins (one artifact identifier = reason per line):"))
+        deprecated = JBTextArea(4, 40).apply { accessibleContext.accessibleName = "Deprecated artifacts" }
+        ignored = JBTextArea(4, 40).apply { accessibleContext.accessibleName = "Ignored published versions" }
+        val rules = FormBuilder.createFormBuilder()
+            .addComponent(JBLabel("Mark dependencies as deprecated:"))
             .addComponent(JBScrollPane(deprecated!!))
-            .addComponent(JBLabel("Use the build system’s artifact identifier, such as org.example:library or @scope/package."))
-        ignored = JBTextArea(4, 50).apply { accessibleContext.accessibleName = "Ignored published versions" }
-        form.addComponent(JBLabel("Ignored published versions in this project (remove a line to restore an update):"))
+            .addComponent(JBLabel("One per line: org.example:library = reason or @scope/package = reason"))
+            .addComponent(JBLabel("Ignored versions:"))
             .addComponent(JBScrollPane(ignored!!))
-            .addComponent(JBLabel("One per line: maven org.example:library = 1.2.3, npm @scope/package = 1.2.3, or gradle org.example:library = 1.2.3"))
+            .addComponent(JBLabel("One per line: maven org.example:library = 1.2.3 or npm @scope/package = 1.2.3"))
+            .addComponent(JBLabel("Use gradle instead of maven for Gradle rules. Remove a line to restore a warning."))
+        form.addComponent(collapsedSection("Dependency rules", rules.panel))
+
+        platformFirst = JBCheckBox("Check Maven parents and Spring Boot BOMs first")
+        platformFirst!!.toolTipText = "Show platform results before checking the remaining dependencies."
+        fastMaven = JBCheckBox("Skip unused managed dependencies in editor checks")
+        fastMaven!!.toolTipText = "Refresh and update previews still check all supported declarations."
+        persistentMaven = JBCheckBox("Reuse Maven metadata across IDE sessions")
+        persistentMaven!!.toolTipText = "Reuse cached repository results for up to ten minutes. Refresh always queries fresh results."
+        mavenThreads = JSpinner(SpinnerNumberModel(2, 1, 4, 1)).apply {
+            toolTipText = "Use fewer parallel requests for slow or rate-limited repositories."
+        }
+        val maven = FormBuilder.createFormBuilder()
+            .addComponent(platformFirst!!)
+            .addComponent(fastMaven!!)
+            .addComponent(persistentMaven!!)
+            .addLabeledComponent("Parallel metadata requests:", mavenThreads!!)
+        form.addComponent(collapsedSection("Advanced Maven settings", maven.panel))
         return form.panel.also { reset() }
     }
     override fun isModified(): Boolean {
@@ -143,6 +156,13 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         fastMaven?.isSelected = state.mavenFastEditorChecks
         persistentMaven?.isSelected = state.mavenPersistentMetadata
     }
+    private fun collapsedSection(title: String, content: JComponent): JPanel = JPanel().also { panel ->
+        HideableDecorator(panel, title, false).apply {
+            setContentComponent(content)
+            setOn(false)
+        }
+    }
+
     private fun selected(kind: VersionChangeKind) = severities.getValue(kind).selectedItem as VersionSeverity
     private fun updateScheduleControls() {
         scheduled?.isEnabled = enabled?.isSelected == true

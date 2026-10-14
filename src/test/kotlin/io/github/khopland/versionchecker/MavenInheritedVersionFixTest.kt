@@ -218,6 +218,51 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertTrue(warning.fixes.orEmpty().all { it is IgnorePublishedVersionFix })
     }
 
+    fun testDeclarationQuickFixRejectsUnchangedSharedConsumer() = sharedDeclarationQuickFix(null)
+
+    fun testDeclarationQuickFixRejectsConflictingSharedConsumer() = sharedDeclarationQuickFix("1.2")
+
+    fun testDeclarationQuickFixAppliesWhenSharedConsumersAgree() = sharedDeclarationQuickFix("1.1")
+
+    private fun sharedDeclarationQuickFix(otherUpdate: String?) {
+        val file = imported("shared-declaration-${otherUpdate ?: "unchanged"}", """<properties><shared.version>1.0</shared.version></properties>
+            <dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>${'$'}{shared.version}</version></dependency>
+              <dependency><groupId>g</groupId><artifactId>b</artifactId><version>${'$'}{shared.version}</version></dependency></dependencies>""")
+        val updates = buildMap {
+            put(DependencyVersion("g", "a", "1.0"), "1.1")
+            otherUpdate?.let { put(DependencyVersion("g", "b", "1.0"), it) }
+        }
+        val warnings = inspect(file, updates).results
+        val version = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags.first().findFirstSubTag("version")!!
+        val warning = warnings.single { it.psiElement == version }
+        val fixes = warning.fixes.orEmpty().filterIsInstance<UpdateDependencyVersionFix>()
+        val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        if (otherUpdate == "1.1") {
+            apply(fixes.single(), version)
+            assertEquals("1.1", property.value.trimmedText)
+            assertEquals("${'$'}{shared.version}", version.value.trimmedText)
+        } else {
+            assertTrue("Conflicting or unchanged consumers must block declaration fixes", fixes.isEmpty())
+            assertEquals("1.0", property.value.trimmedText)
+        }
+    }
+
+    fun testParentPropertyQuickFixRejectsConflictingConsumerAndKeepsLocalOverride() {
+        val parent = imported("conflicting-parent", """<properties><shared.version>4.12</shared.version></properties>
+            ${management("${'$'}{shared.version}")}
+            <dependencies><dependency><groupId>g</groupId><artifactId>other</artifactId>
+              <version>${'$'}{shared.version}</version></dependency></dependencies>""")
+        val child = imported("conflicting-child", dependency(), "conflicting-parent")
+        val warning = inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2",
+            DependencyVersion("g", "other", "4.12") to "5.0")).results.single {
+            it.psiElement == declaration(child).findFirstSubTag("artifactId")
+        }
+        assertTrue(warning.fixes.orEmpty().filterIsInstance<UpdateDependencyVersionFix>().isEmpty())
+        apply(warning.fixes.orEmpty().filterIsInstance<OverrideDependencyVersionFix>().single(), declaration(child))
+        assertEquals("4.13.2", declaration(child).findFirstSubTag("version")!!.value.trimmedText)
+        assertEquals("4.12", parent.rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
+    }
+
     fun testChildManagedDependencyFixUpdatesChildPropertyOverride() {
         val parent = imported("managed-property-parent", "<properties><junit.version>4.11</junit.version></properties>" +
             management("\${junit.version}"))
