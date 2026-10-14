@@ -27,6 +27,83 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Real IDEA Gradle tooling + project wrapper + authenticated settings repositories. No public artifact queries. */
 class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
+    fun testBuildSrcPolicyChangeRejectsHeldEditAndFormerlyAllowedNativeTarget() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-buildsrc-policy-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val settings = GradleSettings.getInstance(project)
+        val previousOffline = settings.isOfflineWork
+        try {
+            settings.isOfflineWork = false
+            project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+            val publication = Files.createDirectories(directory.resolve("repo/fixture/library"))
+            Files.writeString(publication.resolve("maven-metadata.xml"), """<metadata><groupId>fixture</groupId><artifactId>library</artifactId>
+                <versioning><versions><version>1.0.0</version><version>2.0.0</version></versions></versioning></metadata>""")
+            for (version in listOf("1.0.0", "2.0.0")) {
+                val target = Files.createDirectories(publication.resolve(version))
+                Files.writeString(target.resolve("library-$version.pom"), """<project><modelVersion>4.0.0</modelVersion>
+                    <groupId>fixture</groupId><artifactId>library</artifactId><version>$version</version></project>""")
+            }
+            Files.writeString(directory.resolve("settings.gradle"), "rootProject.name = 'buildsrc-policy-fixture'")
+            Files.writeString(directory.resolve("build.gradle"), """plugins { id 'java' }
+                repositories { maven { url = uri('repo') } }
+                RepositoryPolicy.configure(project)
+                dependencies { implementation 'fixture:library:1.0.0' }
+            """.trimIndent())
+            val policyPath = Files.createDirectories(directory.resolve("buildSrc/src/main/java")).resolve("RepositoryPolicy.java")
+            Files.writeString(directory.resolve("buildSrc/build.gradle"), "plugins { id 'java' }")
+            val permissive = """import org.gradle.api.Project;
+                public class RepositoryPolicy {
+                    public static void configure(Project project) {}
+                }
+            """.trimIndent()
+            Files.writeString(policyPath, permissive)
+            val wrapper = Files.createDirectories(directory.resolve("gradle/wrapper"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.properties"), wrapper.resolve("gradle-wrapper.properties"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.jar"), wrapper.resolve("gradle-wrapper.jar"))
+            val root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            VfsUtil.markDirtyAndRefresh(false, true, true, root)
+            settings.linkProject(GradleProjectSettings().apply {
+                externalProjectPath = directory.toString(); gradleJvm = "#JAVA_HOME"
+                distributionType = DistributionType.DEFAULT_WRAPPED
+            })
+            fun <T> background(work: suspend () -> T): T = PlatformTestUtil.waitForFuture(
+                ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { work() } }), 120_000)
+            val adapter = GradleBuildSystemAdapter()
+            val source = root.findChild("build.gradle")!!
+            val snapshot = adapter.snapshot(project, source)!!
+            val report = background { adapter.check(project, snapshot, UpdateMode.MAJOR) }
+            assertEquals(listOf("2.0.0"), report.candidates.map { it.version })
+            val held = background { adapter.prepareUpdates(project, mapOf(snapshot to report)) }
+            val policy = root.findFileByRelativePath("buildSrc/src/main/java/RepositoryPolicy.java")!!
+            com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
+                policy.setBinaryContent("""import org.gradle.api.Project;
+                    public class RepositoryPolicy {
+                        public static void configure(Project project) {
+                            project.getConfigurations().all(configuration -> {
+                                configuration.getResolutionStrategy().getComponentSelection().all(selection -> {
+                                    if (selection.getCandidate().getVersion().equals("2.0.0"))
+                                        selection.reject("Target rejected by changed buildSrc policy");
+                                });
+                            });
+                        }
+                    }
+                """.trimIndent().toByteArray())
+            }
+            assertFalse(background { adapter.isCurrentInBackground(project, snapshot) })
+            assertFalse(held.apply(project))
+            assertTrue(Files.readString(directory.resolve("build.gradle")).contains("library:1.0.0"))
+            val fresh = adapter.snapshot(project, source)!!
+            val rejected = background { adapter.check(project, fresh, UpdateMode.MAJOR) }
+            assertTrue("Changed executable policy must reject the former target", rejected.candidates.isEmpty())
+            assertTrue(rejected.notices.any { it.kind == NoticeKind.MANUAL_REVIEW })
+        } finally {
+            settings.unlinkExternalProject(directory.toString())
+            settings.isOfflineWork = previousOffline
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testProposedTargetsUseEverySourceConfigurationAndMissingOwnersNeedReview() {
         if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
         val directory = Files.createTempDirectory("version-checker-gradle-targets-").toRealPath()
