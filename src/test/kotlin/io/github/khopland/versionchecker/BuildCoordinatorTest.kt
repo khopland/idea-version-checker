@@ -19,6 +19,8 @@ import com.intellij.ui.UiInterceptors
 import io.github.khopland.versionchecker.core.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Callable
 import java.awt.event.ActionEvent
@@ -155,6 +157,68 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         service.refresh(listOf(adapter))
         PlatformTestUtil.waitWithEventsDispatching("Lookup retried", { service.cached(snapshot) != null }, 10_000)
         assertTrue(service.cached(snapshot)!!.successful)
+    }
+
+    fun testDisablingDuringInspectionDiscardsLateResultAndAllowsResume() {
+        val file = myFixture.addFileToProject("paused-scan/build.txt", "1.0")
+        val gate = CompletableDeferred<Unit>()
+        val adapter = TestAdapter("paused-scan-test", file).apply {
+            beforeCheck = { withContext(NonCancellable) { gate.await() } }
+        }
+        val service = project.service<VersionCheckService>()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val configurable = VersionCheckerConfigurable(project)
+        try {
+            val panel = configurable.createComponent()
+            fun boxes(container: java.awt.Container): List<com.intellij.ui.components.JBCheckBox> =
+                container.components.flatMap { component ->
+                    (if (component is com.intellij.ui.components.JBCheckBox) listOf(component) else emptyList()) +
+                        (if (component is java.awt.Container) boxes(component) else emptyList())
+                }
+            val enabled = boxes(panel as java.awt.Container).single { "Check for newer dependency" in it.text }
+            service.updates(adapter, snapshot)
+            PlatformTestUtil.waitWithEventsDispatching("Inspection starts", { adapter.checked.size == 1 }, 10_000)
+            enabled.isSelected = false
+            configurable.apply()
+            gate.complete(Unit)
+            assertEquals(CheckPhase.PAUSED, service.status(adapter, snapshot).phase)
+            assertNull(service.cached(snapshot))
+            adapter.version = "1.2"
+            enabled.isSelected = true
+            configurable.apply()
+            adapter.beforeCheck = {}
+            service.updates(adapter, snapshot)
+            PlatformTestUtil.waitWithEventsDispatching("Inspection resumes with a fresh result", {
+                service.cached(snapshot)?.candidates?.singleOrNull()?.version == "1.2"
+            }, 10_000)
+            assertEquals(2, adapter.checked.size)
+        } finally {
+            gate.complete(Unit)
+            project.service<VersionCheckerSettings>().state.enabled = true
+            configurable.disposeUIResources()
+        }
+    }
+
+    fun testDisablingDuringManualRefreshRejectsLateResult() {
+        val file = myFixture.addFileToProject("paused-refresh/build.txt", "1.0")
+        val gate = CompletableDeferred<Unit>()
+        val adapter = TestAdapter("paused-refresh-test", file).apply {
+            beforeCheck = { withContext(NonCancellable) { gate.await() } }
+        }
+        val service = project.service<VersionCheckService>()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val job = service.refresh(listOf(adapter))
+        try {
+            PlatformTestUtil.waitWithEventsDispatching("Refresh starts", { adapter.checked.size == 1 }, 10_000)
+            project.service<VersionCheckerSettings>().state.enabled = false
+            service.pause()
+            gate.complete(Unit)
+            PlatformTestUtil.waitWithEventsDispatching("Refresh finishes", { job.isCompleted }, 10_000)
+            assertNull(service.cached(snapshot))
+        } finally {
+            gate.complete(Unit)
+            project.service<VersionCheckerSettings>().state.enabled = true
+        }
     }
 
     fun testScheduledRefreshDoesNotInvalidateAnActiveInspectionCheck() {

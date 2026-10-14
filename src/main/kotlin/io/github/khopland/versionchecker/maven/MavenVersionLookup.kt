@@ -10,6 +10,8 @@ import org.jetbrains.idea.maven.project.MavenSettingsCache
 import org.jetbrains.idea.maven.server.MavenGoalExecutionRequest
 import org.jetbrains.idea.maven.server.MavenDistributionsCache
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.platform.util.progress.reportProgressScope
 import com.intellij.psi.PsiManager
@@ -19,7 +21,9 @@ import org.jetbrains.idea.maven.dom.MavenDomUtil
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
+import java.nio.file.Path
 import java.util.Properties
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Let the Maven server handle settings.xml, settings-security.xml, mirrors, proxies and transports. */
 internal object MavenVersionLookup {
@@ -86,7 +90,8 @@ internal object MavenVersionLookup {
                 }
             }
         }
-        // One unsortable artifact aborts the whole goal, so exclude it, rerun, and resolve it from metadata.
+        // One unsortable artifact aborts the whole goal, and Maven may not name it. Exclude every artifact whose
+        // cached version list Maven cannot sort, rerun, and resolve the excluded artifacts from fresh metadata.
         val excluded = linkedSetOf<String>()
         var report: String
         while (true) {
@@ -94,15 +99,49 @@ internal object MavenVersionLookup {
                 report = execute(scan, mode, "display-dependency-updates", DependencyUpdateReport.IGNORED_VERSIONS, excluded)
                 break
             } catch (failure: VersionRetrievalFailure) {
-                if (!excluded.add(failure.artifact)) throw failure
+                if (!excluded.addAll(listOfNotNull(failure.artifact) + unorderable(scan))) throw failure
             }
         }
         val updates = DependencyUpdateReport.parse(report).filter { (dependency, latest) -> MavenVersionSemantics.allows(mode, dependency.version, latest) }
         if (excluded.isEmpty()) return updates
         val repositoryIds = scan.repositories(plugins = false)
-        return updates + scan.inputs[MavenArtifactKind.DEPENDENCY]
-            .filter { "${it.groupId}:${it.artifactId}" in excluded }
-            .mapNotNull { dependency -> MavenRepositoryMetadata.latest(project.localRepositoryPath, dependency, mode, repositoryIds)?.let { dependency to it } }
+        val skipped = scan.inputs[MavenArtifactKind.DEPENDENCY].filter { "${it.groupId}:${it.artifactId}" in excluded }
+        val fresh = freshVersions(scan, skipped)
+        return updates + skipped.mapNotNull { dependency ->
+            val versions = fresh[MavenMetadataKey(dependency.groupId, dependency.artifactId)]
+            val latest = if (versions != null) MavenRepositoryMetadata.latest(versions, dependency.version, mode)
+                else MavenRepositoryMetadata.latest(project.localRepositoryPath, dependency, mode, repositoryIds)
+            latest?.let { dependency to it }
+        }
+    }
+
+    private suspend fun unorderable(scan: Scan): List<String> {
+        val repositoryIds = scan.repositories(plugins = false)
+        return scan.inputs[MavenArtifactKind.DEPENDENCY]
+            .filter { MavenRepositoryMetadata.unorderable(scan.project.localRepositoryPath, it, repositoryIds) }
+            .map { "${it.groupId}:${it.artifactId}" }
+    }
+
+    /** The goal skipped these artifacts, so read their metadata without Maven's version sort instead of trusting the cache. */
+    private suspend fun freshVersions(scan: Scan, dependencies: List<DependencyVersion>): Map<MavenMetadataKey, List<String>> {
+        val keys = dependencies.map { MavenMetadataKey(it.groupId, it.artifactId) }.distinct()
+        val repository = scan.localRepository ?: return emptyMap()
+        if (keys.isEmpty()) return emptyMap()
+        // Only the scan's own embedder runs the helper, so no session identity is needed.
+        val context = MavenResolutionContext("", repository, scan.inputs.properties, scan.profiles,
+            nativeSupported = false, sessionConfiguration = "")
+        val threads = scan.manager.project.service<VersionCheckerSettings>().state.mavenMetadataThreads
+        return try {
+            keys.chunked(128).flatMap { chunk ->
+                MavenNativeMetadata.load(scan.manager, scan.project, context, chunk, threads, scan.embedder)
+                    .mapNotNull { (key, result) -> result.getOrNull()?.let { key to it.versions } }
+            }.toMap()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Exception) {
+            Logger.getInstance(MavenVersionLookup::class.java).debug("Could not refresh metadata for excluded artifacts", failure)
+            emptyMap()
+        }
     }
 
     internal suspend fun effectiveRepositoryIds(manager: MavenProjectsManager, project: MavenProject): Set<String> =
@@ -119,6 +158,7 @@ internal object MavenVersionLookup {
     ) {
         private var pom: org.jdom.Element? = null
         private val repositories = mutableMapOf<Boolean, Set<String>>()
+        var localRepository: Path? = null
 
         suspend fun repositories(plugins: Boolean): Set<String> {
             repositories[plugins]?.let { return it }
@@ -139,6 +179,7 @@ internal object MavenVersionLookup {
         val settings = MavenSettingsCache(scan.manager.project)
         CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SETTINGS) { settings.reloadAsync() }
         val repository = settings.getEffectiveUserLocalRepo()
+        scan.localRepository = repository.toAbsolutePath().normalize()
         for (kind in scan.inputs.kinds) {
             val dependencies = scan.inputs[kind]
             val ids = scan.repositories(plugins = kind == MavenArtifactKind.PLUGIN)
@@ -204,12 +245,15 @@ internal object MavenVersionLookup {
                     )
                 }
             }
+            val details = results.flatMap { it.problems }.mapNotNull { it.description }.joinToString("\n")
+            val message = "Maven could not check ${project.path}" + details.takeIf { it.isNotBlank() }?.let { ":\n$it" }.orEmpty()
             if (results.isEmpty() || results.any { !it.success }) {
-                val details = results.flatMap { it.problems }.mapNotNull { it.description }.joinToString("\n")
-                val message = "Maven could not check ${project.path}" + details.takeIf { it.isNotBlank() }?.let { ":\n$it" }.orEmpty()
-                VersionRetrievalFailure.artifact(details)?.let { throw VersionRetrievalFailure(it, message) }
+                VersionRetrievalFailure.from(details, message)?.let { throw it }
                 throw IOException(message)
             }
+            // IDEA can report the aborted goal as successful with only the sort failure as a problem.
+            // Its missing output file must not be read as "no updates".
+            VersionRetrievalFailure.from(details, message)?.let { throw it }
             // The goal can remove its output file when a successful module has nothing to report.
             // Empty aggregators and up-to-date modules must not abort a reactor-wide update scan.
             val report = try { Files.readString(output) } catch (_: NoSuchFileException) { "" }
@@ -220,10 +264,15 @@ internal object MavenVersionLookup {
     }
 }
 
-/** versions-maven-plugin reports this when the resolver throws while ordering an artifact's versions. */
-internal class VersionRetrievalFailure(val artifact: String, message: String) : IOException(message) {
+/** The resolver threw while ordering versions. Maven names the artifact only when it reports the mojo failure. */
+internal class VersionRetrievalFailure(val artifact: String?, message: String) : IOException(message) {
     companion object {
         private val pattern = Regex("""Unable to retrieve versions for ([^:\s]+):([^:\s]+):""")
+        private const val UNSORTABLE = "Comparison method violates its general contract"
         fun artifact(details: String): String? = pattern.find(details)?.let { "${it.groupValues[1]}:${it.groupValues[2]}" }
+        fun from(details: String, message: String): VersionRetrievalFailure? {
+            val artifact = artifact(details)
+            return if (artifact != null || UNSORTABLE in details) VersionRetrievalFailure(artifact, message) else null
+        }
     }
 }

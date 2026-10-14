@@ -37,6 +37,7 @@ internal data class NpmRuntime(val interpreter: NodeJsLocalInterpreter, val npm:
 
 /** Only npm view is executed. npm owns .npmrc, scopes, credentials, proxies and TLS settings. */
 internal object NpmRegistry {
+    private const val MAX_STDOUT_CHARS = 16 * 1024 * 1024
     suspend fun resolve(project: Project, directory: Path): NpmRuntime = withContext(Dispatchers.IO) {
         CheckPerformance.measure(CheckPerformance.Stage.NPM_RUNTIME_RESOLUTION) {
             val (interpreter, configured) = readAction {
@@ -185,12 +186,27 @@ internal object NpmRegistry {
             val handler = OSProcessHandler(command)
             val result = ProcessOutput()
             handler.addProcessListener(object : ProcessListener {
+                private var stdoutChars = 0
+                private var overflow = false
                 override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
-                    if (outputType == ProcessOutputTypes.STDOUT) result.appendStdout(event.text)
+                    if (outputType != ProcessOutputTypes.STDOUT) return
+                    val exceeded = synchronized(this) {
+                        if (overflow) false else {
+                            val remaining = MAX_STDOUT_CHARS - stdoutChars
+                            result.appendStdout(event.text.take(remaining))
+                            stdoutChars += minOf(event.text.length, remaining)
+                            (event.text.length > remaining).also { if (it) overflow = true }
+                        }
+                    }
+                    if (exceeded) handler.destroyProcess()
                 }
                 override fun processTerminated(event: ProcessEvent) {
                     result.setExitCode(event.exitCode)
-                    if (continuation.isActive) continuation.resume(result)
+                    val exceeded = synchronized(this) { overflow }
+                    if (continuation.isActive) {
+                        if (exceeded) continuation.resumeWith(Result.failure(NpmViewFailure(null, "npm output exceeded 16M character limit")))
+                        else continuation.resume(result)
+                    }
                 }
             })
             continuation.invokeOnCancellation { handler.destroyProcess() }

@@ -4,6 +4,7 @@ import io.github.khopland.versionchecker.CheckPerformance
 import org.jetbrains.idea.maven.buildtool.MavenLogEventHandler
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
+import org.jetbrains.idea.maven.server.MavenEmbedderWrapper
 import org.jetbrains.idea.maven.server.MavenGoalExecutionRequest
 import java.io.ByteArrayInputStream
 import java.io.IOException
@@ -28,7 +29,13 @@ internal object MavenNativeMetadata {
     }
 
     suspend fun load(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
-                     keys: List<MavenMetadataKey>, threads: Int): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
+                     keys: List<MavenMetadataKey>, threads: Int): Map<MavenMetadataKey, Result<MavenMetadataValue>> =
+        load(manager, project, context, keys, threads, null)
+
+    /** Runs on [embedder] when given, for example inside a Versions goal scan that already holds one. */
+    suspend fun load(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
+                     keys: List<MavenMetadataKey>, threads: Int,
+                     embedder: MavenEmbedderWrapper?): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
         require(keys.size <= 512)
         val version = install(context.repository)
         val input = Files.createTempFile("version-checker-metadata-request-", ".properties")
@@ -49,7 +56,7 @@ internal object MavenNativeMetadata {
                 setProperty("versionchecker.threads", threads.coerceIn(1, 4).toString())
             }
             val id = project.mavenId
-            withMavenCheckSession(manager, project, context.sessionConfiguration) { embedder ->
+            suspend fun run(embedder: MavenEmbedderWrapper) {
                 val execution = MavenGoalExecutionRequest(project.file.toNioPath().toFile(), context.profiles,
                     listOf("${id.groupId}:${id.artifactId}"), properties)
                 val stage = if (keys.any { it.version.isNotEmpty() }) CheckPerformance.Stage.MAVEN_PLUGIN_PREREQUISITES else CheckPerformance.Stage.MAVEN_METADATA_BATCH
@@ -60,6 +67,8 @@ internal object MavenNativeMetadata {
                 if (results.isEmpty() || results.any { !it.success }) throw IOException("Maven metadata batch failed:\n" +
                     results.flatMap { it.problems }.mapNotNull { it.description }.joinToString("\n"))
             }
+            if (embedder != null) run(embedder)
+            else withMavenCheckSession(manager, project, context.sessionConfiguration) { run(it) }
             val response = Properties().apply { Files.newInputStream(output).use { load(it) } }
             check(response.getProperty("protocol") == "1" && response.getProperty("count") == keys.size.toString()) {
                 "Invalid Maven metadata response"

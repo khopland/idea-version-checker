@@ -94,6 +94,16 @@ class GradleDeclarationsTest {
     @Test fun malformedCatalogsAreNotEdited() {
         assertTrue(GradleDeclarations.parse("libs.versions.toml", "[libraries]\na='g:a:1.0'\na='g:a:2.0'").isEmpty())
     }
+    @Test fun kotlinDivisionDoesNotHideFollowingDependencies() {
+        val text = """dependencies {
+            val ratio = 8 / 2
+            implementation("g:after-division:1.2.3")
+        }"""
+        val declaration = GradleDeclarations.parse("build.gradle.kts", text).single()
+        assertEquals("after-division", declaration.declaration.artifact.name)
+        assertEquals("1.2.3", declaration.range!!.substring(text))
+        assertNull(declaration.reason)
+    }
     @Test fun groovySlashyStringsAndNestedCommentsAreNotDeclarations() {
         val text = """
             dependencies {

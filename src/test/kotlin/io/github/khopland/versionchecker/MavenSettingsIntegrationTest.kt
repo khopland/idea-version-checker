@@ -668,6 +668,89 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         }
     }
 
+    fun testUnsortableVersionListsStillReportEveryUpdate() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-unsortable-integration-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val published = AtomicReference("2.5.17")
+        val authorization = "Basic " + Base64.getEncoder().encodeToString("fixture:password".toByteArray())
+        // With a locally installed 0-SNAPSHOT, Maven Resolver's sort throws on these branch snapshots.
+        val branches = listOf("a", "b", "c", "d", "e").map { "bugfix_$it-SNAPSHOT" } + "feature_f-SNAPSHOT"
+        val releases = (0..41).map { "2.4.$it" } + (0..17).map { "2.5.$it" }
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { exchange ->
+            try {
+                if (exchange.requestHeaders.getFirst("Authorization") != authorization) {
+                    exchange.responseHeaders.add("WWW-Authenticate", "Basic realm=fixture")
+                    exchange.sendResponseHeaders(401, -1)
+                } else if (exchange.requestURI.path.endsWith("/maven-metadata.xml")) {
+                    val artifact = exchange.requestURI.path.substringBeforeLast('/').substringAfterLast('/')
+                    val versions = if (artifact == "ordinary") listOf("1.0", "1.1")
+                        else branches + releases + listOf(published.get()).filter { it !in releases }
+                    val body = """<metadata><groupId>example.unsortable</groupId><artifactId>$artifact</artifactId><versioning>
+                        <versions>${versions.joinToString("") { "<version>$it</version>" }}</versions>
+                        <lastUpdated>20261014000000</lastUpdated></versioning></metadata>""".toByteArray()
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.write(body)
+                } else exchange.sendResponseHeaders(404, -1)
+            } finally { exchange.close() }
+        }
+        server.start()
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
+        val previousSettings = manager.generalSettings.userSettingsFile
+        val repository = Path.of(System.getProperty("user.home"), ".m2", "repository")
+        val installed = repository.resolve("example/unsortable")
+        try {
+            val settings = directory.resolve("settings.xml")
+            Files.writeString(settings, """<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+                <localRepository>$repository</localRepository>
+                <servers><server><id>unsortable-mirror</id><username>fixture</username><password>password</password></server></servers>
+                <mirrors><mirror><id>unsortable-mirror</id><mirrorOf>unsortable-source</mirrorOf><url>http://127.0.0.1:${server.address.port}/</url></mirror></mirrors>
+                <profiles><profile><id>unsortable-repositories</id><repositories>
+                  <repository><id>central</id><url>https://repo.maven.apache.org/maven2</url><releases><enabled>false</enabled></releases></repository>
+                  <repository><id>unsortable-source</id><url>http://127.0.0.1:1/unmirrored</url><releases><updatePolicy>always</updatePolicy></releases></repository>
+                </repositories></profile></profiles><activeProfiles><activeProfile>unsortable-repositories</activeProfile></activeProfiles></settings>""")
+            manager.generalSettings.setUserSettingsFile(settings.toString())
+            val ordinary = DependencyVersion("example.unsortable", "ordinary", "1.0")
+            val unsortable = (1..3).map { DependencyVersion("example.unsortable", "lib-$it", "2.5.10") }
+            for (dependency in unsortable) {
+                Files.writeString(Files.createDirectories(installed.resolve(dependency.artifactId)).resolve("maven-metadata-local.xml"),
+                    "<metadata><versioning><versions><version>0-SNAPSHOT</version></versions></versioning></metadata>")
+            }
+            val pom = directory.resolve("pom.xml")
+            Files.writeString(pom, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                <groupId>example.unsortable</groupId><artifactId>app</artifactId><version>1</version><packaging>pom</packaging>
+                <dependencyManagement><dependencies>${(listOf(ordinary) + unsortable).joinToString("") {
+                    "<dependency><groupId>${it.groupId}</groupId><artifactId>${it.artifactId}</artifactId><version>${it.version}</version></dependency>"
+                }}</dependencies></dependencyManagement></project>""")
+            val pomFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!
+            val app = MavenProject(pomFile).apply {
+                updateState(MavenModel().apply { mavenId = MavenId("example.unsortable", "app", "1") }, emptyList(),
+                    "21", emptyList(), MavenExplicitProfiles.NONE, emptySet(), emptyMap(), repository, false)
+            }
+            manager.projectsTree.putVirtualFileToProjectMapping(app, app.mavenId)
+            fun check() = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { MavenVersionLookup.check(manager, app) }
+            }), 180_000)
+
+            // IDEA reports the aborted goal as successful; an empty result would hide every update.
+            assertEquals(mapOf(ordinary to "1.1") + unsortable.associateWith { "2.5.17" }, check())
+
+            // Skipped artifacts must come from freshly read metadata, not files cached before the failure.
+            published.set("2.6.0")
+            assertEquals(mapOf(ordinary to "1.1") + unsortable.associateWith { "2.6.0" }, check())
+        } finally {
+            manager.projectsTree.setIgnoredState(manager.projects, true)
+            manager.embeddersManager.reset()
+            manager.generalSettings.setUserSettingsFile(previousSettings)
+            server.stop(0)
+            installed.toFile().deleteRecursively()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testDemoGlobalActionsAcrossNestedModules() {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
         val directory = Files.createTempDirectory("version-checker-demo-integration-")

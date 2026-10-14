@@ -47,7 +47,7 @@ internal object GradleDeclarations {
     )
     private val platformWrappers = setOf("platform", "enforcedPlatform")
     private data class Token(val text: String, val start: Int, val string: Boolean = false)
-    private fun tokens(text: String): List<Token> {
+    private fun tokens(text: String, groovy: Boolean): List<Token> {
         val result = mutableListOf<Token>()
         var i = 0
         while (i < text.length) {
@@ -72,7 +72,7 @@ internal object GradleDeclarations {
                     }
                     i = (i + 2).coerceAtMost(text.length)
                 }
-                text[i] == '/' -> {
+                groovy && text[i] == '/' -> {
                     // Conservatively skip Groovy slashy strings; arithmetic may suppress discovery.
                     i++
                     while (i < text.length && text[i] != '/') { if (text[i] == '\\') i++; i++ }
@@ -100,7 +100,7 @@ internal object GradleDeclarations {
         if (file.endsWith(".toml")) catalog(file, text) else script(file, text)
 
     private fun script(file: String, text: String): List<GradleDeclaration> {
-        val tokens = tokens(text)
+        val tokens = tokens(text, !file.endsWith(".gradle.kts"))
         val blocks = mutableListOf<String>()
         val result = mutableListOf<GradleDeclaration>()
         for ((index, token) in tokens.withIndex()) {

@@ -50,6 +50,20 @@ class NpmExternalInputCaptureTest : BasePlatformTestCase() {
     private fun file(name: String = "first") = LocalFileSystem.getInstance().findFileByNioFile(directory.resolve("$name/package.json"))!!
     private fun report(snapshot: BuildSnapshot) = UpdateReport(snapshot.declarations.map { UpdateCandidate(it, "1.2.9", "^1.2.9") })
 
+    fun testNpmUserConfigPathsUseHomeAndResolveOverridesFromCommandDirectory() {
+        val home = directory.resolve("custom-home")
+        val root = directory.resolve("first")
+        val paths = NpmBuildInputs.userConfigurationPaths(mapOf(
+            "HOME" to home.toString(), "NPM_CONFIG_USERCONFIG" to "config/local.npmrc",
+            "npm_config_globalconfig" to directory.resolve("global.npmrc").toString()), root)
+        assertFalse(home.resolve(".npmrc") in paths) // Explicit userconfig replaces npm's default.
+        assertTrue(home.resolve(".npmrc") in NpmBuildInputs.userConfigurationPaths(mapOf("HOME" to home.toString()), root))
+        assertTrue(root.resolve("config/local.npmrc") in paths)
+        assertTrue(directory.resolve("global.npmrc") in paths)
+        assertFalse(Path.of(System.getProperty("user.home"), ".npmrc") in paths)
+        assertTrue(root.resolve("~/.npmrc") in NpmBuildInputs.userConfigurationPaths(mapOf("HOME" to ""), root))
+    }
+
     fun testDiscoveryContextValidationAndPreviewShareDiskReadsOutsideReadLocks() {
         val reads = mutableListOf<Path>()
         val readBytes: (Path) -> ByteArray = { path ->

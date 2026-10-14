@@ -15,10 +15,11 @@ import java.util.Properties
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
-/** Fallback when Maven's resolver cannot sort a version list; Maven has already refreshed this metadata. */
+/** Fallback when Maven's resolver cannot sort a version list. */
 internal object MavenRepositoryMetadata {
     private val unstable = Regex(DependencyUpdateReport.IGNORED_VERSIONS)
     private val remoteMetadata = Regex("""maven-metadata-(.+)\.xml""")
+    private val zeroVersion = Regex("""0+(?:\.0+)*(?:[-_].*)?""")
 
     /** IDEA's executeGoal does not pass -U to its execution request. Expire just the requested
      * repositories' metadata update timestamps; Maven retains and refreshes the XML itself. */
@@ -57,16 +58,36 @@ internal object MavenRepositoryMetadata {
     }
 
     fun latest(repository: Path, dependency: DependencyVersion, mode: UpdateMode, repositoryIds: Set<String>): String? {
+        val files = metadataFiles(repository, dependency, repositoryIds, includeLocal = false) ?: return null
+        return latest(files.flatMap { versions(JDOMUtil.load(it)) }, dependency.version, mode)
+    }
+
+    /** Whether Maven's resolver would fail to sort the cached versions Maven merges for [dependency]. */
+    fun unorderable(repository: Path, dependency: DependencyVersion, repositoryIds: Set<String>): Boolean {
+        val files = metadataFiles(repository, dependency, repositoryIds, includeLocal = true) ?: return false
+        return unorderable(files.flatMap { file -> try { versions(JDOMUtil.load(file)) } catch (_: Exception) { emptyList() } })
+    }
+
+    /**
+     * Maven Resolver orders an all-zero version such as a locally installed `0-SNAPSHOT` equal to every
+     * letter-led version, while letter-led versions such as `bugfix_A-SNAPSHOT` and `feature_B-SNAPSHOT`
+     * differ from each other. That breaks the sort contract, so the Versions goal aborts on such a list.
+     */
+    fun unorderable(versions: Collection<String>): Boolean = versions.any(zeroVersion::matches) &&
+        versions.filter { it.firstOrNull()?.isLetter() == true }.distinctBy { it.lowercase() }.size >= 2
+
+    private fun metadataFiles(repository: Path, dependency: DependencyVersion, repositoryIds: Set<String>,
+                              includeLocal: Boolean): List<Path>? {
         val root = repository.toAbsolutePath().normalize()
         val directory = root.resolve(dependency.groupId.replace('.', '/')).resolve(dependency.artifactId).normalize()
         if (!directory.startsWith(root) || !Files.isDirectory(directory)) return null
-        val files = Files.list(directory).use { paths ->
+        return Files.list(directory).use { paths ->
             paths.filter { path ->
                 val name = path.fileName.toString()
-                name != "maven-metadata-local.xml" && remoteMetadata.matchEntire(name)?.groupValues?.get(1) in repositoryIds
+                if (name == "maven-metadata-local.xml") includeLocal
+                else remoteMetadata.matchEntire(name)?.groupValues?.get(1) in repositoryIds
             }.toList()
         }
-        return latest(files.flatMap { versions(JDOMUtil.load(it)) }, dependency.version, mode)
     }
 
     /** Maven has already merged POM inheritance and active settings profiles into this model. */
