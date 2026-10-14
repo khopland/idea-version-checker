@@ -51,6 +51,30 @@ class GradleExternalInputCaptureTest : BasePlatformTestCase() {
 
     private fun report(snapshot: BuildSnapshot) = UpdateReport(snapshot.declarations.map { UpdateCandidate(it, "1.2.9") })
 
+    fun testPhysicalBuildLogicAdditionWithoutVfsRefreshRejectsHeldEdits() = withHome {
+        val root = Files.createTempDirectory("version-checker-buildlogic-addition-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, root.toString())
+        val build = root.resolve("build.gradle")
+        val original = "dependencies { implementation 'g:library:1.2.3' }"
+        Files.writeString(build, original)
+        val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(build)!!
+        val settings = GradleSettings.getInstance(project)
+        settings.linkProject(GradleProjectSettings().apply { externalProjectPath = root.toString() })
+        try {
+            val adapter = GradleBuildSystemAdapter()
+            val snapshot = background { adapter.discover(project, BuildSelection(UpdateScope.CURRENT_FILE, file.path)) }.single()
+            val held = background { adapter.prepareUpdates(project, mapOf(snapshot to report(snapshot))) }
+            val policy = Files.createDirectories(root.resolve("buildSrc/src/main/resources")).resolve("policy.properties")
+            Files.writeString(policy, "rejectTarget=true")
+            assertNull("The new source must remain absent from VFS for this regression", file.parent.findChild("buildSrc"))
+            assertFalse("New physical build logic must reject a held edit before VFS refresh", held.apply(project))
+            assertEquals(original, Files.readString(build))
+        } finally {
+            settings.unlinkExternalProject(root.toString())
+            root.toFile().deleteRecursively()
+        }
+    }
+
     fun testPhysicalBuildFileChangesWithoutVfsRefreshRejectHeldEdits() = withHome {
         val root = Files.createTempDirectory("version-checker-gradle-source-race-").toRealPath()
         VfsRootAccess.allowRootAccess(testRootDisposable, root.toString())

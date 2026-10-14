@@ -13,6 +13,9 @@ import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.FileVisitResult
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.HexFormat
@@ -60,12 +63,50 @@ internal class GradleBuildSystemAdapter(
             directories.any { directory -> find(project, directory)?.let { VfsUtilCore.isAncestor(it, file, false) } == true }
         }
     }
-    private fun files(project: Project, root: String): List<VirtualFile> {
+    private val includedBuild = Regex("""\bincludeBuild\s*(?:\(\s*)?(["'])([^"'\r\n$]+)\1(?=[ \t]*(?:[){;}]|\r?$))""", RegexOption.MULTILINE)
+    private fun scriptText(file: VirtualFile): String = FileDocumentManager.getInstance().getCachedDocument(file)?.text
+        ?: String(file.contentsToByteArray(), Charsets.UTF_8)
+
+    private fun inputDirectories(project: Project, root: String): Pair<List<String>, Set<String>> {
         val settings = GradleSettings.getInstance(project).getLinkedProjectSettings(root)
-        val directories = (listOf(root) + settings?.modules.orEmpty().sorted()).distinct()
-        return project.service<GradleProjectCache>().files(root, directories) { discoverFiles(project, directories) }
+        val directories = (listOf(root) + settings?.modules.orEmpty().sorted()).distinct().toMutableList()
+        val logicDirectories = mutableSetOf<String>()
+        // Settings scripts name included builds, including unlinked siblings. Inspect the
+        // current editor text so an unsaved include change cannot reuse the old inventory.
+        var index = 0
+        val visited = mutableSetOf<String>()
+        while (index < directories.size) {
+            val directory = directories[index++]
+            val canonical = find(project, directory)?.canonicalPath ?: directory
+            if (!visited.add(canonical)) continue
+            find(project, directory)?.findChild("buildSrc")?.takeIf { it.isDirectory }?.let { buildSrc ->
+                logicDirectories += buildSrc.path
+                val canonicalBuildSrc = buildSrc.canonicalPath ?: buildSrc.path
+                if (directories.none { (find(project, it)?.canonicalPath ?: it) == canonicalBuildSrc }) directories += buildSrc.path
+            }
+            for (name in listOf("settings.gradle", "settings.gradle.kts")) {
+                val script = find(project, directory)?.findChild(name) ?: continue
+                for (match in includedBuild.findAll(scriptText(script))) {
+                    val path = Path.of(directory).resolve(match.groupValues[2]).normalize().toString()
+                    if (find(project, path) != null) {
+                        logicDirectories += path
+                        val canonicalPath = find(project, path)?.canonicalPath ?: path
+                        if (directories.none { (find(project, it)?.canonicalPath ?: it) == canonicalPath }) directories += path
+                    }
+                }
+            }
+        }
+        // Gradle imports included builds as additional modules. Outside modules are
+        // executable build inputs, so conservatively capture their source/resources too.
+        logicDirectories += directories.filter { !Path.of(it).normalize().startsWith(Path.of(root).normalize()) }
+        return directories to logicDirectories
     }
-    private fun discoverFiles(project: Project, directories: List<String>): List<VirtualFile> {
+    private fun files(project: Project, root: String): List<VirtualFile> {
+        val (directories, logicDirectories) = inputDirectories(project, root)
+        val key = directories + logicDirectories.sorted().map { "build-logic:$it" }
+        return project.service<GradleProjectCache>().files(root, key) { discoverFiles(project, directories, logicDirectories) }
+    }
+    private fun discoverFiles(project: Project, directories: List<String>, logicDirectories: Set<String>): List<VirtualFile> {
         val result = mutableSetOf<VirtualFile>()
         // Imported module paths can use a canonical location while the linked root uses
         // a symlink (for example /tmp and /private/tmp on macOS). Keep the user's root
@@ -77,12 +118,19 @@ internal class GradleBuildSystemAdapter(
             parent != candidate && locations.getValue(candidate).startsWith(locations.getValue(parent).trimEnd('/') + "/")
         } }) {
             VfsUtilCore.iterateChildrenRecursively(file, { it.name !in excluded }) {
-                if (!it.isDirectory && (it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") || it.name.endsWith(".toml") || it.name in setOf("gradle.properties", "gradle-wrapper.properties", "gradle-wrapper.jar", "gradlew", "gradlew.bat", "gradle.lockfile") || it.path.contains("/gradle/dependency-locks/") || it.name == "verification-metadata.xml")) result += it
+                val buildLogic = generateSequence(it.parent) { parent -> parent.parent }.takeWhile { parent ->
+                    VfsUtilCore.isAncestor(file, parent, false)
+                }.any { parent -> parent.name == "buildSrc" || parent.path in logicDirectories }
+                if (!it.isDirectory && (buildLogic || configurationInput(it.name, it.path))) result += it
                 true
             }
         }
         return result.distinctBy { it.canonicalPath ?: it.path }
     }
+    private fun configurationInput(name: String, path: String) = name.endsWith(".gradle") || name.endsWith(".gradle.kts") ||
+        name.endsWith(".toml") || name in setOf("gradle.properties", "gradle-wrapper.properties", "gradle-wrapper.jar", "gradlew", "gradlew.bat", "gradle.lockfile", "verification-metadata.xml") ||
+        path.contains("/gradle/dependency-locks/")
+
     private fun find(project: Project, path: String): VirtualFile? = LocalFileSystem.getInstance().findFileByPath(path)
         ?: ProjectRootManager.getInstance(project).contentRoots.firstNotNullOfOrNull { it.fileSystem.findFileByPath(path) }
     override fun supports(project: Project, selection: BuildSelection): Boolean = when (selection.scope) {
@@ -240,9 +288,36 @@ internal class GradleBuildSystemAdapter(
                 project.service<GradleProjectCache>().savedHashes(root, files(project, root)).entries
             }.filter { it.key.fileSystem.protocol == "file" }.associate { it.key to it.value }
         }
+        val inventories = readAction {
+            snapshots.map { it.context.root }.distinct().map { inputDirectories(project, it) }
+        }
         val diskCurrent = withContext(Dispatchers.IO) {
             val context = currentCoroutineContext()
-            saved.all { (file, expected) ->
+            val knownPaths = saved.keys.map { Path.of(it.canonicalPath ?: it.path).normalize() }.toSet()
+            var inventoryCurrent = true
+            // Detect added inputs even before the IDE refreshes its VFS. Prune generated
+            // directories instead of walking Gradle caches or application build output.
+            for ((directories, logicDirectories) in inventories) for (directory in directories) {
+                val base = Path.of(directory).normalize()
+                if (!Files.isDirectory(base)) continue
+                Files.walkFileTree(base, object : SimpleFileVisitor<Path>() {
+                    override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                        context.ensureActive()
+                        return if (dir != base && dir.fileName.toString() in excluded) FileVisitResult.SKIP_SUBTREE else FileVisitResult.CONTINUE
+                    }
+                    override fun visitFile(path: Path, attrs: BasicFileAttributes): FileVisitResult {
+                        context.ensureActive()
+                        val buildLogic = logicDirectories.any { path.startsWith(Path.of(it).normalize()) } ||
+                            base.relativize(path).any { it.toString() == "buildSrc" }
+                        if ((buildLogic || configurationInput(path.fileName.toString(), path.toString())) && path.toRealPath() !in knownPaths) {
+                            inventoryCurrent = false
+                            return FileVisitResult.TERMINATE
+                        }
+                        return FileVisitResult.CONTINUE
+                    }
+                })
+            }
+            inventoryCurrent && saved.all { (file, expected) ->
                 context.ensureActive()
                 val digest = MessageDigest.getInstance("SHA-256")
                 try {
@@ -261,7 +336,8 @@ internal class GradleBuildSystemAdapter(
         }
         return withExternalInputs(project) { external ->
             val home = externalHome(project)
-            val guard = { diskCurrent && !project.isDisposed && externalHome(project) == home && areCurrent(project, snapshots, external) }
+            val guard = { diskCurrent && !project.isDisposed && externalHome(project) == home &&
+                snapshots.all { inputCoverageLimitation(project, it.context.root) == null } && areCurrent(project, snapshots, external) }
             guard
         }
     }
@@ -285,6 +361,12 @@ internal class GradleBuildSystemAdapter(
         files.mapNotNull { snapshot(project, it, fingerprints, unsaved, inspectionFingerprints = inspectionFingerprints, externalHashes = external) }
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
+        val limitation = readAction { inputCoverageLimitation(project, snapshot.context.root) }
+        if (limitation != null) return UpdateReport(emptyList(), snapshot.declarations.map {
+            UpdateNotice(it, NoticeKind.MANUAL_REVIEW, limitation)
+        }, coverage = snapshot.declarations.associate {
+            it.id to DeclarationCoverage(DeclarationOutcome.MANUAL_REVIEW, limitation)
+        } + snapshot.skippedCoverage())
         val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }
         val checked = GradleVersionLookup.check(project, snapshot.copy(declarations = snapshot.declarations.filter { "${it.artifact.namespace}:${it.artifact.name}" !in policy }), mode)
         val results = checked.results
@@ -314,10 +396,39 @@ internal class GradleBuildSystemAdapter(
                 }
             } + snapshot.skippedCoverage())
     }
+    /** Arbitrary executable Gradle can load inputs we cannot infer statically. */
+    private fun inputCoverageLimitation(project: Project, root: String): String? {
+        for (file in files(project, root).filter { it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") }) {
+            val text = scriptText(file).lineSequence().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+            if (includedBuild.findAll(text).any { match ->
+                    find(project, Path.of(file.parent.path).resolve(match.groupValues[2]).normalize().toString()) == null
+                }) return "Included build inputs are unavailable; Gradle input coverage is limited."
+            if (Regex("""\bincludeBuild\b""").findAll(text).count() != includedBuild.findAll(text).count())
+                return "Computed included build paths need manual review; Gradle input coverage is limited."
+            // External/dynamic applied scripts have no imported input inventory. Keep
+            // results reviewable until a fresh check and explicit source review occur.
+            val applied = Regex("""\bapply\s*(?:\(\s*)?from\s*[:=]\s*(["'])([^"']+)\1(?=[ \t]*(?:[);}]|\r?$))""", RegexOption.MULTILINE)
+            for (match in applied.findAll(text)) {
+                val path = match.groupValues[2]
+                val resolved = runCatching { Path.of(file.parent.path).resolve(path).normalize() }.getOrNull()
+                if ('$' in path || resolved == null || !resolved.startsWith(Path.of(root).normalize()) ||
+                    find(project, resolved.toString()) !in files(project, root))
+                    return "External applied scripts need manual review; Gradle input coverage is limited."
+            }
+            if (Regex("""\bapply\s*(?:\(\s*)?from\s*[:=]""").findAll(text).count() != applied.findAll(text).count())
+                return "Computed applied script paths need manual review; Gradle input coverage is limited."
+        }
+        return null
+    }
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = withExternalInputs(project) { external ->
         check(areCurrent(project, reports.keys, external)) { "Gradle build files or settings changed. Run the check again." }
         val edits = mutableListOf<VersionEdit>(); val skipped = mutableListOf<String>()
         for ((snapshot, report) in reports) {
+            val limitation = inputCoverageLimitation(project, snapshot.context.root)
+            if (limitation != null) {
+                skipped += "${snapshot.sourceFile}: $limitation"
+                continue
+            }
             val psi = find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")
             val original = psi.text
             val declarations = GradleDeclarations.parse(snapshot.sourceFile, original)
