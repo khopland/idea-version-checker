@@ -175,7 +175,9 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
                     (if (component is com.intellij.ui.components.JBCheckBox) listOf(component) else emptyList()) +
                         (if (component is java.awt.Container) boxes(component) else emptyList())
                 }
-            val enabled = boxes(panel as java.awt.Container).single { "Check for newer dependency" in it.text }
+            val enabled = boxes(panel as java.awt.Container).single { it.name == "versionChecker.enabled" }
+            // Behavior checks should keep working when the visible settings wording changes.
+            enabled.text = "Check dependencies"
             service.updates(adapter, snapshot)
             PlatformTestUtil.waitWithEventsDispatching("Inspection starts", { adapter.checked.size == 1 }, 10_000)
             enabled.isSelected = false

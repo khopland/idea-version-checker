@@ -60,7 +60,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     private var persistentMaven: JBCheckBox? = null
     override fun getDisplayName(): String = "Version Checker"
     override fun createComponent(): JComponent {
-        enabled = JBCheckBox("Enable version checks")
+        enabled = JBCheckBox("Enable version checks").apply { name = "versionChecker.enabled" }
         val form = FormBuilder.createFormBuilder().addComponent(enabled!!)
         scheduled = JBCheckBox("Refresh periodically")
         scheduled!!.toolTipText = "Check repositories while this project is open. Dependency versions are never changed automatically."
