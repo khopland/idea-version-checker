@@ -6,11 +6,16 @@
 
 ### Changed
 
+- Gradle metadata checks use a packaged probe script with JSON configuration and a versioned response, preserving native ownership and target validation.
+
 ### Fixed
 
 - npm updates require manual review when root overrides could conflict with a changed dependency, including workspace consumers and cross-referenced specifications. Safe root `$dependency` references remain intact.
 - Gradle update validation tracks buildSrc sources and resources and literal included builds. Changed or added build logic rejects held edits; computed included-build paths and untracked applied scripts require manual review.
 - Malformed typed Gradle catalog entries no longer suppress valid siblings. Invalid entries and uncertain shared-version owners remain noneditable.
+- npm and Gradle folder exclusions respect selected project roots, so an enclosing or imported root named build or vendor no longer hides legitimate declarations. Generated descendants remain excluded.
+- Gradle classifier, extension and common map declarations appear under Needs review instead of disappearing from coverage.
+- Gradle update severity classification handles numeric version components larger than a 32-bit integer consistently with version ordering.
 
 ## [1.3.0] - 2026-10-12
 
