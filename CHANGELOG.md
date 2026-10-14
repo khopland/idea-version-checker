@@ -77,6 +77,7 @@
 - Maven version diagnostics also highlight local properties and child overrides used by parent dependency/plugin declarations, even without a child dependency declaration. Property fixes edit the child override and require compatible updates across its consumers.
 - Stale Maven, npm and Gradle quick fixes explain rejected edits and offer **Refresh This File**, preserving changed text and atomic workspace/catalog edits. Repeated rejection messages are grouped by file, and recovery actions respect disabled checks.
 - Keep Maven, npm and Gradle warnings for unchanged packages and other build files visible while rechecking after a version edit, so additional updates remain available immediately. Gradle inspections also retain actionable warnings during unsaved version edits while native checks wait for save.
+- Maven checks no longer report "no updates" when the resolver cannot order an artifact's versions (for example a locally installed `0-SNAPSHOT` next to branch-named snapshots) and IDEA reports the aborted Versions goal as successful. Every affected artifact is excluded after the first failure, so the goal reruns once instead of once per artifact, and the excluded artifacts are resolved from freshly read repository metadata.
 
 ## [1.2.0] - 2026-10-09
 

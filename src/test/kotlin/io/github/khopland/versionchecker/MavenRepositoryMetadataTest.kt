@@ -104,12 +104,43 @@ class MavenRepositoryMetadataTest {
         assertEquals(listOf("1.0", "2.0"), MavenRepositoryMetadata.versions(JDOMUtil.load(xml)))
     }
 
+    @Test fun `detects version lists Maven Resolver cannot sort`() {
+        val branches = listOf("2.5.17", "bugfix_SPAP_51104_update-SNAPSHOT", "feature_jackson_3-SNAPSHOT")
+        assertTrue(MavenRepositoryMetadata.unorderable(branches + "0-SNAPSHOT"))
+        assertTrue(MavenRepositoryMetadata.unorderable(branches + "0.0.0"))
+        assertFalse(MavenRepositoryMetadata.unorderable(branches))
+        assertFalse(MavenRepositoryMetadata.unorderable(listOf("0-SNAPSHOT", "2.5.17", "feature_jackson_3-SNAPSHOT")))
+        assertFalse(MavenRepositoryMetadata.unorderable(listOf("0-SNAPSHOT", "feature_A-SNAPSHOT", "FEATURE_a-snapshot")))
+        assertFalse(MavenRepositoryMetadata.unorderable(listOf("0.1", "r03", "r05")))
+    }
+
+    @Test fun `unsortable check merges active remote and local metadata`() {
+        val root = temp.root.toPath()
+        val directory = Files.createDirectories(root.resolve("no/example/felles/infrastructure-api-ats"))
+        Files.writeString(directory.resolve("maven-metadata-nexus.xml"),
+            metadata("5.40.0", "bugfix_SPAP_51104_update-SNAPSHOT", "feature_jackson_3-SNAPSHOT"))
+        Files.writeString(directory.resolve("maven-metadata-old-broken.xml"), "not xml")
+        assertFalse(MavenRepositoryMetadata.unorderable(root, dependency, setOf("nexus", "old-broken")))
+        Files.writeString(directory.resolve("maven-metadata-local.xml"), metadata("0-SNAPSHOT"))
+        assertTrue(MavenRepositoryMetadata.unorderable(root, dependency, setOf("nexus", "old-broken")))
+        assertFalse(MavenRepositoryMetadata.unorderable(root, dependency, setOf("central")))
+        assertFalse(MavenRepositoryMetadata.unorderable(root, DependencyVersion("no.example", "missing", "1.0"), setOf("nexus")))
+    }
+
     @Test fun `extracts the artifact Maven could not order`() {
         val details = "Failed to execute goal org.codehaus.mojo:versions-maven-plugin:2.21.0:display-dependency-updates " +
             "(default-cli) on project app: Unable to retrieve versions for no.example.felles:infrastructure-api-ats:jar:5.40.0:compile"
         assertEquals("no.example.felles:infrastructure-api-ats", VersionRetrievalFailure.artifact(details))
         assertEquals("g:a", VersionRetrievalFailure.artifact("Unable to retrieve versions for g:a:jar:\${infra.version}"))
         assertNull(VersionRetrievalFailure.artifact("Could not transfer metadata g:a/maven-metadata.xml"))
+    }
+
+    @Test fun `recognizes sort failures that IDEA reports without the artifact`() {
+        val unnamed = VersionRetrievalFailure.from("Comparison method violates its general contract!", "message")!!
+        assertNull(unnamed.artifact)
+        assertEquals("g:a", VersionRetrievalFailure.from("Unable to retrieve versions for g:a:jar:1.0", "message")!!.artifact)
+        assertNull(VersionRetrievalFailure.from("Could not transfer metadata g:a/maven-metadata.xml", "message"))
+        assertNull(VersionRetrievalFailure.from("", "message"))
     }
 
     private fun metadata(vararg versions: String) =
