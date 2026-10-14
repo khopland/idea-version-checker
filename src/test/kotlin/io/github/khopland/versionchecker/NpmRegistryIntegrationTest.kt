@@ -42,6 +42,35 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Opt-in: real IntelliJ-selected Node/npm, with an authenticated local registry and no installs. */
 class NpmRegistryIntegrationTest : BasePlatformTestCase() {
+    fun testNativeNpmRejectsChangedCrossReferencedDirectOverride() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
+        val npm = PathEnvironmentVariableUtil.findInPath("npm")!!.toPath().toRealPath()
+        val directory = Files.createTempDirectory("version-checker-npm-override-")
+        try {
+            fun validate(beta: String): String {
+                val dollar = '$'
+                Files.writeString(directory.resolve("package.json"), """{
+                    "dependencies":{"version-checker-override-alpha":"1.2.3","version-checker-override-beta":"$beta"},
+                    "overrides":{"version-checker-override-alpha":{".":"${dollar}version-checker-override-beta"}}
+                }""")
+                val process = ProcessBuilder(npm.toString(), "install", "--package-lock-only", "--ignore-scripts", "--offline",
+                    "--no-audit", "--no-fund", "--cache", directory.resolve("cache").toString())
+                    .directory(directory.toFile()).redirectErrorStream(true).start()
+                try {
+                    assertTrue("Offline npm validation timed out", process.waitFor(30, TimeUnit.SECONDS))
+                    return process.inputStream.bufferedReader().readText()
+                } finally { process.destroyForcibly() }
+            }
+            // The baseline reaches offline dependency lookup. The changed spec fails earlier,
+            // at npm's override validation, without downloads or lifecycle script execution.
+            val baseline = validate("1.2.3")
+            assertFalse(baseline, baseline.contains("EOVERRIDE"))
+            assertTrue(baseline, baseline.contains("ENOTCACHED"))
+            val changed = validate("1.2.9")
+            assertTrue(changed, changed.contains("EOVERRIDE"))
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
     fun testFastNativeRegistryHintsAppearWhileAnotherResponseIsBlocked() {
         if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
         val node = PathEnvironmentVariableUtil.findInPath("node")!!.toPath().toRealPath()

@@ -13,6 +13,22 @@ class NpmVersionCheckTest {
     private fun declaration(name: String, selector: String = "^1.0.0", location: String = name) = VersionDeclaration(
         DeclarationId("package.json", location), ArtifactId("npm", name), selector, "1.0.0")
 
+    @Test fun `override conflicts publish manual review and do not query metadata`() = runBlocking {
+        val blocked = declaration("alpha")
+        val ordinary = declaration("beta")
+        val updates = mutableListOf<InspectionUpdate>()
+        val report = checkNpmVersions(listOf(blocked, ordinary), UpdateMode.PATCH, emptyMap(), Semaphore(4),
+            metadata = { name ->
+                assertEquals("beta", name)
+                NpmPackageMetadata(listOf("1.0.0", "1.0.1"), emptyMap())
+            }, deprecated = { _, _ -> error("Unexpected deprecation query") },
+            reviewReasons = mapOf(blocked.id to "Review npm root overrides"), publish = { updates += it })
+        assertEquals(listOf(ordinary.id), report.candidates.map { it.declaration.id })
+        assertEquals(DeclarationOutcome.MANUAL_REVIEW, report.coverage!![blocked.id]!!.outcome)
+        assertEquals("Review npm root overrides", report.coverage!![blocked.id]!!.reason)
+        assertTrue(updates.any { it.report.coverage?.get(blocked.id)?.outcome == DeclarationOutcome.MANUAL_REVIEW })
+    }
+
     @Test fun `independent packages run concurrently with at most four active queries`() = runBlocking {
         val gate = CompletableDeferred<Unit>()
         val fourStarted = CompletableDeferred<Unit>()
