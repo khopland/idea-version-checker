@@ -267,15 +267,16 @@ class GradleAdapterTest : BasePlatformTestCase() {
         val snapshot = adapter.snapshot(project, file.virtualFile)!!
         val cache = project.service<GradleProjectCache>()
         val root = snapshot.context.root
-        val files = cache.files(root, listOf(root)) { error("Warm discovery traversed the directory again") }
+        val directories = GradleInputDirectories(listOf(root), emptySet())
+        val files = cache.inventory(root, directories) { error("Warm discovery traversed the directory again") }.files
         val hashes = cache.hashes(root, files)
-        assertSame(files, cache.files(root, listOf(root)) { error("Warm discovery was not reused") })
+        assertSame(files, cache.inventory(root, directories) { error("Warm discovery was not reused") }.files)
         assertSame(hashes, cache.hashes(root, files))
         assertEquals(snapshot, adapter.snapshot(project, file.virtualFile))
         WriteCommandAction.runWriteCommandAction(project) {
             FileDocumentManager.getInstance().getDocument(source.virtualFile)!!.setText("changed")
         }
-        assertSame(files, cache.files(root, listOf(root)) { error("A content edit triggered rediscovery") })
+        assertSame(files, cache.inventory(root, directories) { error("A content edit triggered rediscovery") }.files)
         assertTrue(adapter.isCurrent(project, snapshot))
         assertEquals(snapshot, adapter.snapshot(project, file.virtualFile))
     }

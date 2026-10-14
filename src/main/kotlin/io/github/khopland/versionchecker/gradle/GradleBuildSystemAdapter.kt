@@ -13,12 +13,6 @@ import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.FileVisitResult
-import java.nio.file.SimpleFileVisitor
-import java.nio.file.attribute.BasicFileAttributes
-import java.io.IOException
-import java.security.MessageDigest
-import java.util.HexFormat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -59,7 +53,7 @@ internal class GradleBuildSystemAdapter(
             .filter { VfsUtilCore.isAncestor(it, file, false) }.maxByOrNull { it.path.length } ?: return false
         return generateSequence(file.parent) { it.parent }.takeWhile { it != boundary }.none { it.name in excluded }
     }
-    private val excluded = setOf(".git", ".gradle", ".idea", "build", "out", "node_modules", "vendor")
+    private val excluded = GradleInputInventory.excludedDirectories
     private fun roots(project: Project) = GradleSettings.getInstance(project).linkedProjectsSettings.mapNotNull { it.externalProjectPath }.sortedByDescending { it.length }
     private fun owner(project: Project, file: VirtualFile) = roots(project).firstOrNull { root ->
         if (file.name.endsWith(".toml")) {
@@ -73,7 +67,7 @@ internal class GradleBuildSystemAdapter(
     private fun scriptText(file: VirtualFile): String = FileDocumentManager.getInstance().getCachedDocument(file)?.text
         ?: String(file.contentsToByteArray(), Charsets.UTF_8)
 
-    private fun inputDirectories(project: Project, root: String): Pair<List<String>, Set<String>> {
+    private fun inputDirectories(project: Project, root: String): GradleInputDirectories {
         val settings = GradleSettings.getInstance(project).getLinkedProjectSettings(root)
         val directories = (listOf(root) + settings?.modules.orEmpty().sorted()).distinct().toMutableList()
         val logicDirectories = mutableSetOf<String>()
@@ -104,41 +98,21 @@ internal class GradleBuildSystemAdapter(
         }
         // Gradle imports included builds as additional modules. Outside modules are
         // executable build inputs, so conservatively capture their source/resources too.
-        logicDirectories += directories.filter { !Path.of(it).normalize().startsWith(Path.of(root).normalize()) }
-        return directories to logicDirectories
-    }
-    private fun files(project: Project, root: String): List<VirtualFile> {
-        val (directories, logicDirectories) = inputDirectories(project, root)
-        val key = directories + logicDirectories.sorted().map { "build-logic:$it" }
-        return project.service<GradleProjectCache>().files(root, key) { discoverFiles(project, directories, logicDirectories) }
-    }
-    private fun discoverFiles(project: Project, directories: List<String>, logicDirectories: Set<String>): List<VirtualFile> {
-        val result = mutableSetOf<VirtualFile>()
-        // Imported module paths can use a canonical location while the linked root uses
-        // a symlink (for example /tmp and /private/tmp on macOS). Keep the user's root
-        // namespace, but compare VFS-known link targets before walking it again.
-        val roots = directories.mapNotNull { find(project, it) }.distinctBy { it.canonicalPath ?: it.path }
-        val locations = roots.associateWith { it.canonicalPath ?: it.path }
-        // Walk a nested root separately only when a generated-directory boundary would
-        // prune it from its parent's walk. Preserve the linked symlink namespace otherwise.
-        for (file in roots.filter { candidate -> roots.none { parent ->
-            parent != candidate && locations.getValue(candidate).startsWith(locations.getValue(parent).trimEnd('/') + "/") &&
-                locations.getValue(candidate).removePrefix(locations.getValue(parent).trimEnd('/') + "/")
-                    .split('/').none { it in excluded }
-        } }) {
-            VfsUtilCore.iterateChildrenRecursively(file, { it == file || it.name !in excluded }) {
-                val buildLogic = generateSequence(it.parent) { parent -> parent.parent }.takeWhile { parent ->
-                    VfsUtilCore.isAncestor(file, parent, false)
-                }.any { parent -> parent.name == "buildSrc" || parent.path in logicDirectories }
-                if (!it.isDirectory && (buildLogic || configurationInput(it.name, it.path))) result += it
-                true
-            }
+        // Imported modules may use the canonical alias of the user's linked symlink.
+        // Compare VFS-known identities here without adding physical IO to this read action.
+        val rootLocation = Path.of(find(project, root)?.canonicalPath ?: root).normalize()
+        logicDirectories += directories.filter {
+            !Path.of(find(project, it)?.canonicalPath ?: it).normalize().startsWith(rootLocation)
         }
-        return result.distinctBy { it.canonicalPath ?: it.path }
+        return GradleInputDirectories(directories.toList(), logicDirectories.toSet())
     }
-    private fun configurationInput(name: String, path: String) = name.endsWith(".gradle") || name.endsWith(".gradle.kts") ||
-        name.endsWith(".toml") || name in setOf("gradle.properties", "gradle-wrapper.properties", "gradle-wrapper.jar", "gradlew", "gradlew.bat", "gradle.lockfile", "verification-metadata.xml") ||
-        path.contains("/gradle/dependency-locks/")
+    private fun inventory(project: Project, root: String): GradleInputInventory {
+        val directories = inputDirectories(project, root)
+        return project.service<GradleProjectCache>().inventory(root, directories) {
+            GradleInputInventory.discover(directories) { find(project, it) }
+        }
+    }
+    private fun files(project: Project, root: String): List<VirtualFile> = inventory(project, root).files
 
     private fun find(project: Project, path: String): VirtualFile? = LocalFileSystem.getInstance().findFileByPath(path)
         ?: ProjectRootManager.getInstance(project).contentRoots.firstNotNullOfOrNull { it.fileSystem.findFileByPath(path) }
@@ -151,7 +125,7 @@ internal class GradleBuildSystemAdapter(
         val (inputs, home) = readAction {
             val selectedRoots = if (selection.scope == UpdateScope.CURRENT_FILE)
                 listOfNotNull(selection.currentFile?.let { find(project, it) }?.let { owner(project, it) }) else roots(project)
-            val paths = selectedRoots.flatMap { files(project, it).map { file -> file.path } }.toSet()
+            val paths = selectedRoots.flatMap { inventory(project, it).resolutionInputPaths() }.toSet()
             val home = Path.of(GradleSettings.getInstance(project).serviceDirectoryPath ?: System.getenv("GRADLE_USER_HOME")
                 ?: Path.of(System.getProperty("user.home"), ".gradle").toString())
             paths to home
@@ -188,14 +162,14 @@ internal class GradleBuildSystemAdapter(
         }
 
     override fun canCheckInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
-        files(project, snapshot.context.root).none { FileDocumentManager.getInstance().isFileModified(it) }
+        !inventory(project, snapshot.context.root).hasUnsavedDocuments()
 
     private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<String, BuildFingerprint>, unsaved: MutableMap<String, Boolean>,
                          allowUnsaved: Boolean = false, inspectionFingerprints: MutableMap<String, BuildFingerprint> = mutableMapOf(),
                          externalHashes: Map<String, String>? = null): BuildSnapshot? {
         if (!supported(project, file)) return null
         val root = owner(project, file) ?: return null
-        if (!allowUnsaved && unsaved.getOrPut(root) { files(project, root).any { FileDocumentManager.getInstance().isFileModified(it) } }) return null
+        if (!allowUnsaved && unsaved.getOrPut(root) { inventory(project, root).hasUnsavedDocuments() }) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
         val fingerprint = fingerprints.getOrPut(root) { fingerprint(project, root, externalHashes) }
         val inspectionFingerprint = inspectionFingerprints.getOrPut(root) {
@@ -292,56 +266,17 @@ internal class GradleBuildSystemAdapter(
     override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean {
         // Native Gradle reads physical files. A same-stamp external write can leave
         // both VFS and PSI stale, so an edit must compare fresh bytes to their baseline.
-        val saved = readAction {
-            if (project.isDisposed) emptyMap() else snapshots.map { it.context.root }.distinct().flatMap { root ->
-                project.service<GradleProjectCache>().savedHashes(root, files(project, root)).entries
-            }.filter { it.key.fileSystem.protocol == "file" }.associate { it.key to it.value }
-        }
-        val inventories = readAction {
-            snapshots.map { it.context.root }.distinct().map { inputDirectories(project, it) }
+        val captured = readAction {
+            if (project.isDisposed) emptyList() else snapshots.map { it.context.root }.distinct().map { root ->
+                val inventory = inventory(project, root)
+                val saved = project.service<GradleProjectCache>().savedHashes(root, inventory.files)
+                    .filterKeys { it.fileSystem.protocol == "file" }
+                inventory to saved
+            }
         }
         val diskCurrent = withContext(Dispatchers.IO) {
             val context = currentCoroutineContext()
-            val knownPaths = saved.keys.map { Path.of(it.canonicalPath ?: it.path).normalize() }.toSet()
-            var inventoryCurrent = true
-            // Detect added inputs even before the IDE refreshes its VFS. Prune generated
-            // directories instead of walking Gradle caches or application build output.
-            for ((directories, logicDirectories) in inventories) for (directory in directories) {
-                val base = Path.of(directory).normalize()
-                if (!Files.isDirectory(base)) continue
-                Files.walkFileTree(base, object : SimpleFileVisitor<Path>() {
-                    override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
-                        context.ensureActive()
-                        return if (dir != base && dir.fileName.toString() in excluded) FileVisitResult.SKIP_SUBTREE else FileVisitResult.CONTINUE
-                    }
-                    override fun visitFile(path: Path, attrs: BasicFileAttributes): FileVisitResult {
-                        context.ensureActive()
-                        val buildLogic = logicDirectories.any { path.startsWith(Path.of(it).normalize()) } ||
-                            base.relativize(path).any { it.toString() == "buildSrc" }
-                        if ((buildLogic || configurationInput(path.fileName.toString(), path.toString())) && path.toRealPath() !in knownPaths) {
-                            inventoryCurrent = false
-                            return FileVisitResult.TERMINATE
-                        }
-                        return FileVisitResult.CONTINUE
-                    }
-                })
-            }
-            inventoryCurrent && saved.all { (file, expected) ->
-                context.ensureActive()
-                val digest = MessageDigest.getInstance("SHA-256")
-                try {
-                    Files.newInputStream(Path.of(file.path)).use { input ->
-                        val buffer = ByteArray(16 * 1024)
-                        while (true) {
-                            context.ensureActive()
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            digest.update(buffer, 0, count)
-                        }
-                    }
-                    HexFormat.of().formatHex(digest.digest()) == expected
-                } catch (_: IOException) { false }
-            }
+            captured.all { (inventory, saved) -> inventory.diskMatches(saved) { context.ensureActive() } }
         }
         return withExternalInputs(project) { external ->
             val home = externalHome(project)

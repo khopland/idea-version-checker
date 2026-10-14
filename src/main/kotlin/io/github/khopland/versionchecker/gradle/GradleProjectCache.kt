@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicLong
 /** Reuse build inputs across all files in a linked build, without caching repository results. */
 @Service(Service.Level.PROJECT)
 internal class GradleProjectCache(private val project: Project) : Disposable {
-    private data class Inputs(val directories: List<String>, val files: List<VirtualFile>, var hashes: Map<String, String>? = null,
+    private data class Inputs(val directories: GradleInputDirectories, val inventory: GradleInputInventory, var hashes: Map<String, String>? = null,
                               var inspectionHashes: Map<String, String>? = null)
     private data class Digest(val fileStamp: Long, val documentStamp: Long?, val value: String,
                               val savedHash: String? = null)
@@ -57,17 +57,17 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
     }
 
     @Synchronized
-    fun files(root: String, directories: List<String>, compute: () -> List<VirtualFile>): List<VirtualFile> {
+    fun inventory(root: String, directories: GradleInputDirectories, compute: () -> GradleInputInventory): GradleInputInventory {
         invalidateIfChanged()
         val cached = inputs[root]
-        if (cached != null && cached.directories == directories) return cached.files
-        return compute().also { inputs[root] = Inputs(directories.toList(), it) }
+        if (cached != null && cached.directories == directories) return cached.inventory
+        return compute().also { inputs[root] = Inputs(directories, it) }
     }
 
     @Synchronized
     fun hashes(root: String, files: List<VirtualFile>): Map<String, String> {
         invalidateIfChanged()
-        val cached = inputs[root]?.takeIf { it.files === files }
+        val cached = inputs[root]?.takeIf { it.inventory.files === files }
         return cached?.hashes ?: files.associate { file -> file.path to digest(file) }.also { cached?.hashes = it }
     }
 
@@ -81,7 +81,7 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
     @Synchronized
     fun inspectionHashes(root: String, files: List<VirtualFile>): Map<String, String> {
         invalidateIfChanged()
-        val cached = inputs[root]?.takeIf { it.files === files }
+        val cached = inputs[root]?.takeIf { it.inventory.files === files }
         return cached?.inspectionHashes ?: files.associate { file ->
             val editable = file.name in setOf("build.gradle", "build.gradle.kts") ||
                 file.name == "libs.versions.toml" && file.parent.name == "gradle"
