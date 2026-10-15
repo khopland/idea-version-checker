@@ -92,7 +92,9 @@ The plugin uses IDEA's existing Maven server rather than querying a public depen
 
 Configure **Settings → Build, Execution, Deployment → Build Tools → Maven → User settings file** if you use a custom `settings.xml`. Otherwise Maven uses its default settings location. A mirror with `mirrorOf="*"` is applied by Maven, including for the checker's own Maven goal. No separate repository or credential configuration is needed in the plugin.
 
-On supported Maven 3 runtimes (3.6.3 or later, Java 17 or later), checks execute a small metadata helper bundled inside the IDEA plugin. It is installed under its content-derived version in Maven's effective local repository. The helper asks Maven Resolver for batches of artifact version histories using the current project's effective repositories. It does not resolve library dependency trees or download library JARs. Plugin histories use Maven's plugin repositories; promising plugin candidates have their POM prerequisites checked against the project's Maven runtime. Repository errors produce a notification. IDEA's **Work offline** setting disables remote checks.
+Maven 4 support is tested with **Maven 4.0.0-rc-7 on IntelliJ IDEA 2026.2.3**. Use IDEA 2026.2.3 or later for Maven 4; older IDE Maven servers can fail before a check starts. Both POM model 4.0.0 and 4.1.0, including `<subprojects>`, have repository integration coverage.
+
+On supported Maven 3 and Maven 4 runtimes (Maven 3.6.3 or later, Java 17 or later), checks execute a small metadata helper bundled inside the IDEA plugin. It is installed under its content-derived version in Maven's effective local repository. The helper asks Maven Resolver for batches of artifact version histories using the current project's effective repositories. It does not resolve library dependency trees or download library JARs. Plugin histories use Maven's plugin repositories; promising plugin candidates have their POM prerequisites checked against the project's Maven runtime. Repository errors produce a notification. IDEA's **Work offline** setting disables remote checks.
 
 Other runtimes, configured core/build extensions and custom Versions-plugin rules retain the read-only `display-dependency-updates` and [display-plugin-updates](https://www.mojohaus.org/versions/versions-maven-plugin/display-plugin-updates-mojo.html) fallback from `org.codehaus.mojo:versions-maven-plugin:2.21.0`. Maven downloads those goals and their dependencies through configured plugin repositories on first use. Private repositories must allow or proxy these fallback artifacts. Both paths exclude prereleases, downgrades and plugin updates requiring a newer Maven runtime.
 
@@ -229,6 +231,8 @@ The locally opt-in integration tests start IDEA's real Maven server with both an
 
 ```bash
 ./gradlew test -PmavenIntegration=true --tests '*MavenSettingsIntegrationTest'
+# Maven 4 regressions execute on IDEA 2026.2.3; provide an extracted Maven 4 distribution.
+./gradlew testMaven4 -Pmaven4Home=/path/to/apache-maven-4.0.0-rc-7
 ```
 
 The npm integration test uses IntelliJ's configured Node/npm with an authenticated local registry. It covers scoped registries, workspaces, aliases, all update modes, deprecation highlighting and manifest-only application, and verifies that no tarballs are downloaded, no `node_modules` directory is created and lockfiles remain unchanged:

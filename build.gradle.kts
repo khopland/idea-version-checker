@@ -111,3 +111,43 @@ tasks.named<PublishPluginTask>("publishPlugin") {
 tasks.named("verifyPluginSignature") {
     dependsOn("signPlugin")
 }
+
+// Compile against the minimum IDE, then run Maven 4 regressions on its supported IDE runtime.
+val maven4Home = providers.gradleProperty("maven4Home")
+intellijPlatformTesting {
+    testIde.register("testMaven4") {
+        version = "2026.2.3"
+        testFramework(TestFrameworkType.Platform)
+        plugins {
+            // Obfuscated Ultimate extensions cannot share the test framework's forced core classloader.
+            disablePlugin("com.intellij.modules.ultimate")
+            bundledPlugin("com.intellij.java")
+            bundledPlugin("org.jetbrains.idea.maven")
+            bundledPlugin("org.jetbrains.plugins.gradle")
+            bundledPlugin("JavaScript")
+            bundledPlugin("com.intellij.modules.json")
+        }
+        task {
+            dependsOn("buildPlugin")
+            systemProperty("versionchecker.mavenIntegration", "true")
+            systemProperty("versionchecker.mavenHome", maven4Home.orElse("").get())
+            systemProperty("versionchecker.pluginArchive", tasks.named<Zip>("buildPlugin").get().archiveFile.get().asFile.absolutePath)
+            filter {
+                includeTestsMatching("*MavenSettingsIntegrationTest.testSettingsProfileMirrorAndServerAuthentication")
+                includeTestsMatching("*MavenSettingsIntegrationTest.testMaven4Model41SettingsProfileMirrorAndServerAuthentication")
+                includeTestsMatching("*MavenSettingsIntegrationTest.testActiveProfilePropertyEditsChangeTheNativeEffectiveDependencyVersion")
+                includeTestsMatching("*MavenSettingsIntegrationTest.testMinimumReleaseAgeWithholdsRecentVersionsInNativeAndFallbackChecks")
+                includeTestsMatching("*MavenSettingsIntegrationTest.testMetadataResponsesKeepTheSelectedModulesRepositories")
+            }
+            doFirst {
+                require(systemProperties["versionchecker.mavenHome"].toString().isNotBlank()) { "Set -Pmaven4Home to an extracted Maven 4 distribution" }
+            }
+        }
+    }
+}
+
+if (maven4Home.isPresent) {
+    // IDEA's Maven server locates a combined telemetry JAR by class. External split SDK JARs
+    // from the test framework would leave its remote process without API/context classes.
+    configurations.configureEach { exclude(group = "io.opentelemetry") }
+}

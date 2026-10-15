@@ -130,6 +130,58 @@ jobs:
             build/test-results/test
           if-no-files-found: ignore
 
+  maven4:
+    name: Maven 4 integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Maximize Build Space
+        uses: jlumbroso/free-disk-space@v2.0.0
+        with:
+          tool-cache: false
+          large-packages: false
+      - name: Fetch Sources
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 21
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+      - name: Download and verify Maven 4
+        env:
+          MAVEN4_VERSION: 4.0.0-rc-7
+        run: |
+          artifact="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$MAVEN4_VERSION/apache-maven-$MAVEN4_VERSION-bin.tar.gz"
+          curl --fail --location "$artifact" --output "$RUNNER_TEMP/maven4.tar.gz"
+          curl --fail --location "$artifact.sha512" --output "$RUNNER_TEMP/maven4.sha512"
+          python3 - <<'PYTHON'
+          import hashlib, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          actual = hashlib.sha512((root / "maven4.tar.gz").read_bytes()).hexdigest()
+          expected = (root / "maven4.sha512").read_text().split()[0]
+          if actual != expected:
+              raise SystemExit("Maven 4 archive checksum mismatch")
+          PYTHON
+          tar -xzf "$RUNNER_TEMP/maven4.tar.gz" -C "$RUNNER_TEMP"
+      - name: Test Maven 4 with IDEA 2026.2.3
+        run: ./gradlew testMaven4 -Pmaven4Home="$RUNNER_TEMP/apache-maven-4.0.0-rc-7" --console=plain
+      - name: Collect Maven 4 test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: maven4-tests-result
+          path: |
+            build/reports/tests/testMaven4
+            build/test-results/testMaven4
+          if-no-files-found: ignore
+
   # Run plugin structure verification along with IntelliJ Plugin Verifier
   verify:
     name: Verify plugin
@@ -182,7 +234,7 @@ jobs:
   releaseDraft:
     name: Release draft
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [ build, test, verify ]
+    needs: [ build, test, maven4, verify ]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

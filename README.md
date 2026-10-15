@@ -14,7 +14,7 @@ Requires **IntelliJ IDEA 2025.3.6.1 or later** and the relevant IDE plugins:
 
 | Project | Required plugins and setup |
 | --- | --- |
-| Maven | Java and Maven; import the Maven project. |
+| Maven | Java and Maven; import the Maven project. Maven 4 requires IDEA 2026.2.3 or later. |
 | npm | JavaScript and TypeScript; configure a local Node.js interpreter and npm. |
 | Gradle | Gradle; link/import the Gradle project. |
 

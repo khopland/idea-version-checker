@@ -36,12 +36,40 @@ internal object MavenNativeMetadata {
     suspend fun load(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
                      keys: List<MavenMetadataKey>, threads: Int,
                      embedder: MavenEmbedderWrapper?): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
+        val response = request(manager, project, context, keys, threads, embedder)
+        return keys.mapIndexed { index, key -> key to runCatching {
+            response.getProperty("$index.error")?.let { throw IOException("${key.group}:${key.artifact}: $it") }
+            if (key.release) MavenMetadataValue(published = response.getProperty("$index.published")?.toLongOrNull()
+                ?.takeIf { it > 0 } ?: error("Missing release date response"))
+            else if (key.version.isEmpty()) MavenMetadataValue(versions =
+                (response.getProperty("$index.versions") ?: error("Missing Maven version index")).lineSequence()
+                    .filter { it.isNotBlank() }.distinct().toList(),
+                lastUpdated = response.getProperty("$index.lastUpdated")?.toLongOrNull()?.takeIf { it > 0 })
+            else MavenMetadataValue(requiredMaven = response.getProperty("$index.requiredMaven")
+                ?: error("Missing plugin prerequisite response"))
+        } }.toMap()
+    }
+
+    /** IDEA's Maven 4 resolveRepositories API does not apply mirrors. Ask the actual goal session. */
+    suspend fun repositoryIds(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
+                              embedder: MavenEmbedderWrapper): Map<Boolean, Set<String>> {
+        val response = request(manager, project, context, emptyList(), 1, embedder)
+        return listOf(false, true).associateWith { plugins ->
+            response.getProperty(if (plugins) "pluginRepositories" else "repositories")
+                ?.lineSequence()?.filter { it.isNotBlank() }?.toSet() ?: error("Missing effective Maven repositories")
+        }
+    }
+
+    private suspend fun request(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
+                                keys: List<MavenMetadataKey>, threads: Int,
+                                embedder: MavenEmbedderWrapper?): Properties {
         require(keys.size <= 512)
         val version = install(context.repository)
         val input = Files.createTempFile("version-checker-metadata-request-", ".properties")
         val output = Files.createTempFile("version-checker-metadata-response-", ".properties")
         try {
             val request = Properties().apply {
+                setProperty("project", project.file.toNioPath().toRealPath().toString())
                 setProperty("count", keys.size.toString())
                 keys.forEachIndexed { index, key ->
                     setProperty("$index.group", key.group); setProperty("$index.artifact", key.artifact)
@@ -78,17 +106,7 @@ internal object MavenNativeMetadata {
             check(response.getProperty("protocol") == "2" && response.getProperty("count") == keys.size.toString()) {
                 "Invalid Maven metadata response"
             }
-            return keys.mapIndexed { index, key -> key to runCatching {
-                response.getProperty("$index.error")?.let { throw IOException("${key.group}:${key.artifact}: $it") }
-                if (key.release) MavenMetadataValue(published = response.getProperty("$index.published")?.toLongOrNull()
-                    ?.takeIf { it > 0 } ?: error("Missing release date response"))
-                else if (key.version.isEmpty()) MavenMetadataValue(versions =
-                    (response.getProperty("$index.versions") ?: error("Missing Maven version index")).lineSequence()
-                        .filter { it.isNotBlank() }.distinct().toList(),
-                    lastUpdated = response.getProperty("$index.lastUpdated")?.toLongOrNull()?.takeIf { it > 0 })
-                else MavenMetadataValue(requiredMaven = response.getProperty("$index.requiredMaven")
-                    ?: error("Missing plugin prerequisite response"))
-            } }.toMap()
+            return response
         } finally { Files.deleteIfExists(input); Files.deleteIfExists(output) }
     }
 

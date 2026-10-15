@@ -193,6 +193,15 @@ internal object MavenVersionLookup {
 
         suspend fun repositories(plugins: Boolean): Set<String> {
             repositories[plugins]?.let { return it }
+            if (MavenDistributionsCache.getInstance(manager.project).getMavenDistribution(project.file).version?.startsWith("4.") == true) {
+                val repository = localRepository ?: MavenSettingsCache(manager.project).let { settings ->
+                    settings.reloadAsync()
+                    settings.getEffectiveUserLocalRepo()
+                }
+                val context = MavenResolutionContext("", repository, inputs.properties, profiles, false, "")
+                repositories.putAll(MavenNativeMetadata.repositoryIds(manager, project, context, embedder))
+                return repositories.getValue(plugins)
+            }
             val model = pom ?: CheckPerformance.measure(CheckPerformance.Stage.MAVEN_MODEL) {
                 val text = embedder.evaluateEffectivePom(project.file.toNioPath().toFile(), profiles.enabledProfiles, profiles.disabledProfiles)
                     ?: error("Maven could not determine effective repositories for ${project.path}")
@@ -234,12 +243,16 @@ internal object MavenVersionLookup {
     private suspend fun execute(scan: Scan, mode: UpdateMode, goal: String, ignoredVersions: String,
                                 excluded: Set<String> = emptySet()): String {
         val project = scan.project
-        val output = Files.createTempFile("maven-version-checker-", ".txt")
+        val directory = Files.createTempDirectory("maven-version-checker-")
+        val id = project.mavenId
+        val output = directory.resolve("${id.groupId}~${id.artifactId}.txt")
         try {
             val properties = Properties().apply {
                 // executeGoal replaces the request properties, so preserve Maven config -D values.
                 putAll(scan.inputs.properties)
-                setProperty("versions.outputFile", output.toString())
+                // Maven 4 also executes an aggregator's children. Give each project its own
+                // report so a child cannot replace (or delete) the selected POM's answer.
+                setProperty("versions.outputFile", directory.resolve("${'$'}{project.groupId}~${'$'}{project.artifactId}.txt").toString())
                 setProperty("versions.outputLineWidth", "4096")
                 setProperty("versions.overwriteOutput", "true")
                 setProperty("versions.logOutput", "false")
@@ -256,8 +269,7 @@ internal object MavenVersionLookup {
                 setProperty("displayManagedBy", "false")
                 if (goal == "display-dependency-updates") MavenDependencyFilters.apply(this, if (scan.filtered) scan.inputs[MavenArtifactKind.DEPENDENCY] else null, excluded)
             }
-            val id = project.mavenId
-            // Restrict an aggregator scan to this POM, keeping each module's repository context separate.
+            // Select this project; Maven 4 may additionally run its children.
             val request = MavenGoalExecutionRequest(
                 project.file.toNioPath().toFile(), scan.profiles,
                 listOf("${id.groupId}:${id.artifactId}"), properties
@@ -290,7 +302,7 @@ internal object MavenVersionLookup {
             val report = try { Files.readString(output) } catch (_: NoSuchFileException) { "" }
             return report
         } finally {
-            Files.deleteIfExists(output)
+            Files.walk(directory).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
         }
     }
 }

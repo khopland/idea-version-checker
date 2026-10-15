@@ -37,6 +37,79 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /** Opt-in: starts IDEA's real Maven server and may download the Versions goal from Maven Central. */
 class MavenSettingsIntegrationTest : BasePlatformTestCase() {
+    override fun setUp() {
+        super.setUp()
+        val configuredHome = System.getProperty("versionchecker.mavenHome")?.takeIf { it.isNotBlank() } ?: return
+        val mavenHome = Path.of(configuredHome)
+        VfsRootAccess.allowRootAccess(testRootDisposable, mavenHome.toString(), mavenHome.toRealPath().toString())
+        MavenProjectsManager.getInstance(project).generalSettings.setMavenHome(mavenHome.toString())
+    }
+
+    private val checksumAlgorithms = mapOf(".sha512" to "SHA-512", ".sha256" to "SHA-256", ".sha1" to "SHA-1", ".md5" to "MD5")
+
+    private fun repositoryPath(exchange: com.sun.net.httpserver.HttpExchange): String =
+        exchange.requestURI.path.removeSuffix(checksumAlgorithms.keys.firstOrNull { exchange.requestURI.path.endsWith(it) }.orEmpty())
+
+    private fun sendRepositoryResponse(exchange: com.sun.net.httpserver.HttpExchange, body: ByteArray) {
+        val algorithm = checksumAlgorithms.entries.firstOrNull { exchange.requestURI.path.endsWith(it.key) }?.value
+        val bytes = if (algorithm == null) body else
+            java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance(algorithm).digest(body)).toByteArray()
+        exchange.sendResponseHeaders(200, bytes.size.toLong())
+        exchange.responseBody.write(bytes)
+    }
+
+    fun testMetadataResponsesKeepTheSelectedModulesRepositories() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-module-repositories-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        val oldRepository = manager.generalSettings.localRepository
+        try {
+            val repository = directory.resolve("local")
+            manager.generalSettings.setLocalRepository(repository.toString())
+            fun remote(name: String, version: String): String {
+                val remote = directory.resolve(name)
+                val metadata = Files.createDirectories(remote.resolve("example/scoped/library")).resolve("maven-metadata.xml")
+                val bytes = "<metadata><versioning><versions><version>$version</version></versions></versioning></metadata>".toByteArray()
+                Files.write(metadata, bytes)
+                checksumAlgorithms.forEach { (suffix, algorithm) ->
+                    Files.writeString(metadata.resolveSibling("maven-metadata.xml$suffix"),
+                        java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance(algorithm).digest(bytes)))
+                }
+                return """<repositories><repository><id>central</id><url>https://repo.maven.apache.org/maven2</url>
+                    <releases><enabled>false</enabled></releases></repository>
+                    <repository><id>$name</id><url>${remote.toUri()}</url></repository></repositories>"""
+            }
+            val rootRepository = remote("root-repository", "2.0")
+            val childRepository = remote("child-repository", "9.0")
+            fun imported(path: Path, name: String, body: String): MavenProject {
+                Files.createDirectories(path.parent)
+                Files.writeString(path, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                    <groupId>example.scoped</groupId><artifactId>$name</artifactId><version>1</version>$body</project>""")
+                return MavenProject(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)!!).apply {
+                    updateMavenId(MavenId("example.scoped", name, "1"))
+                }
+            }
+            val root = imported(directory.resolve("pom.xml"), "root",
+                "<packaging>pom</packaging><modules><module>child</module></modules>$rootRepository")
+            val child = imported(directory.resolve("child/pom.xml"), "child", childRepository)
+            fun versions(imported: MavenProject): List<String> {
+                val context = MavenResolutionContext("", repository, emptyMap(), MavenExplicitProfiles.NONE, true, "")
+                val key = MavenMetadataKey("example.scoped", "library")
+                return PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                    runBlocking { MavenNativeMetadata.load(manager, imported, context, listOf(key), 1).getValue(key).getOrThrow().versions }
+                }), 120_000)
+            }
+            assertEquals("A child executed by Maven 4 must not overwrite its parent's response", listOf("2.0"), versions(root))
+            assertEquals("The child must still use its own repository when explicitly selected", listOf("9.0"), versions(child))
+        } finally {
+            manager.embeddersManager.reset()
+            manager.generalSettings.setLocalRepository(oldRepository)
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testLargeManagementFastScopeAndFullAuditWithPlatformPriority() {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
         val directory = Files.createTempDirectory("version-checker-large-management-").toRealPath()
@@ -765,7 +838,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
             try {
-                val path = exchange.requestURI.path
+                val path = repositoryPath(exchange)
                 val artifact = if (path.endsWith("/maven-metadata.xml")) path.substringBeforeLast('/').substringAfterLast('/')
                     else path.substringBeforeLast('/').substringBeforeLast('/').substringAfterLast('/')
                 if (path.endsWith("/maven-metadata.xml")) {
@@ -774,8 +847,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                     val body = """<metadata><groupId>$group</groupId><artifactId>$artifact</artifactId><versioning><versions>
                         ${published.keys.joinToString("") { "<version>$it</version>" }}</versions>
                         <lastUpdated>${stamp.format(updated)}</lastUpdated></versioning></metadata>""".toByteArray()
-                    exchange.sendResponseHeaders(200, body.size.toLong())
-                    exchange.responseBody.write(body)
+                    sendRepositoryResponse(exchange, body)
                 } else if (path.endsWith(".pom")) {
                     pomRequests += path
                     val version = path.substringBeforeLast('/').substringAfterLast('/')
@@ -785,8 +857,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                         <packaging>${if (plugin) "maven-plugin" else "jar"}</packaging>${if (plugin) "<prerequisites><maven>3.6.3</maven></prerequisites>" else ""}</project>""".toByteArray()
                     exchange.responseHeaders.add("Last-Modified", java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
                         .format(published.getValue(version).atZone(java.time.ZoneOffset.UTC)))
-                    exchange.sendResponseHeaders(200, body.size.toLong())
-                    exchange.responseBody.write(body)
+                    sendRepositoryResponse(exchange, body)
                 } else exchange.sendResponseHeaders(404, -1)
             } finally { exchange.close() }
         }
@@ -932,8 +1003,17 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         }
     }
 
-    fun testSettingsProfileMirrorAndServerAuthentication() {
+    fun testSettingsProfileMirrorAndServerAuthentication() = checkSettingsProfileMirrorAndServerAuthentication("4.0.0")
+
+    fun testMaven4Model41SettingsProfileMirrorAndServerAuthentication() {
+        if (System.getProperty("versionchecker.mavenHome").isNullOrBlank()) return
+        checkSettingsProfileMirrorAndServerAuthentication("4.1.0")
+    }
+
+    private fun checkSettingsProfileMirrorAndServerAuthentication(modelVersion: String) {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        // Keep published fixture POMs independent across Maven versions and model variants.
+        val group = "example.versionchecker.run${System.nanoTime()}"
         val directory = Files.createTempDirectory("version-checker-integration-")
         VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString(), directory.toRealPath().toString())
         val metadataRequests = AtomicInteger()
@@ -944,28 +1024,27 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
             try {
+                val path = repositoryPath(exchange)
                 if (exchange.requestHeaders.getFirst("Authorization") != expectedAuth.get()) {
                     exchange.responseHeaders.add("WWW-Authenticate", "Basic realm=fixture")
                     exchange.sendResponseHeaders(401, -1)
-                } else if (exchange.requestURI.path.endsWith("/maven-metadata.xml")) {
+                } else if (path.endsWith("/maven-metadata.xml")) {
                     metadataRequests.incrementAndGet()
-                    val artifact = if ("/fixture-plugin/" in exchange.requestURI.path) "fixture-plugin" else "fixture"
+                    val artifact = if ("/fixture-plugin/" in path) "fixture-plugin" else "fixture"
                     val body = """
-                        <metadata><groupId>example.versionchecker</groupId><artifactId>$artifact</artifactId>
+                        <metadata><groupId>${group}</groupId><artifactId>$artifact</artifactId>
                         <versioning><latest>4.0-SNAPSHOT</latest><release>3.0-RC1</release><versions>
                         <version>1.0</version><version>1.0.1</version><version>1.1</version><version>1.1.1</version><version>${publishedVersion.get()}</version>${if (artifact == "fixture-plugin" && incompatiblePlugin.get()) "<version>8.0</version>" else ""}<version>3.0-RC1</version><version>4.0-SNAPSHOT</version>
                         </versions><lastUpdated>20261005000000</lastUpdated></versioning></metadata>
                     """.trimIndent().toByteArray()
-                    exchange.sendResponseHeaders(200, body.size.toLong())
-                    exchange.responseBody.write(body)
-                } else if ("/fixture-plugin/" in exchange.requestURI.path && exchange.requestURI.path.endsWith(".pom")) {
-                    pluginPomRequests += exchange.requestURI.path
-                    val version = exchange.requestURI.path.substringBeforeLast('/').substringAfterLast('/')
+                    sendRepositoryResponse(exchange, body)
+                } else if ("/fixture-plugin/" in path && path.endsWith(".pom")) {
+                    pluginPomRequests += path
+                    val version = path.substringBeforeLast('/').substringAfterLast('/')
                     val body = """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
-                        <groupId>example.versionchecker</groupId><artifactId>fixture-plugin</artifactId><version>$version</version>
+                        <groupId>${group}</groupId><artifactId>fixture-plugin</artifactId><version>$version</version>
                         <packaging>maven-plugin</packaging><prerequisites><maven>${if (version == "8.0") "99.0" else "3.6.3"}</maven></prerequisites></project>""".toByteArray()
-                    exchange.sendResponseHeaders(200, body.size.toLong())
-                    exchange.responseBody.write(body)
+                    sendRepositoryResponse(exchange, body)
                 } else {
                     exchange.sendResponseHeaders(404, -1)
                 }
@@ -998,27 +1077,29 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             """.trimIndent())
             manager.generalSettings.setUserSettingsFile(settings.toString())
             val pom = directory.resolve("pom.xml")
+            val projects = if (modelVersion == "4.1.0") "subprojects" else "modules"
+            val childElement = if (modelVersion == "4.1.0") "subproject" else "module"
             Files.writeString(pom, """
-                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                  <modelVersion>4.0.0</modelVersion><groupId>example.versionchecker</groupId><artifactId>app</artifactId><version>1</version>
-                  <packaging>pom</packaging><modules><module>child</module></modules>
+                <project xmlns="http://maven.apache.org/POM/$modelVersion">
+                  <modelVersion>$modelVersion</modelVersion><groupId>${group}</groupId><artifactId>app</artifactId><version>1</version>
+                  <packaging>pom</packaging><$projects><$childElement>child</$childElement></$projects>
                   <properties><fixture.version>1.0</fixture.version><fixture-plugin.version>1.0</fixture-plugin.version></properties>
-                  <dependencies><dependency><groupId>example.versionchecker</groupId><artifactId>fixture</artifactId><version>${'$'}{fixture.version}</version></dependency></dependencies>
-                  <build><pluginManagement><plugins><plugin><groupId>example.versionchecker</groupId><artifactId>fixture-plugin</artifactId>
+                  <dependencies><dependency><groupId>${group}</groupId><artifactId>fixture</artifactId><version>${'$'}{fixture.version}</version></dependency></dependencies>
+                  <build><pluginManagement><plugins><plugin><groupId>${group}</groupId><artifactId>fixture-plugin</artifactId>
                     <version>${'$'}{fixture-plugin.version}</version></plugin></plugins></pluginManagement></build>
                 </project>
             """.trimIndent())
             val childPom = Files.createDirectories(directory.resolve("child")).resolve("pom.xml")
             Files.writeString(childPom, """
-                <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
-                <parent><groupId>example.versionchecker</groupId><artifactId>app</artifactId><version>1</version></parent>
-                <artifactId>child</artifactId><dependencies><dependency><groupId>example.versionchecker</groupId>
+                <project xmlns="http://maven.apache.org/POM/$modelVersion"><modelVersion>$modelVersion</modelVersion>
+                <parent><groupId>${group}</groupId><artifactId>app</artifactId><version>1</version></parent>
+                <artifactId>child</artifactId><dependencies><dependency><groupId>${group}</groupId>
                 <artifactId>fixture</artifactId><version>1.1</version></dependency></dependencies>
-                <build><plugins><plugin><groupId>example.versionchecker</groupId><artifactId>fixture-plugin</artifactId><version>1.1</version></plugin></plugins></build></project>
+                <build><plugins><plugin><groupId>${group}</groupId><artifactId>fixture-plugin</artifactId><version>1.1</version></plugin></plugins></build></project>
             """.trimIndent())
             val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!
             val mavenProject = MavenProject(virtualFile)
-            mavenProject.updateMavenId(MavenId("example.versionchecker", "app", "1"))
+            mavenProject.updateMavenId(MavenId(group, "app", "1"))
             val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking {
                     withBackgroundProgress(project, "Checking Maven dependencies", cancellable = true) {
@@ -1027,7 +1108,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 }
             })
             val updates = PlatformTestUtil.waitForFuture(future, 120_000)
-            assertEquals("2.0", updates[DependencyVersion("example.versionchecker", "fixture", "1.0")])
+            assertEquals("2.0", updates[DependencyVersion(group, "fixture", "1.0")])
             assertTrue("Expected authenticated metadata requests through the settings mirror", metadataRequests.get() > 0)
             val repositories = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking { MavenVersionLookup.effectiveRepositoryIds(manager, mavenProject) }
@@ -1039,15 +1120,15 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                     runBlocking { MavenVersionLookup.check(manager, mavenProject, mode) }
                 })
                 assertEquals(expected, PlatformTestUtil.waitForFuture(restricted, 120_000)
-                    [DependencyVersion("example.versionchecker", "fixture", "1.0")])
+                    [DependencyVersion(group, "fixture", "1.0")])
             }
             val childFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(childPom)!!
-            val childProject = MavenProject(childFile).apply { updateMavenId(MavenId("example.versionchecker", "child", "1")) }
+            val childProject = MavenProject(childFile).apply { updateMavenId(MavenId(group, "child", "1")) }
             val childCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking { MavenVersionLookup.check(manager, childProject, UpdateMode.PATCH) }
             })
             assertEquals("1.1.1", PlatformTestUtil.waitForFuture(childCheck, 120_000)
-                [DependencyVersion("example.versionchecker", "fixture", "1.1")])
+                [DependencyVersion(group, "fixture", "1.1")])
 
             val beforeSettingsChange = metadataRequests.get()
             expectedAuth.set("Basic " + Base64.getEncoder().encodeToString("fixture:changed".toByteArray()))
@@ -1056,7 +1137,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 runBlocking { MavenVersionLookup.check(manager, mavenProject) }
             })
             assertEquals("2.0", PlatformTestUtil.waitForFuture(refreshedSettings, 120_000)
-                [DependencyVersion("example.versionchecker", "fixture", "1.0")])
+                [DependencyVersion(group, "fixture", "1.0")])
             assertTrue("Each check must pick up externally edited settings credentials", metadataRequests.get() > beforeSettingsChange)
 
             val beforePublication = metadataRequests.get()
@@ -1066,7 +1147,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             })
             assertEquals("A newly published release must bypass Maven's daily metadata cache", "2.1",
                 PlatformTestUtil.waitForFuture(afterPublication, 120_000)
-                    [DependencyVersion("example.versionchecker", "fixture", "1.0")])
+                    [DependencyVersion(group, "fixture", "1.0")])
             assertTrue(metadataRequests.get() > beforePublication)
             publishedVersion.set("2.0")
 
@@ -1102,8 +1183,8 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 assertFalse(earlyProblems.results.first().descriptionTemplate.contains("Maven plugin"))
                 releaseCategories.complete(Unit)
                 PlatformTestUtil.waitWithEventsDispatching("Native Maven categories complete", { stagedCheck.isCompleted }, 120_000)
+                assertTrue(coordinator.cached(snapshot)!!.failure.orEmpty(), coordinator.cached(snapshot)!!.successful)
                 assertEquals(2, coordinator.cached(snapshot)!!.candidates.size)
-                assertTrue(coordinator.cached(snapshot)!!.successful)
             } finally { releaseCategories.complete(Unit); stagedCheck.cancel() }
             val bulkCheck = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking {
@@ -1158,16 +1239,16 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
             val service = project.service<MavenVersionCheckService>()
             PlatformTestUtil.waitWithEventsDispatching("Background Maven version check", {
-                service.updates(mavenProject)[DependencyVersion("example.versionchecker", "fixture", "1.0")] == "2.0"
+                service.updates(mavenProject)[DependencyVersion(group, "fixture", "1.0")] == "2.0"
             }, 120_000)
-            val childCoordinate = DependencyVersion("example.versionchecker", "fixture", "1.1")
+            val childCoordinate = DependencyVersion(group, "fixture", "1.1")
             PlatformTestUtil.waitWithEventsDispatching("Child background check", {
                 service.updates(childProject)[childCoordinate] == "2.0"
             }, 120_000)
             project.service<VersionCheckService>().refresh("maven", virtualFile)
             assertEquals("Current POM refresh must preserve the other module's cache", "2.0", service.updates(childProject)[childCoordinate])
             PlatformTestUtil.waitWithEventsDispatching("Current POM refresh", {
-                service.updates(mavenProject)[DependencyVersion("example.versionchecker", "fixture", "1.0")] == "2.0"
+                service.updates(mavenProject)[DependencyVersion(group, "fixture", "1.0")] == "2.0"
             }, 120_000)
             PlatformTestUtil.waitWithEventsDispatching("Complete Maven dependency and plugin results", {
                 native.snapshot(project, virtualFile)?.let { coordinator.cached(it)?.successful } == true
@@ -1186,7 +1267,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
 
             myFixture.configureFromExistingVirtualFile(virtualFile)
             PlatformTestUtil.waitWithEventsDispatching("Editor-open version check", {
-                service.updates(mavenProject)[DependencyVersion("example.versionchecker", "fixture", "1.0")] == "2.0"
+                service.updates(mavenProject)[DependencyVersion(group, "fixture", "1.0")] == "2.0"
             }, 120_000)
             val options = project.service<VersionCheckerSettings>().state
             options.majorSeverity = VersionSeverity.ERROR
@@ -1229,7 +1310,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 compatible.candidates.single { it.declaration.coordinate().artifactKind == MavenArtifactKind.PLUGIN }.version)
             val metadata = project.service<MavenMetadataService>()
             val context = background { metadata.contexts.get(manager, mavenProject, pluginSnapshot, metadata.cache.generation()) }
-            val incompatible = MavenMetadataKey("example.versionchecker", "fixture-plugin", true, "8.0")
+            val incompatible = MavenMetadataKey(group, "fixture-plugin", true, "8.0")
             val requirement = background { metadata.cache.getMany(context.id, listOf(incompatible)) {
                 error("The native lookup must already have cached the incompatible POM's prerequisites")
             }.getValue(incompatible).getOrThrow() }
@@ -1250,6 +1331,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             manager.embeddersManager.reset()
             manager.generalSettings.setUserSettingsFile(oldSettings)
             server.stop(0)
+            Path.of(System.getProperty("user.home"), ".m2", "repository").resolve(group.replace('.', '/')).toFile().deleteRecursively()
             directory.toFile().deleteRecursively()
         }
     }
