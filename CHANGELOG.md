@@ -6,6 +6,10 @@
 
 ### Changed
 
+- npm local, workspace and bulk edits share provider-owned preparation and physical declaration validation. Unsupported or inconsistent supplied baselines remain review-only.
+- Gradle project saving, unsaved detection and physical freshness validation share a typed input inventory, including canonical module aliases and unobserved physical roots.
+- Shared version editing distinguishes result authorization, background input capture and final validation with named guard types while preserving provider callback contracts.
+
 - Gradle metadata checks use a packaged probe script with JSON configuration and a versioned response, preserving native ownership and target validation.
 
 ### Fixed
