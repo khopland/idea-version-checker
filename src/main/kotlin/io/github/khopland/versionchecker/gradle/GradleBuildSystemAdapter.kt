@@ -367,6 +367,7 @@ internal class GradleBuildSystemAdapter(
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = withExternalInputs(project) { external ->
         check(areCurrent(project, reports.keys, external)) { "Gradle build files or settings changed. Run the check again." }
         val edits = mutableListOf<VersionEdit>(); val skipped = mutableListOf<String>()
+        val followUp = mutableSetOf<String>()
         for ((snapshot, report) in reports) {
             val limitation = inputCoverageLimitation(project, snapshot.context.root)
             if (limitation != null) {
@@ -374,19 +375,10 @@ internal class GradleBuildSystemAdapter(
                 continue
             }
             val psi = find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")
-            val original = psi.text
-            val declarations = GradleDeclarations.parse(snapshot.sourceFile, original)
-            val candidates = report.candidates.associateBy { it.declaration.id }
-            for ((range, consumers) in declarations.groupBy { it.range }) {
-                val updates = consumers.map { candidates[it.declaration.id] }
-                val location = "${psi.virtualFile.path}: " + consumers.joinToString {
-                    "${it.declaration.artifact.namespace}:${it.declaration.artifact.name} (${it.declaration.id.location})"
-                }
-                if (range != null && consumers.all { it.reason == null } && updates.all { it != null } && updates.map { it!!.version }.distinct().size == 1) {
-                    edits += GradleVersionEdit(psi, range, updates.first()!!.version, location, original)
-                } else if (consumers.any { it.reason != null } || updates.any { it != null }) {
-                    skipped += "$location: ${consumers.mapNotNull { it.reason }.firstOrNull() ?: "Shared version has conflicting or unchanged consumers"}"
-                }
+            for (prepared in GradlePreparedUpdate.prepare(psi, report)) {
+                prepared.edit?.let { edits += it; followUp += prepared.followUp }
+                if (prepared.edit == null && prepared.reportSkipped)
+                    skipped += "${prepared.location}: ${prepared.blockingReasons.first()}"
             }
             skipped += report.notices.map { "${it.declaration.id.file}: ${it.message}" }
             skipped += report.coverage.orEmpty().filter { (id, result) ->
@@ -394,7 +386,7 @@ internal class GradleBuildSystemAdapter(
             }.map { (id, result) -> "${id.file}: ${id.location}: ${result.reason}" }
         }
         BulkUpdatePlan(edits.sortedByDescending { (it as GradleVersionEdit).range.startOffset }, skipped,
-            followUp = if (edits.isEmpty()) emptyList() else listOf("Reload the Gradle project in IntelliJ after updating versions. Update dependency locks yourself if the build uses locking."),
+            followUp = followUp.toList(),
             prepareValidation = { prepareEditValidation(project, reports.keys) })
     }
 }

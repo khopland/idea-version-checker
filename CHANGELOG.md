@@ -6,6 +6,8 @@
 
 ### Changed
 
+- Maven inspection and bulk updates share consumer agreement and captured XML edits; shared local property edits also validate transitive property uses in the active profile context.
+- Gradle inspection and bulk updates share preparation for physical version targets, catalog consumers and blockers, rejecting inconsistent, duplicate and non-newer candidates.
 - npm local, workspace and bulk edits share provider-owned preparation and physical declaration validation. Unsupported or inconsistent supplied baselines remain review-only.
 - Gradle project saving, unsaved detection and physical freshness validation share a typed input inventory, including canonical module aliases and unobserved physical roots.
 - Shared version editing distinguishes result authorization, background input capture and final validation with named guard types while preserving provider callback contracts.
