@@ -4,7 +4,7 @@
 
 ### Added
 
-- Maven **Define inherited property locally** quick fix creates the exact controlling parent version property in the child POM, with an XML preview, affected artifacts, undo and stale-input guards. It supports actual inherited dependencies without child declarations, requires agreed checks for shared consumers, and leaves BOM property overrides and imported descendant subtrees for manual review. Suggested versions indicate availability, not verified vulnerability fixes.
+- Maven **Define inherited property locally** quick fix creates the exact controlling parent version property in the child POM, with an XML preview, affected artifacts, undo and stale-input guards. It supports actual inherited dependencies without child declarations, requires agreed checks for active shared consumers while listing unused managed metadata separately without extra queries, and leaves BOM property overrides and imported descendant subtrees for manual review. Suggested versions indicate availability, not verified vulnerability fixes.
 
 - Maven 4 support tested with 4.0.0-rc-7 on IDEA 2026.2.3, including POM model 4.1.0. Metadata responses and Versions reports retain the selected POM's results when Maven also executes child projects; fallback refreshes use Maven's effective mirror IDs, and plugin prerequisites no longer depend on the removed legacy container.
 
