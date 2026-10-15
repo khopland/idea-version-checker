@@ -188,3 +188,30 @@ JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew te
 The hosted plan is updated in place as version 7 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/7)); original expiry remains 21 October 2026. Earlier validation remains historical.
 
 Remaining scope: Maven local/bulk alias and inherited scope parity; further result authorization/ownership typing; S3 CheckExecutor extraction and complete preview state/model separation; remaining S4 provider inventories and input roles; conditional S6 production cache consolidation; and the product roadmap. This slice does not claim complete S2/S3 migration or measured performance improvements.
+
+
+## Maven property safety and npm input inventory — 15 October 2026
+
+The continuation starts from main `4131239`, after #33–#34 merged. Both PRs target main independently:
+
+- [#35: S4 npm resolution input inventory](https://github.com/khopland/idea-version-checker/pull/35), commit `955cee6`. One path-only typed inventory drives capture, saving, unsaved checks, fingerprint inputs and resolution contexts. Configuration/manifest content, other-manager existence markers and runtime identity remain distinct. Original disk/editor namespaces, missing markers, user/global config paths, configured runtime stamps, cancellation and layout retries remain intact. Workspace declaration discovery stays provider-owned.
+- [#36: S1 Maven property safety and this plan](https://github.com/khopland/idea-version-checker/pull/36), commit `796cd09` plus documentation. Local and bulk preparation share indexed property-usage and ownership checks. Safe exact local alias chains can be updated in bulk by changing their literal owner; alias/reference text stays intact. Every imported consumer context requires selected results and the same replacement, including same-coordinate inherited consumers. Explicit local overrides retain their operation and leases; inherited-only bulk edits remain review-only.
+
+Validation on the combined implementation:
+
+- 592 tests passed on the full/native rerun: 573 default tests plus 19 native integration tests (Maven 7, npm 5, Gradle 7), with no failures, errors or skips. Project configuration verification passed. Existing native request-count and bounded-invocation checks pass.
+- Plugin Verifier passed for IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Each target retains one deprecated API usage and 14 experimental API usages, matching the previous slice.
+- Focused checks passed: 40 npm tests and 71 Maven/shared-plan tests. Three new npm regressions cover runtime config across save/unsaved/capture, marker existence-only semantics and missing root/runtime paths. Maven regressions cover two-hop alias agreement/conflict/missing updates, preserved references, unknown transitive uses and unselected inherited contexts.
+- Review caught a quadratic npm path projection and inherited Maven consumer-context loss before publication. Both were corrected; the shared Maven check preserves the importing child's context and active profile. An npm fixture waits for indexing after adding a runtime config file.
+- The first full/native run had one rejection at the final apply check in the existing 10,000-declaration Maven scaling fixture. The test alone and its full class passed separately; the full/native retry passed without changing or weakening any guard. Plugin Verifier passed during the initial run.
+- `git diff --check`: passed.
+
+Full/native retry command:
+
+```sh
+JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew test verifyPluginProjectConfiguration -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true -Pkotlin.incremental=false -Dorg.gradle.jvmargs=-Xmx2g --console=plain
+```
+
+The hosted plan is updated in place as version 8 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/8)); original expiry remains 21 October 2026. Earlier validation remains historical.
+
+Remaining scope: inherited Maven local/bulk scope parity; Maven input inventory and broader provider input roles; further result authorization/ownership typing; S3 CheckExecutor and complete preview state/model separation; conditional S6 production cache consolidation; and the product roadmap. No performance improvement is claimed.
