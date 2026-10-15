@@ -134,3 +134,30 @@ Validation on the combined implementation:
 The hosted plan is updated in place as version 5 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/5)); original expiry remains 21 October 2026. Historical validation above remains unchanged.
 
 Remaining scope: S1 Maven/Gradle preparation migration, S2 provider callback/ownership migration, other providers' S4 inventories and broader input-role modeling, S3 orchestration/controller work, S6 proven cache mechanics, and the product roadmap. This slice does not claim a standalone engine, generic native resolution, exhaustive Gradle input coverage or a measured performance improvement.
+
+
+## Provider preparation and cache contracts — 15 October 2026
+
+The continuation starts from main `6ebfd63`, after #27–#29 merged. These PRs target main independently:
+
+- [#30: S6 shared cache lifecycle contracts](https://github.com/khopland/idea-version-checker/pull/30), commit `d9730a2`. Six inherited lifecycle tests run against both actual Maven and npm caches through a test-only adapter, covering caller cancellation, retry, generation isolation, completion TTL, eviction and disposal. Provider-specific batching/session/payload/budget tests remain; production caches are unchanged.
+- [#31: S1 Gradle preparation and this plan update](https://github.com/khopland/idea-version-checker/pull/31), commit `9919f4e` plus documentation. One parsed target group supplies inspection and bulk eligibility, affected declarations, captured edit and follow-up. Native notices, failed reports, duplicate/missing/conflicting consumers, unsupported selectors, physical identity mismatches and downgrades block edits. Existing lease/input/thread/undo guards remain.
+- [#32: S1 Maven preparation](https://github.com/khopland/idea-version-checker/pull/32), commit `2b39db9`. Consumer replacement agreement, notices/blockers and captured XML edits are provider-owned and shared. Cached raw-property checks protect local shared edits, including transitive aliases, attributes and nested references, with imported/profile ownership resolution. Active-profile shadowing remains supported. Explicit local overrides remain separate.
+
+Validation on the combined implementation:
+
+- 583 tests passed: 564 default tests plus 19 native integration tests (Maven 7, npm 5, Gradle 7), with no failures, errors or skips. Project configuration verification passed. Existing native request-count and bounded-invocation checks pass.
+- Plugin Verifier passed for IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Each target retains one deprecated API usage and 14 experimental API usages, matching the previous slice.
+- Focused checks passed: 29 metadata cache tests, 49 Gradle adapter/parser/inspection/preparation tests, and 145 Maven/bulk tests. Final added Maven parity assertions passed separately before the combined run. The Gradle matrix covers 16 safe/blocked cases; notice ordering and physical sibling identity have separate regressions.
+- Review caught a transitive alias-usage gap and an active-profile shadowing regression before publication; both were corrected and covered. Initial Gradle test compilation exhausted its default heap; the final build uses a 2 GB Gradle heap.
+- `git diff --check`: passed.
+
+Final command:
+
+```sh
+JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew test verifyPluginProjectConfiguration verifyPlugin -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true -Dorg.gradle.jvmargs=-Xmx2g --console=plain
+```
+
+The hosted plan is updated in place as version 6 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/6)); original expiry remains 21 October 2026. Earlier validation remains historical.
+
+Remaining scope: complete Maven local/bulk alias and inherited scope parity (bulk intentionally remains narrower); S2 provider callback/ownership migration; S3 orchestration/controller work; remaining S4 provider inventories and input-role modeling; and S6 production cache consolidation only if the shared contracts support a clean abstraction. The broader product roadmap remains proposed. No performance improvement is claimed.
