@@ -6,7 +6,19 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
 
-class NpmMetadataCacheTest {
+class NpmMetadataCacheTest : MetadataCacheContractTest() {
+    override fun createCache(scope: CoroutineScope, now: () -> Long, ttl: Long, capacity: Int): MetadataCacheContract {
+        val cache = NpmMetadataCache(scope, now = now, ttl = ttl, capacity = capacity)
+        return object : MetadataCacheContract {
+            override suspend fun get(key: String, load: suspend () -> String): MetadataCacheSnapshot {
+                val lease = cache.getFresh(context, key) { NpmPackageMetadata(listOf(load())) }
+                return MetadataCacheSnapshot(lease.metadata.versions.single(), lease.expiresAt)
+            }
+            override fun invalidate() = cache.invalidate()
+            override fun close() = cache.close()
+        }
+    }
+
     private val context = NpmResolutionContext("workspace", "configuration")
     private fun data(version: String = "1.0.1") = NpmPackageMetadata(listOf("1.0.0", version), emptyMap())
 
@@ -45,76 +57,6 @@ class NpmMetadataCacheTest {
                 assertEquals((it + 1) * 100, loads)
                 cache.invalidate()
             }
-        }
-    }
-
-    @Test fun `concurrent callers share an in-flight request and cancelling one preserves the other`(): Unit = runBlocking {
-        cached { cache ->
-            val started = CompletableDeferred<Unit>()
-            val gate = CompletableDeferred<Unit>()
-            var loads = 0
-            var stopped = false
-            val first = async { cache.get(context, "pkg") {
-                loads++; started.complete(Unit)
-                try { gate.await(); data() } finally { stopped = true }
-            } }
-            started.await()
-            val second = async(start = CoroutineStart.UNDISPATCHED) { cache.get(context, "pkg") { error("Duplicate request") } }
-            first.cancelAndJoin()
-            assertFalse(stopped)
-            gate.complete(Unit)
-            assertEquals(data(), second.await())
-            assertEquals(1, loads)
-        }
-    }
-
-    @Test fun `last cancelled caller stops native work and cancellation is never cached`(): Unit = runBlocking {
-        cached { cache ->
-            val started = CompletableDeferred<Unit>()
-            val stopped = CompletableDeferred<Unit>()
-            val first = async { cache.get(context, "pkg") {
-                started.complete(Unit)
-                try { awaitCancellation() } finally { stopped.complete(Unit) }
-            } }
-            started.await()
-            first.cancelAndJoin()
-            withTimeout(5_000) { stopped.await() }
-            assertEquals(data(), cache.get(context, "pkg") { data() })
-        }
-    }
-
-    @Test fun `fresh generation cannot join or be populated by an older request`(): Unit = runBlocking {
-        cached { cache ->
-            val started = CompletableDeferred<Unit>()
-            val gate = CompletableDeferred<Unit>()
-            val old = async { cache.get(context, "pkg") { started.complete(Unit); gate.await(); data("1.0.1") } }
-            started.await()
-            cache.invalidate()
-            assertEquals(data("1.0.2"), cache.get(context, "pkg") { data("1.0.2") })
-            gate.complete(Unit)
-            assertEquals(data("1.0.1"), old.await())
-            assertEquals(data("1.0.2"), cache.get(context, "pkg") { error("Old completion replaced the fresh entry") })
-        }
-    }
-
-    @Test fun `ttl begins at successful completion and expiry refetches`(): Unit = runBlocking {
-        var clock = 0L
-        cached(now = { clock }, ttl = 10) { cache ->
-            val started = CompletableDeferred<Unit>()
-            val gate = CompletableDeferred<Unit>()
-            var loads = 0
-            val request = async { cache.getFresh(context, "pkg") { loads++; started.complete(Unit); gate.await(); data() } }
-            started.await()
-            clock = 100
-            gate.complete(Unit)
-            val lease = request.await()
-            assertEquals(110L, lease.expiresAt)
-            clock = 109
-            assertEquals(lease, cache.getFresh(context, "pkg") { loads++; data() })
-            assertEquals(1, loads)
-            clock = 110
-            cache.get(context, "pkg") { loads++; data() }
-            assertEquals(2, loads)
         }
     }
 
@@ -190,24 +132,5 @@ class NpmMetadataCacheTest {
             }
             assertEquals(1, loads)
         }
-    }
-
-    @Test fun `disposal stops old and current generation workers and clears retained results`(): Unit = runBlocking {
-        val cache = NpmMetadataCache(this)
-        try {
-            val started = CompletableDeferred<Unit>()
-            val stopped = CompletableDeferred<Unit>()
-            val pending = async { cache.get(context, "pkg") {
-                started.complete(Unit)
-                try { awaitCancellation() } finally { stopped.complete(Unit) }
-            } }
-            started.await()
-            cache.invalidate()
-            cache.close()
-            withTimeout(5_000) { stopped.await() }
-            pending.join()
-            assertTrue(pending.isCancelled)
-            assertTrue(runCatching { cache.get(context, "pkg") { data() } }.isFailure)
-        } finally { cache.close() }
     }
 }
