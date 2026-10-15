@@ -6,6 +6,8 @@
 
 ### Changed
 
+- Bulk Maven updates support safe exact local property alias chains through the same usage/ownership policy as local fixes, requiring agreed results for all imported consumer contexts.
+- npm configuration capture, saving, unsaved checks and freshness contexts derive tracked paths from one typed inventory.
 - Provider edit capture and final input validation use distinct named types through adapters, quick fixes and bulk plans.
 - Preview rechecks use a dialog-owned request controller for cancellation, latest-result delivery and failure recovery.
 - Maven inspection and bulk updates share consumer agreement and captured XML edits; shared local property edits also validate transitive property uses in the active profile context.
