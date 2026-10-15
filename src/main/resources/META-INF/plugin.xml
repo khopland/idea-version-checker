@@ -23,6 +23,7 @@
         <errorHandler implementation="com.intellij.diagnostic.JetBrainsMarketplaceErrorReportSubmitter" />
         <postStartupActivity implementation="io.github.khopland.versionchecker.VersionCheckerStartupActivity" />
         <notificationGroup id="Version Checker" displayType="BALLOON" />
+        <toolWindow id="Dependency Versions" anchor="right" factoryClass="io.github.khopland.versionchecker.DependencyToolWindowFactory" />
         <statusBarWidgetFactory id="VersionChecker.Status" implementation="io.github.khopland.versionchecker.VersionCheckStatusWidgetFactory" />
         <projectConfigurable parentId="tools" id="version.checker" displayName="Version Checker" instance="io.github.khopland.versionchecker.VersionCheckerConfigurable" />
     </extensions>

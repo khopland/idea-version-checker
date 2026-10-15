@@ -65,6 +65,8 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     internal fun queuedChecks(adapterId: String) = executor.queuedChecks(adapterId)
 
+    internal fun observations() = executor.observations()
+
     internal fun cached(snapshot: BuildSnapshot, mode: UpdateMode = UpdateMode.MAJOR): UpdateReport? = executor.cached(snapshot, mode)
     internal fun cachedResult(snapshot: BuildSnapshot, mode: UpdateMode) = executor.cachedResult(snapshot, mode)
     internal fun isCachedResultCurrent(snapshot: BuildSnapshot, mode: UpdateMode, result: VersionResultCache.CachedResult) =
