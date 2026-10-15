@@ -13,8 +13,15 @@ internal class MavenVersionProperties(
     private val model: MavenDomProjectModel,
     private val activeProfiles: Collection<String>,
     private val coordinate: (XmlTag) -> DependencyVersion?,
+    private val managingVersion: (XmlTag) -> XmlTag?,
 ) {
     private val root = model.xmlTag
+    private val parentModels by lazy { MavenDomProjectProcessorUtils.collectParentProjects(model) }
+    private val sourceFiles by lazy { (parentModels + model).mapNotNull { it.xmlTag?.containingFile }.toSet() }
+    private val configuredProperties by lazy {
+        root?.containingFile?.virtualFile?.parent?.toNioPath()?.let(MavenConfigProperties::read).orEmpty()
+    }
+    private val propertyNamePattern = Regex("[A-Za-z_][A-Za-z0-9_.-]*")
     private val localNames by lazy {
         val context = root ?: return@lazy emptySet<String>()
         val properties = listOfNotNull(context.findFirstSubTag("properties")) +
@@ -39,8 +46,33 @@ internal class MavenVersionProperties(
         }
     }
 
-    fun consumers(): List<MavenPropertyConsumer> {
-        if (root == null || localNames.isEmpty()) return emptyList()
+    /** An inherited literal owner is safe to shadow only when reached through exact references. */
+    fun inheritedTarget(version: XmlTag, current: String): XmlTag? {
+        val context = root ?: return null
+        if (version.containingFile !in sourceFiles) return null // An imported BOM has its own interpolation context.
+        var raw = version.value.trimmedText
+        val visited = hashSetOf<String>()
+        while (true) {
+            val name = versionPropertyName(raw) ?: return null
+            if (!visited.add(name) || name in localNames || name in configuredProperties || !propertyNamePattern.matches(name) ||
+                name.startsWith("project.") || name.startsWith("pom.") || name.startsWith("settings.") || name.startsWith("env.")) return null
+            val owner = MavenDomProjectProcessorUtils.searchProperty(name, model, context.project) ?: return null
+            if (owner.containingFile !in sourceFiles || owner.containingFile == context.containingFile ||
+                owner.parentTag?.localName != "properties" ||
+                findLocalVersionPropertyOwner(owner, name) != owner) return null
+            val ownerRoot = generateSequence(owner) { it.parentTag }.last()
+            if (ownerRoot.findFirstSubTag("profiles")?.subTags.orEmpty().any { profile ->
+                    profile.findFirstSubTag("properties")?.findFirstSubTag(name) != null
+                }) return null
+            raw = owner.value.trimmedText
+            if (raw == current) return owner.takeIf {
+                MavenPropertyResolver.resolve("\${$name}", model) == current
+            }
+        }
+    }
+
+    fun consumers(inherited: Boolean = false): List<MavenPropertyConsumer> {
+        if (root == null || (!inherited && localNames.isEmpty())) return emptyList()
         val models = mutableListOf(model)
         MavenDomProjectProcessorUtils.processParentProjects(model) { parent ->
             models += parent
@@ -60,10 +92,10 @@ internal class MavenVersionProperties(
                         seen += key
                         continue
                     }
-                    val version = tag.findFirstSubTag("version") ?: continue
+                    val version = tag.findFirstSubTag("version") ?: (if (inherited) managingVersion(tag) else null) ?: continue
                     seen += key
                     val resolved = coordinate(tag) ?: continue
-                    val target = target(version, resolved.version) ?: continue
+                    val target = (if (inherited) inheritedTarget(version, resolved.version) else target(version, resolved.version)) ?: continue
                     add(MavenPropertyConsumer(tag, resolved, target))
                 }
             }

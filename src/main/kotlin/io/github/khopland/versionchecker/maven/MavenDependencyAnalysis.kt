@@ -45,9 +45,18 @@ internal class MavenDependencyAnalysis(
     private val ignoredPolicy = options.ignoredVersions
     private val ignored = ignoredVersions(ignoredPolicy)
     private val versionProperties by lazy {
-        MavenVersionProperties(model, mavenProject.activatedProfilesIds.enabledProfiles, ::coordinate)
+        MavenVersionProperties(model, mavenProject.activatedProfilesIds.enabledProfiles, ::coordinate, ::managingVersion)
     }
     internal val propertyConsumers by lazy { versionProperties.consumers() }
+    internal val inheritedPropertyConsumers by lazy { versionProperties.consumers(inherited = true) }
+    internal val observedInheritedPropertyConsumers by lazy {
+        val usedDependencies = mavenProject.dependencies.mapTo(hashSetOf()) { Triple(it.groupId, it.artifactId, it.version) }
+        inheritedPropertyConsumers.filter { consumer ->
+            val managed = generateSequence(consumer.tag.parentTag) { it.parentTag }
+                .any { it.localName in setOf("dependencyManagement", "pluginManagement") }
+            !managed || consumer.coordinate.let { Triple(it.groupId, it.artifactId, it.version) in usedDependencies }
+        }
+    }
     private val propertyConsumersByTarget by lazy { propertyConsumers.groupBy { it.target } }
     private val sharedConsumers by lazy {
         val manager = MavenProjectsManager.getInstance(model.manager.project)
@@ -259,6 +268,66 @@ internal class MavenDependencyAnalysis(
             .withActionName { scopedAction(property, latest) })
     }
 
+    /** Creating a local owner affects inherited declarations in this child, not parent/sibling contexts. */
+    private fun inheritedPropertyFix(target: XmlTag, latest: String): LocalQuickFix? {
+        val root = model.xmlTag ?: return null
+        val consumers = inheritedPropertyConsumers.filter { it.target == target }
+        if (consumers.isEmpty()) return null
+        val descendants = MavenProjectsManager.getInstance(root.project).projects.filter { candidate ->
+            if (candidate.file == mavenProject.file) false else {
+                val file = com.intellij.psi.PsiManager.getInstance(root.project).findFile(candidate.file)
+                val context = file?.let(MavenDomUtil::getMavenDomProjectModel)
+                context != null && MavenDomProjectProcessorUtils.collectParentProjects(context).any { it.xmlTag == root }
+            }
+        }
+        // Until every descendant context can be previewed and checked, avoid implicitly changing a reactor subtree.
+        if (descendants.isNotEmpty()) return null
+        val blockers = MavenPropertyEligibility((MavenDomProjectProcessorUtils.collectParentProjects(model) + model)
+            .mapNotNull { it.xmlTag?.containingFile }).blockers(target,
+            consumers.mapNotNull { consumer -> consumer.tag.findFirstSubTag("version")?.let {
+                MavenPropertyEligibility.Consumer(it, root.containingFile)
+            } })
+        val prepared = MavenPreparedUpdate.prepare(target, consumers.map { consumer ->
+            val coordinate = consumer.coordinate
+            MavenPreparedUpdate.Consumer(coordinate, updates[coordinate]?.takeUnless {
+                IgnoredVersion("maven", ArtifactId(coordinate.groupId, coordinate.artifactId), it) in ignored
+            }, relocations[coordinate] ?: deprecated["${coordinate.groupId}:${coordinate.artifactId}"])
+        }, blockers)
+        if (prepared.edit == null || prepared.replacement != latest) return null
+        val snapshot = quickFixSnapshot ?: return null
+        val resultIsCurrent = resultGuard(consumers.map { it.coordinate }.toSet())
+        val provenance = (MavenDomProjectProcessorUtils.collectParentProjects(model) + model).mapNotNull { source ->
+            source.xmlTag?.let { com.intellij.psi.SmartPointerManager.createPointer(it) to it.text }
+        }
+        val provenancePaths = provenance.mapNotNull { it.first.element?.containingFile?.virtualFile?.path }.toSet()
+        return DefineInheritedMavenPropertyFix(root, target.localName, latest,
+            consumers.map { "${it.coordinate.groupId}:${it.coordinate.artifactId}" }.distinct(),
+            isCurrent = { resultIsCurrent() && provenance.all { (pointer, text) -> pointer.element?.text == text } &&
+                root.project.service<VersionCheckerSettings>().state.enabled &&
+                root.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy })
+            .withInputValidation {
+                val standard = quickFixAdapter.prepareEditValidation(root.project, listOf(snapshot))
+                val sources = io.github.khopland.versionchecker.core.prepareSavedBuildInputValidation(root.project, provenancePaths)
+                io.github.khopland.versionchecker.core.CapturedEditInputs { standard.isCurrent() && sources.isCurrent() }
+            }
+    }
+
+    internal fun inheritedPropertyProblems(): List<DependencyProblem> {
+        val anchor = model.xmlTag?.findFirstSubTag("parent") ?: return emptyList()
+        val localCoordinates = model.xmlTag?.let { PsiTreeUtil.findChildrenOfType(it, XmlTag::class.java) }
+            .orEmpty().mapNotNull(::coordinate).toSet()
+        return observedInheritedPropertyConsumers.filter { it.tag.containingFile != anchor.containingFile && it.coordinate !in localCoordinates }
+            .mapNotNull { consumer -> problem(consumer.tag)?.copy(anchor = anchor, target = null) }
+            .distinctBy { it.coordinate }
+    }
+
+    internal fun inheritedPropertyQuickFixes(problem: DependencyProblem): Array<LocalQuickFix> {
+        val latest = problem.latest ?: return emptyArray()
+        if (problem.notice != null) return emptyArray()
+        val target = inheritedPropertyConsumers.firstOrNull { it.coordinate == problem.coordinate }?.target ?: return emptyArray()
+        return listOfNotNull(inheritedPropertyFix(target, latest)).toTypedArray()
+    }
+
     fun quickFixes(tag: XmlTag, problem: DependencyProblem): Array<LocalQuickFix> {
         val latest = problem.latest ?: return emptyArray()
         if (problem.notice != null) return emptyArray()
@@ -300,6 +369,8 @@ internal class MavenDependencyAnalysis(
                 "Update $location version to $latest in $path (${sharedScopes[target] ?: "shared scope requires review"})"
             }
         }
+        val inheritedTarget = (version ?: managingVersion(tag))?.let { versionProperties.inheritedTarget(it, problem.coordinate.version) }
+        inheritedTarget?.let { inheritedPropertyFix(it, latest) }?.let(fixes::add)
         return fixes.toTypedArray()
     }
 
