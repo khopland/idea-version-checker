@@ -273,6 +273,36 @@ internal class MavenDependencyAnalysis(
         val root = model.xmlTag ?: return null
         val consumers = inheritedPropertyConsumers.filter { it.target == target }
         if (consumers.isEmpty()) return null
+        fun managed(tag: XmlTag) = generateSequence(tag.parentTag) { it.parentTag }
+            .any { it.localName in setOf("dependencyManagement", "pluginManagement") }
+        val direct = PsiTreeUtil.findChildrenOfType(root, XmlTag::class.java)
+            .filter { isProjectDependency(it) && !managed(it) }
+        val directKeys = direct.map { tag ->
+            val group = tag.findFirstSubTag("groupId")?.value?.trimmedText ?: return null
+            val artifact = tag.findFirstSubTag("artifactId")?.value?.trimmedText ?: return null
+            val resolved = MavenPropertyResolver.resolve(group, model) to MavenPropertyResolver.resolve(artifact, model)
+            if ('$' in resolved.first || '$' in resolved.second) return null
+            resolved
+        }.toSet()
+        val usedKeys = directKeys + mavenProject.dependencies.map { it.groupId to it.artifactId } +
+            consumers.filter { !managed(it.tag) }.map { it.coordinate.groupId to it.coordinate.artifactId }
+        val actual = mavenProject.dependencies.map { Triple(it.groupId, it.artifactId, it.version) } +
+            direct.mapNotNull(::coordinate).map { Triple(it.groupId, it.artifactId, it.version) }
+        if (consumers.any { consumer -> consumer.coordinate.let { coordinate ->
+                coordinate.artifactKind == MavenArtifactKind.DEPENDENCY && actual.any {
+                    it.first == coordinate.groupId && it.second == coordinate.artifactId && it.third != coordinate.version
+                }
+            } }) return null // An explicit/resolved override needs a separate context review.
+        val checked = consumers.filterNot { consumer ->
+            val tag = consumer.tag
+            val ordinaryManagement = isProjectDependency(tag) && generateSequence(tag.parentTag) { it.parentTag }
+                .any { it.localName == "dependencyManagement" } &&
+                tag.findFirstSubTag("scope")?.value?.trimmedText.let { it == null || (it != "import" && '$' !in it) } &&
+                tag.findFirstSubTag("type")?.value?.trimmedText.let { it == null || (it != "pom" && '$' !in it) }
+            ordinaryManagement && (consumer.coordinate.groupId to consumer.coordinate.artifactId) !in usedKeys
+        }
+        if (checked.isEmpty()) return null
+        val uncheckedManagement = consumers.map { it.coordinate }.toSet() - checked.map { it.coordinate }.toSet()
         val descendants = MavenProjectsManager.getInstance(root.project).projects.filter { candidate ->
             if (candidate.file == mavenProject.file) false else {
                 val file = com.intellij.psi.PsiManager.getInstance(root.project).findFile(candidate.file)
@@ -287,7 +317,7 @@ internal class MavenDependencyAnalysis(
             consumers.mapNotNull { consumer -> consumer.tag.findFirstSubTag("version")?.let {
                 MavenPropertyEligibility.Consumer(it, root.containingFile)
             } })
-        val prepared = MavenPreparedUpdate.prepare(target, consumers.map { consumer ->
+        val prepared = MavenPreparedUpdate.prepare(target, checked.map { consumer ->
             val coordinate = consumer.coordinate
             MavenPreparedUpdate.Consumer(coordinate, updates[coordinate]?.takeUnless {
                 IgnoredVersion("maven", ArtifactId(coordinate.groupId, coordinate.artifactId), it) in ignored
@@ -295,13 +325,14 @@ internal class MavenDependencyAnalysis(
         }, blockers)
         if (prepared.edit == null || prepared.replacement != latest) return null
         val snapshot = quickFixSnapshot ?: return null
-        val resultIsCurrent = resultGuard(consumers.map { it.coordinate }.toSet())
+        val resultIsCurrent = resultGuard(checked.map { it.coordinate }.toSet())
         val provenance = (MavenDomProjectProcessorUtils.collectParentProjects(model) + model).mapNotNull { source ->
             source.xmlTag?.let { com.intellij.psi.SmartPointerManager.createPointer(it) to it.text }
         }
         val provenancePaths = provenance.mapNotNull { it.first.element?.containingFile?.virtualFile?.path }.toSet()
         return DefineInheritedMavenPropertyFix(root, target.localName, latest,
-            consumers.map { "${it.coordinate.groupId}:${it.coordinate.artifactId}" }.distinct(),
+            checked.map { "${it.coordinate.groupId}:${it.coordinate.artifactId}" }.distinct(),
+            uncheckedManagement.map { "${it.groupId}:${it.artifactId}" },
             isCurrent = { resultIsCurrent() && provenance.all { (pointer, text) -> pointer.element?.text == text } &&
                 root.project.service<VersionCheckerSettings>().state.enabled &&
                 root.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy })

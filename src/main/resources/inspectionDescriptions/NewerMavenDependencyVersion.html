@@ -18,7 +18,8 @@ The parent action names the POM it edits and can follow multiple parent levels. 
 Changes to POMs or configuration invalidate these fixes. Editing external parent declarations and composite expressions requires manual review.</p>
 <p>When a dependency version comes from an exact property in the parent chain, <b>Define &lt;property&gt; in this POM</b>
 creates the matching property under the child's <code>&lt;properties&gt;</code>. The XML preview lists the affected artifacts;
-all known consumers must agree on the same update. The parent and its version references remain unchanged.
+all used consumers must agree on the same update. Unused ordinary management entries are listed separately as unchecked metadata changes;
+BOM imports and plugin-management references still require agreed checks. The parent and its version references remain unchanged.
 Inherited dependencies are checked even without a child dependency declaration; unused parent management catalogs are omitted.
 Imported BOM properties, profile ambiguity, non-version uses, Maven config overrides and imported descendant subtrees require manual review.
 An existing local property keeps its normal update action. The action uses the IDE's undo command and stale-input guards.

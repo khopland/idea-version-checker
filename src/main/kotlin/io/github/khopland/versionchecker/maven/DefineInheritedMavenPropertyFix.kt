@@ -20,6 +20,7 @@ internal class DefineInheritedMavenPropertyFix(
     private val property: String,
     private val latest: String,
     private val consumers: List<String>,
+    private val uncheckedManagement: List<String>,
     private val isCurrent: () -> Boolean,
 ) : LocalQuickFix {
     private val pointer = SmartPointerManager.createPointer(root)
@@ -27,7 +28,7 @@ internal class DefineInheritedMavenPropertyFix(
     private var prepareValidation: EditInputCapture? = null
     internal fun withInputValidation(prepare: EditInputCapture) = apply { prepareValidation = prepare }
     override fun getFamilyName() = "Define inherited Maven version property locally"
-    override fun getName() = "Define <$property> as $latest in this POM (${consumers.size} affected artifacts)"
+    override fun getName() = "Define <$property> as $latest in this POM (${consumers.size} checked artifact${if (consumers.size == 1) "" else "s"})"
     override fun startInWriteAction() = false
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = pointer.element
 
@@ -36,7 +37,9 @@ internal class DefineInheritedMavenPropertyFix(
         val copy = root.copy() as XmlTag
         insert(copy)
         return IntentionPreviewInfo.CustomDiff(XmlFileType.INSTANCE,
-            "${root.containingFile.name} — affects ${consumers.joinToString()}; child modules inherit this property",
+            "${root.containingFile.name} — checked: ${consumers.joinToString()}; " +
+                (if (uncheckedManagement.isEmpty()) "" else "unused managed entries changed but unchecked: ${uncheckedManagement.joinToString()}; ") +
+                "child modules inherit this property",
             root.text, copy.text)
     }
 

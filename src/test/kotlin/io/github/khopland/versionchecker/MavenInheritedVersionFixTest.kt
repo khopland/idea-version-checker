@@ -42,6 +42,11 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
         manager = MavenProjectsManager.getInstance(project)
         manager.initForTests()
+        System.getProperty("versionchecker.mavenHome")?.takeIf { it.isNotBlank() }?.let { home ->
+            val path = Path.of(home)
+            VfsRootAccess.allowRootAccess(testRootDisposable, path.toString(), path.toRealPath().toString())
+            manager.generalSettings.setMavenHome(path.toString())
+        }
         manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
     }
 
@@ -546,7 +551,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val before = parent.text
         val fix = fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single()
         assertTrue(fix.name, fix.name.contains("<junit.version>"))
-        assertTrue(fix.name, fix.name.contains("1 affected artifacts"))
+        assertTrue(fix.name, fix.name.contains("1 checked artifact"))
         val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
             declaration(child), "Newer version", fix, ProblemHighlightType.WARNING, true)
         assertTrue(fix.generatePreview(project, descriptor) is com.intellij.codeInsight.intention.preview.IntentionPreviewInfo.CustomDiff)
@@ -633,13 +638,58 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
             <dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>${'$'}{shared.version}</version></dependency>
             <dependency><groupId>other</groupId><artifactId>library</artifactId><version>${'$'}{shared.version}</version></dependency>
             </dependencies></dependencyManagement>""")
-        val child = imported("conflict-define-child", dependency(), "conflict-define-parent")
+        val child = imported("conflict-define-child", dependency().replace("</dependencies>",
+            "<dependency><groupId>other</groupId><artifactId>library</artifactId><version>\${shared.version}</version></dependency></dependencies>"), "conflict-define-parent")
         for (other in listOf(null, "5.0")) {
             val updates = mutableMapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")
             if (other != null) updates[DependencyVersion("other", "library", "4.12")] = other
             val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(child)!!, manager.findProject(child.virtualFile)!!, updates)
             assertTrue(analysis.quickFixes(declaration(child), analysis.problem(declaration(child))!!).none { it is DefineInheritedMavenPropertyFix })
         }
+    }
+
+    fun testUnusedSharedManagementDoesNotNeedACandidateOrExtraQuery() {
+        imported("unused-family-parent", """<properties><shared.version>4.12</shared.version></properties>
+            <dependencyManagement><dependencies>
+            <dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>${'$'}{shared.version}</version></dependency>
+            <dependency><groupId>other</groupId><artifactId>unused</artifactId><version>${'$'}{shared.version}</version></dependency>
+            </dependencies></dependencyManagement>""")
+        val child = imported("unused-family-child", dependency(), "unused-family-parent")
+        val snapshot = MavenBuildSystemAdapter().snapshot(project, child.virtualFile)!!
+        assertEquals(listOf(DependencyVersion("junit", "junit", "4.12")), snapshot.declarations.map { it.coordinate() })
+        val fix = fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single()
+        assertTrue(fix.name.contains("1 checked artifact"))
+        val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
+            declaration(child), "Newer version", fix, ProblemHighlightType.WARNING, true)
+        val preview = fix.generatePreview(project, descriptor) as com.intellij.codeInsight.intention.preview.IntentionPreviewInfo.CustomDiff
+        assertTrue(preview.fileName(), preview.fileName()!!.contains("unused managed entries changed but unchecked: other:unused"))
+        apply(fix, declaration(child))
+        assertEquals("4.13.2", child.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("shared.version")!!.value.trimmedText)
+    }
+
+    fun testUncheckedBomImportAndPluginManagementStillBlockSharedPropertyCreation() {
+        val extraUses = listOf(
+            """<dependencyManagement><dependencies><dependency><groupId>other</groupId><artifactId>bom</artifactId>
+                <version>${'$'}{shared.version}</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement>""",
+            """<build><pluginManagement><plugins><plugin><groupId>other</groupId><artifactId>plugin</artifactId>
+                <version>${'$'}{shared.version}</version></plugin></plugins></pluginManagement></build>""")
+        for ((index, extra) in extraUses.withIndex()) {
+            imported("active-family-parent-$index", "<properties><shared.version>4.12</shared.version></properties>" +
+                dependency("<version>\${shared.version}</version>") + extra)
+            val child = imported("active-family-child-$index", dependency("<version>\${shared.version}</version>"), "active-family-parent-$index")
+            assertTrue("Unchecked active consumer $index", fixes(child).none { it is DefineInheritedMavenPropertyFix })
+        }
+    }
+
+    fun testExplicitDifferentVersionRequiresFamilyContextReview() {
+        imported("explicit-family-parent", """<properties><shared.version>4.12</shared.version></properties>
+            <dependencyManagement><dependencies>
+            <dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>${'$'}{shared.version}</version></dependency>
+            <dependency><groupId>other</groupId><artifactId>library</artifactId><version>${'$'}{shared.version}</version></dependency>
+            </dependencies></dependencyManagement>""")
+        val child = imported("explicit-family-child", dependency().replace("</dependencies>",
+            "<dependency><groupId>other</groupId><artifactId>library</artifactId><version>5.0</version></dependency></dependencies>"), "explicit-family-parent")
+        assertTrue(fixes(child).none { it is DefineInheritedMavenPropertyFix })
     }
 
     fun testCreatingInheritedPropertyRejectsNonVersionUsesAndProfiles() {
@@ -707,7 +757,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         <groupId>junit</groupId><artifactId>junit</artifactId>$version<scope>test</scope>
         </dependency></dependencies>"""
 
-    private fun declaration(file: XmlFile) = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags.single()
+    private fun declaration(file: XmlFile) = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags.first()
 
     private fun fixes(file: XmlFile): Array<LocalQuickFix> {
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
