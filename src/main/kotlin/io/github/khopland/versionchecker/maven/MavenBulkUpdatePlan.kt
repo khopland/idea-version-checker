@@ -21,7 +21,7 @@ internal object MavenBulkUpdatePlan {
     fun create(files: Map<PsiFile, MavenDependencyAnalysis>,
                usageFiles: Collection<PsiFile> = files.keys, isCurrent: () -> Boolean = { true }): BulkUpdatePlan {
         val problems = files.flatMap { (file, analysis) ->
-            val declarations = analysis.problems(file)
+            val declarations = analysis.problems(file).map(analysis::bulkProblem)
             val coordinates = declarations.mapTo(hashSetOf()) { it.coordinate }
             declarations + analysis.propertyProblems().filter { it.coordinate !in coordinates }.map {
                 it.copy(target = null, notice = it.notice ?:
@@ -35,29 +35,17 @@ internal object MavenBulkUpdatePlan {
                 false
             } else true
         }.groupBy { key(it.target!!) }
-        val propertyUsages by lazy {
-            MavenPropertyUsages(usageFiles, candidates.values.mapNotNull { group ->
-                group.first().target!!.takeIf { it.parentTag?.localName == "properties" }
-                    ?.let { "\${${it.localName}}" }
-            }.toSet())
-        }
+        val propertyEligibility by lazy { MavenPropertyEligibility(usageFiles) }
         val changes = mutableListOf<VersionEdit>()
-        for ((targetKey, group) in candidates) {
+        for (group in candidates.values) {
             val target = group.first().target!!
             val blockers = mutableListOf<String>()
-            if (target.parentTag?.localName == "properties") {
-                val reference = "\${${target.localName}}"
-                val usages = propertyUsages.leaves[reference].orEmpty()
-                val anchors = group.mapTo(hashSetOf()) { it.anchor }
-                val safe = reference !in propertyUsages.attributes && usages.isNotEmpty() && usages.all { usage ->
-                    usage.localName == "version" && usage.value.trimmedText == reference &&
-                        files[usage.containingFile]?.versionPropertyTarget(usage, reference, target.value.trimmedText)?.let(::key) == targetKey &&
-                        usage in anchors
-                }
-                if (!safe) {
-                    blockers += "${target.localName}: shared, inherited or other uses need review"
-                }
-            }
+            blockers += propertyEligibility.blockers(target, group.map {
+                MavenPropertyEligibility.Consumer(it.anchor, it.anchor.containingFile)
+            })
+            val replacement = group.map { it.latest }.distinct().singleOrNull()
+            if (blockers.isEmpty() && replacement != null)
+                blockers += files.values.first().bulkPropertyScopeBlockers(target, files, replacement)
             val prepared = MavenPreparedUpdate.prepare(target, group.map {
                 MavenPreparedUpdate.Consumer(it.coordinate, it.latest, it.notice)
             }, blockers)

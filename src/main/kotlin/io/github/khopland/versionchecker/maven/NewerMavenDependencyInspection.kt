@@ -84,6 +84,20 @@ internal fun findLocalVersionProperty(versionTag: XmlTag, rawVersion: String?, c
     return findLocalVersionPropertyOwner(versionTag, name, activeProfiles)?.takeIf { it.value.trimmedText == current }
 }
 
+/** Follow exact local aliases for bulk edits, retaining the local fix's explicit override choice. */
+internal fun findLocalVersionPropertyChain(versionTag: XmlTag, rawVersion: String?, current: String,
+    activeProfiles: Collection<String>?): XmlTag? {
+    var reference = rawVersion ?: return null
+    val visited = hashSetOf<XmlTag>()
+    while (true) {
+        val name = versionPropertyName(reference) ?: return null
+        val owner = findLocalVersionPropertyOwner(versionTag, name, activeProfiles) ?: return null
+        if (!visited.add(owner)) return null
+        reference = owner.value.trimmedText
+        if (reference == current) return owner
+    }
+}
+
 internal fun versionPropertyName(raw: String): String? = Regex("""\$\{([^}]+)}""").matchEntire(raw)?.groupValues?.get(1)
 
 class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, private val latest: String,

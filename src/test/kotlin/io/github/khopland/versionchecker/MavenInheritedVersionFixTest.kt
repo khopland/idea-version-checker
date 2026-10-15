@@ -230,8 +230,55 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
             assertEquals("alias case $index", index == 0, fixes.filterIsInstance<UpdateDependencyVersionFix>().isNotEmpty())
             assertEquals("alias property case $index", index == 0, analysis.propertyQuickFixes(target).isNotEmpty())
             assertTrue("Explicit local override remains available", fixes.any { it is OverrideDependencyVersionFix })
+            val bulk = MavenBulkUpdatePlan.create(mapOf(file to analysis))
+            assertEquals("bulk alias case $index", if (index == 0) 1 else 0, bulk.changes.size)
+            if (index == 0) {
+                val edit = bulk.changes.single() as MavenVersionEdit
+                assertSame(target, edit.element)
+                assertEquals("4.12", edit.expected)
+                assertEquals("4.13.2", edit.latest)
+                assertEquals("\${shared}", file.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("alias")!!.value.trimmedText)
+            }
             manager.projectsTree.setIgnoredState(listOf(manager.findProject(file.virtualFile)!!), true)
         }
+    }
+
+    fun testBulkAliasChainPreservesReferencesAndBlocksAnUncheckedConsumer() {
+        val file = imported("alias-chain", """<properties><shared>1.0</shared><middle>${'$'}{shared}</middle>
+            <alias>${'$'}{middle}</alias></properties><dependencies>
+            <dependency><groupId>g</groupId><artifactId>a</artifactId><version>${'$'}{alias}</version></dependency>
+            <dependency><groupId>g</groupId><artifactId>b</artifactId><version>${'$'}{middle}</version></dependency></dependencies>""")
+        fun analysis(updates: Map<DependencyVersion, String>) = MavenDependencyAnalysis(
+            MavenDomUtil.getMavenDomProjectModel(file)!!, manager.findProject(file.virtualFile)!!, updates)
+        val first = DependencyVersion("g", "a", "1.0")
+        val second = DependencyVersion("g", "b", "1.0")
+        assertTrue(MavenBulkUpdatePlan.create(mapOf(file to analysis(mapOf(first to "1.1")))).changes.isEmpty())
+        assertTrue(MavenBulkUpdatePlan.create(mapOf(file to analysis(mapOf(first to "1.1", second to "1.2")))).changes.isEmpty())
+        val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis(mapOf(first to "1.1", second to "1.1"))))
+        assertEquals(1, plan.changes.size)
+        WriteCommandAction.runWriteCommandAction(project) { plan.changes.single().apply() }
+        val properties = file.rootTag!!.findFirstSubTag("properties")!!
+        assertEquals("1.1", properties.findFirstSubTag("shared")!!.value.trimmedText)
+        assertEquals("\${shared}", properties.findFirstSubTag("middle")!!.value.trimmedText)
+        assertEquals("\${middle}", properties.findFirstSubTag("alias")!!.value.trimmedText)
+        assertEquals(listOf("\${alias}", "\${middle}"), file.rootTag!!.findFirstSubTag("dependencies")!!.subTags.map {
+            it.findFirstSubTag("version")!!.value.trimmedText
+        })
+    }
+
+    fun testBulkPropertyRequiresResultsForEveryInheritedContextEvenWithIdenticalCoordinates() {
+        val parent = imported("selected-parent", """<properties><shared>4.12</shared></properties>
+            ${management("\${shared}")} """)
+        val child = imported("unselected-child", dependency(), "selected-parent")
+        val updates = mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")
+        fun analysis(file: XmlFile, versions: Map<DependencyVersion, String> = updates) =
+            MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, manager.findProject(file.virtualFile)!!, versions)
+        val selected = MavenBulkUpdatePlan.create(mapOf(parent to analysis(parent)), usageFiles = listOf(parent, child))
+        assertTrue("A result for the same coordinate in the parent cannot authorize its child's inherited declaration", selected.changes.isEmpty())
+        assertTrue(selected.skipped.any { it.contains("outside the selected results") })
+        val missing = MavenBulkUpdatePlan.create(mapOf(parent to analysis(parent), child to analysis(child, emptyMap())), usageFiles = listOf(parent, child))
+        assertTrue("Selected but unchecked inherited context still blocks the shared edit", missing.changes.isEmpty())
+        assertEquals("4.12", parent.rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
     }
 
     fun testPreparedQuickFixRejectsAnotherPhysicalTarget() {

@@ -79,62 +79,14 @@ internal class MavenDependencyAnalysis(
         } + sharedConsumers.values.flatten().map { it.second } + listOfNotNull(model.xmlTag?.containingFile) +
             sharedConsumers.keys.map { it.containingFile }).distinct()
     }
-    private val propertyUsageIndex by lazy {
-        MavenPropertyUsages(propertyUsageFiles, propertyAliases.keys)
-    }
-    private val propertyAliases by lazy {
-        propertyUsageFiles.flatMap { PsiTreeUtil.findChildrenOfType(it, XmlTag::class.java) }
-            .filter { it.parentTag?.localName == "properties" }.groupBy { "\${${it.localName}}" }
-    }
+    private val propertyEligibility by lazy { MavenPropertyEligibility(propertyUsageFiles) }
     private val preparedSharedUpdates = mutableMapOf<XmlTag, MavenPreparedUpdate>()
     private fun prepareShared(target: XmlTag): MavenPreparedUpdate = preparedSharedUpdates.getOrPut(target) {
         val consumers = sharedConsumers[target].orEmpty()
         val blockers = mutableListOf<String>()
-        if (target.parentTag?.localName == "properties") {
-            val reference = "\${${target.localName}}"
-            val knownVersions = consumers.mapNotNull { it.first.findFirstSubTag("version") }.toSet()
-            val allowedAliases = hashSetOf<XmlTag>()
-            val pending = ArrayDeque(consumers.mapNotNull { (tag, file, _) ->
-                tag.findFirstSubTag("version")?.value?.trimmedText?.let(::versionPropertyName)?.let { file to it }
-            })
-            val visited = hashSetOf<Pair<PsiFile, String>>()
-            while (pending.isNotEmpty()) {
-                val (file, name) = pending.removeFirst()
-                if (!visited.add(file to name)) continue
-                val context = MavenDomUtil.getMavenDomProjectModel(file) ?: continue
-                val active = MavenProjectsManager.getInstance(file.project).findProject(file.virtualFile)
-                    ?.activatedProfilesIds?.enabledProfiles
-                val alias = context.xmlTag?.let { findLocalVersionPropertyOwner(it, name, active) }
-                    ?: MavenDomProjectProcessorUtils.searchProperty(name, context, file.project)
-                if (alias != null && alias != target) {
-                    val next = versionPropertyName(alias.value.trimmedText)
-                    if (next == null) blockers += "${target.localName}: property ownership requires review"
-                    else {
-                        allowedAliases += alias
-                        pending.add(file to next)
-                    }
-                }
-            }
-            fun relevantUsage(usage: XmlTag, candidate: String): Boolean {
-                if (usage in knownVersions || usage in allowedAliases) return true
-                val name = versionPropertyName(candidate) ?: return true
-                val file = usage.containingFile
-                val active = MavenProjectsManager.getInstance(file.project).findProject(file.virtualFile)
-                    ?.activatedProfilesIds?.enabledProfiles
-                val owner = findLocalVersionPropertyOwner(usage, name, active)
-                    ?: MavenDomUtil.getMavenDomProjectModel(file)?.let {
-                        MavenDomProjectProcessorUtils.searchProperty(name, it, file.project)
-                    }
-                return owner == null || owner == target || owner in allowedAliases
-            }
-            val references = setOf(reference) + allowedAliases.map { "\${${it.localName}}" }
-            if (references.any { candidate ->
-                    val usages = propertyUsageIndex.leaves[candidate].orEmpty().filter { relevantUsage(it, candidate) }
-                    propertyUsageIndex.attributeOwners[candidate].orEmpty().any { relevantUsage(it, candidate) } || usages.isEmpty() || usages.any {
-                        it.value.trimmedText != candidate || (it !in knownVersions && it !in allowedAliases)
-                    }
-                }) blockers += "${target.localName}: shared, inherited or other uses need review"
-        }
+        blockers += propertyEligibility.blockers(target, consumers.mapNotNull { (tag, context, _) ->
+            tag.findFirstSubTag("version")?.let { MavenPropertyEligibility.Consumer(it, context) }
+        })
         MavenPreparedUpdate.prepare(target, consumers.map { (_, _, coordinate) ->
             val latest = updates[coordinate]?.takeUnless { IgnoredVersion("maven",
                 ArtifactId(coordinate.groupId, coordinate.artifactId), it) in ignored }
@@ -266,6 +218,25 @@ internal class MavenDependencyAnalysis(
 
     internal fun versionPropertyTarget(versionTag: XmlTag, raw: String?, current: String): XmlTag? =
         findLocalVersionProperty(versionTag, raw, current, mavenProject.activatedProfilesIds.enabledProfiles)
+
+    internal fun bulkPropertyScopeBlockers(target: XmlTag, selected: Map<PsiFile, MavenDependencyAnalysis>, replacement: String?): List<String> {
+        if (target.parentTag?.localName != "properties") return emptyList()
+        val contexts = sharedConsumers[target].orEmpty()
+        val authorized = contexts.isNotEmpty() && contexts.all { (_, context, coordinate) ->
+            val analysis = selected[context] ?: return@all false
+            val latest = analysis.updates[coordinate] ?: return@all false
+            latest == replacement && IgnoredVersion("maven", ArtifactId(coordinate.groupId, coordinate.artifactId), latest) !in analysis.ignored &&
+                coordinate !in analysis.relocations && "${coordinate.groupId}:${coordinate.artifactId}" !in analysis.deprecated
+        }
+        return if (authorized) emptyList() else listOf("${target.localName}: consumers outside the selected results need review")
+    }
+
+    internal fun bulkProblem(problem: DependencyProblem): DependencyProblem {
+        if (problem.target != null || problem.notice != null || problem.anchor.localName != "version") return problem
+        val target = findLocalVersionPropertyChain(problem.anchor, problem.anchor.value.trimmedText,
+            problem.coordinate.version, mavenProject.activatedProfilesIds.enabledProfiles)
+        return problem.copy(target = target)
+    }
 
     internal fun propertyProblems(): List<DependencyProblem> = propertyConsumers.mapNotNull { consumer ->
         val problem = problem(consumer.tag) ?: return@mapNotNull null
