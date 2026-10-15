@@ -218,6 +218,68 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertTrue(warning.fixes.orEmpty().all { it is IgnorePublishedVersionFix })
     }
 
+    fun testSharedAliasChecksEveryTransitiveUsage() {
+        for ((index, extra) in listOf("", "<name>\${alias}</name>", "<name value=\"\${alias}\"/>",
+            "<name>\${outer-\${alias}}</name>").withIndex()) {
+            val file = imported("prepared-alias-$index", """<properties><shared>4.12</shared><alias>${'$'}{shared}</alias></properties>
+                ${dependency("<version>\${alias}</version>")}$extra""")
+            val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
+                manager.findProject(file.virtualFile)!!, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2"))
+            val target = file.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("shared")!!
+            val fixes = analysis.quickFixes(declaration(file), analysis.problem(declaration(file))!!)
+            assertEquals("alias case $index", index == 0, fixes.filterIsInstance<UpdateDependencyVersionFix>().isNotEmpty())
+            assertEquals("alias property case $index", index == 0, analysis.propertyQuickFixes(target).isNotEmpty())
+            assertTrue("Explicit local override remains available", fixes.any { it is OverrideDependencyVersionFix })
+            manager.projectsTree.setIgnoredState(listOf(manager.findProject(file.virtualFile)!!), true)
+        }
+    }
+
+    fun testPreparedQuickFixRejectsAnotherPhysicalTarget() {
+        val file = imported("prepared-physical-target", "<properties><first>1.0</first><second>1.0</second></properties>")
+        val properties = file.rootTag!!.findFirstSubTag("properties")!!.subTags
+        val prepared = MavenPreparedUpdate.prepare(properties[0], listOf(
+            MavenPreparedUpdate.Consumer(DependencyVersion("g", "a", "1.0"), "1.1")))
+        val fix = UpdateDependencyVersionFix(properties[1], "1.1")
+        try {
+            fix.withPreparedUpdate(prepared)
+            fail("A matching old value cannot substitute another physical target")
+        } catch (_: IllegalStateException) { }
+        assertEquals("1.0", properties[0].value.trimmedText)
+        assertEquals("1.0", properties[1].value.trimmedText)
+    }
+
+    fun testQuickFixAndBulkSharePropertyEligibility() {
+        val cases = listOf(
+            "agreed" to "",
+            "unknown-element" to "<name>\${shared.version}</name>",
+            "attribute" to "<name value=\"\${shared.version}\"/>",
+            "nested-reference" to "<name>\${outer-\${shared.version}}</name>",
+            "composite" to "<name>prefix-\${shared.version}</name>"
+        )
+        for ((name, extra) in cases) {
+            val file = imported("prepared-$name", """<properties><shared.version>1.0</shared.version></properties>
+                <dependencies><dependency><groupId>g</groupId><artifactId>a</artifactId><version>${'$'}{shared.version}</version></dependency>
+                <dependency><groupId>g</groupId><artifactId>b</artifactId><version>${'$'}{shared.version}</version></dependency></dependencies>$extra""")
+            val updates = mapOf(DependencyVersion("g", "a", "1.0") to "1.1", DependencyVersion("g", "b", "1.0") to "1.1")
+            val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, manager.findProject(file.virtualFile)!!, updates)
+            val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+            val version = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags.first().findFirstSubTag("version")!!
+            val problem = analysis.problem(version.parentTag!!)!!
+            val bulk = MavenBulkUpdatePlan.create(mapOf(file to analysis))
+            val allowed = name == "agreed"
+            assertEquals(name, allowed, analysis.propertyQuickFixes(property).isNotEmpty())
+            assertEquals(name, allowed, analysis.quickFixes(version.parentTag!!, problem).filterIsInstance<UpdateDependencyVersionFix>().isNotEmpty())
+            assertEquals(name, if (allowed) 1 else 0, bulk.changes.size)
+            if (allowed) {
+                val edit = bulk.changes.single() as MavenVersionEdit
+                assertSame(property, edit.element)
+                assertEquals("1.0", edit.expected)
+                assertEquals("1.1", edit.latest)
+            }
+            manager.projectsTree.setIgnoredState(listOf(manager.findProject(file.virtualFile)!!), true)
+        }
+    }
+
     fun testDeclarationQuickFixRejectsUnchangedSharedConsumer() = sharedDeclarationQuickFix(null)
 
     fun testDeclarationQuickFixRejectsConflictingSharedConsumer() = sharedDeclarationQuickFix("1.2")
@@ -237,6 +299,11 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val warning = warnings.single { it.psiElement == version }
         val fixes = warning.fixes.orEmpty().filterIsInstance<UpdateDependencyVersionFix>()
         val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
+            manager.findProject(file.virtualFile)!!, updates)
+        val bulk = MavenBulkUpdatePlan.create(mapOf(file to analysis))
+        assertEquals("Bulk and local edits agree for unchanged/conflicting/agreeing consumers",
+            if (otherUpdate == "1.1") 1 else 0, bulk.changes.size)
         if (otherUpdate == "1.1") {
             apply(fixes.single(), version)
             assertEquals("1.1", property.value.trimmedText)
