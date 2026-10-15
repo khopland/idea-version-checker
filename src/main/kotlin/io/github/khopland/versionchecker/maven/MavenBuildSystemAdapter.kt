@@ -14,7 +14,6 @@ import io.github.khopland.versionchecker.core.*
 import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
-import org.jetbrains.idea.maven.server.MavenDistributionsCache
 import java.nio.file.Path
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -24,8 +23,6 @@ import kotlinx.coroutines.withContext
 internal class MavenBuildSystemAdapter(
     private val readSavedFingerprint: ((Path) -> String)? = null
 ) : BuildSystemAdapter {
-    private data class SaveInputs(val poms: List<String>, val settings: Path,
-                                  val distributions: List<Path>, val directories: List<Path>)
     override suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,
                                     action: suspend () -> T): T = withMavenScanSession(action)
     override val id = "maven"
@@ -43,28 +40,11 @@ internal class MavenBuildSystemAdapter(
             val manager = MavenProjectsManager.getInstance(project)
             val selected = selectedProjects(manager, selection)
             if (selected.isEmpty()) return@readAction null
-            SaveInputs(manager.nonIgnoredProjects.map { it.path }, MavenSettingsInputs.userSettings(manager),
-                selected.map { MavenDistributionsCache.getInstance(project).getMavenDistribution(it.file).mavenHome }.distinct(),
-                selected.map { it.file.toNioPath().parent })
+            MavenInputInventory.layout(manager, selected)
         } ?: return emptySet()
         return withContext(Dispatchers.IO) {
-            val paths = inputs.poms.toMutableSet()
-            paths += MavenSettingsInputs.files(inputs.settings).map { it.toString() }
-            for (home in inputs.distributions) {
-                currentCoroutineContext().ensureActive()
-                paths += MavenSettingsInputs.files(inputs.settings, home).map { it.toString() }
-            }
-            for (directory in inputs.directories) {
-                var ancestor: Path? = directory
-                while (ancestor != null) {
-                    currentCoroutineContext().ensureActive()
-                    for (name in listOf("maven.config", "jvm.config", "extensions.xml", "wrapper/maven-wrapper.properties")) {
-                        paths += ancestor.resolve(".mvn").resolve(name).toString()
-                    }
-                    ancestor = ancestor.parent
-                }
-            }
-            paths
+            val context = currentCoroutineContext()
+            MavenInputInventory.discover(inputs) { context.ensureActive() }.resolutionInputPaths()
         }
     }
 

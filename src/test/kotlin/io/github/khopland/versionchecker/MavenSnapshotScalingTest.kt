@@ -104,6 +104,34 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
         } finally { manager.generalSettings.setUserSettingsFile(previous) }
     }
 
+    fun testSelectedSavingAndCaptureUseTheSamePolicyWithoutSavingSiblingConfiguration() {
+        val selected = imported("save/selected", dependency)
+        val sibling = imported("save/sibling", dependency)
+        val adapter = MavenBuildSystemAdapter()
+        val selection = BuildSelection(UpdateScope.CURRENT_FILE, selected.path)
+        val paths = background { adapter.resolutionInputPaths(project, selection) }
+        assertTrue(paths.containsAll(listOf(selected.path, sibling.path)))
+        val selectedConfig = selected.file.toNioPath().parent.resolve(".mvn/extensions.xml")
+        val siblingConfig = sibling.file.toNioPath().parent.resolve(".mvn/extensions.xml")
+        assertTrue(paths.contains(selectedConfig.toString()))
+        assertFalse(paths.contains(siblingConfig.toString()))
+        val reads = mutableListOf<Path>()
+        val capturing = MavenBuildSystemAdapter { path ->
+            assertFalse(ApplicationManager.getApplication().isReadAccessAllowed)
+            assertFalse(ApplicationManager.getApplication().isDispatchThread)
+            reads.add(path)
+            MavenProjectInputs.savedDiskFingerprint(path)
+        }
+        val snapshot = background { capturing.discover(project, selection) }.single()
+        assertEquals(paths, snapshot.fingerprint.files.keys)
+        assertTrue("Capture covers every imported layout for later live overlays", reads.contains(siblingConfig))
+        assertEquals(reads.toSet().size, reads.size)
+        assertFalse(snapshot.fingerprint.files.containsKey(siblingConfig.toString()))
+        Files.createDirectories(selectedConfig.parent)
+        Files.writeString(selectedConfig, "<extensions/>")
+        assertFalse(background { capturing.isCurrentInBackground(project, snapshot) })
+    }
+
     fun testSettingsPathChangedDuringExternalCaptureDiscardsOldPaths() {
         val selected = imported("capture-path", dependency)
         val old = directory.resolve("old/settings.xml")
