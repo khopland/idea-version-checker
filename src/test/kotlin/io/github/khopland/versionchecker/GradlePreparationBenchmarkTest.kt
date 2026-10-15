@@ -59,7 +59,7 @@ class GradlePreparationBenchmarkTest : BasePlatformTestCase() {
                     assertEquals(count, plan.changes.size)
                     assertTrue(plan.skipped.isEmpty())
                     assertTrue(plan.changes.all { it.expected == "1.2.3" && it.latest == "1.2.9" })
-                    val ranges = plan.changes.map { (it as GradleVersionEdit).range.startOffset }
+                    val ranges = plan.changes.map { it.documentChange!!.range.startOffset }
                     assertEquals(ranges.sortedDescending(), ranges)
                     elapsed
                 }

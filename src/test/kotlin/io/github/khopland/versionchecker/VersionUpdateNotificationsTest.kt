@@ -1,0 +1,43 @@
+package io.github.khopland.versionchecker
+
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
+import com.intellij.notification.Notifications
+import com.intellij.openapi.util.Disposer
+import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import io.github.khopland.versionchecker.followup.BuildReloadService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import java.util.concurrent.CopyOnWriteArrayList
+
+class VersionUpdateNotificationsTest : BasePlatformTestCase() {
+    fun testAppliedProviderSelectionOffersOnlyItsOwnExplicitFollowUp() {
+        val captured = CopyOnWriteArrayList<Notification>()
+        project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
+            override fun notify(notification: Notification) { if (notification.title == "Versions updated") captured += notification }
+        })
+        notifyVersionUpdates(project, emptyList(), setOf("maven"))
+        val notification = captured.single()
+        assertEquals(listOf("Save and reload Maven projects"), notification.actions.map { it.templatePresentation.text })
+        assertTrue(notification.content.contains("Declaration versions changed"))
+        notification.expire()
+    }
+
+    fun testFollowUpNotificationsExpireWithTheirOwnerAndRejectLatePublication() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val owner = BuildReloadService(project, scope)
+        val group = NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
+        try {
+            val retained = group.createNotification("Follow-up test", "Pending action", NotificationType.INFORMATION)
+            owner.publish(retained)
+            Disposer.dispose(owner)
+            assertTrue(retained.isExpired)
+            val late = group.createNotification("Late follow-up test", "No action", NotificationType.INFORMATION)
+            owner.publish(late)
+            assertTrue(late.isExpired)
+        } finally { if (!Disposer.isDisposed(owner)) Disposer.dispose(owner); scope.cancel() }
+    }
+}

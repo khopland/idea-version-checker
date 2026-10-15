@@ -156,6 +156,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         check(areCurrent(project, reports.keys, external)) { "npm manifests or configuration changed during the check. Run it again." }
         val edits = mutableListOf<VersionEdit>()
         val skipped = mutableListOf<String>()
+        val review = mutableListOf<VersionReviewItem>()
         val followUp = mutableListOf<String>()
         for ((snapshot, report) in reports) {
             val file = findFile(project, snapshot.sourceFile) ?: error("package.json is no longer available")
@@ -163,22 +164,28 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             val values = NpmManifest.values(psi)
             for (declaration in snapshot.declarations.filter { it.baseline.isEmpty() }) {
                 skipped += "${declaration.id.file}: ${declaration.id.location}: ${NpmManifest.reviewReason(declaration)}"
+                review += VersionReviewItem(NpmManifest.reviewReason(declaration).orEmpty(), VersionReviewSource.capture(values[declaration.id]) ?: VersionReviewSource(file.path), declaration.id.location, declaration.selector, buildContext = "npm")
             }
             for (declaration in snapshot.declarations.filter { it.baseline.isNotEmpty() }) {
                 val reason = NpmManifest.overrideReviewReason(project, file, declaration) ?: continue
                 skipped += "${file.path}: ${declaration.id.location}: $reason"
+                review += VersionReviewItem(reason, VersionReviewSource.capture(values[declaration.id]) ?: VersionReviewSource(file.path), declaration.id.location, declaration.selector, buildContext = "npm")
             }
             for (candidate in report.candidates) {
                 val prepared = NpmPreparedUpdate.prepare(project, file, candidate.declaration,
                     values[candidate.declaration.id], candidate.replacementSelector)
                 skipped += prepared.blockingReasons.map { "${file.path}: ${prepared.target.location}: $it" }
-                prepared.edit?.let { edits += it }
+                review += prepared.blockingReasons.map { VersionReviewItem(it, VersionReviewSource.capture(values[candidate.declaration.id]) ?: VersionReviewSource(file.path), candidate.declaration.id.location, candidate.declaration.selector, candidate.replacementSelector, buildContext = "npm") }
+                prepared.edit?.let { edits += it.withReview(listOf(candidate.declaration), "npm") }
                 followUp += prepared.followUp
             }
             report.notices.filter { notice -> report.candidates.none { it.declaration.id == notice.declaration.id } }
-                .forEach { skipped += "${it.declaration.id.file}: ${it.message}" }
+                .forEach {
+                    skipped += "${it.declaration.id.file}: ${it.message}"
+                    review += VersionReviewItem(it.message, VersionReviewSource.capture(values[it.declaration.id]) ?: VersionReviewSource(file.path), it.declaration.id.location, it.declaration.selector, buildContext = "npm")
+                }
         }
-        BulkUpdatePlan(edits, skipped.distinct(),
+        BulkUpdatePlan(edits, skipped.distinct(), reviewItems = review.distinct(),
             followUp = followUp.distinct(),
             prepareValidation = { prepareEditValidation(project, reports.keys) })
     }

@@ -146,7 +146,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                             }
                                             changed = true
                                             saveChangedVersionFiles(plan)
-                                            notifyVersionUpdates(project, plan.followUp)
+                                            notifyVersionUpdates(project, plan.followUp, buildSystems = plan.changes.mapNotNull { it.buildSystemId }.toSet())
                                             project.service<VersionCheckService>().recheckAfterEdits(matching,
                                                 BuildSelection(selectedScope, currentFile?.path))
                                             appliedInDialog = true
@@ -190,7 +190,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                     return@withContext
                                 }
                                 saveChangedVersionFiles(plan)
-                                notifyVersionUpdates(project, plan.followUp)
+                                notifyVersionUpdates(project, plan.followUp, buildSystems = plan.changes.mapNotNull { it.buildSystemId }.toSet())
                                 project.service<VersionCheckService>().recheckAfterEdits(matching,
                                     BuildSelection(selectedScope, currentFile?.path))
                             }
@@ -256,6 +256,21 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
             withContext(Dispatchers.EDT) {
                 if (!disposed && !project.isDisposed && target.first.isValid)
                     com.intellij.openapi.fileEditor.OpenFileDescriptor(project, target.first, target.second).navigate(true)
+            }
+        }
+    }
+
+    internal fun openReviewSource(source: VersionReviewSource) {
+        scope.launch(Dispatchers.IO) {
+            val file = source.findFile()
+            withContext(Dispatchers.EDT) {
+                if (disposed || project.isDisposed) return@withContext
+                if (file == null || !file.isValid || file.isDirectory) {
+                    showDetails("Source unavailable", "The review source is no longer available. Refresh the review to locate its current declaration.")
+                } else {
+                    val length = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(file)?.textLength ?: 0
+                    com.intellij.openapi.fileEditor.OpenFileDescriptor(project, file, source.navigationOffset(length)).navigate(true)
+                }
             }
         }
     }

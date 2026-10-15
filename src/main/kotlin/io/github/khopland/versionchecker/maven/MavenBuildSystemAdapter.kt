@@ -25,6 +25,11 @@ internal class MavenBuildSystemAdapter(
 ) : BuildSystemAdapter {
     override suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,
                                     action: suspend () -> T): T = withMavenScanSession(action)
+    override fun reloadProject(project: Project): Boolean {
+        if (project.isDisposed) return false
+        MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+        return true
+    }
     override val id = "maven"
     override val displayName = "Maven"
     override val capabilities = AdapterCapabilities(incrementalInspections = true, updateScopes = UpdateScope.entries.toSet())
@@ -241,7 +246,10 @@ internal class MavenBuildSystemAdapter(
         val usages = inputs.projects.mapNotNull { PsiManager.getInstance(project).findFile(it.file) }
         val plan = MavenBulkUpdatePlan.create(files, usageFiles = usages).copy(
             prepareValidation = { prepareEditValidation(project, reports.keys) })
-        plan.copy(skipped = (plan.skipped + reports.keys.flatMap { it.skippedDeclarations.entries }.map {
+        val review = reports.keys.flatMap { it.skippedDeclarations.entries }.map {
+            VersionReviewItem(it.value, VersionReviewSource(it.key.file), it.key.location, buildContext = "Maven")
+        }
+        plan.copy(reviewItems = (plan.reviewItems + review).distinct(), skipped = (plan.skipped + reports.keys.flatMap { it.skippedDeclarations.entries }.map {
             "${it.key.file}: ${it.key.location}: ${it.value}"
         }).distinct())
     }

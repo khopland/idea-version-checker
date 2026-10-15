@@ -54,6 +54,8 @@ class NpmPreparedUpdateTest : BasePlatformTestCase() {
             assertEquals("Local eligibility for case $index", case.allowed, fixes.isNotEmpty())
             assertEquals("Bulk eligibility for case $index", case.allowed, bulkPlan.changes.isNotEmpty())
             if (case.allowed) {
+                assertEquals(bulk.virtualFile.path, bulkPlan.changes.single().review!!.source!!.filePath)
+                assertEquals(case.replacement, bulkPlan.changes.single().review!!.target)
                 val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(value,
                     "update", fixes.single(), ProblemHighlightType.WARNING, false)
                 fixes.single().applyFix(project, descriptor)
@@ -62,6 +64,8 @@ class NpmPreparedUpdateTest : BasePlatformTestCase() {
                 assertEquals("Local and bulk edits for case $index", local.text, bulk.text)
             } else {
                 assertTrue(bulkPlan.skipped.isNotEmpty())
+                assertTrue(bulkPlan.reviewItems.isNotEmpty())
+                assertTrue(bulkPlan.reviewItems.all { it.source?.filePath == bulk.virtualFile.path })
                 assertEquals(case.manifest, local.text)
                 assertEquals(case.manifest, bulk.text)
             }

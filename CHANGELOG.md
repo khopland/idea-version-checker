@@ -4,6 +4,9 @@
 
 ### Added
 
+- Dependency Versions tool window keeps cached checks visible with outcome/change filters, source navigation, explicit refresh/review actions and sanitized JSON export.
+- Batch reviews show captured versions, consumers and build context; Needs review entries provide explanations and source navigation when available.
+- Successful declaration edits offer explicit Maven/Gradle save-and-reload actions and a previewed npm lockfile-only synchronization command. npm scripts are disabled; inputs are revalidated and results report changed lockfiles and possible partial writes separately from declaration undo.
 - Optional Maven **Minimum release age (hours)** suggests only versions published at least that long ago, for example to match a repository quarantine such as Sonatype Nexus Repository Firewall. Metadata older than the minimum age needs no extra request; otherwise candidate POM `Last-Modified` times are read newest first and cached. It defaults to off and applies to both the native helper and the Versions-goal fallback.
 
 ### Changed

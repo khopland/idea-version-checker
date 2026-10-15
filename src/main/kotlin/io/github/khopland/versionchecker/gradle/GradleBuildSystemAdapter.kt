@@ -5,6 +5,9 @@ import io.github.khopland.versionchecker.core.CapturedEditInputs
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
+import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
+import org.jetbrains.plugins.gradle.util.GradleConstants
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.*
@@ -32,6 +35,11 @@ internal class GradleBuildSystemAdapter(
         }
     }
 
+    override fun reloadProject(project: Project): Boolean {
+        if (project.isDisposed) return false
+        ExternalSystemUtil.refreshProjects(ImportSpecBuilder(project, GradleConstants.SYSTEM_ID))
+        return true
+    }
     override val id = "gradle"
     override val displayName = "Gradle"
     override val capabilities = AdapterCapabilities()
@@ -369,25 +377,34 @@ internal class GradleBuildSystemAdapter(
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = withExternalInputs(project) { external ->
         check(areCurrent(project, reports.keys, external)) { "Gradle build files or settings changed. Run the check again." }
         val edits = mutableListOf<VersionEdit>(); val skipped = mutableListOf<String>()
+        val review = mutableListOf<VersionReviewItem>()
+        val editReviews = mutableMapOf<VersionEdit, List<VersionDeclaration>>()
         val followUp = mutableSetOf<String>()
         for ((snapshot, report) in reports) {
             val limitation = inputCoverageLimitation(project, snapshot.context.root)
             if (limitation != null) {
                 skipped += "${snapshot.sourceFile}: $limitation"
+                review += VersionReviewItem(limitation, VersionReviewSource(snapshot.sourceFile), buildContext = "Gradle")
                 continue
             }
             val psi = find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")
             for (prepared in GradlePreparedUpdate.prepare(psi, report)) {
-                prepared.edit?.let { edits += it; followUp += prepared.followUp }
-                if (prepared.edit == null && prepared.reportSkipped)
+                prepared.edit?.let { edits += it; editReviews[it] = prepared.consumers.map { consumer -> consumer.declaration }; followUp += prepared.followUp }
+                if (prepared.edit == null && prepared.reportSkipped) {
                     skipped += "${prepared.location}: ${prepared.blockingReasons.first()}"
+                    review += VersionReviewItem(prepared.blockingReasons.joinToString("; "), VersionReviewSource(snapshot.sourceFile, prepared.target?.range?.startOffset ?: 0), prepared.location, prepared.consumers.map { it.declaration.selector }.distinct().joinToString(), prepared.replacement, prepared.consumers.map { "${it.declaration.artifact.namespace}:${it.declaration.artifact.name}" }, "Gradle")
+                }
             }
             skipped += report.notices.map { "${it.declaration.id.file}: ${it.message}" }
+            review += report.notices.map { VersionReviewItem(it.message, VersionReviewSource(it.declaration.id.file), it.declaration.id.location, it.declaration.selector, buildContext = "Gradle") }
             skipped += report.coverage.orEmpty().filter { (id, result) ->
                 result.outcome == DeclarationOutcome.SKIPPED && id !in snapshot.skippedDeclarations
-            }.map { (id, result) -> "${id.file}: ${id.location}: ${result.reason}" }
+            }.map { (id, result) ->
+                review += VersionReviewItem(result.reason.orEmpty(), VersionReviewSource(id.file), id.location, buildContext = "Gradle")
+                "${id.file}: ${id.location}: ${result.reason}"
+            }
         }
-        BulkUpdatePlan(edits.sortedByDescending { (it as GradleVersionEdit).range.startOffset }, skipped,
+        BulkUpdatePlan(edits.sortedByDescending { (it as GradleVersionEdit).range.startOffset }.map { it.withReview(editReviews[it].orEmpty(), "Gradle") }, skipped, reviewItems = review.distinct(),
             followUp = followUp.toList(),
             prepareValidation = { prepareEditValidation(project, reports.keys) })
     }

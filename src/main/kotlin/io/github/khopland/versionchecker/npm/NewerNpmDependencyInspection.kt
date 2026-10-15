@@ -14,6 +14,7 @@ import io.github.khopland.versionchecker.core.*
 
 internal class NpmVersionEdit(value: JsonStringLiteral, override val latest: String,
                               override val location: String) : VersionEdit {
+    override val buildSystemId = "npm"
     private val pointer = SmartPointerManager.createPointer(value)
     override val documentChange = DocumentVersionChange(value.containingFile, value.textRange,
         JsonElementGenerator(value.project).createStringLiteral(latest).text, value.containingFile.text)

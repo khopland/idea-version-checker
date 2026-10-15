@@ -243,3 +243,32 @@ JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew ve
 The hosted plan is updated in place as version 9 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/9)); original expiry remains 21 October 2026. Earlier validation remains historical.
 
 Remaining scope: complete preview state/model separation and remaining orchestration cleanup; broader provider input-role modeling and coverage; inherited Maven local/bulk scope parity; further authorization ownership typing; conditional S6 production cache consolidation; and the product roadmap. No performance improvement or exhaustive build-input inference is claimed.
+
+
+## Core workflow delivery — 15 October 2026
+
+This delivery starts from latest main `fcea34a`, after #37–#38 merged. Two independent PRs target main:
+
+- [#39: dependency tool window and JSON export](https://github.com/khopland/idea-version-checker/pull/39), commit `7e0e5fb`. Dependency Versions keeps bounded, expiring cached observations visible with root/source/provider/package details, outcome/change filters, source navigation and explicit refresh/fresh review. Rendering does not query native tools. Failed partial checks remain visible even with known candidates. Export contains the displayed cached presentation rows with sanitized fields, relative/redacted source paths and an explicit fresh-review requirement; no inputs, settings, native payloads or edit authority are exported.
+- [#40: review explanations and explicit native follow-ups](https://github.com/khopland/idea-version-checker/pull/40), commits `1ef78ae`, `19ed3c5` and `dbca07a`, plus this documentation. Reviews show captured versions, consumers and context; structured Needs review entries retain reasons and source navigation. Successful applied selection controls Maven/Gradle save-and-reload actions. npm previews its configured runtime and exact lockfile-only command, disables lifecycle scripts, revalidates saved inputs/trust/workspace/configuration/lockfiles and reports changed outputs or possible partial writes. Notification ownership expires actions on disposal. Native writes remain separate from declaration undo.
+
+Validation on the combined implementation:
+
+- **626 tests passed**: 605 default tests plus 21 native integration tests (Maven 8, npm 6, Gradle 7), no failures, errors or skips. Project configuration verification passed. Existing request-count, bounded-invocation, scaling and dynamic plugin unload checks pass.
+- Native npm fixture proves lockfile-only behavior, disabled lifecycle scripts and no installed dependency synchronization. Model regressions cover failed partial results, expiry, filtering, output redaction, source navigation, structured provider facts, notification provider selection/disposal, cancellable hashing and failure/cancellation reporting.
+- Plugin Verifier passed for IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3: all Compatible. Each reports 5 deprecated and 20 experimental API usages. The extra 4/6 compared with the previous 1/14 baseline are generated ToolWindowFactory interface delegates. No compatibility errors were reported.
+- The first full run found an outdated reflective packaged-plan constructor in the dynamic dialog fixture and a stale npm reminder wording expectation. Both were corrected; the complete rerun above passed. The failed run is not counted as successful validation.
+- `git diff --check`: passed. Interactive IDEA usability/accessibility review has not been performed. No release has been made, and both PRs remain open for review.
+
+Commands:
+
+```sh
+JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew test verifyPluginProjectConfiguration -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true -Pkotlin.incremental=false -Dorg.gradle.jvmargs=-Xmx2g --console=plain
+JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew verifyPlugin -Pkotlin.incremental=false -Dorg.gradle.jvmargs=-Xmx2g --console=plain
+```
+
+The hosted plan is updated in place as version 10 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/10)); original expiry remains 21 October 2026. Earlier validation remains historical.
+
+The bounded core workflow is delivered for review. A reload request does not verify synchronization/build success. npm output paths are reported for version control diff review; integrated post-command diff viewing, installed dependency synchronization, Gradle lock updates and automated build verification remain native/manual follow-ups. The tool window uses the session cache rather than durable history.
+
+Deferred proposals: inherited Maven bulk scope parity; complete preview state/model separation and further ownership/input-role cleanup; conditional production cache consolidation; release notes/date enrichment beyond the existing Maven minimum age; security/OSV; team policy/grouped updates; additional managers/declarations; and a headless engine. These require separate scope or evidence and are not prerequisites to the delivered conservative workflow. Merge/release and interactive acceptance remain outstanding.

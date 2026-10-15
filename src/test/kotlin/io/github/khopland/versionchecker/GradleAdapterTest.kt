@@ -93,6 +93,9 @@ class GradleAdapterTest : BasePlatformTestCase() {
         val snapshot = adapter.snapshot(project, file.virtualFile)!!
         val prepared = plan(snapshot, report(snapshot))
         assertEquals(2, prepared.changes.size)
+        assertTrue(prepared.changes.all { it.review?.source?.filePath == file.virtualFile.path })
+        assertTrue(prepared.changes.all { it.review?.checkedVersion == "1.2.3" })
+        assertEquals(setOf("g:alpha", "g:beta"), prepared.changes.flatMap { it.review!!.consumers }.toSet())
         assertTrue(prepared.apply(project))
         assertTrue(file.text.contains("g:alpha:1.2.9"))
         assertTrue(file.text.contains("g:beta:1.2.9' // keep"))

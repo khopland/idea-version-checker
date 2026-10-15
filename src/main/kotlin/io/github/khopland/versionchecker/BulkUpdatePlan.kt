@@ -14,6 +14,8 @@ internal interface VersionEdit {
     val expected: String
     val latest: String
     val location: String
+    val review: VersionReviewItem? get() = null
+    val buildSystemId: String? get() = null
     /** Null inherits the containing plan's guidance; combined plans assign it per edit. */
     val followUp: List<String>? get() = null
     /** Captured text edits can be validated and committed once per file, including combined plans. */
@@ -28,7 +30,8 @@ internal data class BulkUpdatePlan(
     val skipped: List<String>,
     private val isCurrent: () -> Boolean = { true },
     val followUp: List<String> = emptyList(),
-    val prepareValidation: EditInputCapture? = null
+    val prepareValidation: EditInputCapture? = null,
+    val reviewItems: List<VersionReviewItem> = emptyList()
 ) {
     private val authorization = EditAuthorization(isCurrent)
     private val inputCapture = prepareValidation
@@ -45,6 +48,7 @@ internal data class BulkUpdatePlan(
             return BulkUpdatePlan(
                 changes = changes,
                 skipped = plans.flatMap { it.skipped }.distinct(),
+                reviewItems = plans.flatMap { it.reviewItems }.distinct(),
                 isCurrent = { plans.all { it.authorization.isCurrent() } },
                 followUp = plans.flatMap { it.followUp }.distinct(),
                 prepareValidation = if (plans.any { it.prepareValidation != null }) EditInputCapture {

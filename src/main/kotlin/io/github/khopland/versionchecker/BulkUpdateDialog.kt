@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.core.DiagnosticSanitizer
+
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
@@ -88,9 +90,17 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     internal val coverageLabel = JBLabel().apply { isVisible = false }
     private var coverage: CoverageSummary? = null
     private val emptyMessage = JBLabel()
-    private val reviewText = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+    internal val reviewList = JBList<VersionReviewItem>()
+    internal val reviewDetails = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true; rows = 4 }
+    private val reviewOpen = JButton("Open review source")
     private val reviewToggle = JBCheckBox()
-    private val reviewScroll = JBScrollPane(reviewText).apply { preferredSize = Dimension(800, 100); isVisible = false }
+    private val reviewScroll = JPanel(BorderLayout(8, 4)).apply {
+        add(JBScrollPane(reviewList).apply { preferredSize = Dimension(280, 120) }, BorderLayout.WEST)
+        add(JBScrollPane(reviewDetails), BorderLayout.CENTER)
+        add(reviewOpen, BorderLayout.SOUTH)
+        preferredSize = Dimension(800, 140); isVisible = false
+    }
+    internal val changeDetails = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true; rows = 3 }
     private val openButton = JButton("Open declaration")
     private val diffButton = JButton("Preview change")
     internal val summary = JBLabel()
@@ -148,10 +158,26 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         scopeSelector.accessibleContext.accessibleName = "Update scope"
         init()
         model.addTableModelListener { updateSummary() }
-        table.selectionModel.addListSelectionListener { updateSummary() }
+        table.selectionModel.addListSelectionListener {
+            if (replacingRows) return@addListSelectionListener
+            val edit = table.selectedRows.singleOrNull()?.let { model.changes.getOrNull(table.convertRowIndexToModel(it)) }
+            changeDetails.text = edit?.review?.description().orEmpty()
+            changeDetails.caretPosition = 0
+            updateSummary()
+        }
+        changeDetails.accessibleContext.accessibleName = "Selected update explanation"
+        reviewList.cellRenderer = choiceRenderer { it: VersionReviewItem -> DiagnosticSanitizer.sanitize(listOfNotNull(it.declaration, it.reason).joinToString(": ")) }
+        reviewList.accessibleContext.accessibleName = "Updates needing review"
+        reviewDetails.accessibleContext.accessibleName = "Selected review explanation"
+        reviewList.addListSelectionListener {
+            reviewDetails.text = reviewList.selectedValue?.description().orEmpty()
+            reviewDetails.caretPosition = 0
+            reviewOpen.isEnabled = reviewList.selectedValue?.source != null
+        }
+        reviewOpen.addActionListener { reviewList.selectedValue?.source?.let { project.service<BulkUpdateService>().openReviewSource(it) } }
         openButton.mnemonic = 'O'.code
         diffButton.mnemonic = 'P'.code
-        fun highlighted(): VersionEdit? = table.selectedRows.singleOrNull()?.let { model.changes[table.convertRowIndexToModel(it)] }
+        fun highlighted(): VersionEdit? = table.selectedRows.singleOrNull()?.let { model.changes.getOrNull(table.convertRowIndexToModel(it)) }
         openButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().openDeclaration(it) } }
         diffButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().previewEdit(it) } }
         filter.document.addDocumentListener(object : DocumentAdapter() {
@@ -165,6 +191,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         recheckOnCommittedSelection(modeSelector)
         recheckOnCommittedSelection(scopeSelector)
         configuring = false
+        updatePlanDetails()
         updateSummary()
     }
 
@@ -358,10 +385,13 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             else -> "No automatic updates available for ${preparedMode.label}."
         } else
             "Each shared property or catalog version is one change affecting all listed consumers."
-        reviewText.text = plan.skipped.joinToString("\n")
-        reviewToggle.text = "Needs review (${plan.skipped.size})"
-        reviewToggle.isVisible = plan.skipped.isNotEmpty()
-        reviewScroll.isVisible = plan.skipped.isNotEmpty() && reviewToggle.isSelected
+        val items = plan.reviewItems.ifEmpty { plan.skipped.map { VersionReviewItem(it) } }
+        reviewList.setListData(items.toTypedArray())
+        if (items.isNotEmpty()) reviewList.selectedIndex = 0
+        reviewOpen.isEnabled = reviewList.selectedValue?.source != null
+        reviewToggle.text = "Needs review (${items.size})"
+        reviewToggle.isVisible = items.isNotEmpty()
+        reviewScroll.isVisible = items.isNotEmpty() && reviewToggle.isSelected
     }
 
     override fun getPreferredFocusedComponent(): JComponent = filter
@@ -392,14 +422,13 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             add(openButton); add(diffButton)
         }
         val selection = JPanel(BorderLayout(0, 4)).apply {
-            add(selectionButtons, BorderLayout.NORTH); add(summary, BorderLayout.SOUTH)
+            add(selectionButtons, BorderLayout.NORTH); add(JBScrollPane(changeDetails), BorderLayout.CENTER); add(summary, BorderLayout.SOUTH)
         }
         val footer = JPanel(BorderLayout(0, 8)).apply {
             add(selection, BorderLayout.NORTH)
             add(emptyMessage, BorderLayout.CENTER)
-            reviewText.accessibleContext.accessibleName = "Updates needing manual review"
             reviewToggle.addActionListener {
-                reviewScroll.isVisible = reviewToggle.isSelected && plan.skipped.isNotEmpty()
+                reviewScroll.isVisible = reviewToggle.isSelected && reviewList.model.size > 0
                 reviewScroll.parent.revalidate(); reviewScroll.parent.repaint()
             }
             add(JPanel(BorderLayout()).apply {

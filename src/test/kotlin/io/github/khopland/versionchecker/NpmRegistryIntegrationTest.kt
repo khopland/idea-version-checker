@@ -42,6 +42,33 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Opt-in: real IntelliJ-selected Node/npm, with an authenticated local registry and no installs. */
 class NpmRegistryIntegrationTest : BasePlatformTestCase() {
+    fun testExplicitLockfileSyncUsesConfiguredRuntimeAndDisablesScriptsAndInstall() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
+        val node = PathEnvironmentVariableUtil.findInPath("node")!!.toPath().toRealPath()
+        val npm = PathEnvironmentVariableUtil.findInPath("npm")!!.toPath().toRealPath()
+        val directory = Files.createTempDirectory("version-checker-lock-sync-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString(), node.parent.toString(), npm.parent.parent.toString())
+        try {
+            Files.writeString(directory.resolve("package.json"), """{
+                "name":"lockfile-sync-fixture","version":"1.0.0","scripts":{
+                    "preinstall":"exit 71"
+                }
+            }""")
+            val command = NpmRegistry.lockfileCommand(
+                NpmRuntime(NodeJsLocalInterpreter(node.toString()), NpmNodePackage(npm.parent.parent.toString())), directory)
+            assertEquals(directory.toFile(), command.workDirectory)
+            assertEquals(node.toString(), command.exePath)
+            assertTrue(command.parametersList.list.contains("install"))
+            assertTrue(command.parametersList.list.containsAll(io.github.khopland.versionchecker.followup.NpmLockfileSync.arguments))
+            command.addParameters("--offline", "--cache", directory.resolve("cache").toString())
+            val output = runBlocking { withTimeout(30_000) { NpmRegistry.execute(command) } }
+            assertEquals(0, output.exitCode)
+            assertTrue(Files.exists(directory.resolve("package-lock.json")))
+            assertFalse(Files.exists(directory.resolve("script-ran")))
+            assertFalse(Files.exists(directory.resolve("node_modules")))
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
     fun testNativeNpmRejectsChangedCrossReferencedDirectOverride() {
         if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
         val npm = PathEnvironmentVariableUtil.findInPath("npm")!!.toPath().toRealPath()
