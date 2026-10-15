@@ -73,15 +73,74 @@ internal class MavenDependencyAnalysis(
             "${contexts.distinctBy { it.first to it.second }.size} version declarations across ${contexts.map { it.second }.distinct().size} POMs"
         }
     }
-    private fun sharedAllowed(target: XmlTag, latest: String): Boolean {
+    private val propertyUsageFiles by lazy {
+        (MavenProjectsManager.getInstance(model.manager.project).nonIgnoredProjects.mapNotNull {
+            com.intellij.psi.PsiManager.getInstance(model.manager.project).findFile(it.file)
+        } + sharedConsumers.values.flatten().map { it.second } + listOfNotNull(model.xmlTag?.containingFile) +
+            sharedConsumers.keys.map { it.containingFile }).distinct()
+    }
+    private val propertyUsageIndex by lazy {
+        MavenPropertyUsages(propertyUsageFiles, propertyAliases.keys)
+    }
+    private val propertyAliases by lazy {
+        propertyUsageFiles.flatMap { PsiTreeUtil.findChildrenOfType(it, XmlTag::class.java) }
+            .filter { it.parentTag?.localName == "properties" }.groupBy { "\${${it.localName}}" }
+    }
+    private val preparedSharedUpdates = mutableMapOf<XmlTag, MavenPreparedUpdate>()
+    private fun prepareShared(target: XmlTag): MavenPreparedUpdate = preparedSharedUpdates.getOrPut(target) {
         val consumers = sharedConsumers[target].orEmpty()
-        // Every affected coordinate must authorize the same update, including consumers in
-        // other imported POMs. Missing results and replacement notices require review.
-        return consumers.isNotEmpty() && consumers.all { (_, _, coordinate) ->
-            updates[coordinate] == latest && coordinate !in relocations &&
-                "${coordinate.groupId}:${coordinate.artifactId}" !in deprecated &&
-                IgnoredVersion("maven", ArtifactId(coordinate.groupId, coordinate.artifactId), latest) !in ignored
+        val blockers = mutableListOf<String>()
+        if (target.parentTag?.localName == "properties") {
+            val reference = "\${${target.localName}}"
+            val knownVersions = consumers.mapNotNull { it.first.findFirstSubTag("version") }.toSet()
+            val allowedAliases = hashSetOf<XmlTag>()
+            val pending = ArrayDeque(consumers.mapNotNull { (tag, file, _) ->
+                tag.findFirstSubTag("version")?.value?.trimmedText?.let(::versionPropertyName)?.let { file to it }
+            })
+            val visited = hashSetOf<Pair<PsiFile, String>>()
+            while (pending.isNotEmpty()) {
+                val (file, name) = pending.removeFirst()
+                if (!visited.add(file to name)) continue
+                val context = MavenDomUtil.getMavenDomProjectModel(file) ?: continue
+                val active = MavenProjectsManager.getInstance(file.project).findProject(file.virtualFile)
+                    ?.activatedProfilesIds?.enabledProfiles
+                val alias = context.xmlTag?.let { findLocalVersionPropertyOwner(it, name, active) }
+                    ?: MavenDomProjectProcessorUtils.searchProperty(name, context, file.project)
+                if (alias != null && alias != target) {
+                    val next = versionPropertyName(alias.value.trimmedText)
+                    if (next == null) blockers += "${target.localName}: property ownership requires review"
+                    else {
+                        allowedAliases += alias
+                        pending.add(file to next)
+                    }
+                }
+            }
+            fun relevantUsage(usage: XmlTag, candidate: String): Boolean {
+                if (usage in knownVersions || usage in allowedAliases) return true
+                val name = versionPropertyName(candidate) ?: return true
+                val file = usage.containingFile
+                val active = MavenProjectsManager.getInstance(file.project).findProject(file.virtualFile)
+                    ?.activatedProfilesIds?.enabledProfiles
+                val owner = findLocalVersionPropertyOwner(usage, name, active)
+                    ?: MavenDomUtil.getMavenDomProjectModel(file)?.let {
+                        MavenDomProjectProcessorUtils.searchProperty(name, it, file.project)
+                    }
+                return owner == null || owner == target || owner in allowedAliases
+            }
+            val references = setOf(reference) + allowedAliases.map { "\${${it.localName}}" }
+            if (references.any { candidate ->
+                    val usages = propertyUsageIndex.leaves[candidate].orEmpty().filter { relevantUsage(it, candidate) }
+                    propertyUsageIndex.attributeOwners[candidate].orEmpty().any { relevantUsage(it, candidate) } || usages.isEmpty() || usages.any {
+                        it.value.trimmedText != candidate || (it !in knownVersions && it !in allowedAliases)
+                    }
+                }) blockers += "${target.localName}: shared, inherited or other uses need review"
         }
+        MavenPreparedUpdate.prepare(target, consumers.map { (_, _, coordinate) ->
+            val latest = updates[coordinate]?.takeUnless { IgnoredVersion("maven",
+                ArtifactId(coordinate.groupId, coordinate.artifactId), it) in ignored }
+            MavenPreparedUpdate.Consumer(coordinate, latest,
+                relocations[coordinate] ?: deprecated["${coordinate.groupId}:${coordinate.artifactId}"])
+        }, blockers)
     }
     private fun scopedAction(target: XmlTag, latest: String): String {
         val scope = sharedScopes[target] ?: "shared scope requires review"
@@ -217,12 +276,14 @@ internal class MavenDependencyAnalysis(
         val consumers = propertyConsumersByTarget[property].orEmpty()
         val problems = consumers.map { problem(it.tag) }
         val latest = problems.map { it?.latest }.distinct().singleOrNull() ?: return emptyArray()
-        if (problems.any { it?.notice != null } || !sharedAllowed(property, latest)) return emptyArray()
+        val prepared = prepareShared(property)
+        if (problems.any { it?.notice != null } || prepared.edit == null || prepared.replacement != latest) return emptyArray()
         val snapshot = quickFixSnapshot ?: return emptyArray()
         val resultIsCurrent = resultGuard(consumers.map { it.coordinate }.toSet())
         return arrayOf(UpdateDependencyVersionFix(property, latest,
             isCurrent = { resultIsCurrent() && property.project.service<VersionCheckerSettings>().state.enabled &&
                 property.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy })
+            .withPreparedUpdate(prepared)
             .withInputValidation { quickFixAdapter.prepareEditValidation(property.project, listOf(snapshot)) }
             .withActionName { scopedAction(property, latest) })
     }
@@ -239,9 +300,12 @@ internal class MavenDependencyAnalysis(
         }
         problem.target?.let {
             val shared = it.parentTag?.localName == "properties" || it.parentTag?.parentTag?.parentTag?.localName == "dependencyManagement"
-            if (shared && !sharedAllowed(it, latest)) return emptyArray()
+            val prepared = if (shared) prepareShared(it) else MavenPreparedUpdate.prepare(it,
+                listOf(MavenPreparedUpdate.Consumer(problem.coordinate, problem.latest, problem.notice)))
+            if (prepared.edit == null || prepared.replacement != latest) return emptyArray()
             val fix = UpdateDependencyVersionFix(it, latest,
                 isCurrent = guard(if (shared) sharedResultGuard(it, problem.coordinate) else resultGuard(setOf(problem.coordinate))))
+                .withPreparedUpdate(prepared)
                 .withInputValidation { adapter.prepareEditValidation(project, listOf(snapshot)) }
             if (shared) fix.withActionName { scopedAction(it, latest) }
             return arrayOf(fix)
@@ -253,12 +317,14 @@ internal class MavenDependencyAnalysis(
         val fixes = mutableListOf<LocalQuickFix>(OverrideDependencyVersionFix(tag, latest, guard(resultGuard(setOf(problem.coordinate))))
             .withInputValidation { adapter.prepareEditValidation(project, listOf(snapshot)) })
         val target = sharedVersionTarget(version ?: managingVersion(tag), problem.coordinate.version)
-        if (target != null && sharedAllowed(target, latest)) {
+        val prepared = target?.let(::prepareShared)
+        if (target != null && prepared?.edit != null && prepared.replacement == latest) {
             val file = target.containingFile.virtualFile
             val base = project.basePath?.trimEnd('/')
             val path = if (base != null && file.path.startsWith("$base/")) file.path.removePrefix("$base/") else file.path
             val location = if (file == tag.containingFile.virtualFile) "managed" else "parent"
             fixes += UpdateDependencyVersionFix(target, latest, isCurrent = guard(sharedResultGuard(target, problem.coordinate)))
+                .withPreparedUpdate(prepared)
                 .withInputValidation { adapter.prepareEditValidation(project, listOf(snapshot)) }.withActionName {
                 "Update $location version to $latest in $path (${sharedScopes[target] ?: "shared scope requires review"})"
             }

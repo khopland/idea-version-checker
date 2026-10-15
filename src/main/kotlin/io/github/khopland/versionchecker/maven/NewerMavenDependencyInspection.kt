@@ -92,7 +92,13 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
     internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
     internal fun withActionName(provider: () -> String) = apply { actionNameProvider = provider }
     private val pointer: SmartPsiElementPointer<XmlTag> = SmartPointerManager.createPointer(target)
-    private val expected = target.value.trimmedText
+    private var preparedEdit = MavenPreparedUpdate.capture(target, latest)
+    internal fun withPreparedUpdate(prepared: MavenPreparedUpdate) = apply {
+        val edit = checkNotNull(prepared.edit)
+        check(edit.element == pointer.element && edit.latest == latest) { "Prepared Maven edit targets another declaration or replacement" }
+        preparedEdit = edit
+    }
+    private val expected get() = preparedEdit.expected
     override fun getFamilyName(): String = "Update Maven version"
     override fun getName(): String = actionNameProvider?.invoke() ?: actionName ?: "Update ${pointer.element?.localName ?: "version"} to $latest"
     override fun startInWriteAction() = false
@@ -106,15 +112,7 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
                 return@locally
             }
             if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(tag))) return@locally
-            val edit = object : VersionEdit {
-                override val element get() = pointer.element
-                override val expected = this@UpdateDependencyVersionFix.expected
-                override val latest = this@UpdateDependencyVersionFix.latest
-                override val location = tag.containingFile.name
-                override fun isValid() = element?.value?.trimmedText == expected
-                override fun apply() { element!!.value.setText(latest) }
-            }
-            if (!BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
+            if (!BulkUpdatePlan(listOf(preparedEdit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
                 notifyStaleVersionFix(project, "maven", descriptor)
         }
 }
