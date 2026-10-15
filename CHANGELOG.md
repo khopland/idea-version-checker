@@ -6,6 +6,8 @@
 
 ### Changed
 
+- Provider edit capture and final input validation use distinct named types through adapters, quick fixes and bulk plans.
+- Preview rechecks use a dialog-owned request controller for cancellation, latest-result delivery and failure recovery.
 - Maven inspection and bulk updates share consumer agreement and captured XML edits; shared local property edits also validate transitive property uses in the active profile context.
 - Gradle inspection and bulk updates share preparation for physical version targets, catalog consumers and blockers, rejecting inconsistent, duplicate and non-newer candidates.
 - npm local, workspace and bulk edits share provider-owned preparation and physical declaration validation. Unsupported or inconsistent supplied baselines remain review-only.

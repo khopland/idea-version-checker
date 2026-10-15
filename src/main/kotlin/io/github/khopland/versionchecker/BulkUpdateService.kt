@@ -17,8 +17,6 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
@@ -121,14 +119,21 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                         withContext(Dispatchers.EDT) {
                             if (disposed || project.isDisposed) return@withContext
                             var dialog: BulkUpdateDialog? = null
-                            var request: Job? = null
-                            var requestSerial = 0L
                             var appliedInDialog = false
                             val accepted = showDialog {
                                 BulkUpdateDialog(project, selectedMode, selectedScope.label, matching.joinToString { it.displayName }, prepared.plan).also {
                                     dialog = it; it.configure(prepared, currentAvailable, platformAvailable)
                                     val review = it
-                                    Disposer.register(review.disposable) { request?.cancel() }
+                                    val requests = PreviewRequestController(scope,
+                                        isAvailable = { !disposed && !project.isDisposed && !review.isDisposed },
+                                        load = { request -> loadPreviewRequest(request, currentFile) },
+                                        onPrepared = { request, result ->
+                                            matching = result.adapters
+                                            review.replacePrepared(result.preview, request.mode, request.updateScope,
+                                                result.adapters.joinToString { it.displayName }, result.currentAvailable, result.platformAvailable)
+                                        },
+                                        onFailure = review::recheckFailed)
+                                    Disposer.register(review.disposable, requests)
                                     review.onApplyRequested = apply@{ plan, trace ->
                                         var changed = false
                                         try {
@@ -159,50 +164,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                     review.onRecheckRequested = { mode, updateScope, forceRefresh, trace ->
                                         selectedMode = mode
                                         selectedScope = updateScope
-                                        val serial = ++requestSerial
-                                        request?.cancel()
-                                        request = scope.launch(Dispatchers.IO + CheckPerformance.context(trace)) {
-                                            try {
-                                                val adapters = readAction {
-                                                    BuildSystemAdapter.matching(project, BuildSelection(updateScope, currentFile?.path))
-                                                }
-                                                val refreshed = withBackgroundProgress(project, "Checking versions: ${updateScope.label} — ${mode.label}", cancellable = true) {
-                                                    saveBuildInputs(project, BuildSelection(updateScope, currentFile?.path), adapters)
-                                                    preparePreview(mode, updateScope, currentFile, adapters, forceRefresh)
-                                                }
-                                                val current = currentFile != null && readAction {
-                                                    BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
-                                                }
-                                                val platform = currentFile != null && readAction {
-                                                    BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, currentFile.path)).isNotEmpty()
-                                                }
-                                                withContext(Dispatchers.EDT) {
-                                                    if (!disposed && !review.isDisposed && serial == requestSerial) {
-                                                        matching = adapters
-                                                        review.replacePrepared(refreshed, mode, updateScope, adapters.joinToString { it.displayName }, current, platform)
-                                                    }
-                                                }
-                                            } catch (cancelled: CancellationException) {
-                                                withContext(NonCancellable + Dispatchers.EDT) {
-                                                    if (!disposed && !review.isDisposed && serial == requestSerial)
-                                                        review.recheckFailed("Check cancelled.")
-                                                }
-                                                throw cancelled
-                                            } catch (cancelled: ProcessCanceledException) {
-                                                withContext(Dispatchers.EDT) {
-                                                    if (!disposed && !review.isDisposed && serial == requestSerial)
-                                                        review.recheckFailed("Check cancelled.")
-                                                }
-                                                throw cancelled
-                                            } catch (failure: Exception) {
-                                                log.warn("Version preview recheck failed", failure)
-                                                withContext(Dispatchers.EDT) {
-                                                    if (!disposed && !review.isDisposed && serial == requestSerial)
-                                                        review.recheckFailed((failure as? VersionCheckFailureAdvice)?.recoveryMessage
-                                                            ?: "Could not check dependency versions. Check the build tool and repository settings.")
-                                                }
-                                            }
-                                        }
+                                        requests.request(PreviewRecheckRequest(mode, updateScope, forceRefresh, trace))
                                     }
                                 }
                             }
@@ -254,6 +216,23 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                 running.set(false)
             }
         }
+    }
+
+    private suspend fun loadPreviewRequest(request: PreviewRecheckRequest, currentFile: VirtualFile?): PreviewRecheckResult {
+        val selection = BuildSelection(request.updateScope, currentFile?.path)
+        val adapters = readAction { BuildSystemAdapter.matching(project, selection) }
+        val prepared = withBackgroundProgress(project,
+            "Checking versions: ${request.updateScope.label} — ${request.mode.label}", cancellable = true) {
+            saveBuildInputs(project, selection, adapters)
+            preparePreview(request.mode, request.updateScope, currentFile, adapters, request.forceRefresh)
+        }
+        val current = currentFile != null && readAction {
+            BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
+        }
+        val platform = currentFile != null && readAction {
+            BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, currentFile.path)).isNotEmpty()
+        }
+        return PreviewRecheckResult(prepared, adapters, current, platform)
     }
 
     internal suspend fun createPlan(mode: UpdateMode, updateScope: UpdateScope = UpdateScope.WHOLE_PROJECT,

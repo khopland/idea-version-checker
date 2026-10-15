@@ -161,3 +161,30 @@ JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew te
 The hosted plan is updated in place as version 6 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/6)); original expiry remains 21 October 2026. Earlier validation remains historical.
 
 Remaining scope: complete Maven local/bulk alias and inherited scope parity (bulk intentionally remains narrower); S2 provider callback/ownership migration; S3 orchestration/controller work; remaining S4 provider inventories and input-role modeling; and S6 production cache consolidation only if the shared contracts support a clean abstraction. The broader product roadmap remains proposed. No performance improvement is claimed.
+
+
+## Provider guards and preview request control — 15 October 2026
+
+The continuation starts from main `77a5934`, after #30–#32 merged. Both PRs target main independently:
+
+- [#33: S2 provider input guards](https://github.com/khopland/idea-version-checker/pull/33), commit `cf1bb5d`. `BuildSystemAdapter.prepareEditValidation` and saved-input validation return `CapturedEditInputs`; quick fixes and bulk plans store `EditInputCapture`. Background IO/read/write boundaries, result authorization, partial report scopes, cancellation and atomic undo stay intact. Live authorization callback signatures remain compatible and are not claimed migrated.
+- [#34: S3 preview request controller and this plan](https://github.com/khopland/idea-version-checker/pull/34), commit `85ebf9a` plus documentation. A dialog-owned controller tracks request serials, cancels old work, rejects superseded results/failures and restores review after current failure/cancellation. Explicit request/result models carry mode, scope, refresh, prepared preview, matching adapters and availability. The service retains native preparation and apply/save responsibilities.
+
+Validation on the combined implementation:
+
+- 587 tests passed: 568 default tests plus 19 native integration tests (Maven 7, npm 5, Gradle 7), with no failures, errors or skips. Project configuration verification passed. Existing native request-count and bounded-invocation checks pass.
+- Plugin Verifier passed for IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Each target retains one deprecated API usage and 14 experimental API usages, matching the previous slice.
+- 85 focused shared-plan/provider/coordinator tests passed for guard migration. Thirteen preview tests passed: four new race/recovery tests, five dialog-lifetime tests and four failure-recovery tests. New coverage asserts IO loading, EDT delivery, interaction tracing, superseded failure while a successor is pending, cancellation/retry and disposal with late noncancellable work.
+- Independent review found no safety blockers. The typed migration merged cleanly with Maven preparation; final validation includes all merged #32 behavior.
+- The first combined run exposed stale incremental test bytecode calling the pre-migration `BulkUpdatePlan` constructor. Bytecode inspection confirmed the mismatch; that invalid run was stopped, then all compile/instrument/test tasks were rerun with Kotlin incremental compilation disabled. No production workaround was added. Plugin Verifier completed successfully during the initial run.
+- `git diff --check`: passed.
+
+Fresh full/native command:
+
+```sh
+JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew test verifyPluginProjectConfiguration -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true -Pkotlin.incremental=false -Dorg.gradle.jvmargs=-Xmx2g --rerun-tasks --console=plain
+```
+
+The hosted plan is updated in place as version 7 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/7)); original expiry remains 21 October 2026. Earlier validation remains historical.
+
+Remaining scope: Maven local/bulk alias and inherited scope parity; further result authorization/ownership typing; S3 CheckExecutor extraction and complete preview state/model separation; remaining S4 provider inventories and input roles; conditional S6 production cache consolidation; and the product roadmap. This slice does not claim complete S2/S3 migration or measured performance improvements.
