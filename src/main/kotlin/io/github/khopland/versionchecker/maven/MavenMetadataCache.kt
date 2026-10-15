@@ -12,8 +12,12 @@ import kotlinx.coroutines.*
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-internal data class MavenMetadataKey(val group: String, val artifact: String, val plugin: Boolean = false, val version: String = "")
-internal data class MavenMetadataValue(val versions: List<String> = emptyList(), val requiredMaven: String = "") {
+/** An empty [version] requests the version history; [release] requests that version's publication time. */
+internal data class MavenMetadataKey(val group: String, val artifact: String, val plugin: Boolean = false, val version: String = "",
+                                     val release: Boolean = false)
+/** Times are epoch milliseconds: [lastUpdated] is the newest repository update, [published] the POM's Last-Modified. */
+internal data class MavenMetadataValue(val versions: List<String> = emptyList(), val requiredMaven: String = "",
+                                       val lastUpdated: Long? = null, val published: Long? = null) {
     val versionIndex by lazy { CheckPerformance.measure(CheckPerformance.Stage.MAVEN_VERSION_INDEX, versions.size) { MavenVersionIndex(versions) } }
 }
 internal data class MavenMetadataLease(val value: MavenMetadataValue, val expiresAt: Long, val checkedAtNanos: Long = System.nanoTime())

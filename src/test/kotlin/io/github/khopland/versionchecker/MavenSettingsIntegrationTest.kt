@@ -751,6 +751,119 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         }
     }
 
+    fun testMinimumReleaseAgeWithholdsRecentVersionsInNativeAndFallbackChecks() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-release-age-integration-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val now = java.time.Instant.now()
+        // POMs keep their Last-Modified time in the local repository; a unique group keeps reruns independent.
+        val group = "example.releaseage.run${System.currentTimeMillis()}"
+        val published = mapOf("1.0" to now.minus(java.time.Duration.ofDays(40)), "1.1" to now.minus(java.time.Duration.ofHours(30)),
+            "1.2" to now.minus(java.time.Duration.ofHours(3)), "2.0" to now.minus(java.time.Duration.ofHours(1)))
+        val stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(java.time.ZoneOffset.UTC)
+        val pomRequests = CopyOnWriteArrayList<String>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { exchange ->
+            try {
+                val path = exchange.requestURI.path
+                val artifact = if (path.endsWith("/maven-metadata.xml")) path.substringBeforeLast('/').substringAfterLast('/')
+                    else path.substringBeforeLast('/').substringBeforeLast('/').substringAfterLast('/')
+                if (path.endsWith("/maven-metadata.xml")) {
+                    // "settled" was last updated long ago, so none of its versions needs a release date.
+                    val updated = if (artifact == "settled") now.minus(java.time.Duration.ofDays(30)) else now.minus(java.time.Duration.ofMinutes(30))
+                    val body = """<metadata><groupId>$group</groupId><artifactId>$artifact</artifactId><versioning><versions>
+                        ${published.keys.joinToString("") { "<version>$it</version>" }}</versions>
+                        <lastUpdated>${stamp.format(updated)}</lastUpdated></versioning></metadata>""".toByteArray()
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.write(body)
+                } else if (path.endsWith(".pom")) {
+                    pomRequests += path
+                    val version = path.substringBeforeLast('/').substringAfterLast('/')
+                    val plugin = artifact == "fixture-plugin"
+                    val body = """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                        <groupId>$group</groupId><artifactId>$artifact</artifactId><version>$version</version>
+                        <packaging>${if (plugin) "maven-plugin" else "jar"}</packaging>${if (plugin) "<prerequisites><maven>3.6.3</maven></prerequisites>" else ""}</project>""".toByteArray()
+                    exchange.responseHeaders.add("Last-Modified", java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
+                        .format(published.getValue(version).atZone(java.time.ZoneOffset.UTC)))
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.write(body)
+                } else exchange.sendResponseHeaders(404, -1)
+            } finally { exchange.close() }
+        }
+        server.start()
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
+        val previousSettings = manager.generalSettings.userSettingsFile
+        val options = project.service<VersionCheckerSettings>()
+        val previousOptions = options.state.copy()
+        val repository = Path.of(System.getProperty("user.home"), ".m2", "repository")
+        try {
+            val settings = directory.resolve("settings.xml")
+            Files.writeString(settings, """<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+                <localRepository>$repository</localRepository>
+                <mirrors><mirror><id>age-mirror</id><mirrorOf>age-source</mirrorOf><url>http://127.0.0.1:${server.address.port}/</url></mirror></mirrors>
+                <profiles><profile><id>age-repositories</id><repositories>
+                  <repository><id>central</id><url>https://repo.maven.apache.org/maven2</url><releases><enabled>false</enabled></releases></repository>
+                  <repository><id>age-source</id><url>http://127.0.0.1:1/unmirrored</url><releases><updatePolicy>always</updatePolicy></releases></repository>
+                </repositories><pluginRepositories><pluginRepository><id>age-source</id><url>http://127.0.0.1:1/unmirrored</url>
+                  <releases><updatePolicy>always</updatePolicy></releases></pluginRepository></pluginRepositories></profile></profiles>
+                <activeProfiles><activeProfile>age-repositories</activeProfile></activeProfiles></settings>""")
+            manager.generalSettings.setUserSettingsFile(settings.toString())
+            val pom = directory.resolve("pom.xml")
+            Files.writeString(pom, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                <groupId>$group</groupId><artifactId>app</artifactId><version>1</version><packaging>pom</packaging>
+                <dependencies><dependency><groupId>$group</groupId><artifactId>fixture</artifactId><version>1.0</version></dependency>
+                  <dependency><groupId>$group</groupId><artifactId>settled</artifactId><version>1.0</version></dependency></dependencies>
+                <build><pluginManagement><plugins><plugin><groupId>$group</groupId><artifactId>fixture-plugin</artifactId><version>1.0</version></plugin>
+                </plugins></pluginManagement></build></project>""")
+            val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!
+            val mavenProject = MavenProject(virtualFile).apply { updateMavenId(MavenId(group, "app", "1")) }
+            manager.projectsTree.putVirtualFileToProjectMapping(mavenProject, mavenProject.mavenId)
+            val native = BuildSystemAdapter.find("maven")!!
+            fun <T> background(action: suspend () -> T): T = PlatformTestUtil.waitForFuture(
+                ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { action() } }), 180_000)
+            fun nativeVersions(): Map<String, String> {
+                native.invalidateMetadata(project)
+                val snapshot = native.snapshot(project, virtualFile)!!
+                val report = background { native.check(project, snapshot, UpdateMode.MAJOR) }
+                assertTrue(report.failure.orEmpty(), report.successful)
+                return report.candidates.associate { it.declaration.coordinate().artifactId to it.version }
+            }
+
+            options.loadState(VersionCheckerSettings.Options())
+            assertEquals(mapOf("fixture" to "2.0", "settled" to "2.0", "fixture-plugin" to "2.0"), nativeVersions())
+            assertTrue("Without a minimum age, dependency release dates are not read", pomRequests.none { "/fixture/" in it })
+
+            options.loadState(VersionCheckerSettings.Options(mavenMinimumReleaseAgeHours = 24))
+            assertEquals("Versions younger than 24 hours are withheld", mapOf("fixture" to "1.1", "settled" to "2.0", "fixture-plugin" to "1.1"),
+                nativeVersions())
+            assertTrue("Old metadata settles every version without reading POMs", pomRequests.none { "/settled/" in it })
+            assertTrue(pomRequests.none { it.endsWith("/1.0/fixture-1.0.pom") })
+            val fetched = pomRequests.size
+            assertEquals("Downloaded POM dates are reused", mapOf("fixture" to "1.1", "settled" to "2.0", "fixture-plugin" to "1.1"),
+                nativeVersions())
+            assertEquals(fetched, pomRequests.size)
+
+            options.loadState(VersionCheckerSettings.Options(mavenMinimumReleaseAgeHours = 2))
+            assertEquals(mapOf("fixture" to "1.2", "settled" to "2.0", "fixture-plugin" to "1.2"), nativeVersions())
+
+            // Projects with custom extensions use the Versions goals, which cannot see release dates.
+            options.loadState(VersionCheckerSettings.Options(mavenMinimumReleaseAgeHours = 24))
+            val fallback = background { MavenVersionLookup.check(manager, mavenProject) }
+            assertEquals("The Versions goal fallback applies the same minimum age",
+                mapOf("fixture" to "1.1", "settled" to "2.0"), fallback.mapKeys { it.key.artifactId })
+        } finally {
+            options.loadState(previousOptions)
+            manager.projectsTree.setIgnoredState(manager.projects, true)
+            manager.embeddersManager.reset()
+            manager.generalSettings.setUserSettingsFile(previousSettings)
+            server.stop(0)
+            repository.resolve(group.replace('.', '/')).toFile().deleteRecursively()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testDemoGlobalActionsAcrossNestedModules() {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
         val directory = Files.createTempDirectory("version-checker-demo-integration-")

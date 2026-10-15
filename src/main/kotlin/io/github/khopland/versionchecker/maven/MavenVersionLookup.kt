@@ -57,7 +57,7 @@ internal object MavenVersionLookup {
                 val ordered = if (publish == null) inputs.kinds.toList() else
                     listOf(MavenArtifactKind.DEPENDENCY, MavenArtifactKind.PLUGIN, MavenArtifactKind.PARENT).filter { it in inputs.kinds }
                 checkMavenCategories(ordered, publish) { kind ->
-                    reporter.itemStep("Maven ${kind.name.lowercase()} versions") { check(scan, mode, kind) }
+                    reporter.itemStep("Maven ${kind.name.lowercase()} versions") { withholdRecent(scan, mode, check(scan, mode, kind)) }
                 }
             }
         }
@@ -106,9 +106,16 @@ internal object MavenVersionLookup {
         if (excluded.isEmpty()) return updates
         val repositoryIds = scan.repositories(plugins = false)
         val skipped = scan.inputs[MavenArtifactKind.DEPENDENCY].filter { "${it.groupId}:${it.artifactId}" in excluded }
-        val fresh = freshVersions(scan, skipped)
+        val fresh = try {
+            freshHistories(scan, skipped.map { MavenMetadataKey(it.groupId, it.artifactId) }.distinct())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Exception) {
+            Logger.getInstance(MavenVersionLookup::class.java).debug("Could not refresh metadata for excluded artifacts", failure)
+            emptyMap()
+        }
         return updates + skipped.mapNotNull { dependency ->
-            val versions = fresh[MavenMetadataKey(dependency.groupId, dependency.artifactId)]
+            val versions = fresh[MavenMetadataKey(dependency.groupId, dependency.artifactId)]?.versions
             val latest = if (versions != null) MavenRepositoryMetadata.latest(versions, dependency.version, mode)
                 else MavenRepositoryMetadata.latest(project.localRepositoryPath, dependency, mode, repositoryIds)
             latest?.let { dependency to it }
@@ -122,25 +129,49 @@ internal object MavenVersionLookup {
             .map { "${it.groupId}:${it.artifactId}" }
     }
 
-    /** The goal skipped these artifacts, so read their metadata without Maven's version sort instead of trusting the cache. */
-    private suspend fun freshVersions(scan: Scan, dependencies: List<DependencyVersion>): Map<MavenMetadataKey, List<String>> {
-        val keys = dependencies.map { MavenMetadataKey(it.groupId, it.artifactId) }.distinct()
+    /** Read histories through the bundled helper, bypassing Maven's version sort and the cached metadata. */
+    private suspend fun freshHistories(scan: Scan, keys: List<MavenMetadataKey>): Map<MavenMetadataKey, MavenMetadataValue> {
         val repository = scan.localRepository ?: return emptyMap()
         if (keys.isEmpty()) return emptyMap()
+        return keys.chunked(128).flatMap { chunk -> load(scan, repository, chunk)
+            .mapNotNull { (key, result) -> result.getOrNull()?.let { key to it } } }.toMap()
+    }
+
+    private suspend fun load(scan: Scan, repository: Path, keys: List<MavenMetadataKey>): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
         // Only the scan's own embedder runs the helper, so no session identity is needed.
         val context = MavenResolutionContext("", repository, scan.inputs.properties, scan.profiles,
             nativeSupported = false, sessionConfiguration = "")
         val threads = scan.manager.project.service<VersionCheckerSettings>().state.mavenMetadataThreads
-        return try {
-            keys.chunked(128).flatMap { chunk ->
-                MavenNativeMetadata.load(scan.manager, scan.project, context, chunk, threads, scan.embedder)
-                    .mapNotNull { (key, result) -> result.getOrNull()?.let { key to it.versions } }
-            }.toMap()
+        return MavenNativeMetadata.load(scan.manager, scan.project, context, keys, threads, scan.embedder)
+    }
+
+    /** The Versions goals cannot see release dates, so re-select their answers when a minimum release age is set. */
+    private suspend fun withholdRecent(scan: Scan, mode: UpdateMode, updates: Map<DependencyVersion, String>): Map<DependencyVersion, String> {
+        val age = MavenReleaseAge.of(scan.manager.project.service<VersionCheckerSettings>().state.mavenMinimumReleaseAgeHours)
+        if (age == null || updates.isEmpty()) return updates
+        fun key(dependency: DependencyVersion) = MavenMetadataKey(dependency.groupId, dependency.artifactId,
+            dependency.artifactKind == MavenArtifactKind.PLUGIN)
+        try {
+            val repository = scan.localRepository ?: throw IOException("Maven local repository is unknown")
+            val histories = freshHistories(scan, updates.keys.map(::key).distinct())
+            val kept = linkedMapOf<DependencyVersion, String>()
+            val candidates = linkedMapOf<DependencyVersion, List<String>>()
+            for ((dependency, latest) in updates) {
+                val history = histories[key(dependency)]
+                    ?: throw IOException("Missing version history for ${dependency.groupId}:${dependency.artifactId}")
+                if (age.settled(history)) { kept[dependency] = latest; continue }
+                val ceiling = org.jetbrains.idea.maven.dom.MavenVersionComparable(latest)
+                candidates[dependency] = history.versionIndex.eligible(dependency.version, mode)
+                    .filter { org.jetbrains.idea.maven.dom.MavenVersionComparable(it) <= ceiling }
+            }
+            val mavenVersion = MavenDistributionsCache.getInstance(scan.manager.project).getMavenDistribution(scan.project.file).version
+            val selection = MavenCandidateWalk.select(candidates, age, candidates.keys, mavenVersion) { load(scan, repository, it) }
+            selection.failures.values.firstOrNull()?.let { throw it }
+            return kept + selection.selected
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (failure: Exception) {
-            Logger.getInstance(MavenVersionLookup::class.java).debug("Could not refresh metadata for excluded artifacts", failure)
-            emptyMap()
+            throw IOException("Could not check release dates for the minimum release age: ${failure.message ?: failure.javaClass.simpleName}", failure)
         }
     }
 

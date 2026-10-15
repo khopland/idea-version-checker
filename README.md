@@ -59,7 +59,7 @@ See the [detailed guide](docs/user-guide.md) for complete scope, shared-property
 
 ## Settings and repositories
 
-Configure **Settings → Tools → Version Checker** to enable or disable checks, set severity by update type, manage deprecated dependencies and ignored versions, or enable periodic checks. Periodic checking is off by default; its default interval is 30 minutes. Updates default to Warning; deprecated or relocated artifacts default to Error.
+Configure **Settings → Tools → Version Checker** to enable or disable checks, set severity by update type, manage deprecated dependencies and ignored versions, or enable periodic checks. Periodic checking is off by default; its default interval is 30 minutes. Updates default to Warning; deprecated or relocated artifacts default to Error. Set **Advanced Maven settings → Minimum release age (hours)** to suggest only Maven versions published at least that long ago, for example to match a 24-hour Nexus quarantine; see [minimum release age](docs/user-guide.md#minimum-release-age).
 
 Use **Alt+Enter → Ignore … in this project** to hide one published version. Restore it by removing its entry from **Dependency rules → Ignored versions** in settings. Individual inspections can also be disabled under **Settings → Editor → Inspections → Maven / npm / Gradle**.
 

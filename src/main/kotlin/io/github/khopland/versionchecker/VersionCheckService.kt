@@ -275,6 +275,9 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         statusChanged(currentFile?.path)
     }
 
+    /** Drop one provider's results without forcing new repository metadata, for example after a selection setting change. */
+    internal fun invalidateResults(adapterId: String) = invalidate(adapterId, null)
+
     internal fun invalidateForPreview(adapter: BuildSystemAdapter, currentFile: VirtualFile?) {
         adapter.invalidateMetadata(project)
         invalidate(adapter.id, currentFile)

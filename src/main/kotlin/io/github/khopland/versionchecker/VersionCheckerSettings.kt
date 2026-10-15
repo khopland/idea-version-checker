@@ -23,6 +23,8 @@ import javax.swing.JPanel
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 
+private const val MAX_RELEASE_AGE_HOURS = 24 * 365
+
 @Service(Service.Level.PROJECT)
 @State(name = "VersionChecker", storages = [Storage(StoragePathMacros.WORKSPACE_FILE)])
 class VersionCheckerSettings : PersistentStateComponent<VersionCheckerSettings.Options> {
@@ -40,7 +42,8 @@ class VersionCheckerSettings : PersistentStateComponent<VersionCheckerSettings.O
         var mavenPlatformFirst: Boolean = false,
         var mavenMetadataThreads: Int = 2,
         var mavenFastEditorChecks: Boolean = false,
-        var mavenPersistentMetadata: Boolean = false
+        var mavenPersistentMetadata: Boolean = false,
+        var mavenMinimumReleaseAgeHours: Int = 0
     )
     private var options = Options()
     override fun getState(): Options = options
@@ -58,6 +61,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     private var mavenThreads: JSpinner? = null
     private var fastMaven: JBCheckBox? = null
     private var persistentMaven: JBCheckBox? = null
+    private var releaseAge: JSpinner? = null
     override fun getDisplayName(): String = "Version Checker"
     override fun createComponent(): JComponent {
         enabled = JBCheckBox("Enable version checks").apply { name = "versionChecker.enabled" }
@@ -101,7 +105,13 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         mavenThreads = JSpinner(SpinnerNumberModel(2, 1, 4, 1)).apply {
             toolTipText = "Use fewer parallel requests for slow or rate-limited repositories."
         }
+        releaseAge = JSpinner(SpinnerNumberModel(0, 0, MAX_RELEASE_AGE_HOURS, 1)).apply {
+            name = "versionChecker.mavenMinimumReleaseAge"
+            toolTipText = "Suggest only versions published at least this many hours ago, for example to match a repository " +
+                "quarantine period. 0 suggests the newest version."
+        }
         val maven = FormBuilder.createFormBuilder()
+            .addLabeledComponent("Minimum release age (hours):", releaseAge!!)
             .addComponent(platformFirst!!)
             .addComponent(fastMaven!!)
             .addComponent(persistentMaven!!)
@@ -116,11 +126,13 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
             severities.any { (kind, selector) -> selector.selectedItem != kind.severity(state) } ||
             deprecated?.text != state.deprecatedDependencies || ignored?.text != state.ignoredVersions ||
             platformFirst?.isSelected != state.mavenPlatformFirst || mavenThreads?.value != state.mavenMetadataThreads.coerceIn(1, 4) ||
-            fastMaven?.isSelected != state.mavenFastEditorChecks || persistentMaven?.isSelected != state.mavenPersistentMetadata
+            fastMaven?.isSelected != state.mavenFastEditorChecks || persistentMaven?.isSelected != state.mavenPersistentMetadata ||
+            releaseAge?.value != state.mavenMinimumReleaseAgeHours.coerceIn(0, MAX_RELEASE_AGE_HOURS)
     }
     override fun apply() {
         val state = project.service<VersionCheckerSettings>().state
         val persistenceChanged = state.mavenPersistentMetadata != persistentMaven!!.isSelected
+        val releaseAgeChanged = state.mavenMinimumReleaseAgeHours != releaseAge!!.value as Int
         val disabling = state.enabled && !enabled!!.isSelected
         state.enabled = enabled!!.isSelected
         state.scheduledChecks = scheduled!!.isSelected
@@ -136,8 +148,11 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         state.mavenMetadataThreads = mavenThreads!!.value as Int
         state.mavenFastEditorChecks = fastMaven!!.isSelected
         state.mavenPersistentMetadata = persistentMaven!!.isSelected
+        state.mavenMinimumReleaseAgeHours = releaseAge!!.value as Int
         if (disabling) project.service<VersionCheckService>().pause()
         if (persistenceChanged) io.github.khopland.versionchecker.core.BuildSystemAdapter.find("maven")?.invalidateMetadata(project)
+        // Cached histories and release dates stay valid; only the selected versions change.
+        if (releaseAgeChanged) project.service<VersionCheckService>().invalidateResults("maven")
         project.service<ScheduledVersionChecks>().configure()
         project.service<VersionCheckService>().statusChanged()
         refreshEditorProblems(project, this)
@@ -155,6 +170,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         mavenThreads?.value = state.mavenMetadataThreads.coerceIn(1, 4)
         fastMaven?.isSelected = state.mavenFastEditorChecks
         persistentMaven?.isSelected = state.mavenPersistentMetadata
+        releaseAge?.value = state.mavenMinimumReleaseAgeHours.coerceIn(0, MAX_RELEASE_AGE_HOURS)
     }
     private fun collapsedSection(title: String, content: JComponent): JPanel = JPanel().also { panel ->
         HideableDecorator(panel, title, false).apply {
@@ -168,5 +184,5 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         scheduled?.isEnabled = enabled?.isSelected == true
         interval?.isEnabled = enabled?.isSelected == true && scheduled?.isSelected == true
     }
-    override fun disposeUIResources() { enabled = null; scheduled = null; interval = null; deprecated = null; ignored = null; platformFirst = null; mavenThreads = null; fastMaven = null; persistentMaven = null; severities.clear() }
+    override fun disposeUIResources() { enabled = null; scheduled = null; interval = null; deprecated = null; ignored = null; platformFirst = null; mavenThreads = null; fastMaven = null; persistentMaven = null; releaseAge = null; severities.clear() }
 }

@@ -124,7 +124,7 @@ internal class MavenMetadataStore(
                 var characters = 0L
                 repeat(count) {
                     val context = input.readUTF()
-                    val key = MavenMetadataKey(input.readUTF(), input.readUTF(), input.readBoolean(), input.readUTF())
+                    val key = MavenMetadataKey(input.readUTF(), input.readUTF(), input.readBoolean(), input.readUTF(), input.readBoolean())
                     check(context.length <= 1024 && listOf(key.group, key.artifact, key.version).all { it.length <= 1024 })
                     characters += context.length + key.group.length + key.artifact.length + key.version.length
                     val fetched = input.readLong(); val expires = input.readLong()
@@ -136,7 +136,9 @@ internal class MavenMetadataStore(
                         input.readUTF().also { text -> characters += text.length; check(characters <= characterBudget) }
                     }
                     val required = input.readUTF(); characters += required.length; check(characters <= characterBudget)
-                    val record = Record(MavenMetadataValue(history, required), fetched, expires, fetchedNanos, expiresNanos)
+                    val lastUpdated = input.readLong().takeIf { it > 0 }
+                    val published = input.readLong().takeIf { it > 0 }
+                    val record = Record(MavenMetadataValue(history, required, lastUpdated, published), fetched, expires, fetchedNanos, expiresNanos)
                     if (fresh(record, wallTime()) && record.expiresNanos > now()) entries[Key(context, key)] = record
                 }
                 val expected = digest.digest(); stream.on(false)
@@ -180,12 +182,13 @@ internal class MavenMetadataStore(
                 for ((key, record) in entries) {
                     currentCoroutineContext().ensureActive()
                     output.writeUTF(key.context); output.writeUTF(key.artifact.group); output.writeUTF(key.artifact.artifact)
-                    output.writeBoolean(key.artifact.plugin); output.writeUTF(key.artifact.version)
+                    output.writeBoolean(key.artifact.plugin); output.writeUTF(key.artifact.version); output.writeBoolean(key.artifact.release)
                     output.writeLong(record.fetched); output.writeLong(record.expires)
                     output.writeLong(record.fetchedNanos); output.writeLong(record.expiresNanos)
                     output.writeInt(record.value.versions.size)
                     record.value.versions.forEach(output::writeUTF)
                     output.writeUTF(record.value.requiredMaven)
+                    output.writeLong(record.value.lastUpdated ?: 0); output.writeLong(record.value.published ?: 0)
                 }
                 val checksum = digest.digest(); stream.on(false); output.write(checksum)
             }
@@ -198,7 +201,7 @@ internal class MavenMetadataStore(
 
     companion object {
         private const val MAGIC = 0x56434d31
-        private const val FORMAT = 1
+        private const val FORMAT = 2
         private const val MAX_BYTES = 32L * 1024 * 1024
         private val MAX_AGE = TimeUnit.MINUTES.toMillis(10)
     }

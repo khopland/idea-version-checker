@@ -4,6 +4,8 @@
 
 ### Added
 
+- Optional Maven **Minimum release age (hours)** suggests only versions published at least that long ago, for example to match a repository quarantine such as Sonatype Nexus Repository Firewall. Metadata older than the minimum age needs no extra request; otherwise candidate POM `Last-Modified` times are read newest first and cached. It defaults to off and applies to both the native helper and the Versions-goal fallback.
+
 ### Changed
 
 - Bulk Maven updates support safe exact local property alias chains through the same usage/ownership policy as local fixes, requiring agreed results for all imported consumer contexts.

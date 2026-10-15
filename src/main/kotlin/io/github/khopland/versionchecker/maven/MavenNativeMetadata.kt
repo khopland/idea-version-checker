@@ -46,6 +46,7 @@ internal object MavenNativeMetadata {
                 keys.forEachIndexed { index, key ->
                     setProperty("$index.group", key.group); setProperty("$index.artifact", key.artifact)
                     setProperty("$index.plugin", key.plugin.toString()); setProperty("$index.version", key.version)
+                    if (key.release) setProperty("$index.release", "true")
                 }
             }
             Files.newOutputStream(input).use { request.store(it, null) }
@@ -59,7 +60,11 @@ internal object MavenNativeMetadata {
             suspend fun run(embedder: MavenEmbedderWrapper) {
                 val execution = MavenGoalExecutionRequest(project.file.toNioPath().toFile(), context.profiles,
                     listOf("${id.groupId}:${id.artifactId}"), properties)
-                val stage = if (keys.any { it.version.isNotEmpty() }) CheckPerformance.Stage.MAVEN_PLUGIN_PREREQUISITES else CheckPerformance.Stage.MAVEN_METADATA_BATCH
+                val stage = when {
+                    keys.any { it.version.isNotEmpty() && !it.release } -> CheckPerformance.Stage.MAVEN_PLUGIN_PREREQUISITES
+                    keys.any { it.release } -> CheckPerformance.Stage.MAVEN_RELEASE_DATES
+                    else -> CheckPerformance.Stage.MAVEN_METADATA_BATCH
+                }
                 val results = CheckPerformance.measure(stage, keys.size) {
                     withMavenProgress { reporter -> embedder.executeGoal(listOf(execution),
                         "io.github.khopland:version-checker-maven-helper:$version:lookup", reporter, MavenLogEventHandler) }
@@ -70,14 +75,17 @@ internal object MavenNativeMetadata {
             if (embedder != null) run(embedder)
             else withMavenCheckSession(manager, project, context.sessionConfiguration) { run(it) }
             val response = Properties().apply { Files.newInputStream(output).use { load(it) } }
-            check(response.getProperty("protocol") == "1" && response.getProperty("count") == keys.size.toString()) {
+            check(response.getProperty("protocol") == "2" && response.getProperty("count") == keys.size.toString()) {
                 "Invalid Maven metadata response"
             }
             return keys.mapIndexed { index, key -> key to runCatching {
                 response.getProperty("$index.error")?.let { throw IOException("${key.group}:${key.artifact}: $it") }
-                if (key.version.isEmpty()) MavenMetadataValue(versions =
+                if (key.release) MavenMetadataValue(published = response.getProperty("$index.published")?.toLongOrNull()
+                    ?.takeIf { it > 0 } ?: error("Missing release date response"))
+                else if (key.version.isEmpty()) MavenMetadataValue(versions =
                     (response.getProperty("$index.versions") ?: error("Missing Maven version index")).lineSequence()
-                        .filter { it.isNotBlank() }.distinct().toList())
+                        .filter { it.isNotBlank() }.distinct().toList(),
+                    lastUpdated = response.getProperty("$index.lastUpdated")?.toLongOrNull()?.takeIf { it > 0 })
                 else MavenMetadataValue(requiredMaven = response.getProperty("$index.requiredMaven")
                     ?: error("Missing plugin prerequisite response"))
             } }.toMap()

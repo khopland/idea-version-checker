@@ -11,8 +11,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.EmptyCoroutineContext
-import java.util.ArrayDeque
-import org.jetbrains.idea.maven.dom.MavenVersionComparable
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.server.MavenDistributionsCache
@@ -37,6 +35,7 @@ internal object MavenBatchedLookup {
         val context = service.contexts.get(manager, project, snapshot, generation)
         if (!context.nativeSupported) return null
         val options = manager.project.service<VersionCheckerSettings>().state.copy()
+        val age = MavenReleaseAge.of(options.mavenMinimumReleaseAgeHours)
         val keys = coordinates.groupBy { MavenMetadataKey(it.groupId, it.artifactId, it.artifactKind == MavenArtifactKind.PLUGIN) }
         val platformScope = MavenPlatformScope.isPlatform(snapshot)
         val ownedPlatforms = if (platformScope) readAction { MavenPlatformScope.platformCoordinates(manager, project, snapshot) } else emptySet()
@@ -81,46 +80,34 @@ internal object MavenBatchedLookup {
                 deltaExpires = minOf(deltaExpires ?: Long.MAX_VALUE, lease.expiresAt)
                 deltaCheckedAt = minOf(deltaCheckedAt ?: Long.MAX_VALUE, lease.checkedAtNanos)
             }
-            val plugins = linkedMapOf<DependencyVersion, ArrayDeque<String>>()
+            val candidates = linkedMapOf<DependencyVersion, List<String>>()
+            val dated = hashSetOf<DependencyVersion>()
             result.forEach { (key, value) ->
                 value.fold({ lease ->
                     observed(lease)
+                    val checkDates = age != null && !age.settled(lease.value)
                     for (coordinate in keys.getValue(key)) {
-                        if (!key.plugin) lease.value.versionIndex.latest(coordinate.version, mode)
+                        if (!key.plugin && !checkDates) lease.value.versionIndex.latest(coordinate.version, mode)
                             ?.let { deltaUpdates[coordinate] = it }
-                        else plugins[coordinate] = ArrayDeque(lease.value.versionIndex.eligible(coordinate.version, mode))
+                        else {
+                            candidates[coordinate] = lease.value.versionIndex.eligible(coordinate.version, mode)
+                            if (checkDates) dated += coordinate
+                        }
                     }
                 }, { failure ->
                     deltaFailures += failure as? Exception ?: Exception(failure)
                     deltaFailedCoordinates += keys.getValue(key)
                 })
             }
-            // Validate only promising plugin POMs. Descend when a candidate requires newer Maven.
-            while (plugins.values.any { it.isNotEmpty() }) {
-                val candidates = plugins.filterValues { it.isNotEmpty() }.map { (coordinate, versions) ->
-                    MavenMetadataKey(coordinate.groupId, coordinate.artifactId, true, versions.first())
-                }.distinct()
+            // Validate only promising candidates: release dates when recent, and plugin POM prerequisites.
+            val selection = MavenCandidateWalk.select(candidates, age, dated, mavenVersion) { requests ->
                 CheckQueue.yieldCurrent()
-                val prerequisites = load(candidates)
-                val iterator = plugins.iterator()
-                while (iterator.hasNext()) {
-                    val (coordinate, versions) = iterator.next()
-                    if (versions.isEmpty()) { iterator.remove(); continue }
-                    val candidate = versions.removeFirst()
-                    val key = MavenMetadataKey(coordinate.groupId, coordinate.artifactId, true, candidate)
-                    prerequisites.getValue(key).fold({ lease ->
-                        observed(lease)
-                        val required = lease.value.requiredMaven
-                        if (required.isEmpty() || mavenVersion != null && MavenVersionComparable(required) <= MavenVersionComparable(mavenVersion)) {
-                            deltaUpdates[coordinate] = candidate
-                            iterator.remove()
-                        }
-                    }, { failure ->
-                        deltaFailures += failure as? Exception ?: Exception(failure)
-                        deltaFailedCoordinates += coordinate
-                        iterator.remove()
-                    })
-                }
+                load(requests).mapValues { (_, result) -> result.map { lease -> observed(lease); lease.value } }
+            }
+            deltaUpdates.putAll(selection.selected)
+            selection.failures.forEach { (coordinate, failure) ->
+                deltaFailures += failure
+                deltaFailedCoordinates += coordinate
             }
             val delta = MavenLookupDelta(batch.flatMap { keys.getValue(it) }.toSet(), deltaUpdates, deltaFailures,
                 deltaExpires, deltaCheckedAt, deltaFailedCoordinates)
