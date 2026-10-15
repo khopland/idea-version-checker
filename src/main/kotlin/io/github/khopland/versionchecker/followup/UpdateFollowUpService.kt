@@ -6,6 +6,8 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -95,6 +97,8 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                     }
                 } catch (_: CancellationException) {
                     cancelled = true
+                } catch (_: ProcessCanceledException) {
+                    cancelled = true
                 } catch (e: Exception) {
                     failure = e
                 } finally {
@@ -104,10 +108,19 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                 }
                 if (project.isDisposed) return@launch
                 if (!started) result("Synchronization did not start. The preview was cancelled or its inputs changed. Review and save project files, then preview again.", true)
-                else result(NpmLockfileSync.result(exitCode, cancelled, withContext(Dispatchers.IO) { outputs.changed() }),
-                    cancelled || exitCode != 0 || failure != null)
+                else {
+                    val changed = try { withContext(Dispatchers.IO) { outputs.changed() } }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) {
+                        result("npm synchronization stopped, but changed lockfiles could not be inspected. Review the lockfile diff before retrying; declaration undo does not undo native writes.", true)
+                        return@launch
+                    }
+                    result(NpmLockfileSync.result(exitCode, cancelled, changed), cancelled || exitCode != 0 || failure != null)
+                }
             } catch (_: CancellationException) {
                 // Closing preparation runs no installation and makes no lockfile changes.
+            } catch (_: ProcessCanceledException) {
+                // Native IDE cancellation during preparation makes no lockfile claim.
             } catch (_: Exception) {
                 result("Could not prepare npm lockfile synchronization. Save project files, check the selected npm manifest and IntelliJ's Node/npm settings, then preview again.", true)
             } finally {
@@ -126,8 +139,8 @@ internal class UpdateFollowUpService(private val project: Project, private val s
     }
 
     private fun result(message: String, failed: Boolean) {
-        if (!project.isDisposed) NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
+        if (!project.isDisposed) project.service<BuildReloadService>().publish(NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
             .createNotification("npm lockfile synchronization", message,
-                if (failed) NotificationType.WARNING else NotificationType.INFORMATION).notify(project)
+                if (failed) NotificationType.WARNING else NotificationType.INFORMATION))
     }
 }

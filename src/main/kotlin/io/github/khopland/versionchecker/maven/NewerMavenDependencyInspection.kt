@@ -130,6 +130,7 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
             if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(tag))) return@locally
             if (!BulkUpdatePlan(listOf(preparedEdit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
                 notifyStaleVersionFix(project, "maven", descriptor)
+            else notifyVersionUpdates(project, emptyList(), setOf("maven"))
         }
 }
 
@@ -171,5 +172,6 @@ class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: Strin
             }
             if (!BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
                 notifyStaleVersionFix(project, "maven", descriptor)
+            else notifyVersionUpdates(project, emptyList(), setOf("maven"))
         }
 }

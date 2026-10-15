@@ -146,7 +146,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                             }
                                             changed = true
                                             saveChangedVersionFiles(plan)
-                                            notifyVersionUpdates(project, plan.followUp)
+                                            notifyVersionUpdates(project, plan.followUp, buildSystems = plan.changes.mapNotNull { it.buildSystemId }.toSet())
                                             project.service<VersionCheckService>().recheckAfterEdits(matching,
                                                 BuildSelection(selectedScope, currentFile?.path))
                                             appliedInDialog = true
@@ -190,7 +190,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                     return@withContext
                                 }
                                 saveChangedVersionFiles(plan)
-                                notifyVersionUpdates(project, plan.followUp)
+                                notifyVersionUpdates(project, plan.followUp, buildSystems = plan.changes.mapNotNull { it.buildSystemId }.toSet())
                                 project.service<VersionCheckService>().recheckAfterEdits(matching,
                                     BuildSelection(selectedScope, currentFile?.path))
                             }

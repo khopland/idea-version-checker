@@ -81,5 +81,6 @@ internal class UpdateGradleVersionFix(private val edit: GradleVersionEdit, priva
             if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOfNotNull(edit.element))) return@locally
             if (!BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
                 notifyStaleVersionFix(project, "gradle", descriptor)
+            else notifyVersionUpdates(project, emptyList(), setOf("gradle"))
         }
 }

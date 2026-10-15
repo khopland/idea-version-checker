@@ -194,7 +194,7 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
     private fun createPackagedPreview(plugin: PluginMainDescriptor): DialogWrapper {
         val loader = plugin.pluginClassLoader!!
         val planType = loader.loadClass("io.github.khopland.versionchecker.BulkUpdatePlan")
-        val plan = planType.constructors.single { it.parameterCount == 5 }.newInstance(emptyList<Any>(), emptyList<String>(), { true }, emptyList<String>(), null)
+        val plan = planType.constructors.single { it.parameterCount == 6 }.newInstance(emptyList<Any>(), emptyList<String>(), { true }, emptyList<String>(), null, emptyList<Any>())
         val mode = loader.loadClass("io.github.khopland.versionchecker.UpdateMode").enumConstants.first()
         val constructor = loader.loadClass("io.github.khopland.versionchecker.BulkUpdateDialog").declaredConstructors.single()
         constructor.isAccessible = true

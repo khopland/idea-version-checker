@@ -5,6 +5,9 @@ import io.github.khopland.versionchecker.core.CapturedEditInputs
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
+import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
+import org.jetbrains.plugins.gradle.util.GradleConstants
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.*
@@ -32,6 +35,11 @@ internal class GradleBuildSystemAdapter(
         }
     }
 
+    override fun reloadProject(project: Project): Boolean {
+        if (project.isDisposed) return false
+        ExternalSystemUtil.refreshProjects(ImportSpecBuilder(project, GradleConstants.SYSTEM_ID))
+        return true
+    }
     override val id = "gradle"
     override val displayName = "Gradle"
     override val capabilities = AdapterCapabilities()

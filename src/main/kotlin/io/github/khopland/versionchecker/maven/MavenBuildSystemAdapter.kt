@@ -25,6 +25,11 @@ internal class MavenBuildSystemAdapter(
 ) : BuildSystemAdapter {
     override suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,
                                     action: suspend () -> T): T = withMavenScanSession(action)
+    override fun reloadProject(project: Project): Boolean {
+        if (project.isDisposed) return false
+        MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
+        return true
+    }
     override val id = "maven"
     override val displayName = "Maven"
     override val capabilities = AdapterCapabilities(incrementalInspections = true, updateScopes = UpdateScope.entries.toSet())
