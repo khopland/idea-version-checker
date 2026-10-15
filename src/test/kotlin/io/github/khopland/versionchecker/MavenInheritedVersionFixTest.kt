@@ -742,8 +742,17 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         imported("config-define-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
         val child = imported("config-define-child", dependency(), "config-define-parent")
         val config = Files.createDirectories(directory.resolve(".mvn")).resolve("maven.config")
-        Files.writeString(config, "-Djunit.version=4.12")
-        assertTrue(fixes(child).none { it is DefineInheritedMavenPropertyFix })
+        Files.writeString(config, "-Dother.version=4.12")
+        val virtual = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(config)!!
+        assertTrue(fixes(child).any { it is DefineInheritedMavenPropertyFix })
+        val document = FileDocumentManager.getInstance().getDocument(virtual)!!
+        WriteCommandAction.runWriteCommandAction(project) {
+            document.setText("-Djunit.version=4.12")
+        }
+        assertTrue(FileDocumentManager.getInstance().isDocumentUnsaved(document))
+        assertEquals("-Dother.version=4.12", Files.readString(config))
+        assertTrue("Unsaved Maven config properties also override a new POM definition",
+            fixes(child).none { it is DefineInheritedMavenPropertyFix })
     }
 
     fun testInheritedPropertyAliasCreatesExactLiteralOwnerName() {

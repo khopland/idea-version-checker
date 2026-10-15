@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.maven
 
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.xml.XmlTag
 import org.jetbrains.idea.maven.dom.MavenDomProjectProcessorUtils
@@ -19,7 +20,17 @@ internal class MavenVersionProperties(
     private val parentModels by lazy { MavenDomProjectProcessorUtils.collectParentProjects(model) }
     private val sourceFiles by lazy { (parentModels + model).mapNotNull { it.xmlTag?.containingFile }.toSet() }
     private val configuredProperties by lazy {
-        root?.containingFile?.virtualFile?.parent?.toNioPath()?.let(MavenConfigProperties::read).orEmpty()
+        // Inspection capture may run on EDT: use IDE state, including unsaved configuration edits.
+        // Physical bytes are revalidated later by the background edit-input capture.
+        val directory = root?.containingFile?.virtualFile?.parent ?: return@lazy emptyMap<String, String>()
+        val config = generateSequence(directory) { it.parent }.mapNotNull { it.findChild(".mvn")?.takeIf { child -> child.isDirectory } }.firstOrNull()
+            ?: return@lazy emptyMap<String, String>()
+        buildMap {
+            for (name in listOf("jvm.config", "maven.config")) {
+                val file = config.findChild(name)?.takeUnless { it.isDirectory } ?: continue
+                FileDocumentManager.getInstance().getDocument(file)?.text?.let { putAll(MavenConfigProperties.parse(it)) }
+            }
+        }
     }
     private val propertyNamePattern = Regex("[A-Za-z_][A-Za-z0-9_.-]*")
     private val localNames by lazy {
