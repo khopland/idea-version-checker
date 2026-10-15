@@ -96,8 +96,10 @@ internal class MavenResolutionContexts {
                 plugins?.children.orEmpty().any { it.getChildTextTrim("artifactId", model.namespace) == "versions-maven-plugin" && it.getChild("configuration", model.namespace) != null }
             }
             val buildExtensions = build?.getChild("extensions", model.namespace)?.children.orEmpty().isNotEmpty()
-            val supported = !extensions && !buildExtensions && !customVersions && distribution.version?.startsWith("3.") == true &&
-                distribution.version?.let { MavenVersionComparable(it) >= MavenVersionComparable("3.6.3") } == true &&
+            val supportedRuntime = distribution.version?.let {
+                (it.startsWith("3.") || it.startsWith("4.")) && MavenVersionComparable(it) >= MavenVersionComparable("3.6.3")
+            } == true
+            val supported = !extensions && !buildExtensions && !customVersions && supportedRuntime &&
                 connector.jdk.versionString?.let { JavaVersion.tryParse(it)?.feature?.let { feature -> feature >= 17 } } == true &&
                 properties.keys.none { it == "maven.version.rules" || it == "maven.ext.class.path" }
             MavenResolutionContext(digest("$configDigest\n$repository\n$repositoryIdentity".toByteArray()), repository, properties, profiles, supported, configDigest)

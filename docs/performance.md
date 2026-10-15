@@ -306,7 +306,7 @@ Disable tracing after profiling. Capture current-file/project scope, mode and co
 
 ## Maven server metadata batching: 10 October 2026
 
-Supported Maven 3/Java 17+ checks now use a bundled helper inside IDEA's Maven server. It submits artifact metadata batches to Maven Resolver, then selects Patch/Minor/Major candidates locally. Plugin candidates also have their Maven prerequisites read through Maven's project builder. The helper inherits Maven's repository, mirror, authentication and transport configuration. Custom extensions/rules and unsupported runtimes keep the existing Versions-goal path.
+Supported Maven 3 and Maven 4/Java 17+ checks use a bundled helper inside IDEA's Maven server. It submits artifact metadata batches to Maven Resolver, then selects Patch/Minor/Major candidates locally. Plugin candidates also have their Maven prerequisites read through Maven's project builder. The helper inherits Maven's repository, mirror, authentication and transport configuration. Custom extensions/rules and unsupported runtimes keep the existing Versions-goal path.
 
 The project service shares bounded version histories across compatible modules and modes for ten minutes from successful completion. Metadata keys exclude declaration baselines and modes, but include the resolution-context digest and refresh generation. Successful sibling entries survive a failed artifact and are reused on retry. A new generation cannot join or retain an older worker's results. A shared worker survives one cancelled consumer; the final consumer or project disposal cancels it. Refresh/preview sessions are short lived, serialized and retained until their surviving workers finish.
 

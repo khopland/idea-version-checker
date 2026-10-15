@@ -1,6 +1,5 @@
 package io.github.khopland.versionchecker.helper;
 
-import org.apache.maven.artifact.factory.ArtifactFactory;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -53,6 +52,9 @@ public final class MetadataMojo extends AbstractMojo {
         try {
             Properties request = new Properties();
             try (InputStream stream = Files.newInputStream(input.toPath())) { request.load(stream); }
+            // Maven 4 selects an aggregator's children too. Only the requested POM owns this response.
+            String requestedProject = request.getProperty("project");
+            if (requestedProject != null && !Files.isSameFile(project.getFile().toPath(), java.nio.file.Path.of(requestedProject))) return;
             Properties response = new Properties();
             response.setProperty("protocol", "2");
             int count = Integer.parseInt(request.getProperty("count"));
@@ -65,7 +67,13 @@ public final class MetadataMojo extends AbstractMojo {
             List<MetadataRequest> metadataRequests = new ArrayList<>();
             List<Integer> owners = new ArrayList<>();
             var repositoriesByKind = new HashMap<Boolean, List<RemoteRepository>>();
-            ArtifactFactory artifactFactory = null;
+            if (count == 0) {
+                for (boolean plugin : new boolean[] {false, true}) {
+                    List<String> ids = repositories(resolver, repositoriesByKind, plugin).stream()
+                        .filter(repository -> repository.getPolicy(false).isEnabled()).map(RemoteRepository::getId).toList();
+                    response.setProperty(plugin ? "pluginRepositories" : "repositories", String.join("\n", ids));
+                }
+            }
             List<ArtifactRequest> releaseRequests = new ArrayList<>();
             List<Integer> releaseOwners = new ArrayList<>();
             for (int i = 0; i < count; i++) {
@@ -87,8 +95,8 @@ public final class MetadataMojo extends AbstractMojo {
                         build.setRemoteRepositories(plugin ? project.getPluginArtifactRepositories() : project.getRemoteArtifactRepositories());
                         build.setResolveDependencies(false);
                         build.setProcessPlugins(false);
-                        if (artifactFactory == null) artifactFactory = session.getContainer().lookup(ArtifactFactory.class);
-                        var pomArtifact = artifactFactory.createProjectArtifact(group, artifact, version);
+                        var pomArtifact = new org.apache.maven.artifact.DefaultArtifact(group, artifact, version,
+                            "compile", "pom", null, new org.apache.maven.artifact.handler.DefaultArtifactHandler("pom"));
                         MavenProject pom = projectBuilder.build(pomArtifact, build).getProject();
                         String required = pom.getPrerequisites() == null ? "" : pom.getPrerequisites().getMaven();
                         response.setProperty(prefix + "requiredMaven", required == null ? "" : required);

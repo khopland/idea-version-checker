@@ -4,6 +4,8 @@
 
 ### Added
 
+- Maven 4 support tested with 4.0.0-rc-7 on IDEA 2026.2.3, including POM model 4.1.0. Metadata responses and Versions reports retain the selected POM's results when Maven also executes child projects; fallback refreshes use Maven's effective mirror IDs, and plugin prerequisites no longer depend on the removed legacy container.
+
 - Dependency Versions tool window keeps cached checks visible with outcome/change filters, source navigation, explicit refresh/review actions and sanitized JSON export.
 - Batch reviews show captured versions, consumers and build context; Needs review entries provide explanations and source navigation when available.
 - Successful declaration edits offer explicit Maven/Gradle save-and-reload actions and a previewed npm lockfile-only synchronization command. npm scripts are disabled; inputs are revalidated and results report changed lockfiles and possible partial writes separately from declaration undo.
