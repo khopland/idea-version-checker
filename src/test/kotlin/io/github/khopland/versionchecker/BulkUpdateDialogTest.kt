@@ -37,6 +37,23 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
     private fun dialog(plan: BulkUpdatePlan) = BulkUpdateDialog(project, UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT.label, "Test", plan)
     private fun text(edit: VersionEdit) = FileDocumentManager.getInstance().getDocument(edit.element!!.containingFile.virtualFile)!!.text
 
+    fun testStructuredReviewAndUpdateDetailsUseCapturedFacts() {
+        val edit = edit("metadata")
+        val source = VersionReviewSource(edit.element!!.containingFile.virtualFile.path, 0)
+        val item = VersionReviewItem("Shared consumers disagree", source, "shared version", "1.0", "2.0", listOf("one", "two"), "Gradle")
+        val captured = object : VersionEdit by edit { override val review = item }
+        val dialog = dialog(BulkUpdatePlan(listOf(captured), listOf("legacy presentation"), reviewItems = listOf(item)))
+        try {
+            assertEquals(item, dialog.reviewList.selectedValue)
+            assertTrue(dialog.reviewDetails.text.contains("Shared consumers disagree"))
+            dialog.table.setRowSelectionInterval(0, 0)
+            assertTrue(dialog.changeDetails.text.contains("Affected consumers: one, two"))
+            assertTrue(dialog.changeDetails.text.contains("Declared: 1.0"))
+            assertTrue(dialog.changeDetails.text.contains("Target: 2.0"))
+            assertTrue(dialog.selectedPlan().changes.single().isValid())
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
     fun testAccessibilityApplyEntersAWriteSafeContextAndRepeatedClicksApplyOnce() {
         val edit = edit("accessible-apply")
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))

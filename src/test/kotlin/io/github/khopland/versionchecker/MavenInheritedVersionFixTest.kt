@@ -233,8 +233,10 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
             val bulk = MavenBulkUpdatePlan.create(mapOf(file to analysis))
             assertEquals("bulk alias case $index", if (index == 0) 1 else 0, bulk.changes.size)
             if (index == 0) {
-                val edit = bulk.changes.single() as MavenVersionEdit
+                val edit = bulk.changes.single()
                 assertSame(target, edit.element)
+                assertEquals(target.textOffset, edit.review!!.source!!.offset)
+                assertTrue(edit.review!!.consumers.isNotEmpty())
                 assertEquals("4.12", edit.expected)
                 assertEquals("4.13.2", edit.latest)
                 assertEquals("\${shared}", file.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("alias")!!.value.trimmedText)
@@ -318,7 +320,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
             assertEquals(name, allowed, analysis.quickFixes(version.parentTag!!, problem).filterIsInstance<UpdateDependencyVersionFix>().isNotEmpty())
             assertEquals(name, if (allowed) 1 else 0, bulk.changes.size)
             if (allowed) {
-                val edit = bulk.changes.single() as MavenVersionEdit
+                val edit = bulk.changes.single()
                 assertSame(property, edit.element)
                 assertEquals("1.0", edit.expected)
                 assertEquals("1.1", edit.latest)

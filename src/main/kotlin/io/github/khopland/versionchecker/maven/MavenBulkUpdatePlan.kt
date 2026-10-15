@@ -9,6 +9,7 @@ internal data class MavenVersionEdit(
     val pointer: SmartPsiElementPointer<XmlTag>, override val expected: String,
     override val latest: String, override val location: String
 ) : VersionEdit {
+    override val buildSystemId = "maven"
     override val element: XmlTag? get() = pointer.element
     override fun isValid() = element?.value?.trimmedText == expected
     override fun preview(): VersionEditPreview? = element?.let {
@@ -29,9 +30,11 @@ internal object MavenBulkUpdatePlan {
             }
         }
         val skipped = mutableListOf<String>()
+        val review = mutableListOf<VersionReviewItem>()
         val candidates = problems.filter { problem ->
             if (problem.target == null || problem.latest == null) {
                 skipped += problem.notice ?: "${problem.coordinate.groupId}:${problem.coordinate.artifactId}: version is managed outside this declaration"
+                review += VersionReviewItem(problem.notice ?: "Version is managed outside this declaration", VersionReviewSource.capture(problem.anchor), "${problem.coordinate.groupId}:${problem.coordinate.artifactId}", buildContext = "Maven")
                 false
             } else true
         }.groupBy { key(it.target!!) }
@@ -50,9 +53,13 @@ internal object MavenBulkUpdatePlan {
                 MavenPreparedUpdate.Consumer(it.coordinate, it.latest, it.notice)
             }, blockers)
             skipped += prepared.blockingReasons
-            prepared.edit?.let { changes += it }
+            review += prepared.blockingReasons.map { VersionReviewItem(it, VersionReviewSource.capture(target), target.localName, target.value.trimmedText, prepared.replacement, prepared.affectedCoordinates.map { "${it.groupId}:${it.artifactId}" }, "Maven") }
+            prepared.edit?.let { edit ->
+                val metadata = VersionReviewItem("The check selected this newer version. All listed consumers share this edit; availability does not guarantee compatibility.", VersionReviewSource.capture(target), target.localName, edit.expected, edit.latest, prepared.affectedCoordinates.map { "${it.groupId}:${it.artifactId}" }, "Maven", checkedVersion = edit.expected)
+                changes += object : VersionEdit by edit { override val review = metadata }
+            }
         }
-        return BulkUpdatePlan(changes, skipped.distinct(), isCurrent)
+        return BulkUpdatePlan(changes, skipped.distinct(), isCurrent, reviewItems = review.distinct())
     }
 
     private fun key(tag: XmlTag): Pair<String, Int> = tag.containingFile.virtualFile.path to tag.textOffset

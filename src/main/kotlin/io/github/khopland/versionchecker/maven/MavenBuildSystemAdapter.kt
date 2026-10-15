@@ -241,7 +241,10 @@ internal class MavenBuildSystemAdapter(
         val usages = inputs.projects.mapNotNull { PsiManager.getInstance(project).findFile(it.file) }
         val plan = MavenBulkUpdatePlan.create(files, usageFiles = usages).copy(
             prepareValidation = { prepareEditValidation(project, reports.keys) })
-        plan.copy(skipped = (plan.skipped + reports.keys.flatMap { it.skippedDeclarations.entries }.map {
+        val review = reports.keys.flatMap { it.skippedDeclarations.entries }.map {
+            VersionReviewItem(it.value, VersionReviewSource(it.key.file), it.key.location, buildContext = "Maven")
+        }
+        plan.copy(reviewItems = (plan.reviewItems + review).distinct(), skipped = (plan.skipped + reports.keys.flatMap { it.skippedDeclarations.entries }.map {
             "${it.key.file}: ${it.key.location}: ${it.value}"
         }).distinct())
     }

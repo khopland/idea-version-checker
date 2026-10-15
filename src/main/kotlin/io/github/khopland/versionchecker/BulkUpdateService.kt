@@ -260,6 +260,21 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
         }
     }
 
+    internal fun openReviewSource(source: VersionReviewSource) {
+        scope.launch(Dispatchers.IO) {
+            val file = source.findFile()
+            withContext(Dispatchers.EDT) {
+                if (disposed || project.isDisposed) return@withContext
+                if (file == null || !file.isValid || file.isDirectory) {
+                    showDetails("Source unavailable", "The review source is no longer available. Refresh the review to locate its current declaration.")
+                } else {
+                    val length = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(file)?.textLength ?: 0
+                    com.intellij.openapi.fileEditor.OpenFileDescriptor(project, file, source.navigationOffset(length)).navigate(true)
+                }
+            }
+        }
+    }
+
     internal fun previewEdit(edit: VersionEdit) {
         scope.launch(Dispatchers.IO) {
             val preview = readAction { edit.preview() }

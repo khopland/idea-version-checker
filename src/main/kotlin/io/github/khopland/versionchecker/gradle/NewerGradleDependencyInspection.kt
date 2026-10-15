@@ -15,6 +15,7 @@ internal class GradleVersionEdit(file: PsiFile, val range: TextRange, override v
                                  override val location: String, original: String) : VersionEdit {
     constructor(file: PsiFile, range: TextRange, latest: String, location: String) :
         this(file, range, latest, location, file.text)
+    override val buildSystemId = "gradle"
     override val documentChange = DocumentVersionChange(file, range, latest, original)
     override val element: PsiFile? get() = documentChange.file
     override val expected = documentChange.expected
