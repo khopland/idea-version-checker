@@ -2,9 +2,14 @@
 
 Version `1.3.0` is prepared for stable-release review, with dated change notes and a locally validated ZIP. It has not been published. See the [candidate acceptance record](release-acceptance-1.3.0/README.md) for the archive checksum, completed checks and the remaining minimum-IDE Maven smoke test. Version `1.2.0` is already published; existing versions and tags are preserved.
 
-Native npm acceptance on IDEA 2025.3 is excluded at the user's request on
-2026-10-12. Keep newer-IDE npm acceptance, automated npm integration tests,
-minimum-IDE Maven/Gradle acceptance and all three binary-verification targets.
+New builds support IDEA 2026.1.4 through 2026.2.x. Compile against 2026.1.4
+(build 261.26222.65) and verify against 2026.1.4 and 2026.2.3. Keep native
+Maven/Gradle acceptance on the minimum supported IDE and native npm acceptance
+on a supported 2026 IDE, alongside automated integration tests. Existing dated
+acceptance records describe their original archives and retain the historical
+2025.3 results; they do not establish acceptance for a newly built archive.
+Before releasing the new baseline, record a fresh Maven/Gradle smoke test on
+2026.1.4 and npm smoke test on a supported 2026 IDE using the selected ZIP.
 
 ## One-time setup
 
@@ -37,7 +42,7 @@ python3 .github/scripts/release_metadata.py --tag 1.3.0 --prerelease false
 
 1. Set a new stable version, for example `version=1.3.0`, in `gradle.properties`.
 2. Move the completed changes from `CHANGELOG.md`'s `Unreleased` section into a dated `## [1.3.0] - YYYY-MM-DD` entry. Leave an empty `Unreleased` section for future work. The release entry needs at least one bullet.
-3. Merge these changes into `main`. The **Build** workflow builds the ZIP, runs `check` with native Maven/npm/Gradle integration enabled, tests release automation and performance reporting, and runs Plugin Verifier against IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3.
+3. Merge these changes into `main`. The **Build** workflow builds the ZIP, runs `check` with native Maven/npm/Gradle integration enabled, tests release automation and performance reporting, and runs Plugin Verifier against IDEA 2026.1.4 and 2026.2.3.
 4. After all checks pass, the workflow creates or updates only the matching GitHub draft, attaches the tested ZIP, and pins its target to the checked commit. Review the draft and its release notes in [GitHub Releases](https://github.com/khopland/idea-version-checker/releases). Publish it as a regular release.
 5. The **Release** workflow checks out the release tag, verifies the tag against the project version and finalized changelog, reruns tests and compatibility checks, signs and verifies the signature when configured, and attaches the selected ZIP and `SHA256SUMS`. It uploads that exact ZIP to Marketplace's `default` channel. Marketplace approval can still be required before the update becomes available.
 6. After publishing, set the next development version, for example `version=1.3.1-SNAPSHOT`. Development builds show the `Unreleased` change notes.

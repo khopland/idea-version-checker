@@ -13,6 +13,8 @@
 
 ### Changed
 
+- New builds require IntelliJ IDEA 2026.1.4 and support the 2026.1/2026.2 release branches. Compile against 2026.1.4 and verify against 2026.1.4 and 2026.2.3; drop the 2025.3 target and use the 2026 Gradle plugin ID (`com.intellij.gradle`).
+
 - Check execution, queueing and result publication are owned by a lifecycle-aware executor; disposed executors reject new work and late results.
 - Maven saving and captured fingerprints share external-input inventory policy while preserving selected-module configuration and all imported POM ownership checks.
 - Bulk Maven updates support safe exact local property alias chains through the same usage/ownership policy as local fixes, requiring agreed results for all imported consumer contexts.
