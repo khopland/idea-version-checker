@@ -112,3 +112,25 @@ Validation on the combined code:
 - `git diff --check`: passed.
 
 The final native command is the same SDKMAN JDK 21 command recorded above. No performance improvement is claimed. Broader common update planning, provider input inventory design, synchronization/tool-window workflows and future product scope remain open in the plan. Classifier/map coverage adds recognition only; arbitrary helper calls, computed map objects and add(configuration, map) remain outside that added scope.
+
+## Architecture continuation — 15 October 2026
+
+The user clarified latest main as the base; the slice starts at `1bde219`, with #19–#26 already merged. All three new PRs target main directly and can merge independently in any order.
+
+- [#27: S1 npm prepared updates](https://github.com/khopland/idea-version-checker/pull/27), commit `ad96f90`. One provider-owned preparation function supplies local, workspace and bulk edits, blockers, physical target identity and follow-up. Captured edits are reused by local fixes. Unsupported or inconsistent synthetic baselines remain review-only. Declaration/workspace result lease scopes, settings guards, input validation, operator/alias behavior, no downgrades and atomic undo remain intact.
+- [#28: S4 Gradle project input inventory](https://github.com/khopland/idea-version-checker/pull/28), commit `7444b24`. Typed inventory keys and one tracked-input selection policy drive saving, unsaved checks, fingerprint input selection and fresh physical validation. Canonical internal module aliases do not turn application sources into build logic. External home capture, missing markers, cancellation and manual-review limits remain provider-owned.
+- [#29: S2 shared edit boundary](https://github.com/khopland/idea-version-checker/pull/29), commit `4b48044`, plus this documentation. Named authorization, capture and final-validation types distinguish the shared apply stages while keeping provider callback signatures compatible. Authorization is still checked before capture and inside the atomic write command.
+
+Validation on the combined implementation:
+
+- **572 tests passed**, no failures, errors or skips: 553 default tests plus 19 native integration tests (Maven 7, npm 5, Gradle 7). Project configuration verification passed.
+- Three npm regression methods cover 13 local/bulk eligibility cases, blocked workspace members with safe independent edits, and wrong physical targets. Existing workspace lease, scaling, alias, stale-input, no-downgrade, undo and native registry tests pass.
+- Six Gradle inventory regressions cover saving/unsaved selection, physical additions before VFS refresh, generated boundaries, symlink identities, unobserved imported roots and canonical internal modules with application sources. Existing same-stamp, buildSrc/native policy, input capture, scaling and bounded native invocation checks pass.
+- Edit-guard regressions verify background capture outside read/write access, validation after write access is acquired, and failed provider capture preventing all edits without evaluating earlier captured guards. Existing combined selection, result authorization, cancellation and undo tests pass.
+- Two new inventory fixture assumptions were corrected before the final run: fixture-filesystem lookup now mirrors the adapter, and unobserved VFS roots use a controlled resolver rather than a lookup that can populate VFS.
+- Plugin Verifier passed for IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Each target retains one deprecated API usage and 14 experimental API usages, matching the previous slice.
+- `git diff --check`: passed.
+
+The hosted plan is updated in place as version 5 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/5)); original expiry remains 21 October 2026. Historical validation above remains unchanged.
+
+Remaining scope: S1 Maven/Gradle preparation migration, S2 provider callback/ownership migration, other providers' S4 inventories and broader input-role modeling, S3 orchestration/controller work, S6 proven cache mechanics, and the product roadmap. This slice does not claim a standalone engine, generic native resolution, exhaustive Gradle input coverage or a measured performance improvement.
