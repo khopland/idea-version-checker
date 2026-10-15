@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker
 
 
 import io.github.khopland.versionchecker.maven.*
+import io.github.khopland.versionchecker.core.CapturedEditInputs
 
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.command.undo.UndoManager
@@ -143,11 +144,11 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
             assertFalse(com.intellij.openapi.application.ApplicationManager.getApplication().isDispatchThread)
             assertFalse(com.intellij.openapi.application.ApplicationManager.getApplication().isReadAccessAllowed)
             captures++; authorized = false
-            { true }
+            CapturedEditInputs { true }
         }).guardedBy { authorized }
         assertFalse(guard.apply(project)); assertEquals(1, captures)
-        val first = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = { captures++; { true } })
-        val second = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = { captures++; { false } })
+        val first = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = { captures++; CapturedEditInputs { true } })
+        val second = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = { captures++; CapturedEditInputs { false } })
         assertFalse(BulkUpdatePlan.combine(listOf(first, second)).select(emptySet()).apply(project))
         assertEquals(3, captures)
     }
@@ -159,7 +160,7 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
             assertFalse(application.isDispatchThread)
             assertFalse(application.isReadAccessAllowed)
             calls += "capture"
-            val guard = {
+            val guard = CapturedEditInputs {
                 assertTrue(application.isWriteAccessAllowed)
                 calls += "validate"
                 false
@@ -173,7 +174,7 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
     fun testFailedCombinedCaptureDoesNotEvaluateEarlierCapturedGuards() {
         var validated = false
         val first = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = {
-            { validated = true; true }
+            CapturedEditInputs { validated = true; true }
         })
         val second = BulkUpdatePlan(emptyList(), emptyList(), prepareValidation = {
             throw IllegalStateException("Provider input capture failed")

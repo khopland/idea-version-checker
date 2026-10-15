@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.gradle
 
+import io.github.khopland.versionchecker.core.EditInputCapture
+
 import com.intellij.codeInsight.FileModificationService
 import com.intellij.codeInspection.*
 import com.intellij.openapi.components.service
@@ -62,8 +64,8 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
 }
 
 internal class UpdateGradleVersionFix(private val edit: GradleVersionEdit, private val isCurrent: () -> Boolean) : LocalQuickFix {
-    private var prepareValidation: (suspend () -> (() -> Boolean))? = null
-    internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
+    private var prepareValidation: EditInputCapture? = null
+    internal fun withInputValidation(prepare: EditInputCapture) = apply { prepareValidation = prepare }
     override fun getFamilyName() = "Update Gradle version"
     override fun getName() = "Update declared version to ${edit.latest}"
     override fun startInWriteAction() = false

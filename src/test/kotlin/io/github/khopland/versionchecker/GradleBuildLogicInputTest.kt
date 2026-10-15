@@ -90,7 +90,7 @@ class GradleBuildLogicInputTest : BasePlatformTestCase() {
         FileDocumentManager.getInstance().saveAllDocuments()
         val dynamicSnapshot = adapter.snapshot(project, source.virtualFile)!!
         val dynamic = plan(dynamicSnapshot)
-        assertFalse("Local quick fixes share the coverage guard", background { adapter.prepareEditValidation(project, listOf(dynamicSnapshot)) }())
+        assertFalse("Local quick fixes share the coverage guard", background { adapter.prepareEditValidation(project, listOf(dynamicSnapshot)) }.isCurrent())
         val dynamicReport = background { adapter.check(project, dynamicSnapshot, UpdateMode.MAJOR) }
         assertTrue(dynamicReport.candidates.isEmpty())
         assertEquals(NoticeKind.MANUAL_REVIEW, dynamicReport.notices.single().kind)
@@ -102,7 +102,7 @@ class GradleBuildLogicInputTest : BasePlatformTestCase() {
         FileDocumentManager.getInstance().saveAllDocuments()
         val externalSnapshot = adapter.snapshot(project, source.virtualFile)!!
         val external = plan(externalSnapshot)
-        assertFalse("Local quick fixes cannot authorize untracked external scripts", background { adapter.prepareEditValidation(project, listOf(externalSnapshot)) }())
+        assertFalse("Local quick fixes cannot authorize untracked external scripts", background { adapter.prepareEditValidation(project, listOf(externalSnapshot)) }.isCurrent())
         assertEquals(NoticeKind.MANUAL_REVIEW, background { adapter.check(project, externalSnapshot, UpdateMode.MAJOR) }.notices.single().kind)
         assertTrue(external.changes.isEmpty())
         assertTrue(external.skipped.single().contains("External applied scripts"))
@@ -119,7 +119,7 @@ class GradleBuildLogicInputTest : BasePlatformTestCase() {
             }
             FileDocumentManager.getInstance().saveAllDocuments()
             val snapshot = adapter.snapshot(project, source.virtualFile)!!
-            assertFalse(background { adapter.prepareEditValidation(project, listOf(snapshot)) }())
+            assertFalse(background { adapter.prepareEditValidation(project, listOf(snapshot)) }.isCurrent())
             val prepared = plan(snapshot)
             assertTrue(prepared.changes.isEmpty())
             assertTrue(prepared.skipped.single().contains("Computed"))

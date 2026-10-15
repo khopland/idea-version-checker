@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.maven
 
+import io.github.khopland.versionchecker.core.CapturedEditInputs
+
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
@@ -158,10 +160,10 @@ internal class MavenBuildSystemAdapter(
             !project.isDisposed && areCurrent(inputs, listOf(snapshot))
         }
 
-    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean {
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs {
         val saved = prepareSavedBuildInputValidation(project, snapshots)
         return MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
-            { saved() && !project.isDisposed && inputs.currentView()?.let { areCurrent(it, snapshots) } == true }
+            CapturedEditInputs { saved.isCurrent() && !project.isDisposed && inputs.currentView()?.let { areCurrent(it, snapshots) } == true }
         }
     }
 

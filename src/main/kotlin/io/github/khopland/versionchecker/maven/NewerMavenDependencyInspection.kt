@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.maven
 
+import io.github.khopland.versionchecker.core.EditInputCapture
+
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.codeInspection.ProblemDescriptor
@@ -88,8 +90,8 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
                                  private val actionName: String? = null,
                                  private val isCurrent: () -> Boolean = { true }) : LocalQuickFix {
     private var actionNameProvider: (() -> String)? = null
-    private var prepareValidation: (suspend () -> (() -> Boolean))? = null
-    internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
+    private var prepareValidation: EditInputCapture? = null
+    internal fun withInputValidation(prepare: EditInputCapture) = apply { prepareValidation = prepare }
     internal fun withActionName(provider: () -> String) = apply { actionNameProvider = provider }
     private val pointer: SmartPsiElementPointer<XmlTag> = SmartPointerManager.createPointer(target)
     private var preparedEdit = MavenPreparedUpdate.capture(target, latest)
@@ -119,8 +121,8 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
 
 class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: String,
                                    private val isCurrent: () -> Boolean = { true }) : LocalQuickFix {
-    private var prepareValidation: (suspend () -> (() -> Boolean))? = null
-    internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
+    private var prepareValidation: EditInputCapture? = null
+    internal fun withInputValidation(prepare: EditInputCapture) = apply { prepareValidation = prepare }
     private val pointer = SmartPointerManager.createPointer(dependency)
     private val expected = dependency.text
     override fun getFamilyName() = "Override Maven dependency version locally"

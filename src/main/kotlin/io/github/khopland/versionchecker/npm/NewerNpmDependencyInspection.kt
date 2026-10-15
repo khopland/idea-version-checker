@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
+import io.github.khopland.versionchecker.core.EditInputCapture
+
 import com.intellij.codeInspection.*
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.json.psi.JsonElementGenerator
@@ -62,8 +64,8 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
 
 class UpdateNpmVersionFix internal constructor(private val edit: NpmVersionEdit, private val actionName: String?,
                                               private val isCurrent: () -> Boolean) : LocalQuickFix {
-    private var prepareValidation: (suspend () -> (() -> Boolean))? = null
-    internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
+    private var prepareValidation: EditInputCapture? = null
+    internal fun withInputValidation(prepare: EditInputCapture) = apply { prepareValidation = prepare }
     constructor(value: JsonStringLiteral, latest: String, isCurrent: () -> Boolean = { true }) :
         this(NpmVersionEdit(value, latest, "npm dependency"), null, isCurrent)
     override fun getFamilyName() = "Update npm version"
@@ -86,8 +88,8 @@ class UpdateNpmVersionFix internal constructor(private val edit: NpmVersionEdit,
 
 internal class UpdateNpmWorkspaceVersionFix(name: String, version: String, private val edits: List<NpmVersionEdit>,
                                           private val isCurrent: () -> Boolean) : LocalQuickFix {
-    private var prepareValidation: (suspend () -> (() -> Boolean))? = null
-    internal fun withInputValidation(prepare: suspend () -> (() -> Boolean)) = apply { prepareValidation = prepare }
+    private var prepareValidation: EditInputCapture? = null
+    internal fun withInputValidation(prepare: EditInputCapture) = apply { prepareValidation = prepare }
     private val actionName = "Update $name across workspace to $version (${edits.size} declarations)"
     override fun getFamilyName() = "Update npm workspace version"
     override fun getName() = actionName
