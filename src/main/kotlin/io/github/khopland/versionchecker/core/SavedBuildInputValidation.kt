@@ -14,14 +14,14 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /** Physical source files must agree with the IDE's saved baseline before an edit. */
-internal suspend fun prepareSavedBuildInputValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean =
+internal suspend fun prepareSavedBuildInputValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs =
     prepareSavedBuildInputValidation(project, snapshots.flatMap { it.fingerprint.files.keys + it.sourceFile }.toSet())
 
 private data class SavedInput(val file: VirtualFile, val stamp: Long, val documentStamp: Long?,
                               val cleanText: String?, val charset: java.nio.charset.Charset)
 
 internal suspend fun prepareSavedBuildInputValidation(project: Project, paths: Set<String>,
-                                                     readBytes: (Path) -> ByteArray = Files::readAllBytes): () -> Boolean {
+                                                     readBytes: (Path) -> ByteArray = Files::readAllBytes): CapturedEditInputs {
     val inputs = readAction {
         if (project.isDisposed) emptyList() else paths.mapNotNull { LocalFileSystem.getInstance().findFileByPath(it) }
             .filter { !it.isDirectory && it.fileSystem.protocol == "file" }.distinct().map { file ->
@@ -46,7 +46,7 @@ internal suspend fun prepareSavedBuildInputValidation(project: Project, paths: S
             } catch (_: IOException) { false }
         }
     }
-    return {
+    return CapturedEditInputs {
         matching && !project.isDisposed && inputs.all { input ->
             input.file.isValid && input.file.modificationStamp == input.stamp &&
                 (input.documentStamp == null || FileDocumentManager.getInstance().getCachedDocument(input.file)

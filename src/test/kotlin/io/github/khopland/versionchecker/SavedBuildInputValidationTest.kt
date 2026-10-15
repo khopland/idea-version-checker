@@ -35,7 +35,7 @@ class SavedBuildInputValidationTest : BasePlatformTestCase() {
             Files.writeString(path, "version 1.0.1")
             Files.setLastModifiedTime(path, stamp)
             assertEquals("Keep the IDE's stale baseline for the regression", "version 1.0.0", document.text)
-            assertFalse(background { prepareSavedBuildInputValidation(project, setOf(file.path)) }())
+            assertFalse(background { prepareSavedBuildInputValidation(project, setOf(file.path)) }.isCurrent())
             assertEquals("version 1.0.1", Files.readString(path))
         }
     }
@@ -53,7 +53,7 @@ class SavedBuildInputValidationTest : BasePlatformTestCase() {
             reads++
             Files.readAllBytes(input)
         } }
-        assertTrue(guard())
+        assertTrue(guard.isCurrent())
         assertEquals(1, reads)
     }
 
@@ -64,14 +64,14 @@ class SavedBuildInputValidationTest : BasePlatformTestCase() {
         val document = FileDocumentManager.getInstance().getDocument(file)!!
         WriteCommandAction.runWriteCommandAction(project) { document.setText("unsaved selector") }
         try {
-            assertTrue(background { prepareSavedBuildInputValidation(project, setOf(file.path)) }())
+            assertTrue(background { prepareSavedBuildInputValidation(project, setOf(file.path)) }.isCurrent())
             val guard = background { prepareSavedBuildInputValidation(project, setOf(file.path)) { input ->
                 ApplicationManager.getApplication().invokeAndWait {
                     WriteCommandAction.runWriteCommandAction(project) { document.setText("changed during capture") }
                 }
                 Files.readAllBytes(input)
             } }
-            assertFalse(guard())
+            assertFalse(guard.isCurrent())
             assertEquals("saved baseline", Files.readString(path))
         } finally { FileDocumentManager.getInstance().reloadFromDisk(document) }
     }
@@ -82,7 +82,7 @@ class SavedBuildInputValidationTest : BasePlatformTestCase() {
         val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)!!
         val document = FileDocumentManager.getInstance().getDocument(file)!!
         Files.delete(path)
-        assertFalse(background { prepareSavedBuildInputValidation(project, setOf(file.path)) }())
+        assertFalse(background { prepareSavedBuildInputValidation(project, setOf(file.path)) }.isCurrent())
         assertEquals("saved baseline", document.text)
     }
 }

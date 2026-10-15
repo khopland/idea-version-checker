@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.core.CapturedEditInputs
+
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.openapi.command.WriteCommandAction
@@ -153,7 +155,7 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
                 snapshots.incrementAndGet()
                 return adapter.prepareInspectionSnapshot(project, file)
             }
-            override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean {
+            override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs {
                 validations.incrementAndGet()
                 return adapter.prepareEditValidation(project, snapshots)
             }

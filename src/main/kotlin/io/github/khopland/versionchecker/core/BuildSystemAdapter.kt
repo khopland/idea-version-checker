@@ -28,8 +28,8 @@ internal interface BuildSystemAdapter {
     suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
         readAction { !project.isDisposed && isCurrent(project, snapshot) }
     /** Fresh disk capture before an edit; the returned guard only reads current IDE state. */
-    suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean =
-        { !project.isDisposed && snapshots.all { isCurrent(project, it) } }
+    suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs =
+        CapturedEditInputs { !project.isDisposed && snapshots.all { isCurrent(project, it) } }
     suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot>
     /** Provider-owned, short-lived native resources/results for one ordered scan. */
     suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,

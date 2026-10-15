@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
+import io.github.khopland.versionchecker.core.CapturedEditInputs
+
 import com.intellij.codeInspection.LocalQuickFix
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.openapi.application.readAction
@@ -88,11 +90,11 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             !project.isDisposed && areCurrent(project, listOf(snapshot), external)
         }
 
-    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean {
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs {
         val saved = prepareSavedBuildInputValidation(project, snapshots)
         return capture(project, { snapshots.mapNotNull { findFile(project, it.sourceFile) } }) { external ->
-            val guard = {
-                saved() && !project.isDisposed && external.layoutIsCurrent(project, snapshots.mapNotNull { snapshot ->
+            val guard = CapturedEditInputs {
+                saved.isCurrent() && !project.isDisposed && external.layoutIsCurrent(project, snapshots.mapNotNull { snapshot ->
                     findFile(project, snapshot.sourceFile)?.let { NpmWorkspaces.resolve(project, it).root.path }
                 }.toSet()) && areCurrent(project, snapshots, external)
             }

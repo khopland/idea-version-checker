@@ -28,13 +28,10 @@ internal data class BulkUpdatePlan(
     val skipped: List<String>,
     private val isCurrent: () -> Boolean = { true },
     val followUp: List<String> = emptyList(),
-    val prepareValidation: (suspend () -> (() -> Boolean))? = null
+    val prepareValidation: EditInputCapture? = null
 ) {
-    // Keep provider callback contracts compatible while making their roles distinct at apply.
     private val authorization = EditAuthorization(isCurrent)
-    private val inputCapture = prepareValidation?.let { prepare ->
-        EditInputCapture { CapturedEditInputs(prepare()) }
-    }
+    private val inputCapture = prepareValidation
 
     companion object {
         fun combine(plans: List<BulkUpdatePlan>): BulkUpdatePlan {
@@ -50,11 +47,10 @@ internal data class BulkUpdatePlan(
                 skipped = plans.flatMap { it.skipped }.distinct(),
                 isCurrent = { plans.all { it.authorization.isCurrent() } },
                 followUp = plans.flatMap { it.followUp }.distinct(),
-                prepareValidation = if (plans.any { it.prepareValidation != null }) ({
+                prepareValidation = if (plans.any { it.prepareValidation != null }) EditInputCapture {
                     val guards = plans.map { it.inputCapture?.capture() ?: CapturedEditInputs { true } }
-                    val guard = { guards.all { it.isCurrent() } }
-                    guard
-                }) else null
+                    CapturedEditInputs { guards.all { it.isCurrent() } }
+                } else null
             )
         }
     }

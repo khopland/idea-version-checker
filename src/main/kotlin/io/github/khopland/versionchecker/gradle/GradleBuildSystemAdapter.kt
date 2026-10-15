@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.gradle
 
+import io.github.khopland.versionchecker.core.CapturedEditInputs
+
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -263,7 +265,7 @@ internal class GradleBuildSystemAdapter(
     override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
         withExternalInputs(project) { external -> !project.isDisposed && areCurrent(project, listOf(snapshot), external) }
 
-    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): () -> Boolean {
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs {
         // Native Gradle reads physical files. A same-stamp external write can leave
         // both VFS and PSI stale, so an edit must compare fresh bytes to their baseline.
         val captured = readAction {
@@ -280,7 +282,7 @@ internal class GradleBuildSystemAdapter(
         }
         return withExternalInputs(project) { external ->
             val home = externalHome(project)
-            val guard = { diskCurrent && !project.isDisposed && externalHome(project) == home &&
+            val guard = CapturedEditInputs { diskCurrent && !project.isDisposed && externalHome(project) == home &&
                 snapshots.all { inputCoverageLimitation(project, it.context.root) == null } && areCurrent(project, snapshots, external) }
             guard
         }
