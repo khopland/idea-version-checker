@@ -63,6 +63,16 @@ internal object NpmRegistry {
             parameters + listOf("--json", "--loglevel=error", "--update-notifier=false", "--fetch-retries=0", "--workspaces=false", "--prefer-online"))
             .withCharset(StandardCharsets.UTF_8)
 
+    /** Explicit user-invoked follow-up; registry checks never call this command. */
+    suspend fun lockfileCommand(project: Project, directory: Path): GeneralCommandLine {
+        return lockfileCommand(resolve(project, directory), directory)
+    }
+
+    internal fun lockfileCommand(runtime: NpmRuntime, directory: Path): GeneralCommandLine =
+        NpmUtil.createNpmCommandLine(directory, runtime.interpreter, runtime.npm, NpmCommand.INSTALL,
+            io.github.khopland.versionchecker.followup.NpmLockfileSync.arguments)
+            .withCharset(StandardCharsets.UTF_8)
+
     /** Settings often name the npm executable (e.g. /opt/homebrew/bin/npm) instead of the npm package directory. */
     internal fun packageDirectory(npm: NodePackage): NodePackage? {
         val path = runCatching { Path.of(npm.systemDependentPath).toRealPath() }.getOrNull() ?: return null
