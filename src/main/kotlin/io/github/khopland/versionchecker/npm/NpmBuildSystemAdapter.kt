@@ -154,6 +154,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         check(areCurrent(project, reports.keys, external)) { "npm manifests or configuration changed during the check. Run it again." }
         val edits = mutableListOf<VersionEdit>()
         val skipped = mutableListOf<String>()
+        val followUp = mutableListOf<String>()
         for ((snapshot, report) in reports) {
             val file = findFile(project, snapshot.sourceFile) ?: error("package.json is no longer available")
             val psi = PsiManager.getInstance(project).findFile(file) ?: error("package.json is no longer valid")
@@ -166,21 +167,17 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
                 skipped += "${file.path}: ${declaration.id.location}: $reason"
             }
             for (candidate in report.candidates) {
-                val reason = NpmManifest.overrideReviewReason(project, file, candidate.declaration)
-                if (reason != null) {
-                    skipped += "${file.path}: ${candidate.declaration.id.location}: $reason"
-                    continue
-                }
-                val value = values[candidate.declaration.id] ?: error("npm declaration no longer exists")
-                check(value.value == candidate.declaration.selector) { "npm selector changed during the check" }
-                edits += NpmVersionEdit(value, candidate.replacementSelector,
-                    "${file.path}: ${candidate.declaration.id.location} (${candidate.declaration.artifact.name})")
+                val prepared = NpmPreparedUpdate.prepare(project, file, candidate.declaration,
+                    values[candidate.declaration.id], candidate.replacementSelector)
+                skipped += prepared.blockingReasons.map { "${file.path}: ${prepared.target.location}: $it" }
+                prepared.edit?.let { edits += it }
+                followUp += prepared.followUp
             }
             report.notices.filter { notice -> report.candidates.none { it.declaration.id == notice.declaration.id } }
                 .forEach { skipped += "${it.declaration.id.file}: ${it.message}" }
         }
         BulkUpdatePlan(edits, skipped.distinct(),
-            followUp = if (edits.isEmpty()) emptyList() else listOf(NpmUpdateGuidance.message),
+            followUp = followUp.distinct(),
             prepareValidation = { prepareEditValidation(project, reports.keys) })
     }
 
@@ -203,15 +200,16 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
     /** Local edits belong to their declaration; a prepared workspace action may be shared by a pass. */
     internal fun quickFixes(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
                             value: JsonStringLiteral, workspaceFix: LocalQuickFix?, lease: VersionResultLease? = null): Array<LocalQuickFix> {
-        if (NpmManifest.overrideReviewReason(project, value.containingFile.virtualFile, candidate.declaration) != null)
-            return emptyArray()
+        val prepared = NpmPreparedUpdate.prepare(project, value.containingFile.virtualFile, candidate.declaration,
+            value, candidate.replacementSelector)
+        val edit = prepared.edit ?: return emptyArray()
         val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
-        val localLease = lease?.forDeclarations(setOf(candidate.declaration.id))
+        val localLease = lease?.forDeclarations(prepared.affectedDeclarations)
         val current = { (localLease == null || localLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
             project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy }
-        if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, isCurrent = current)
+        if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(edit, null, current)
             .withInputValidation { prepareEditValidation(project, listOf(snapshot)) })
-        return arrayOf(UpdateNpmVersionFix(value, candidate.replacementSelector, "Update locally to ${candidate.replacementSelector}", current)
+        return arrayOf(UpdateNpmVersionFix(edit, "Update locally to ${prepared.replacement}", current)
             .withInputValidation { prepareEditValidation(project, listOf(snapshot)) },
             workspaceFix)
     }
@@ -224,17 +222,14 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             declaration.artifact == candidate.declaration.artifact && declaration.baseline.isNotEmpty() &&
                 NpmSelector.parse(declaration.artifact.name, declaration.selector)?.baseline?.let { it < latest } == true
         }
-        // Do not offer a partly updated workspace when any participating declaration needs review.
-        if (eligible.any { (declaration, target) ->
-                NpmManifest.overrideReviewReason(project, target.containingFile.virtualFile, declaration) != null
-            }) return null
-        val edits = eligible.mapNotNull { (declaration, target) ->
-            if (declaration.artifact != candidate.declaration.artifact || declaration.baseline.isEmpty()) return@mapNotNull null
-            val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector) ?: return@mapNotNull null
-            // Keep newer declarations; a workspace update must never downgrade another package.
-            if (selector.baseline >= latest) return@mapNotNull null
-            NpmVersionEdit(target, selector.replace(candidate.version), "${declaration.id.file}: ${declaration.id.location}")
+        val prepared = eligible.map { (declaration, target) ->
+            val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector)!!
+            NpmPreparedUpdate.prepare(project, target.containingFile.virtualFile, declaration, target,
+                selector.replace(candidate.version))
         }
+        // Do not offer a partly updated workspace when any participating declaration needs review.
+        if (prepared.any { it.blockingReasons.isNotEmpty() }) return null
+        val edits = prepared.mapNotNull { it.edit }
         if (edits.mapNotNull { it.element?.containingFile?.virtualFile?.path }.distinct().size < 2) return null
         val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
         val contributingIds = snapshot.declarations.filter { declaration ->
