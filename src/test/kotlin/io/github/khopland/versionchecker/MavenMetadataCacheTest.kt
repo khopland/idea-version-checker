@@ -7,7 +7,22 @@ import org.junit.Test
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
-class MavenMetadataCacheTest {
+class MavenMetadataCacheTest : MetadataCacheContractTest() {
+    override fun createCache(scope: CoroutineScope, now: () -> Long, ttl: Long, capacity: Int): MetadataCacheContract {
+        val cache = MavenMetadataCache(scope, now = now, ttl = ttl, capacity = capacity)
+        return object : MetadataCacheContract {
+            override suspend fun get(key: String, load: suspend () -> String): MetadataCacheSnapshot {
+                val artifact = MavenMetadataKey("contract", key)
+                val lease = cache.getMany("contract", listOf(artifact)) {
+                    mapOf(artifact to Result.success(MavenMetadataValue(listOf(load()))))
+                }.getValue(artifact).getOrThrow()
+                return MetadataCacheSnapshot(lease.value.versions.single(), lease.expiresAt)
+            }
+            override fun invalidate() = cache.invalidate()
+            override fun close() = cache.close()
+        }
+    }
+
     private val a = MavenMetadataKey("g", "a")
     private val b = MavenMetadataKey("g", "b")
     private val value = MavenMetadataValue(listOf("1.0", "1.0.1", "1.1", "2.0", "3.0-RC1", "4-SNAPSHOT"))
@@ -48,26 +63,6 @@ class MavenMetadataCacheTest {
             assertEquals(value, second.await().getValue(a).getOrThrow().value)
             assertEquals(1, calls.get())
         } finally { cache.close() }
-    }
-
-    @Test fun `last caller cancellation and disposal terminate native batch workers`() = runBlocking {
-        val cache = MavenMetadataCache(this)
-        val started = CompletableDeferred<Unit>()
-        val stopped = CompletableDeferred<Unit>()
-        val caller = async { cache.getMany("context", listOf(a)) {
-            started.complete(Unit)
-            try { awaitCancellation() } finally { stopped.complete(Unit) }
-        } }
-        started.await(); caller.cancelAndJoin(); withTimeout(1000) { stopped.await() }
-        val againStarted = CompletableDeferred<Unit>()
-        val againStopped = CompletableDeferred<Unit>()
-        val again = async { cache.getMany("context", listOf(a)) {
-            againStarted.complete(Unit)
-            try { awaitCancellation() } finally { againStopped.complete(Unit) }
-        } }
-        againStarted.await(); cache.close()
-        withTimeout(1000) { againStopped.await() }
-        try { again.await(); fail("Disposed work must be cancelled") } catch (_: CancellationException) { }
     }
 
     @Test fun `a shared native worker retains the refresh session after its owner is cancelled`() = runBlocking {
@@ -117,24 +112,6 @@ class MavenMetadataCacheTest {
                     assertFalse("The consumer must wake before the timeout", cancelled is TimeoutCancellationException)
                 }
             }
-        } finally { cache.close() }
-    }
-
-    @Test fun `refresh detaches older workers from the next generation`() = runBlocking {
-        val cache = MavenMetadataCache(this)
-        val started = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
-        try {
-            val old = async { cache.getMany("context", listOf(a)) {
-                started.complete(Unit); release.await(); mapOf(a to Result.success(value))
-            } }
-            started.await(); cache.invalidate()
-            val newer = MavenMetadataValue(listOf("5.0"))
-            val fresh = cache.getMany("context", listOf(a)) { mapOf(a to Result.success(newer)) }
-            release.complete(Unit)
-            assertEquals(value, old.await().getValue(a).getOrThrow().value)
-            assertEquals(newer, fresh.getValue(a).getOrThrow().value)
-            assertEquals(newer, cache.getMany("context", listOf(a)) { error("Old completion must not replace fresh metadata") }.getValue(a).getOrThrow().value)
         } finally { cache.close() }
     }
 
