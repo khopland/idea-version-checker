@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
@@ -31,6 +32,47 @@ class GradleCatalogReviewTest : BasePlatformTestCase() {
 
     private fun <T> background(action: suspend () -> T): T = PlatformTestUtil.waitForFuture(
         ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { action() } }), 30_000)
+
+    fun testSyntaxFailureHasFileCoverageSourceNavigationAndClearsAfterCorrection() {
+        val file = myFixture.addFileToProject("gradle-project/gradle/libs.versions.toml",
+            "[libraries]\nalpha = 'g:alpha:1.2.3'\nalpha = 'g:alpha:1.2.9'")
+        link()
+        val snapshot = adapter.snapshot(project, file.virtualFile)!!
+        val diagnostic = snapshot.declarations.single()
+        assertEquals("catalog/syntax", diagnostic.id.location)
+        val report = background { adapter.check(project, snapshot, UpdateMode.MAJOR) }
+        assertEquals(CoverageSummary(skipped = 1), report.coverageSummary(snapshot))
+        assertTrue(report.candidates.isEmpty())
+        val rows = DependencyReviewRows.from(listOf(VersionResultCache.Observation(snapshot, report, UpdateMode.MAJOR, false)))
+        val row = rows.single()
+        assertEquals(rows, DependencyReviewRows.filter(rows, DependencyReviewFilter.REVIEW))
+        assertEquals("Skipped", row.outcome)
+        assertEquals(file.virtualFile.path, row.source.file)
+        assertTrue(row.detail.contains("coverage is unavailable"))
+        assertNull(row.available)
+        val plan = background { adapter.prepareUpdates(project, mapOf(snapshot to report)) }
+        assertTrue(plan.changes.isEmpty())
+        val review = plan.reviewItems.single()
+        assertTrue(review.reason.contains("coverage is unavailable"))
+        assertEquals(file.virtualFile.path, review.source!!.filePath)
+        assertTrue(review.source.offset > 0)
+        // A supplied candidate must never turn the diagnostic into an edit.
+        val forged = UpdateReport(listOf(UpdateCandidate(diagnostic, "1.3.0")))
+        assertTrue(background { adapter.prepareUpdates(project, mapOf(snapshot to forged)) }.changes.isEmpty())
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
+            document.setText("[libraries]\nalpha = 'g:alpha:1.2.3'")
+            com.intellij.psi.PsiDocumentManager.getInstance(project).commitDocument(document)
+            FileDocumentManager.getInstance().saveDocument(document)
+        }
+        val corrected = adapter.snapshot(project, file.virtualFile)!!
+        assertTrue(corrected.skippedDeclarations.isEmpty())
+        assertEquals("libraries/alpha", corrected.declarations.single().id.location)
+        assertEquals("1.2.3", corrected.declarations.single().baseline)
+        assertFalse(adapter.isCurrent(project, snapshot))
+        assertTrue(GradlePreparedUpdate.prepare(file, UpdateReport(emptyList())).all { it.notice == null })
+    }
 
     fun testMalformedCatalogEntryHasReviewCoverageAndCannotProduceAnEdit() {
         val file = myFixture.addFileToProject("gradle-project/gradle/libs.versions.toml",

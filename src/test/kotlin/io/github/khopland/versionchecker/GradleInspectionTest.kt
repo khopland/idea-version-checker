@@ -77,6 +77,25 @@ class GradleInspectionTest : BasePlatformTestCase() {
         assertTrue(holder.results.isEmpty())
     }
 
+    fun testCatalogSyntaxFailureIsHighlightedWithoutUpdateOrIgnoreFixes() {
+        val file = file("gradle/libs.versions.toml", "[libraries]\nalpha = 'g:alpha:1.2.3'\nalpha = 'g:alpha:1.2.9'")
+        val holder = inspect(file) { UpdateReport(emptyList()) }
+        val problem = holder.results.single()
+        assertTrue(problem.descriptionTemplate.contains("Catalog TOML syntax is invalid"))
+        assertTrue(problem.descriptionTemplate.contains("coverage is unavailable"))
+        assertTrue(problem.fixes.isNullOrEmpty())
+        assertTrue(problem.textRangeInElement!!.startOffset > 0)
+    }
+
+    fun testCatalogSyntaxErrorAtEndOfFileHasVisibleHighlight() {
+        val file = file("gradle/libs.versions.toml", "[libraries")
+        val problem = inspect(file) { UpdateReport(emptyList()) }.results.single()
+        assertTrue(problem.descriptionTemplate.contains("Catalog TOML syntax is invalid"))
+        assertFalse(problem.textRangeInElement!!.isEmpty)
+        assertEquals(file.textLength, problem.textRangeInElement!!.endOffset)
+        assertTrue(problem.fixes.isNullOrEmpty())
+    }
+
     fun testHeldSharedCatalogFixRejectsARefreshDespiteUnchangedInputs() {
         val file = file("gradle/libs.versions.toml", """
             [versions]

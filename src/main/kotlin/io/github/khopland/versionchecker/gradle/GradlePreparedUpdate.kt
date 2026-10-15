@@ -35,6 +35,9 @@ internal data class GradlePreparedUpdate(
                 val updates = consumers.map { candidatesById[it.declaration.id].orEmpty() }
                 val candidates = updates.mapNotNull { it.singleOrNull() }
                 val notice = ids.flatMap { noticesById[it].orEmpty() }.minByOrNull { it.index }?.value
+                    ?: consumers.firstOrNull { it.declaration.id.location == GradleDeclarations.CATALOG_SYNTAX_LOCATION }?.let {
+                        UpdateNotice(it.declaration, NoticeKind.MANUAL_REVIEW, it.reason!!)
+                    }
                 val reasons = consumers.mapNotNull { it.reason }.toMutableList()
                 if (notice != null) reasons += notice.message
                 report.failure?.let { reasons += it }
