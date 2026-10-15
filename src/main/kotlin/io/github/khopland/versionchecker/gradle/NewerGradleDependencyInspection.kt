@@ -32,19 +32,13 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR
         val options = holder.project.service<VersionCheckerSettings>().state
         val ignoredPolicy = options.ignoredVersions
-        val original = holder.file.text
-        val declarations = GradleDeclarations.parse(file.path, original)
-        // Duplicate candidates remain ambiguous; never choose one arbitrarily for a quick fix.
-        val candidatesById = report.candidates.groupBy { it.declaration.id }.mapValues { it.value.singleOrNull() }
-        val noticesById = report.notices.withIndex().groupBy { it.value.declaration.id }.mapValues { it.value.first() }
+        val preparedUpdates = GradlePreparedUpdate.prepare(holder.file, report)
         return object : PsiElementVisitor() {
             override fun visitFile(file: PsiFile) {
-                for ((range, consumers) in declarations.groupBy { it.range }) {
-                    if (range == null) continue
-                    val candidates = consumers.map { candidatesById[it.declaration.id] }
-                    // Preserve report order when several consumers of a shared version have notices.
-                    val notice = consumers.mapNotNull { noticesById[it.declaration.id] }.minByOrNull { it.index }?.value
-                    val candidate = candidates.filterNotNull().firstOrNull()
+                for (prepared in preparedUpdates) {
+                    val range = prepared.target?.range ?: continue
+                    val notice = prepared.notice
+                    val candidate = prepared.candidates.firstOrNull()
                     if (candidate == null && notice == null) continue
                     val kind = when (notice?.kind) {
                         NoticeKind.DEPRECATED -> VersionChangeKind.DEPRECATED
@@ -52,12 +46,12 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
                         else -> candidate?.kind ?: VersionChangeKind.OTHER
                     }
                     val highlight = kind.severity(options).highlight ?: continue
-                    val safe = notice == null && consumers.all { it.reason == null } && candidates.all { it != null } && candidates.map { it!!.version }.distinct().size == 1
-                    val lease = report.lease?.forDeclarations(consumers.map { it.declaration.id }.toSet())
-                    val updateFixes = if (safe) arrayOf<LocalQuickFix>(UpdateGradleVersionFix(GradleVersionEdit(file, range, candidate!!.version, file.name, original), {
+                    val safe = prepared.edit != null
+                    val lease = report.lease?.forDeclarations(prepared.affectedDeclarations)
+                    val updateFixes = prepared.edit?.let { edit -> arrayOf<LocalQuickFix>(UpdateGradleVersionFix(edit, {
                         lease?.isCurrent() == true && options.enabled && options.ignoredVersions == ignoredPolicy
-                    }).withInputValidation { adapter.prepareEditValidation(holder.project, listOf(snapshot)) }) else emptyArray()
-                    val fixes = updateFixes + (if (notice != null) emptyList() else consumers.mapNotNull { candidatesById[it.declaration.id] }.distinctBy { it.declaration.artifact to it.version }
+                    }).withInputValidation { adapter.prepareEditValidation(holder.project, listOf(snapshot)) }) } ?: emptyArray()
+                    val fixes = updateFixes + (if (notice != null) emptyList() else prepared.candidates.distinctBy { it.declaration.artifact to it.version }
                         .map { IgnorePublishedVersionFix(IgnoredVersion("gradle", it.declaration.artifact, it.version)) })
                     val message = notice?.message ?: updateHint(candidate!!.declaration.artifact, candidate.kind, candidate.declaration.baseline, candidate.version) + if (!safe) " (shared version needs review)" else ""
                     holder.registerProblem(file, message, highlight, range, *fixes)
