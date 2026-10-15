@@ -88,12 +88,18 @@ class CheckExecutorTest : BasePlatformTestCase() {
         try {
             background { executor.checkNow(one, first, UpdateMode.MAJOR) }
             background { executor.checkNow(two, second, UpdateMode.MAJOR) }
+            repeat(20) {
+                assertEquals(2, executor.observations().size)
+                assertEquals(1, one.checked.size)
+                assertEquals(1, two.checked.size)
+            }
             val retained = executor.cachedResult(second, UpdateMode.MAJOR)!!
             executor.invalidate(one.id)
             assertNull(executor.cached(first))
             assertTrue(executor.isCachedResultCurrent(second, UpdateMode.MAJOR, retained))
             executor.pause()
             assertNull(executor.cached(second))
+            assertEmpty(executor.observations())
             background { executor.checkNow(two, second, UpdateMode.MAJOR) }
             assertTrue(executor.cached(second)!!.successful)
             assertEquals(2, two.checked.size)

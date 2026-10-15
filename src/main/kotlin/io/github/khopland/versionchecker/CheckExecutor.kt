@@ -74,6 +74,8 @@ internal class CheckExecutor(
     private fun queue(adapterId: String) = scanQueues.computeIfAbsent(adapterId) { CheckQueue { path -> path in selectedPaths } }
     internal fun queuedChecks(adapterId: String) = scanQueues[adapterId]?.waitingCount ?: 0
 
+    internal fun observations(): List<VersionResultCache.Observation> = if (disposed) emptyList() else cache.observations()
+
     internal fun cached(snapshot: BuildSnapshot, mode: UpdateMode = UpdateMode.MAJOR): UpdateReport? = cache.get(snapshot, mode)
     internal fun cachedResult(snapshot: BuildSnapshot, mode: UpdateMode) = cache.getResult(snapshot, mode)
     internal fun isCachedResultCurrent(snapshot: BuildSnapshot, mode: UpdateMode, result: VersionResultCache.CachedResult) =
