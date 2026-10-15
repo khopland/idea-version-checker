@@ -29,6 +29,7 @@ Checks run in the background when IDEA inspects supported build files.
 - **Update one version:** use **Alt+Enter** on a highlighted declaration.
 - **Refresh:** choose **Tools → Check Versions → Refresh Current File / Refresh Whole Project** to query fresh metadata.
 - **Review a batch:** right-click a build file and choose **Review Dependency Updates…**, or use **Tools → Update Versions → Current File / Whole Project**.
+- **Keep results open:** use **View → Tool Windows → Dependency Versions** to inspect cached checks, filter updates/review/failures and change type, open source files, or export the displayed rows as JSON. Use **Refresh Whole Project** and **Review Updates…** there for fresh checks and an editable review.
 - **Check status:** click the **Versions** status-bar item for the current file's state and actions.
 
 Bulk previews let you choose an update mode:
@@ -39,7 +40,7 @@ Bulk previews let you choose an update mode:
 | Minor + patch | Keep the current major version. |
 | Major + minor + patch | Any newer stable version. |
 
-Select the changes you want, then click **Update selected declarations**. Changes apply in one undoable command. Shared versions are updated only when their consumers agree; conflicts and unsupported declarations appear under **Needs review**. Changed build inputs or expired results require a fresh preview.
+Select the changes you want, then click **Update selected declarations**. Changes apply in one undoable command. Shared versions are updated only when their consumers agree; conflicts and unsupported declarations appear under **Needs review**. Changed build inputs or expired results require a fresh preview. Select a change to see its captured declaration, target, consumers and build context. Select a **Needs review** item to see its reason and open its source when available.
 
 Refresh and review actions save relevant build inputs before checking. Version choices use declared versions, rather than installed or locked versions; an available update does not guarantee compatibility.
 
@@ -53,7 +54,9 @@ Refresh and review actions save relevant build inputs before checking. Version c
 
 Complex Maven expressions, npm ranges and peer dependencies, and Gradle dynamic versions, script properties, plugin versions and custom catalogs require manual review. pnpm, Yarn and Bun projects are excluded from npm checks.
 
-**After npm updates**, use IntelliJ or npm to synchronize installed dependencies and lockfiles. **After Gradle updates**, reload the project and synchronize dependency locks if used. The checker edits declarations only.
+**After applying updates**, the notification offers **Save and reload Maven/Gradle projects** for the providers changed. npm updates offer **Preview npm lockfile sync**: choose a supported package.json and confirm the configured command and workspace root. This runs `npm install --package-lock-only --ignore-scripts` with audit, funding and update notices disabled. It checks saved inputs again before execution and reports changed lockfiles, cancellation or failure. Review the version control diff; lockfile writes are separate from declaration undo. Installed npm dependencies, Gradle locks and build verification still need their usual native workflow.
+
+The tool window and JSON export contain cached observations, which expire and may lag current build inputs. Opening or filtering them does not run native checks. Exports contain displayed rows, sanitized details and project-relative source paths; external paths are redacted. Refresh and review before editing.
 
 See the [detailed guide](docs/user-guide.md) for complete scope, shared-property rules, workspace updates and Maven platform reviews.
 
