@@ -43,42 +43,17 @@ internal object NpmBuildInputs {
         val context = currentCoroutineContext()
         repeat(3) {
             val layout = readAction { layout(project, roots()) }
-            val digests = mutableSetOf<Path>()
-            val manifests = mutableSetOf<Path>()
-            val existence = mutableSetOf<Path>()
-            val runtimes = mutableSetOf<Path>()
-            for (root in layout.roots) {
-                var ancestor: Path? = Path.of(root)
-                while (ancestor != null) {
-                    context.ensureActive()
-                    runtimeConfigurationNames.forEach { digests.add(ancestor!!.resolve(it)) }
-                    val manifest = ancestor.resolve("package.json")
-                    digests.add(manifest); manifests.add(manifest)
-                    otherManagerPaths(ancestor).forEach(existence::add)
-                    ancestor = ancestor.parent
-                }
-            }
-            layout.roots.forEach { digests.addAll(userConfigurationPaths(layout.environment, Path.of(it))) }
-            layout.node?.let { value ->
-                val node = Path.of(value)
-                runtimes.add(node)
-                node.parent?.parent?.resolve("etc/npmrc")?.let(digests::add)
-            }
-            runCatching { Path.of(layout.npm) }.getOrNull()?.let { configured ->
-                runtimes.add(configured)
-                runtimes.add(configured.resolve("package.json"))
-                runtimes.add(configured.resolve("bin/npm-cli.js"))
-            }
+            val inventory = inventory(layout) { context.ensureActive() }
             val manifestText = mutableMapOf<Path, String?>()
-            val saved = digests.associateWith { path ->
+            val saved = inventory.contentPaths.associateWith { path ->
                 context.ensureActive()
                 val bytes = if (Files.isRegularFile(path)) readBytes(path) else null
-                if (path in manifests) manifestText[path] = bytes?.let { Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(it)).toString() }
+                if (path in inventory.manifestPaths) manifestText[path] = bytes?.let { Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(it)).toString() }
                 bytes?.let(::digest) ?: "missing"
             }
             val external = External(saved, manifestText,
-                existence.associateWith { context.ensureActive(); Files.exists(it) },
-                runtimes.associateWith { context.ensureActive(); runtimeStamp(it) },
+                inventory.markerPaths.associateWith { context.ensureActive(); Files.exists(it) },
+                inventory.runtimePaths.associateWith { context.ensureActive(); runtimeStamp(it) },
                 { currentProject, currentRoots -> layout == layout(currentProject, currentRoots) })
             context.ensureActive()
             val captured = readAction {
@@ -89,12 +64,13 @@ internal object NpmBuildInputs {
         error("npm input paths or runtime changed during capture. Run the check again.")
     }
 
-    private fun otherManagerPaths(directory: Path) = NpmWorkspaces.otherManagerFiles.map(directory::resolve)
     private fun runtimeStamp(path: Path): String = if (Files.exists(path)) {
         val actual = path.toRealPath()
         "$actual:${Files.getLastModifiedTime(actual)}:${Files.size(actual)}"
     } else "missing"
-    private val runtimeConfigurationNames = listOf(".npmrc", ".nvmrc", ".node-version", ".tool-versions", ".mise.toml", "mise.toml", "mise.local.toml")
+    private fun inventory(layout: Layout, checkCancellation: () -> Unit = {}) =
+        NpmInputInventory.discover(layout.roots, layout.environment, layout.node, layout.npm, checkCancellation)
+    private fun inventory(project: Project, root: String) = inventory(layout(project, setOf(root)))
 
     private val userConfigurationVariables = listOf(
         "NPM_CONFIG_USERCONFIG", "npm_config_userconfig", "NPM_CONFIG_GLOBALCONFIG", "npm_config_globalconfig"
@@ -110,29 +86,10 @@ internal object NpmBuildInputs {
     }
 
     /** Native input paths only: saving must not hash configuration or probe a runtime. */
-    fun resolutionInputPaths(project: Project, root: String): Set<String> {
-        val paths = mutableSetOf<Path>()
-        var ancestor: Path? = Path.of(root)
-        while (ancestor != null) {
-            for (name in runtimeConfigurationNames + "package.json" + NpmWorkspaces.otherManagerFiles) paths.add(ancestor.resolve(name))
-            ancestor = ancestor.parent
-        }
-        paths.addAll(userConfigurationPaths(EnvironmentUtil.getEnvironmentMap(), Path.of(root)))
-        (NodeJsInterpreterManager.getInstance(project).interpreter as? NodeJsLocalInterpreter)?.let {
-            val node = Path.of(it.interpreterSystemDependentPath)
-            paths.add(node)
-            node.parent?.parent?.resolve("etc/npmrc")?.let { config -> paths.add(config) }
-        }
-        runCatching { Path.of(NpmManager.getInstance(project).packageRef.referenceName) }.getOrNull()?.let { configured ->
-            paths.add(configured)
-            paths.add(configured.resolve("package.json"))
-            paths.add(configured.resolve("bin/npm-cli.js"))
-        }
-        return paths.mapTo(mutableSetOf()) { it.toAbsolutePath().normalize().toString() }
-    }
+    fun resolutionInputPaths(project: Project, root: String): Set<String> = inventory(project, root).paths()
 
     fun hasUnsavedResolutionInputs(project: Project, root: String, unsavedPaths: Set<String>): Boolean =
-        resolutionInputPaths(project, root).any { it in unsavedPaths }
+        inventory(project, root).hasUnsavedInputs(unsavedPaths)
 
     @JvmOverloads
     fun fingerprint(project: Project, workspace: NpmWorkspace, external: External? = null): BuildFingerprint {
@@ -142,27 +99,17 @@ internal object NpmBuildInputs {
             workspace.manifests.associate { it.path to virtualDigest(project, it) }
         }.toMutableMap()
         // Registry commands run at the workspace root; member-local npmrc files do not configure them.
-        var ancestor: Path? = Path.of(workspace.root.path)
-        while (ancestor != null) {
-            for (name in listOf(".npmrc", "package.json") + NpmWorkspaces.otherManagerFiles) {
-                val path = ancestor.resolve(name)
-                files["disk-config:$path"] = if (name in NpmWorkspaces.otherManagerFiles)
+        val inventory = inventory(project, workspace.root.path)
+        for (entry in inventory.entries.filter { it.role.editFingerprint }) {
+            val path = entry.path
+            if (entry.ancestorDirectory != null) {
+                files["disk-config:$path"] = if (entry.role == NpmInputInventory.Role.OTHER_MANAGER_MARKER)
                     (external?.existing?.getValue(path) ?: Files.exists(path)).toString() else diskDigest(path, external)
-            }
-            ancestor = ancestor.parent
+            } else files[path.toString()] = diskDigest(path, external)
         }
-        var virtualAncestor: VirtualFile? = workspace.root
-        while (virtualAncestor != null) {
-            for (name in listOf(".npmrc", "package.json") + NpmWorkspaces.otherManagerFiles) {
-                val config = virtualAncestor.findChild(name)
-                files["virtual-config:${virtualAncestor.path}/$name"] =
-                    if (name in NpmWorkspaces.otherManagerFiles) (config != null).toString() else config?.let { virtualDigest(project, it) } ?: "missing"
-            }
-            virtualAncestor = virtualAncestor.parent
-        }
-        val environment = EnvironmentUtil.getEnvironmentMap()
-        for (path in userConfigurationPaths(environment, Path.of(workspace.root.path))) {
-            files[path.toString()] = diskDigest(path, external)
+        for ((entry, file, virtualPath) in virtualInputs(workspace.root, inventory).filter { it.entry.role.editFingerprint }) {
+            files["virtual-config:$virtualPath"] = if (entry.role == NpmInputInventory.Role.OTHER_MANAGER_MARKER)
+                (file != null).toString() else file?.let { virtualDigest(project, it) } ?: "missing"
         }
         val policy = project.service<VersionCheckerSettings>().state.deprecatedDependencies
         return BuildFingerprint(files, digest((resolutionContext(project, workspace.root, external).configuration + policy).toByteArray()))
@@ -187,51 +134,46 @@ internal object NpmBuildInputs {
             listOf("packageManager", "devEngines", "workspaces", "engines", "volta")
                 .joinToString("\n") { field -> "$field=${json.get(field)}" }
         }.getOrElse { text }
-        var ancestor: Path? = Path.of(root.path)
-        while (ancestor != null) {
-            for (name in runtimeConfigurationNames) {
-                val path = ancestor.resolve(name)
-                inputs[path.toString()] = diskDigest(path, external)
+        val layout = layout(project, setOf(root.path))
+        val inventory = inventory(layout)
+        for (entry in inventory.entries.filter { it.role.resolutionContext }) {
+            val path = entry.path
+            when (entry.role) {
+                NpmInputInventory.Role.MANIFEST -> {
+                    // Disk and editor configuration are independent: saved VFS can lag external edits.
+                    val text = if (external != null) external.manifests.getValue(path)
+                        else path.takeIf(Files::isRegularFile)?.let(Files::readString)
+                    inputs[path.toString()] = text?.let(::manifestConfiguration) ?: "missing"
+                }
+                NpmInputInventory.Role.RUNTIME -> inputs["runtime:$path"] = external?.runtimes?.getValue(path) ?: runtimeStamp(path)
+                else -> inputs[path.toString()] = diskDigest(path, external)
             }
-            val manifest = ancestor.resolve("package.json")
-            // Saved documents can lag an external edit. Track disk and unsaved VFS inputs
-            // separately so a runtime configuration edit cannot reuse the previous context.
-            val text = if (external != null) external.manifests.getValue(manifest)
-                else manifest.takeIf(Files::isRegularFile)?.let(Files::readString)
-            inputs[manifest.toString()] = text?.let(::manifestConfiguration) ?: "missing"
-            ancestor = ancestor.parent
         }
         // Non-local VFS files and unsaved configuration have no reliable disk counterpart.
-        var virtualAncestor: VirtualFile? = root
-        while (virtualAncestor != null) {
-            for (name in runtimeConfigurationNames) {
-                val file = virtualAncestor.findChild(name)
-                inputs["virtual:${virtualAncestor.path}/$name"] = file?.let { virtualDigest(project, it) } ?: "missing"
-            }
-            val manifest = virtualAncestor.findChild("package.json")
-            val text = manifest?.let { FileDocumentManager.getInstance().getCachedDocument(it)?.text ?: String(it.contentsToByteArray(), Charsets.UTF_8) }
-            inputs["virtual:${virtualAncestor.path}/package.json"] = text?.let(::manifestConfiguration) ?: "missing"
-            virtualAncestor = virtualAncestor.parent
+        for ((entry, file, virtualPath) in virtualInputs(root, inventory).filter { it.entry.role.resolutionContext }) {
+            inputs["virtual:$virtualPath"] = if (entry.role == NpmInputInventory.Role.MANIFEST) {
+                val text = file?.let { FileDocumentManager.getInstance().getCachedDocument(it)?.text ?: String(it.contentsToByteArray(), Charsets.UTF_8) }
+                text?.let(::manifestConfiguration) ?: "missing"
+            } else file?.let { virtualDigest(project, it) } ?: "missing"
         }
-        val environment = EnvironmentUtil.getEnvironmentMap()
-        val interpreters = NodeJsInterpreterManager.getInstance(project)
-        val npm = NpmManager.getInstance(project)
-        inputs["runtime"] = interpreters.interpreterRef.referenceName + ":" + npm.packageRef.referenceName
-        fun runtimeFile(path: Path) {
-            inputs["runtime:$path"] = external?.runtimes?.getValue(path) ?: runtimeStamp(path)
-        }
-        (interpreters.interpreter as? NodeJsLocalInterpreter)?.let {
-            val node = Path.of(it.interpreterSystemDependentPath)
-            runtimeFile(node)
-            node.parent?.parent?.resolve("etc/npmrc")?.let { config -> inputs[config.toString()] = diskDigest(config, external) }
-        }
-        runCatching { Path.of(npm.packageRef.referenceName) }.getOrNull()?.let { configured ->
-            runtimeFile(configured)
-            for (name in listOf("package.json", "bin/npm-cli.js")) runtimeFile(configured.resolve(name))
-        }
-        for (path in userConfigurationPaths(environment, Path.of(root.path))) inputs[path.toString()] = diskDigest(path, external)
+        inputs["runtime"] = layout.interpreter + ":" + layout.npm
+        val environment = layout.environment
         inputs["environment"] = environment.toSortedMap().toString()
         return NpmResolutionContext(root.path, digest(inputs.toString().toByteArray()))
+    }
+    /** Project only ancestor entries into the VFS namespace, preserving missing-file markers. */
+    private data class VirtualInput(val entry: NpmInputInventory.Entry, val file: VirtualFile?, val path: String)
+    private fun virtualInputs(root: VirtualFile, inventory: NpmInputInventory): List<VirtualInput> {
+        val ancestors = mutableMapOf<Path, VirtualFile>()
+        var ancestor: VirtualFile? = root
+        while (ancestor != null) {
+            ancestors[Path.of(ancestor.path)] = ancestor
+            ancestor = ancestor.parent
+        }
+        return inventory.entries.mapNotNull { entry ->
+            val directory = entry.ancestorDirectory?.let(ancestors::get) ?: return@mapNotNull null
+            VirtualInput(entry, directory.findChild(entry.path.fileName.toString()), "${directory.path}/${entry.path.fileName}")
+        }
     }
     private fun diskDigest(path: Path, external: External? = null): String {
         val virtual = LocalFileSystem.getInstance().findFileByNioFile(path)

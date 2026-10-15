@@ -64,6 +64,68 @@ class NpmExternalInputCaptureTest : BasePlatformTestCase() {
         assertTrue(root.resolve("~/.npmrc") in NpmBuildInputs.userConfigurationPaths(mapOf("HOME" to ""), root))
     }
 
+    fun testRuntimeConfigurationUsesTheSameInventoryForSavingUnsavedChecksAndCapture() {
+        val runtimeConfig = directory.resolve("mise.local.toml")
+        Files.writeString(runtimeConfig, "[tools]\nnode = '20'\n")
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(runtimeConfig)!!
+        IndexingTestUtil.waitUntilIndexesAreReady(project)
+        val adapter = NpmBuildSystemAdapter()
+        val selection = BuildSelection(UpdateScope.CURRENT_FILE, file().path)
+        val paths = background { adapter.resolutionInputPaths(project, selection) }
+        assertTrue(runtimeConfig.toString() in paths)
+        assertTrue(NpmBuildInputs.hasUnsavedResolutionInputs(project, file().parent.path, setOf(runtimeConfig.toString())))
+        val original = background { adapter.discover(project, selection) }.single()
+        val reads = mutableListOf<Path>()
+        val capturingAdapter = NpmBuildSystemAdapter { path ->
+            assertFalse(ApplicationManager.getApplication().isReadAccessAllowed)
+            reads.add(path)
+            Files.readAllBytes(path)
+        }
+        Files.writeString(runtimeConfig, "[tools]\nnode = '22'\n")
+        assertFalse(background { capturingAdapter.isCurrentInBackground(project, original) })
+        assertEquals(1, reads.count { it == runtimeConfig })
+        // Asking which files to save must never invoke the adapter's disk reader.
+        reads.clear()
+        assertEquals(paths, background { capturingAdapter.resolutionInputPaths(project, selection) })
+        assertTrue(reads.isEmpty())
+    }
+
+    fun testOtherManagerInventoryUsesExistenceRatherThanLockfileContents() {
+        val marker = directory.resolve("first/yarn.lock")
+        Files.writeString(marker, "one")
+        val reads = mutableListOf<Path>()
+        val capture: () -> NpmBuildInputs.External = {
+            background { NpmBuildInputs.capture(project, { setOf(file().parent.path) }, { path ->
+                reads.add(path)
+                Files.readAllBytes(path)
+            }) { it } }
+        }
+        val first = capture()
+        assertEquals(true, first.existing[marker])
+        assertFalse(marker in first.digests)
+        assertFalse(marker in reads)
+        Files.writeString(marker, "different lockfile contents")
+        assertEquals(first.existing, capture().existing)
+        Files.delete(marker)
+        assertEquals(false, capture().existing[marker])
+    }
+
+    fun testInventoryDiscoveryRequiresNoExistingDirectoriesOrRuntime() {
+        val root = directory.resolve("not-created/workspace")
+        val runtime = directory.resolve("not-installed/node/bin/node")
+        val npm = directory.resolve("not-installed/npm")
+        val inventory = NpmInputInventory.discover(setOf(root.toString()), mapOf("HOME" to directory.toString()), runtime.toString(), npm.toString())
+        assertTrue(root.resolve("mise.local.toml") in inventory.contentPaths)
+        assertTrue(root.resolve("package.json") in inventory.manifestPaths)
+        assertTrue(root.resolve("pnpm-lock.yaml") in inventory.markerPaths)
+        assertFalse(root.resolve("pnpm-lock.yaml") in inventory.contentPaths)
+        assertEquals(setOf(runtime, npm, npm.resolve("package.json"), npm.resolve("bin/npm-cli.js")), inventory.runtimePaths)
+        assertTrue(directory.resolve("not-installed/node/etc/npmrc") in inventory.contentPaths)
+        assertTrue(inventory.hasUnsavedInputs(setOf(root.resolve("mise.local.toml").toString())))
+        assertFalse(Files.exists(root))
+        assertFalse(Files.exists(runtime))
+    }
+
     fun testDiscoveryContextValidationAndPreviewShareDiskReadsOutsideReadLocks() {
         val reads = mutableListOf<Path>()
         val readBytes: (Path) -> ByteArray = { path ->
