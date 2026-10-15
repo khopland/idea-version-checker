@@ -215,3 +215,31 @@ JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew te
 The hosted plan is updated in place as version 8 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/8)); original expiry remains 21 October 2026. Earlier validation remains historical.
 
 Remaining scope: inherited Maven local/bulk scope parity; Maven input inventory and broader provider input roles; further result authorization/ownership typing; S3 CheckExecutor and complete preview state/model separation; conditional S6 production cache consolidation; and the product roadmap. No performance improvement is claimed.
+
+
+## Maven inventory and check execution — 15 October 2026
+
+The continuation starts from main `4f4e0ed`, including its existing minimum-release-age setting. Both PRs target main independently:
+
+- [#37: S4 Maven input inventory](https://github.com/khopland/idea-version-checker/pull/37), commit `a041860`. Save-path discovery, background capture and fingerprint projection share one Maven inventory policy. Selected saving retains every imported POM for ownership checks but only selected distributions/ancestors. Capture retains all imported external configuration, deduplicated saved-byte hashing, missing/relocated security paths, layout retries and cancellation. The synchronous fallback keeps its prior narrow lazy per-home behavior.
+- [#38: S3 CheckExecutor and this plan](https://github.com/khopland/idea-version-checker/pull/38), commit `81aed9a` plus documentation. Provider queues, pending/running state, revision authority, partial publication and cleanup now belong to an owned execution component. The service retains discovery, refresh scheduling, editor subscriptions and native scan-session orchestration. Disposal permanently rejects new work/late publication; pause remains resumable. Existing minimum-release-age result invalidation remains intact.
+
+Validation on the combined implementation:
+
+- 606 tests passed: 586 default tests plus 20 native integration tests (Maven 8, npm 5, Gradle 7), with no failures, errors or skips. Project configuration verification passed. Existing native request-count, bounded-invocation and large-project scaling checks pass.
+- Plugin Verifier passed for IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Each target retains one deprecated API usage and 14 experimental API usages, matching the previous slice.
+- Five new inventory regressions cover selected save scope, per-distribution isolation, relocated/missing security inputs, cancellation and adapter save/capture freshness. Existing same-stamp, unselected-sibling, input read-count and 10,000-declaration scaling checks pass.
+- Two executor regressions cover queued cancellation/disposal, cancellation-resistant late completion, all execution entry points after disposal, provider-scoped cache authority and pause/resume. Existing coordinator, recovery, widget, partial-result, queue priority, trace and dynamic plugin unload checks pass.
+- Review caught broad synchronous inventory discovery and missing cancellation defaults before completion; the fallback remains narrow and cancellation-aware. All changes were rebased onto the newer minimum-release-age main before the full run. Earlier interrupted subagent runs are not counted as successful validation.
+- `git diff --check`: passed.
+
+Commands:
+
+```sh
+JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew test verifyPluginProjectConfiguration -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true -Pkotlin.incremental=false -Dorg.gradle.jvmargs=-Xmx2g --console=plain
+JAVA_HOME=/Users/kristoffer/.sdkman/candidates/java/21.0.12+1.1-tem ./gradlew verifyPlugin -Pkotlin.incremental=false -Dorg.gradle.jvmargs=-Xmx2g --console=plain
+```
+
+The hosted plan is updated in place as version 9 ([immutable revision](https://plan-api.k8r.no/p/jrXzOA6WTYPcj2aa5rvBq26U/v/9)); original expiry remains 21 October 2026. Earlier validation remains historical.
+
+Remaining scope: complete preview state/model separation and remaining orchestration cleanup; broader provider input-role modeling and coverage; inherited Maven local/bulk scope parity; further authorization ownership typing; conditional S6 production cache consolidation; and the product roadmap. No performance improvement or exhaustive build-input inference is claimed.
