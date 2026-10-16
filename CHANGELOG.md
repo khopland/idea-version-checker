@@ -29,6 +29,7 @@
 
 ### Fixed
 
+- Invalid TOML syntax in Gradle version catalogs produces a file-level Needs review entry and inspection with source navigation instead of an empty successful check. Catalogs with syntax errors cannot produce edits; correcting the syntax restores normal declaration coverage.
 - npm updates require manual review when root overrides could conflict with a changed dependency, including workspace consumers and cross-referenced specifications. Safe root `$dependency` references remain intact.
 - Gradle update validation tracks buildSrc sources and resources and literal included builds. Changed or added build logic rejects held edits; computed included-build paths and untracked applied scripts require manual review.
 - Malformed typed Gradle catalog entries no longer suppress valid siblings. Invalid entries and uncertain shared-version owners remain noneditable.

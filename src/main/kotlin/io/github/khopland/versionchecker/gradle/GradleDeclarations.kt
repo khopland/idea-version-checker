@@ -47,6 +47,7 @@ internal object GradleVersions {
 }
 
 internal object GradleDeclarations {
+    const val CATALOG_SYNTAX_LOCATION = "catalog/syntax"
     // Unknown calls may be user helpers, even if their arguments match a real dependency.
     private val configurations = setOf(
         "api", "implementation", "compileOnly", "compileOnlyApi", "runtimeOnly", "annotationProcessor",
@@ -207,7 +208,20 @@ internal object GradleDeclarations {
 
     private fun catalog(file: String, text: String): List<GradleDeclaration> {
         val parsed = Toml.parse(text)
-        if (parsed.hasErrors()) return emptyList()
+        if (parsed.hasErrors()) {
+            // A syntax failure invalidates the whole catalog, including ownership of
+            // apparently valid siblings. Keep one file-level coverage item rather
+            // than treating the parser's partial result as an empty successful scan.
+            val error = parsed.errors().first()
+            // EOF errors still need a visible inspection anchor on the final character.
+            val start = offset(text, error.position()).coerceIn(0, (text.length - 1).coerceAtLeast(0))
+            val range = TextRange(start, (text.indexOf('\n', start).takeIf { it >= 0 } ?: text.length)
+                .coerceAtLeast((start + 1).coerceAtMost(text.length)))
+            return listOf(GradleDeclaration(VersionDeclaration(DeclarationId(file, CATALOG_SYNTAX_LOCATION),
+                ArtifactId("catalog", "syntax"), "", ""), range,
+                "Catalog TOML syntax is invalid at line ${error.position().line()}, column ${error.position().column()}; " +
+                    "dependency coverage is unavailable until the catalog is corrected; manual review required"))
+        }
         val result = mutableListOf<GradleDeclaration>()
         // Walk raw values so schema errors do not throw TomlInvalidTypeException. Do not
         // catch parsing/runtime failures: cancellation and unexpected bugs must propagate.

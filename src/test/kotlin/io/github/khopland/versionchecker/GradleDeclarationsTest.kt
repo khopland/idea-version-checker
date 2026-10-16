@@ -148,7 +148,16 @@ class GradleDeclarationsTest {
         assertTrue(declaration.reason!!.contains("plugin"))
     }
     @Test fun malformedCatalogsAreNotEdited() {
-        assertTrue(GradleDeclarations.parse("libs.versions.toml", "[libraries]\na='g:a:1.0'\na='g:a:2.0'").isEmpty())
+        for (text in listOf("[libraries]\na='g:a:1.0'\na='g:a:2.0'", "[libraries]\na = { module = 'g:a'", "[libraries")) {
+            val diagnostic = GradleDeclarations.parse("libs.versions.toml", text).single()
+            assertEquals("catalog/syntax", diagnostic.declaration.id.location)
+            assertTrue(diagnostic.declaration.baseline.isEmpty())
+            assertTrue(diagnostic.reason!!.contains("coverage is unavailable"))
+            assertNotNull(diagnostic.range)
+            assertTrue(diagnostic.range!!.startOffset in 0..text.length)
+            assertTrue(diagnostic.range.endOffset in diagnostic.range.startOffset..text.length)
+            assertFalse(diagnostic.range.isEmpty)
+        }
     }
     @Test fun malformedTypedLibrariesRetainValidSiblingsAndAnchoredReview() {
         for (malformed in listOf(
