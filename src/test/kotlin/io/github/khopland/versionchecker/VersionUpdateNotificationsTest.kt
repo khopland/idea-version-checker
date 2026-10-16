@@ -26,6 +26,33 @@ class VersionUpdateNotificationsTest : BasePlatformTestCase() {
         notification.expire()
     }
 
+    fun testSuccessfulChangesOfferHistoricalReviewWithoutIncludingDeclarationTextInNotification() {
+        val captured = CopyOnWriteArrayList<Notification>()
+        project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
+            override fun notify(notification: Notification) { if (notification.title == "Versions updated") captured += notification }
+        })
+        notifyVersionUpdates(project, emptyList(), setOf("maven"), AppliedVersionChanges(listOf(
+            AppliedVersionFile("/project/pom.xml", "private-before-contents", "private-after-contents"))))
+        val notification = captured.single()
+        assertEquals(listOf("Review changed files", "Save and reload Maven projects"), notification.actions.map { it.templatePresentation.text })
+        assertFalse(notification.content.contains("private-before"))
+        assertFalse(notification.content.contains("private-after"))
+        notification.expire()
+    }
+
+    fun testEntirelyOmittedReviewStillOffersClearGuidance() {
+        val captured = CopyOnWriteArrayList<Notification>()
+        project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
+            override fun notify(notification: Notification) { if (notification.title == "Versions updated") captured += notification }
+        })
+        notifyVersionUpdates(project, emptyList(), changedFiles = AppliedVersionChanges(emptyList(), omittedTargetFiles = 2))
+        val notification = captured.single()
+        assertEquals(listOf("Review changed files"), notification.actions.map { it.templatePresentation.text })
+        assertTrue(notification.content.contains("2 targeted declaration files"))
+        assertTrue(notification.content.contains("snapshot limits"))
+        notification.expire()
+    }
+
     fun testFollowUpNotificationsExpireWithTheirOwnerAndRejectLatePublication() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val owner = BuildReloadService(project, scope)

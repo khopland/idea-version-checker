@@ -101,6 +101,10 @@ Refresh and preview actions save relevant build inputs, including required sibli
 
 ## After applying updates
 
+After a successful declaration edit, **Versions updated → Review changed files** opens a read-only comparison of the text captured immediately before and after that update. Multiple edits to one declaration file appear in one comparison. These are historical snapshots: later editing, saving, reformatting or undo does not change the captured diff. Lockfiles and native build-tool writes are not included.
+
+Snapshots remain only in bounded project memory and may be unavailable after eviction or project closure. Large updates can omit files; the review reports omissions rather than presenting its subset as complete. The review action never applies or restores content. Use normal IDE undo to revert declaration edits and version control to inspect subsequent native changes.
+
 Maven and Gradle notifications offer **Save and reload … projects**. Reload follow-ups distinguish saving files, requesting reload, a request accepted by the provider, cancellation, and unavailable or failed requests. A requested reload does not establish that IDE synchronization succeeded. Check the native build tool window for its result and run the relevant build or tests; dependency verification is not performed by these actions.
 
 npm lockfile synchronization reports completion, cancellation, timeout or failure separately. Its output lists lockfiles changed at inspection time. Cancellation or timeout does not confirm process termination, and writes may continue after inspection. Inspect the lockfile diff before retrying. If inspection fails, the notification says that the changes could not be inspected.

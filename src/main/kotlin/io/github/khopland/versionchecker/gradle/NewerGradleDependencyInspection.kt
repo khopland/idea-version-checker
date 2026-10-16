@@ -79,8 +79,9 @@ internal class UpdateGradleVersionFix(private val edit: GradleVersionEdit, priva
                 return@locally
             }
             if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOfNotNull(edit.element))) return@locally
-            if (!BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
+            val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
+            if (!plan.apply(project, interaction))
                 notifyStaleVersionFix(project, "gradle", descriptor)
-            else notifyVersionUpdates(project, emptyList(), setOf("gradle"))
+            else notifyVersionUpdates(project, emptyList(), setOf("gradle"), changedFiles = plan.appliedChanges)
         }
 }

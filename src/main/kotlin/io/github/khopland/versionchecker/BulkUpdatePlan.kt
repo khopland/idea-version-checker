@@ -33,6 +33,9 @@ internal data class BulkUpdatePlan(
     val prepareValidation: EditInputCapture? = null,
     val reviewItems: List<VersionReviewItem> = emptyList()
 ) {
+    /** Historical declaration snapshots from the most recent successful, non-no-op apply. */
+    var appliedChanges: AppliedVersionChanges? = null
+        private set
     private val authorization = EditAuthorization(isCurrent)
     private val inputCapture = prepareValidation
 
@@ -76,6 +79,7 @@ internal data class BulkUpdatePlan(
         interaction: CheckPerformance.Interaction? = CheckPerformance.start(CheckPerformance.Stage.BULK_APPLY_INVOKED)
     ): Boolean =
         CheckPerformance.locally(interaction) {
+            appliedChanges = null
             if (inputCapture != null && !authorization.isCurrent()) return@locally false
             val inputGuard = inputCapture?.let { capture ->
                 CheckPerformance.measure(CheckPerformance.Stage.EDIT_INPUT_CAPTURE) {
@@ -94,9 +98,11 @@ internal data class BulkUpdatePlan(
                         if (elementChanges.any { !it.isValid() }) return@validate null
                         prepared to elementChanges
                     } ?: return@write
+                    val captured = AppliedVersionChangeCapture.before(changes)
                     validated.first.forEach { it.apply() }
                     validated.second.forEach { it.apply() }
                     applied = true
+                    appliedChanges = if (captured == null) AppliedVersionChanges(emptyList(), captureUnavailable = true) else captured.finish()
                     CheckPerformance.record(
                         CheckPerformance.Stage.EDITOR_TEXT_CHANGED,
                         interaction?.started ?: System.nanoTime(),
