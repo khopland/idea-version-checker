@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.followup
 
 import com.intellij.ide.trustedProjects.TrustedProjects
+import com.intellij.openapi.Disposable
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.EDT
@@ -23,21 +24,27 @@ import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
 
 @Service(Service.Level.PROJECT)
-internal class UpdateFollowUpService(private val project: Project, private val scope: CoroutineScope) {
+internal class UpdateFollowUpService(private val project: Project, private val scope: CoroutineScope) : Disposable {
+    @Volatile private var disposed = false
+    override fun dispose() { disposed = true }
     private val active = AtomicBoolean(false)
 
     fun previewNpmSync() {
-        if (project.isDisposed || !active.compareAndSet(false, true)) return
-        scope.launch(Dispatchers.EDT) {
+        if (disposed || project.isDisposed || !active.compareAndSet(false, true)) return
+        val job = scope.launch(Dispatchers.EDT) {
+            var terminalReported = false
             try {
                 if (!TrustedProjects.isProjectTrusted(project)) {
-                    result("Trust the project before running npm lockfile synchronization.", true)
+                    result("Trust the project before running npm lockfile synchronization. No command was started; dependency verification was not performed.", true)
                     return@launch
                 }
                 val selected = FileChooser.chooseFile(
                     FileChooserDescriptorFactory.createSingleFileDescriptor("json")
                         .withTitle("Choose package.json for npm lockfile synchronization"), project, null
-                ) ?: return@launch
+                ) ?: run {
+                    result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
+                    return@launch
+                }
                 val workspace = readAction {
                     require(selected.name == "package.json" && NpmWorkspaces.supportsManifest(project, selected)) {
                         "Choose a supported npm package.json inside this project. Yarn, pnpm and Bun projects are not supported."
@@ -67,66 +74,55 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                     "Installed dependencies are not synchronized. Lockfile writes are separate from declaration undo. " +
                     "Review the resulting version control diff."
                 if (Messages.showOkCancelDialog(project, preview, "Preview npm lockfile synchronization",
-                        "Synchronize lockfile", "Cancel", Messages.getQuestionIcon()) != Messages.OK) return@launch
-                requireNoUnsavedFiles(inputs)
-                var started = false
-                var cancelled = false
-                var exitCode: Int? = null
-                var failure: Exception? = null
-                try {
-                    withBackgroundProgress(project, "Synchronizing npm lockfile", cancellable = true) {
-                        check(TrustedProjects.isProjectTrusted(project)) { "Project trust changed after preview." }
-                        val currentWorkspace = readAction {
-                            check(selected.isValid && NpmWorkspaces.supportsManifest(project, selected))
-                            NpmWorkspaces.resolve(project, selected)
-                        }
-                        check(currentWorkspace.root.path == workspace.root.path &&
-                            currentWorkspace.manifests.map { it.path }.toSet() == workspace.manifests.map { it.path }.toSet()) {
-                            "npm workspace membership changed after preview. Preview again."
-                        }
-                        val current = NpmBuildInputs.capture(project, { setOf(currentWorkspace.root.path) }) {
-                            NpmBuildInputs.fingerprint(project, currentWorkspace, it)
-                        }
-                        check(before == current) { "Files or npm settings changed after preview. Preview again." }
-                        withContext(Dispatchers.IO) {
-                            val context = currentCoroutineContext()
-                            check(outputs.isCurrent { context.ensureActive() }) { "Lockfiles changed after preview. Preview again." }
-                        }
-                        started = true
-                        exitCode = withTimeout(120_000) { NpmRegistry.execute(command).exitCode }
-                    }
-                } catch (_: CancellationException) {
-                    cancelled = true
-                } catch (_: ProcessCanceledException) {
-                    cancelled = true
-                } catch (e: Exception) {
-                    failure = e
-                } finally {
-                    withContext(NonCancellable + Dispatchers.IO) {
-                        LocalFileSystem.getInstance().refreshNioFiles(inputs, true, false, null)
-                    }
+                        "Synchronize lockfile", "Cancel", Messages.getQuestionIcon()) != Messages.OK) {
+                    result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
+                    return@launch
                 }
-                if (project.isDisposed) return@launch
-                if (!started) result("Synchronization did not start. The preview was cancelled or its inputs changed. Review and save project files, then preview again.", true)
-                else {
-                    val changed = try { withContext(Dispatchers.IO) { outputs.changed() } }
-                    catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) {
-                        result("npm synchronization stopped, but changed lockfiles could not be inspected. Review the lockfile diff before retrying; declaration undo does not undo native writes.", true)
-                        return@launch
+                requireNoUnsavedFiles(inputs)
+                withBackgroundProgress(project, "Synchronizing npm lockfile", cancellable = true) {
+                    check(!disposed && !project.isDisposed && TrustedProjects.isProjectTrusted(project)) { "Project trust or lifecycle changed after preview." }
+                    val currentWorkspace = readAction {
+                        check(selected.isValid && NpmWorkspaces.supportsManifest(project, selected))
+                        NpmWorkspaces.resolve(project, selected)
                     }
-                    result(NpmLockfileSync.result(exitCode, cancelled, changed), cancelled || exitCode != 0 || failure != null)
+                    check(currentWorkspace.root.path == workspace.root.path &&
+                        currentWorkspace.manifests.map { it.path }.toSet() == workspace.manifests.map { it.path }.toSet()) {
+                        "npm workspace membership changed after preview. Preview again."
+                    }
+                    val current = NpmBuildInputs.capture(project, { setOf(currentWorkspace.root.path) }) {
+                        NpmBuildInputs.fingerprint(project, currentWorkspace, it)
+                    }
+                    check(before == current) { "Files or npm settings changed after preview. Preview again." }
+                    withContext(Dispatchers.IO) {
+                        val context = currentCoroutineContext()
+                        check(outputs.isCurrent { context.ensureActive() }) { "Lockfiles changed after preview. Preview again." }
+                    }
+                    NpmFollowUpExecution.run(
+                        execute = { NpmRegistry.execute(command).exitCode },
+                        inspect = {
+                            withContext(Dispatchers.IO) {
+                                val context = currentCoroutineContext()
+                                context.ensureActive()
+                                LocalFileSystem.getInstance().refreshNioFiles(inputs, true, false, null)
+                                outputs.changed {
+                                    context.ensureActive()
+                                    check(!disposed && !project.isDisposed) { "Project was disposed during output inspection" }
+                                }
+                            }
+                        },
+                        isAlive = { !disposed && !project.isDisposed },
+                        publish = { outcome -> result(outcome); terminalReported = true },
+                    )
                 }
             } catch (_: CancellationException) {
-                // Closing preparation runs no installation and makes no lockfile changes.
+                if (!terminalReported) result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
             } catch (_: ProcessCanceledException) {
-                // Native IDE cancellation during preparation makes no lockfile claim.
+                if (!terminalReported) result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
             } catch (_: Exception) {
-                result("Could not prepare npm lockfile synchronization. Save project files, check the selected npm manifest and IntelliJ's Node/npm settings, then preview again.", true)
-            } finally {
-                active.set(false)
+                if (!terminalReported) result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.NOT_STARTED))
             }
         }
+        job.invokeOnCompletion { active.set(false) }
     }
 
     private fun requireNoUnsavedFiles(paths: Collection<Path>) {
@@ -138,8 +134,10 @@ internal class UpdateFollowUpService(private val project: Project, private val s
         }) { "Save manifest, npm configuration and lockfiles before synchronizing." }
     }
 
+    private fun result(outcome: NpmFollowUpOutcome) = result(outcome.message, outcome.warning)
+
     private fun result(message: String, failed: Boolean) {
-        if (!project.isDisposed) project.service<BuildReloadService>().publish(NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
+        if (!disposed && !project.isDisposed) project.service<BuildReloadService>().publish(NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
             .createNotification("npm lockfile synchronization", message,
                 if (failed) NotificationType.WARNING else NotificationType.INFORMATION))
     }

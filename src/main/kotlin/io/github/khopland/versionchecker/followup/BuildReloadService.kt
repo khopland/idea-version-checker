@@ -18,6 +18,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
@@ -26,6 +27,12 @@ import java.util.concurrent.ConcurrentHashMap
 internal class BuildReloadService(private val project: Project, private val scope: CoroutineScope) : Disposable {
     private val active = ConcurrentHashMap.newKeySet<String>()
     private val notifications = linkedSetOf<Notification>()
+    private val outcomes = linkedMapOf<String, BuildReloadOutcome>()
+
+    /** Reading an outcome never saves files, discovers projects or requests a native reload. */
+    internal fun outcome(adapterId: String): BuildReloadOutcome? = synchronized(outcomes) {
+        if (disposed || project.isDisposed) null else outcomes[adapterId]
+    }
     @Volatile private var disposed = false
 
     fun publish(notification: Notification) {
@@ -40,40 +47,65 @@ internal class BuildReloadService(private val project: Project, private val scop
 
     override fun dispose() {
         disposed = true
+        synchronized(outcomes) { outcomes.clear() }
         val retained = synchronized(notifications) { notifications.toList().also { notifications.clear() } }
         retained.forEach(Notification::expire)
     }
 
     fun reload(adapterId: String) {
         if (disposed || project.isDisposed || !active.add(adapterId)) return
-        scope.launch(Dispatchers.IO) {
+        var provider = adapterId
+        var requestAttempted = false
+        val job = scope.launch(Dispatchers.IO) {
             try {
                 check(TrustedProjects.isProjectTrusted(project)) { "Project is not trusted" }
-                val adapter = BuildSystemAdapter.find(adapterId) ?: return@launch
-                withBackgroundProgress(project, "Saving and reloading ${adapter.displayName} projects", cancellable = true) {
+                val adapter = BuildSystemAdapter.find(adapterId)
+                if (adapter == null) {
+                    record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.UNAVAILABLE, provider))
+                    return@launch
+                }
+                provider = adapter.displayName
+                record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.SAVING, provider))
+                withBackgroundProgress(project, "Saving $provider build files", cancellable = true) {
                     saveBuildInputs(project, BuildSelection(UpdateScope.WHOLE_PROJECT), listOf(adapter))
+                }
+                record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.REQUESTING, provider))
+                withBackgroundProgress(project, "Requesting $provider reload", cancellable = true) {
                     withContext(Dispatchers.EDT) {
-                        if (!disposed && !project.isDisposed && TrustedProjects.isProjectTrusted(project)) {
-                            check(adapter.reloadProject(project)) { "Provider reload is unavailable" }
-                            result("${adapter.displayName} reload requested. Check the IDE build synchronization result.", false)
-                        }
+                        if (disposed || project.isDisposed) return@withContext
+                        check(TrustedProjects.isProjectTrusted(project)) { "Project trust changed" }
+                        requestAttempted = true
+                        val phase = if (adapter.reloadProject(project)) BuildReloadOutcome.Phase.REQUESTED
+                            else BuildReloadOutcome.Phase.UNAVAILABLE
+                        record(adapterId, BuildReloadOutcome(phase, provider, requestAttempted))
                     }
                 }
             } catch (_: CancellationException) {
-                // Cancellation never implies a successful reload.
+                withContext(NonCancellable) {
+                    record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
+                }
             } catch (_: ProcessCanceledException) {
-                // Native IDE cancellation is not a failed reload.
+                withContext(NonCancellable) {
+                    record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
+                }
             } catch (_: Exception) {
-                result("Could not request build reload. Trust the project, save its build files and use the IDE build tool window to reload.", true)
-            } finally {
-                active.remove(adapterId)
+                record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.FAILED, provider, requestAttempted))
             }
         }
+        // Also release the action if its scope was already cancelled before the coroutine started.
+        job.invokeOnCompletion { active.remove(adapterId) }
     }
 
-    private fun result(message: String, failed: Boolean) {
-        if (!disposed && !project.isDisposed) publish(NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
-            .createNotification("Build reload", message,
-                if (failed) NotificationType.WARNING else NotificationType.INFORMATION))
+    private fun record(adapterId: String, outcome: BuildReloadOutcome) {
+        if (disposed || project.isDisposed) return
+        synchronized(outcomes) {
+            if (disposed || project.isDisposed) return
+            while (outcomes.size >= 32 && adapterId !in outcomes) outcomes.remove(outcomes.keys.first())
+            outcomes[adapterId] = outcome
+        }
+        if (outcome.phase in setOf(BuildReloadOutcome.Phase.SAVING, BuildReloadOutcome.Phase.REQUESTING)) return
+        publish(NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
+            .createNotification("Build reload", outcome.message,
+                if (outcome.warning) NotificationType.WARNING else NotificationType.INFORMATION))
     }
 }
