@@ -1,8 +1,0 @@
-{
-  "startedUtc": "2026-10-11T15:34:57.179791+00:00",
-  "finishedUtc": "2026-10-11T15:36:44.585573+00:00",
-  "durationSeconds": 107.405782,
-  "stageRecords": 0,
-  "stages": {},
-  "scope": "short idle smoke after final-archive Apply/undo; no CPU baseline or p95 claim"
-}
