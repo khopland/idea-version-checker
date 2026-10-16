@@ -72,8 +72,8 @@ internal class DefineInheritedMavenPropertyFix(
                     CodeStyleManager.getInstance(project).reformat(insert(element!!))
                 }
             }
-            if (!BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
-                    .apply(project, CheckPerformance.current())) notifyStaleVersionFix(project, "maven", descriptor)
-            else notifyVersionUpdates(project, emptyList(), setOf("maven"))
+            val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
+            if (!plan.apply(project, CheckPerformance.current())) notifyStaleVersionFix(project, "maven", descriptor)
+            else notifyVersionUpdates(project, emptyList(), setOf("maven"), changedFiles = plan.appliedChanges)
         }
 }

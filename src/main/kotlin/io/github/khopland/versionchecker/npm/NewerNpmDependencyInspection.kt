@@ -81,8 +81,9 @@ class UpdateNpmVersionFix internal constructor(private val edit: NpmVersionEdit,
                 return@locally
             }
             if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOfNotNull(edit.element))) return@locally
-            if (BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation).apply(project, interaction))
-                NpmUpdateGuidance.notify(project)
+            val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
+            if (plan.apply(project, interaction))
+                NpmUpdateGuidance.notify(project, plan.appliedChanges)
             else notifyStaleVersionFix(project, "npm", descriptor)
         }
 }
@@ -106,7 +107,7 @@ internal class UpdateNpmWorkspaceVersionFix(name: String, version: String, priva
             val elements = edits.mapNotNull { it.element }
             if (!FileModificationService.getInstance().preparePsiElementsForWrite(elements)) return@locally
             val plan = BulkUpdatePlan(edits, emptyList(), isCurrent, followUp = listOf(NpmUpdateGuidance.message), prepareValidation = prepareValidation)
-            if (plan.apply(project, interaction)) notifyVersionUpdates(project, plan.followUp)
+            if (plan.apply(project, interaction)) notifyVersionUpdates(project, plan.followUp, changedFiles = plan.appliedChanges)
             else notifyStaleVersionFix(project, "npm", descriptor)
         }
 }
