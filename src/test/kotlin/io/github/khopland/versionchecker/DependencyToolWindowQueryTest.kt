@@ -89,7 +89,7 @@ class DependencyToolWindowQueryTest : BasePlatformTestCase() {
         assertEquals("Build root", panel.buildRoot.accessibleContext.accessibleName)
         assertNotNull(panel.table.actionMap.get("openSource"))
         assertNotNull(panel.actionMap.get("focusSearch"))
-        assertEquals(5, panel.table.columnCount)
+        assertEquals(6, panel.table.columnCount)
         panel.search.text = "no match"
         assertTrue(panel.summaryText().startsWith("No matches"))
         assertNull(panel.selectedRow())

@@ -21,3 +21,5 @@ The export contains the displayed presentation rows, sanitized diagnostics and p
 | `cacheExpiryStatus` | `unexpired`, `expired` or `unknown` at export. |
 
 `generatedAt` can change after a wall-clock adjustment without changing the exported observation durations. No exact observation wall-clock date or dependency publication date is inferred. Absolute monotonic timestamps, cache snapshots, result revisions, fingerprints and edit leases are never serialized. `requiresFreshReviewBeforeEditing` remains `true`.
+
+The tool window also preserves the originating module/check source separately from a shared physical declaration target. Exports may include `checkSourceFile` (project-relative or `<outside-project>`) and a sanitized `coverageScope` description. Internal context IDs, resolution keys and original cache inputs are never exported.

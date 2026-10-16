@@ -26,6 +26,10 @@ internal object DependencyReviewExport {
                     addProperty("buildRoot", sourcePath(row.root, basePath))
                     addProperty("sourceFile", sourcePath(row.source.file, basePath))
                     addProperty("sourceLocation", safe(row.source.location))
+                    row.origin?.let { origin ->
+                        addProperty("checkSourceFile", sourcePath(origin.checkSourceFile, basePath))
+                        origin.coverageDescription?.let { addProperty("coverageScope", safe(it)) }
+                    }
                     addProperty("artifact", safe(row.artifact))
                     addProperty("currentVersion", safe(row.current))
                     row.available?.let { addProperty("availableVersion", safe(it)) }

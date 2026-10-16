@@ -2,12 +2,19 @@ package io.github.khopland.versionchecker
 
 import io.github.khopland.versionchecker.core.*
 
+/** Where a cached observation was made, separate from its physical declaration target. */
+internal data class DependencyReviewOrigin(
+    val context: BuildContextId, val declaration: DeclarationId, val checkSourceFile: String,
+    val coverageDescription: String? = null,
+)
+
 /** Presentation values only. They do not authorize edits or claim the build inputs are still current. */
 internal data class DependencyReviewRow(
     val adapter: String, val root: String, val source: DeclarationId, val artifact: String,
     val current: String, val available: String?, val kind: VersionChangeKind?, val outcome: String,
     val detail: String, val mode: UpdateMode, val checking: Boolean, val checkFailed: Boolean = false,
-    val checkedAtNanos: Long? = null, val expiresAtNanos: Long? = null
+    val checkedAtNanos: Long? = null, val expiresAtNanos: Long? = null,
+    val origin: DependencyReviewOrigin? = null,
 )
 
 internal enum class DependencyReviewFilter { ALL, UPDATES, REVIEW, FAILED }
@@ -43,13 +50,16 @@ internal object DependencyReviewRows {
                         snapshot.skippedDeclarations[id], report.failure).distinct().joinToString(" ")),
                     observation.mode, observation.checking, report.failure != null,
                     observation.checkedAtNanos.takeUnless { outcome == "Pending" || outcome == "Coverage unreported" },
-                    observation.expiresAtNanos.takeUnless { outcome == "Pending" || outcome == "Coverage unreported" })
+                    observation.expiresAtNanos.takeUnless { outcome == "Pending" || outcome == "Coverage unreported" },
+                    DependencyReviewOrigin(snapshot.context, id, snapshot.sourceFile, snapshot.coverageDescription))
             } + if (ids.isEmpty()) listOf(DependencyReviewRow(snapshot.context.adapterId, snapshot.context.root,
                 DeclarationId(snapshot.sourceFile, ""), "", "", null, null,
                 if (report.failure != null) "Failed" else "No recognized declarations",
                 DiagnosticSanitizer.sanitize(report.failure ?: snapshot.coverageDescription.orEmpty()),
                 observation.mode, observation.checking, report.failure != null,
-                observation.checkedAtNanos, observation.expiresAtNanos)) else emptyList()
+                observation.checkedAtNanos, observation.expiresAtNanos,
+                DependencyReviewOrigin(snapshot.context, DeclarationId(snapshot.sourceFile, ""), snapshot.sourceFile,
+                    snapshot.coverageDescription))) else emptyList()
         }.sortedWith(compareBy({ it.root }, { it.source.file }, { it.adapter }, { it.artifact }, { it.mode.ordinal }))
 
     fun filter(rows: List<DependencyReviewRow>, filter: DependencyReviewFilter,

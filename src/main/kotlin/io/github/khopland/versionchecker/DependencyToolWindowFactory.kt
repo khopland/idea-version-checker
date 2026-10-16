@@ -28,6 +28,7 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.ui.OnePixelSplitter
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.DocumentAdapter
+import com.intellij.util.ui.JBUI
 import javax.swing.event.DocumentEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -35,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import javax.swing.*
 import javax.swing.table.AbstractTableModel
+import javax.swing.table.DefaultTableCellRenderer
 
 class DependencyToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -47,8 +49,10 @@ class DependencyToolWindowFactory : ToolWindowFactory, DumbAware {
 
 /** Subscribes only to presentation events; opening, sorting and filtering cannot start native queries. */
 internal class DependencyToolWindowPanel(private val project: Project,
+    private val now: () -> Long = System::nanoTime,
+    private val activity: () -> Boolean = { project.service<VersionCheckService>().hasActiveChecks },
     private val observations: () -> List<VersionResultCache.Observation> = { project.service<VersionCheckService>().observations() }) : JPanel(BorderLayout()), Disposable {
-    internal val model = DependencyReviewTableModel(project.basePath)
+    internal val model = DependencyReviewTableModel(project.basePath, now)
     internal val table = JBTable(model).apply {
         autoCreateRowSorter = true
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
@@ -56,6 +60,16 @@ internal class DependencyToolWindowPanel(private val project: Project,
         // Retain the complete model for metadata/export; keep the initial table readable.
         listOf(9, 8, 2, 1, 0).forEach { removeColumn(columnModel.getColumn(it)) }
         columnModel.getColumn(0).preferredWidth = 240
+        columnModel.getColumn(5).apply {
+            preferredWidth = 100
+            cellRenderer = object : DefaultTableCellRenderer() {
+                override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean,
+                                                            focused: Boolean, row: Int, column: Int): java.awt.Component =
+                    super.getTableCellRendererComponent(table,
+                        DependencyReviewFreshness.formatAge(this@DependencyToolWindowPanel.model.rows[table.convertRowIndexToModel(row)], now()),
+                        selected, focused, row, column)
+            }
+        }
     }
     internal val search = JTextField().apply {
         toolTipText = "Search package names or source/build paths (literal text)"
@@ -65,7 +79,11 @@ internal class DependencyToolWindowPanel(private val project: Project,
     internal val buildRoot = JComboBox<String>()
     internal val filter = JComboBox(DependencyReviewFilter.entries.toTypedArray())
     internal val kind = JComboBox(arrayOf("All changes") + VersionChangeKind.entries.map { it.name }.toTypedArray())
-    private val summary = JLabel()
+    private val summary = JBTextArea().apply {
+        isEditable = false; isFocusable = false; isOpaque = false
+        lineWrap = true; wrapStyleWord = true; rows = 2
+        accessibleContext.accessibleName = "Dependency check summary"
+    }
     internal val details = JBTextArea("Select a dependency to see its source, context and check details.").apply {
         isEditable = false
         lineWrap = true
@@ -83,6 +101,7 @@ internal class DependencyToolWindowPanel(private val project: Project,
     private val expiryTimer = Timer(30_000) { requestUpdate() }
 
     init {
+        border = JBUI.Borders.empty(4, 6)
         val actions = DefaultActionGroup().apply {
             add(object : DumbAwareAction("Refresh Whole Project", "Save build inputs and run fresh native checks", AllIcons.Actions.Refresh) {
                 override fun actionPerformed(event: AnActionEvent) { project.service<VersionCheckService>().refreshSelection(null) }
@@ -107,6 +126,16 @@ internal class DependencyToolWindowPanel(private val project: Project,
         provider.addItem("All build systems"); buildRoot.addItem("All build roots")
         provider.prototypeDisplayValue = "All build systems"
         buildRoot.prototypeDisplayValue = "All build roots"
+        filter.renderer = object : DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(list: JList<*>?, value: Any?, index: Int, selected: Boolean, focus: Boolean): java.awt.Component =
+                super.getListCellRendererComponent(list, when (value) {
+                    DependencyReviewFilter.ALL -> "All outcomes"
+                    DependencyReviewFilter.UPDATES -> "Updates"
+                    DependencyReviewFilter.REVIEW -> "Needs review"
+                    DependencyReviewFilter.FAILED -> "Failed checks"
+                    else -> value
+                }, index, selected, focus)
+        }
         buildRoot.renderer = object : DefaultListCellRenderer() {
             override fun getListCellRendererComponent(list: JList<*>?, value: Any?, index: Int, selected: Boolean, focus: Boolean): java.awt.Component =
                 super.getListCellRendererComponent(list, (value as? String)?.let(::relativePath), index, selected, focus)
@@ -157,7 +186,7 @@ internal class DependencyToolWindowPanel(private val project: Project,
         filter.addActionListener { applyFilter() }
         kind.addActionListener { applyFilter() }
         provider.addActionListener { applyFilter() }
-        buildRoot.addActionListener { applyFilter() }
+        buildRoot.addActionListener { buildRoot.toolTipText = buildRoot.selectedItem as? String; applyFilter() }
         project.messageBus.connect(this).subscribe(VersionCheckStatusListener.TOPIC, VersionCheckStatusListener { requestUpdate() })
         requestUpdate()
         expiryTimer.start()
@@ -205,7 +234,9 @@ internal class DependencyToolWindowPanel(private val project: Project,
         minimumSize = Dimension(0, preferredSize.height)
     }
 
-    private fun relativePath(path: String) = project.basePath?.let { path.removePrefix("$it/") } ?: path
+    private fun relativePath(path: String) = project.basePath?.let {
+        if (path == it) "." else path.removePrefix("$it/")
+    } ?: path
 
     internal fun presentRows(updated: List<DependencyReviewRow>) {
         if (disposed) return
@@ -241,7 +272,14 @@ internal class DependencyToolWindowPanel(private val project: Project,
             if (index >= 0) table.convertRowIndexToView(index).takeIf { it >= 0 }?.let { table.setRowSelectionInterval(it, it) }
         } finally { replacingRows = false }
         updateDetails()
-        summary.text = when {
+        val checking = activity()
+        val paused = !project.service<VersionCheckerSettings>().state.enabled
+        summary.text = (when {
+            paused -> "Checks paused. "
+            checking -> "Checking dependencies. "
+            else -> ""
+        }) + when {
+            rows.isEmpty() && checking && !paused -> "No cached results available yet."
             rows.isEmpty() -> "No cached results available. Refresh Whole Project to check dependencies."
             model.rowCount == 0 -> "No matches in ${rows.size} cached declarations. Clear filters to show all."
             else -> "${model.rowCount} of ${rows.size} declarations · ${rows.count { it.checking }} from checks in progress"
@@ -279,12 +317,19 @@ internal class DependencyToolWindowPanel(private val project: Project,
     private fun updateDetails() {
         val row = selectedRow()
         details.text = if (row == null) "Select a dependency to see its source, context and check details." else listOf(
-            "Package: ${row.artifact}", "Build system: ${row.adapter}", "Build root: ${relativePath(row.root)}",
+            "Package: ${row.artifact}",
+            "Observed: ${DependencyReviewFreshness.formatAge(row, now())}",
+            "Cache expiry: ${DependencyReviewFreshness.formatExpiry(row, now())}",
+            "Build system: ${row.adapter}", "Build root: ${relativePath(row.root)}",
             "Source: ${relativePath(row.source.file)}", "Declaration: ${row.source.location}",
+            "Check source: ${row.origin?.checkSourceFile?.let(::relativePath) ?: "Unknown"}",
+            row.origin?.declaration?.location?.let { "Check declaration: $it" }.orEmpty(),
+            row.origin?.coverageDescription?.let { "Coverage scope: $it" }.orEmpty(),
             "Current: ${row.current}", "Available: ${row.available ?: "—"}", "Change: ${row.kind?.name ?: "—"}",
             "Outcome: ${row.outcome}${if (row.checkFailed) " (check failed)" else ""}${if (row.checking) " (checking)" else ""}",
             "Mode: ${row.mode.label}", "Details: ${row.detail.ifEmpty { "No additional diagnostic reported." }}",
-        ).joinToString("\n")
+            "Cached observations do not prove unchanged build inputs. Refresh and review before editing.",
+        ).filter(String::isNotEmpty).joinToString("\n")
         details.caretPosition = 0
     }
 
@@ -298,16 +343,23 @@ internal class DependencyToolWindowPanel(private val project: Project,
     override fun dispose() { disposed = true; scope.cancel(); expiryTimer.stop(); rows = emptyList(); model.replace(emptyList()) }
 }
 
-internal class DependencyReviewTableModel(private val basePath: String?) : AbstractTableModel() {
+internal class DependencyReviewTableModel(private val basePath: String?, private val now: () -> Long = System::nanoTime) : AbstractTableModel() {
+    private var sampledAtNanos = now()
     var rows: List<DependencyReviewRow> = emptyList()
         private set
-    private val columns = listOf("Build root", "Source", "Build system", "Package", "Current", "Available", "Change", "Outcome", "Mode", "Details")
-    fun replace(value: List<DependencyReviewRow>) { rows = value; fireTableDataChanged() }
+    private val columns = listOf("Build root", "Source", "Build system", "Package", "Current", "Available", "Change", "Outcome", "Mode", "Details", "Observed")
+    fun replace(value: List<DependencyReviewRow>) {
+        rows = value
+        // Sorting must compare all ages against one clock sample, even across a millisecond boundary.
+        sampledAtNanos = now()
+        fireTableDataChanged()
+    }
     override fun getRowCount() = rows.size
     override fun getColumnCount() = columns.size
     override fun getColumnName(column: Int) = columns[column]
+    override fun getColumnClass(column: Int): Class<*> = if (column == 10) java.lang.Long::class.java else String::class.java
     override fun isCellEditable(row: Int, column: Int) = false
-    override fun getValueAt(rowIndex: Int, columnIndex: Int): Any {
+    override fun getValueAt(rowIndex: Int, columnIndex: Int): Any? {
         val row = rows[rowIndex]
         fun relative(path: String) = basePath?.let { path.removePrefix("$it/") } ?: path
         return when (columnIndex) {
@@ -320,7 +372,8 @@ internal class DependencyReviewTableModel(private val basePath: String?) : Abstr
             6 -> row.kind?.name.orEmpty()
             7 -> row.outcome + (if (row.checkFailed) " (check failed)" else "") + (if (row.checking) " (checking)" else "")
             8 -> row.mode.label
-            else -> row.detail
+            9 -> row.detail
+            else -> DependencyReviewFreshness.elapsedMillis(row, sampledAtNanos)
         }
     }
 }
