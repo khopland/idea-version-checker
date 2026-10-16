@@ -244,7 +244,7 @@ Maven/npm performance changes restrict dependency goals to supported snapshot co
 
 Compatibility checks target IDEA 2026.1.4 and 2026.2.3. Verifier compatibility and headless integration tests do not replace native workflow checks; see the [1.3.0 acceptance record](release-acceptance-1.3.0/README.md).
 
-Build and release CI enable the native Maven/npm/Gradle integration tests; local runs can opt in using the flags below. The test task builds the distributable ZIP. Lifecycle tests load that ZIP with IDEA's real plugin class loader, exercise repeated unload/reload cycles, and check service disposal, cancellation of active checks and timers, closure of open previews, and class-loader collection. Dialog tests use the platform's headless UI interception; native window behavior can be checked with `runIde`.
+Build and release CI enable the native Maven/npm/Gradle integration tests; local runs can opt in using the flags below. Build CI runs distribution packaging, tests, Maven 4 regressions and compatibility verification concurrently; the release draft still waits for all four checks. The test task builds the distributable ZIP. Lifecycle tests load that ZIP with IDEA's real plugin class loader, exercise repeated unload/reload cycles, and check service disposal, cancellation of active checks and timers, closure of open previews, and class-loader collection. Dialog tests use the platform's headless UI interception; native window behavior can be checked with `runIde`.
 
 Local scaling tests exercise discovery, stale-result validation and bulk application with 101 Maven POMs, Gradle build files or npm manifests and 10,000 declarations. They print timings without depending on machine-specific time limits:
 
@@ -266,9 +266,14 @@ The locally opt-in integration tests start IDEA's real Maven server with both an
 ./gradlew test -PmavenIntegration=true --tests '*MavenSettingsIntegrationTest'
 # Prove a newly defined child property changes effective management and inherited dependencies.
 ./gradlew test -PmavenIntegration=true --tests '*MavenInheritedVersionFixTest'
+# Include the full 100-coordinate, 50/250 ms latency benchmark (slower; opt-in).
+./gradlew test -PmavenIntegration=true -PmavenLatencyBenchmark=true \
+  --tests '*MavenSettingsIntegrationTest.testBatchedMetadataSharesOneHundredArtifactsAcrossOneHundredModulesAndModes'
 # Maven 4 regressions execute on IDEA 2026.2.3; provide an extracted Maven 4 distribution.
 ./gradlew testMaven4 -Pmaven4Home=/path/to/apache-maven-4.0.0-rc-7
 ```
+
+The Maven sharing regression retains 100 modules and 10,000 declarations. Its default concurrency check uses 32 coordinates at 50 ms with both two and four workers, asserting early publication, overlap and the worker limit. The opt-in latency benchmark above expands that check to 100 coordinates at both 50 and 250 ms.
 
 The npm integration test uses IntelliJ's configured Node/npm with an authenticated local registry. It covers scoped registries, workspaces, aliases, all update modes, deprecation highlighting and manifest-only application, and verifies that no tarballs are downloaded, no `node_modules` directory is created and lockfiles remain unchanged:
 

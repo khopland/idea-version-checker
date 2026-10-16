@@ -46,30 +46,23 @@ tasks.test {
     if (providers.gradleProperty("performanceTrace").orElse("false").get() == "true") {
         systemProperty("idea.log.debug.categories", "#io.github.khopland.versionchecker.CheckPerformance")
     }
-    val mavenIntegration = providers.gradleProperty("mavenIntegration").orElse("false").get()
-    systemProperty("versionchecker.mavenIntegration", mavenIntegration)
-    if (mavenIntegration != "true") exclude("**/MavenSettingsIntegrationTest*")
-    val npmIntegration = providers.gradleProperty("npmIntegration").orElse("false").get()
-    systemProperty("versionchecker.npmIntegration", npmIntegration)
-    if (npmIntegration != "true") exclude("**/NpmRegistryIntegrationTest*")
-    val gradleIntegration = providers.gradleProperty("gradleIntegration").orElse("false").get()
-    systemProperty("versionchecker.gradleIntegration", gradleIntegration)
-    if (gradleIntegration != "true") exclude("**/GradleRepositoryIntegrationTest*")
-    if (providers.gradleProperty("npmHistoryBenchmark").orElse("false").get() != "true") {
-        exclude("**/NpmVersionHistoryBenchmarkTest*")
+    // Keep opt-in suites and benchmarks in one place so local and CI selection agree.
+    mapOf(
+        "mavenIntegration" to "MavenSettingsIntegrationTest",
+        "npmIntegration" to "NpmRegistryIntegrationTest",
+        "gradleIntegration" to "GradleRepositoryIntegrationTest",
+        "npmHistoryBenchmark" to "NpmVersionHistoryBenchmarkTest",
+        "mavenHistoryBenchmark" to "MavenVersionHistoryBenchmarkTest",
+        "npmInspectionBenchmark" to "NpmInspectionBenchmarkTest",
+        "gradlePreparationBenchmark" to "GradlePreparationBenchmarkTest",
+        "mavenPreparationBenchmark" to "MavenPreparationBenchmarkTest"
+    ).forEach { (option, testClass) ->
+        val enabled = providers.gradleProperty(option).orElse("false").get()
+        systemProperty("versionchecker.$option", enabled)
+        if (enabled != "true") exclude("**/$testClass*")
     }
-    if (providers.gradleProperty("mavenHistoryBenchmark").orElse("false").get() != "true") {
-        exclude("**/MavenVersionHistoryBenchmarkTest*")
-    }
-    if (providers.gradleProperty("npmInspectionBenchmark").orElse("false").get() != "true") {
-        exclude("**/NpmInspectionBenchmarkTest*")
-    }
-    if (providers.gradleProperty("gradlePreparationBenchmark").orElse("false").get() != "true") {
-        exclude("**/GradlePreparationBenchmarkTest*")
-    }
-    if (providers.gradleProperty("mavenPreparationBenchmark").orElse("false").get() != "true") {
-        exclude("**/MavenPreparationBenchmarkTest*")
-    }
+    systemProperty("versionchecker.mavenLatencyBenchmark",
+        providers.gradleProperty("mavenLatencyBenchmark").orElse("false").get())
 }
 
 intellijPlatform {

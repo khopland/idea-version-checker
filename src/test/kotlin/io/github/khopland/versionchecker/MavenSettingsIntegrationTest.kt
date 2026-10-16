@@ -483,7 +483,15 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val options = project.service<VersionCheckerSettings>().state
             val originalThreads = options.mavenMetadataThreads
             try {
-                for (delay in listOf(50L, 250L)) for (workers in listOf(2, 4)) {
+                // Two batches retain early-publication and concurrency coverage without
+                // repeating the 100-coordinate latency benchmark on every CI run.
+                val benchmark = java.lang.Boolean.getBoolean("versionchecker.mavenLatencyBenchmark")
+                val latencySnapshot = snapshots.first().let {
+                    if (benchmark) it else it.copy(declarations = it.declarations.take(32))
+                }
+                val coordinates = latencySnapshot.declarations.size
+                val delays = if (benchmark) listOf(50L, 250L) else listOf(50L)
+                for (delay in delays) for (workers in listOf(2, 4)) {
                     metadataDelay.set(delay)
                     peakDelayedResponses.set(0)
                     options.mavenMetadataThreads = workers
@@ -492,7 +500,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                     val latencyStarted = System.nanoTime()
                     var firstUseful: Long? = null
                     val report = background {
-                        adapter.checkIncrementally(project, snapshots.first(), UpdateMode.MAJOR) { delta ->
+                        adapter.checkIncrementally(project, latencySnapshot, UpdateMode.MAJOR) { delta ->
                             if (firstUseful == null) {
                                 firstUseful = System.nanoTime() - latencyStarted
                                 assertEquals(16, delta.report.candidates.size)
@@ -501,11 +509,11 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                         }
                     }
                     assertTrue(report.failure.orEmpty(), report.successful)
-                    assertEquals(100, report.candidates.size)
-                    assertEquals(100, requests.size - latencyBefore)
+                    assertEquals(coordinates, report.candidates.size)
+                    assertEquals(coordinates, requests.size - latencyBefore)
                     assertTrue("Native metadata requests overlap", peakDelayedResponses.get() > 1)
                     assertTrue("Native metadata concurrency stays bounded", peakDelayedResponses.get() <= workers)
-                    println("version-check benchmark=maven-latency delayMs=$delay workers=$workers coordinates=100 httpRequests=100 peakDelayedResponses=${peakDelayedResponses.get()} firstBatchNs=$firstUseful elapsedNs=${System.nanoTime() - latencyStarted}")
+                    println("version-check benchmark=maven-latency delayMs=$delay workers=$workers coordinates=$coordinates httpRequests=${requests.size - latencyBefore} peakDelayedResponses=${peakDelayedResponses.get()} firstBatchNs=$firstUseful elapsedNs=${System.nanoTime() - latencyStarted}")
                 }
             } finally { options.mavenMetadataThreads = originalThreads }
         } finally {

@@ -33,13 +33,6 @@ jobs:
     timeout-minutes: 45
     steps:
 
-      # Free GitHub Actions Environment Disk Space
-      - name: Maximize Build Space
-        uses: jlumbroso/free-disk-space@v2.0.0
-        with:
-          tool-cache: false
-          large-packages: false
-
       # Check out the current repository
       - name: Fetch Sources
         uses: actions/checkout@v7
@@ -70,20 +63,12 @@ jobs:
           path: ./build/distributions/*.zip
           if-no-files-found: error
 
-  # Run unit and native repository integration tests and upload test reports
+  # Tests build their own lifecycle-test ZIP; no dependency on the distribution job.
   test:
     name: Test
-    needs: [ build ]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-
-      # Free GitHub Actions Environment Disk Space
-      - name: Maximize Build Space
-        uses: jlumbroso/free-disk-space@v2.0.0
-        with:
-          tool-cache: false
-          large-packages: false
 
       # Check out the current repository
       - name: Fetch Sources
@@ -135,11 +120,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Maximize Build Space
-        uses: jlumbroso/free-disk-space@v2.0.0
-        with:
-          tool-cache: false
-          large-packages: false
       - name: Fetch Sources
         uses: actions/checkout@v7
         with:
@@ -182,20 +162,12 @@ jobs:
             build/test-results/testMaven4
           if-no-files-found: ignore
 
-  # Run plugin structure verification along with IntelliJ Plugin Verifier
+  # Verification builds its own archive and runs alongside tests and distribution packaging.
   verify:
     name: Verify plugin
-    needs: [ build ]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-
-      # Free GitHub Actions Environment Disk Space
-      - name: Maximize Build Space
-        uses: jlumbroso/free-disk-space@v2.0.0
-        with:
-          tool-cache: false
-          large-packages: false
 
       # Check out the current repository
       - name: Fetch Sources
