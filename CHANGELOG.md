@@ -16,6 +16,7 @@
 ### Changed
 
 - Cached dependency review rows preserve original observation age and expiry from cache entries and progress. JSON export schema 2 records relative observation age and expiry status separately from file creation time, with explicit unknown timing and no edit authority or absolute monotonic timestamps.
+- Dependency Versions uses a compact IDE toolbar, literal package/path search and combined build-system/root/outcome/change filters. A details pane exposes full selected-row context; selection and sorting survive result updates, and JSON export follows the displayed sort order.
 
 - New builds require IntelliJ IDEA 2026.1.4 and support the 2026.1/2026.2 release branches. Compile against 2026.1.4 and verify against 2026.1.4 and 2026.2.3; drop the 2025.3 target and use the 2026 Gradle plugin ID (`com.intellij.gradle`).
 
