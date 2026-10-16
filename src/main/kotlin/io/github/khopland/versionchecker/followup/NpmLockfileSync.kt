@@ -35,15 +35,13 @@ internal object NpmLockfileSync {
         }
     }
 
-    fun result(exitCode: Int?, cancelled: Boolean, changed: List<Path>): String = buildString {
-        append(when {
-            cancelled -> "npm lockfile synchronization was cancelled."
-            exitCode == 0 -> "npm lockfile synchronization completed."
-            else -> "npm lockfile synchronization failed${exitCode?.let { " (exit $it)" }.orEmpty()}. Check Node/npm settings, registry access and package constraints, then preview again."
-        })
-        append("\nChanged lockfiles: ")
-        append(if (changed.isEmpty()) "none" else changed.joinToString { it.toString() })
-        if (cancelled || exitCode != 0) append("\nThe command may have written partial changes. Review the lockfile diff before retrying.")
-        append("\nLockfile changes are separate from declaration undo. Review them in your version control diff; installed dependencies were not synchronized.")
-    }
+    fun result(exitCode: Int?, cancelled: Boolean, changed: List<Path>): String = NpmFollowUpOutcome(
+        phase = when {
+            cancelled -> NpmFollowUpOutcome.Phase.CANCELLED
+            exitCode == 0 -> NpmFollowUpOutcome.Phase.COMPLETED
+            else -> NpmFollowUpOutcome.Phase.FAILED
+        },
+        changed = changed,
+        exitCode = exitCode,
+    ).message
 }
