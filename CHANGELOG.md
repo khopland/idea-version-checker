@@ -26,6 +26,7 @@
 - Shared version editing distinguishes result authorization, background input capture and final validation with named guard types while preserving provider callback contracts.
 
 - Gradle metadata checks use a packaged probe script with JSON configuration and a versioned response, preserving native ownership and target validation.
+- Build with Kotlin 2.4.21 and verify the Gradle 9.8.1 distribution against its published SHA-256 checksum.
 
 ### Fixed
 
