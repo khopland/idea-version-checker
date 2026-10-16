@@ -1,6 +1,5 @@
 package io.github.khopland.versionchecker
 
-import com.intellij.openapi.components.service
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -44,8 +43,16 @@ class DependencyReviewActivityTest : BasePlatformTestCase() {
             BulkUpdatePlan(emptyList(), emptyList())
     }
 
+    private fun isolatedService(): VersionCheckService {
+        // Light-platform tests can reuse a project and its cached service observations.
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val service = VersionCheckService(project, scope)
+        Disposer.register(testRootDisposable) { scope.cancel(); service.dispose() }
+        return service
+    }
+
     private fun exerciseDiscovery(fail: Boolean = false, cancel: Boolean = false) {
-        val service = project.service<VersionCheckService>()
+        val service = isolatedService()
         val adapter = GatedDiscovery()
         if (fail) adapter.failure = IllegalStateException("Fixture discovery failed")
         val states = CopyOnWriteArrayList<Boolean>()
@@ -76,9 +83,7 @@ class DependencyReviewActivityTest : BasePlatformTestCase() {
     }
 
     fun testDisposedServiceDoesNotReportActiveDiscovery() {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val service = VersionCheckService(project, scope)
-        Disposer.register(testRootDisposable) { scope.cancel(); service.dispose() }
+        val service = isolatedService()
         val adapter = GatedDiscovery()
         val refresh = service.refresh(listOf(adapter))
         try {
