@@ -6,7 +6,8 @@ import io.github.khopland.versionchecker.core.*
 internal data class DependencyReviewRow(
     val adapter: String, val root: String, val source: DeclarationId, val artifact: String,
     val current: String, val available: String?, val kind: VersionChangeKind?, val outcome: String,
-    val detail: String, val mode: UpdateMode, val checking: Boolean, val checkFailed: Boolean = false
+    val detail: String, val mode: UpdateMode, val checking: Boolean, val checkFailed: Boolean = false,
+    val checkedAtNanos: Long? = null, val expiresAtNanos: Long? = null
 )
 
 internal enum class DependencyReviewFilter { ALL, UPDATES, REVIEW, FAILED }
@@ -40,12 +41,15 @@ internal object DependencyReviewRows {
                     candidate?.version, candidate?.kind, outcome,
                     DiagnosticSanitizer.sanitize(listOfNotNull(notice?.message, coverage?.reason,
                         snapshot.skippedDeclarations[id], report.failure).distinct().joinToString(" ")),
-                    observation.mode, observation.checking, report.failure != null)
+                    observation.mode, observation.checking, report.failure != null,
+                    observation.checkedAtNanos.takeUnless { outcome == "Pending" || outcome == "Coverage unreported" },
+                    observation.expiresAtNanos.takeUnless { outcome == "Pending" || outcome == "Coverage unreported" })
             } + if (ids.isEmpty()) listOf(DependencyReviewRow(snapshot.context.adapterId, snapshot.context.root,
                 DeclarationId(snapshot.sourceFile, ""), "", "", null, null,
                 if (report.failure != null) "Failed" else "No recognized declarations",
                 DiagnosticSanitizer.sanitize(report.failure ?: snapshot.coverageDescription.orEmpty()),
-                observation.mode, observation.checking, report.failure != null)) else emptyList()
+                observation.mode, observation.checking, report.failure != null,
+                observation.checkedAtNanos, observation.expiresAtNanos)) else emptyList()
         }.sortedWith(compareBy({ it.root }, { it.source.file }, { it.adapter }, { it.artifact }, { it.mode.ordinal }))
 
     fun filter(rows: List<DependencyReviewRow>, filter: DependencyReviewFilter,

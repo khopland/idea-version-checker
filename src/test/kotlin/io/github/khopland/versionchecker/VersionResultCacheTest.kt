@@ -8,6 +8,68 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 
 class VersionResultCacheTest {
+    @Test fun `observations use original cache timing when provider report has no timing fields`() {
+        var time = 100L
+        val cache = VersionResultCache { time }
+        val snapshot = snapshot("npm")
+        val report = report(snapshot)
+        assertNull(report.checkedAtNanos)
+        assertNull(report.validUntilNanos)
+        assertTrue(cache.put(snapshot, cache.begin(snapshot), report))
+        val lease = cache.getResult(snapshot, UpdateMode.MAJOR)!!.lease
+        time = 500
+        repeat(3) {
+            val observation = cache.observations().single()
+            assertEquals(100L, observation.checkedAtNanos)
+            assertEquals(lease.expiresAtNanos, observation.expiresAtNanos)
+            assertNull(observation.report.lease)
+            assertNull(observation.report.checkedAtNanos)
+            assertEquals(100L, DependencyReviewRows.from(listOf(observation)).single().checkedAtNanos)
+        }
+        assertTrue("Presentation must not replace edit authorization", lease.isCurrent())
+        time = lease.expiresAtNanos
+        assertTrue(cache.observations().isEmpty())
+        assertFalse(lease.isCurrent())
+    }
+
+    @Test fun `retained progress observations keep earliest observation and original expiry`() {
+        var time = 100L
+        val cache = VersionResultCache { time }
+        val snapshot = snapshot("npm")
+        assertTrue(cache.put(snapshot, cache.begin(snapshot), report(snapshot).copy(checkedAtNanos = 10, validUntilNanos = 1_000)))
+        time = 500
+        val revision = cache.begin(snapshot)
+        val owner = Any()
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(checkedAtNanos = 400, validUntilNanos = 2_000), emptySet())))
+        val first = cache.observations().single()
+        assertTrue(first.checking)
+        assertEquals(10L, first.checkedAtNanos)
+        assertEquals(1_000L, first.expiresAtNanos)
+        time = 900
+        assertTrue(cache.putProgress(presentationAdapter, snapshot, revision, owner,
+            InspectionUpdate(UpdateReport(checkedAtNanos = 800, validUntilNanos = 3_000), emptySet())))
+        assertEquals(first.checkedAtNanos, cache.observations().single().checkedAtNanos)
+        assertEquals(first.expiresAtNanos, cache.observations().single().expiresAtNanos)
+        time = 1_000
+        assertTrue(cache.observations().isEmpty())
+        assertNull(cache.inspectionReport(presentationAdapter, snapshot))
+    }
+
+    @Test fun `failed observations retain their short cache deadline without renewing on read`() {
+        var time = 100L
+        val cache = VersionResultCache { time }
+        val snapshot = snapshot("npm")
+        assertTrue(cache.put(snapshot, cache.begin(snapshot), UpdateReport(failure = "Offline")))
+        val first = cache.observations().single()
+        assertEquals(100L, first.checkedAtNanos)
+        assertEquals(100L + java.util.concurrent.TimeUnit.MINUTES.toNanos(1), first.expiresAtNanos)
+        time = first.expiresAtNanos!! - 1
+        assertEquals(first, cache.observations().single())
+        time++
+        assertTrue(cache.observations().isEmpty())
+    }
+
     @Test fun `scoped partial fixes survive unrelated rows but retire touched declarations without revival`() {
         val cache = VersionResultCache { 100L }
         val original = snapshot("npm")
