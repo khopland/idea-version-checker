@@ -78,6 +78,16 @@ Use a clean rebuild after changing internal constructor signatures if incrementa
 
 The complete validation passed 255 plugin tests with no failures, errors or skips, including authenticated native Maven/npm/Gradle integration and packaged-plugin unload coverage. `check`, `buildPlugin`, `verifyPluginProjectConfiguration` and `verifyPlugin` passed. Both IDEA 2025.3.6.1 and 2026.1.4 remain compatible, with the existing experimental progress API notices and the existing deprecated read-action notice on 2026.1.4. No native editor latency measurement was performed.
 
+## CI and test runtime pass (2026-10-16)
+
+In [the successful Build run before this pass](https://github.com/khopland/idea-version-checker/actions/runs/38961433417), distribution packaging took 2m58s including 1m42s of disk cleanup. Tests and verification then waited for packaging and each repeated roughly two minutes of cleanup. The test runner had 86 GiB free before cleanup. The workflow now starts packaging, tests, Maven 4 integration and verification independently and omits disk cleanup. Release drafts still require all four jobs. The resulting GitHub Actions wall time has not yet been measured.
+
+The Maven sharing integration test retains its 100-module/10,000-declaration workload, cache invalidation, failure recovery, authentication and mode checks. Only the repeated latency measurements are reduced by default: 32 coordinates, 50 ms delay, two and four workers, with the same first-batch, request-count, overlap and concurrency-limit assertions. `-PmavenLatencyBenchmark=true` restores the full 100-coordinate 50/250 ms matrix.
+
+Two isolated local runs on Java 21 measured this test at 40.282s before and 19.923s after. The delayed-request loops accounted for 24.099s before and 1.529s after. These are single test-method measurements including fixture setup, not a full-suite or hosted CI comparison. Existing behavioral tests and native integration gates are retained.
+
+Validation passed 673 plugin tests with Maven/npm/Gradle integration enabled, plus 32 Python tooling tests. The opt-in 100-coordinate latency matrix also passed with all four delay/worker combinations. A clean build with the build cache disabled passed `check buildPlugin verifyPluginProjectConfiguration`. The first incremental run had stale constructor bytecode in six tests; rebuilding without cached outputs resolved it.
+
 ## Check scheduling
 
 Each adapter still runs one native check at a time. A cancellable queue gives manual checks priority, then inspections of selected editor files, then background work. The selected-file set is captured on the EDT and updated by a service-owned editor-selection listener; priorities are evaluated at each handoff. Equal priorities keep arrival order. Running native work is not preempted merely because the selected file changes.
@@ -372,6 +382,8 @@ The [raw CPU record](performance-maven-history-2026-10-10.txt) records the fixtu
 Without a platform-priority batch, Maven starts with at most 16 coordinates from one repository kind, then uses batches of up to 128. An existing platform batch remains the first result. Between completed metadata goals and prerequisite passes, checks can yield their adapter queue to waiting checks of equal or higher priority. Interactive requests lead, selected files follow, and equal priorities rotate in FIFO order. No embedder is borrowed at a handoff; goals remain serialized. Cancelled handoffs remove their request and cannot strand the next slot.
 
 The native 100-module fixture queues a selected module immediately after the background module's first 16 updates. The selected module finishes before the background remainder, and both scans together still require only 100 metadata HTTP requests. Queue regressions separately cover fairness, lower-priority exclusion and cancellation while yielded. `MAVEN_METADATA_WAIT` records consumer wait without adding another native invocation; overlapping native/wait stages are partitioned once.
+
+The full latency fixture is opt-in with `-PmavenIntegration=true -PmavenLatencyBenchmark=true`; ordinary integration runs use 32 coordinates at 50 ms for the same early-publication and bounded-concurrency assertions. The 100-module/10,000-declaration sharing regression still runs in full.
 
 The [delayed-repository record](performance-maven-latency-2026-10-10.txt) checks 100 coordinates with fixed 50/250 ms response delays and two/four workers. Observed simultaneous delayed responses equal the configured limit; every run returns all 100 updates with exactly 100 requests. At 250 ms delay, the first 16 results arrive in 2.12/1.11 seconds and the full result in 12.99/6.55 seconds for two/four workers respectively. These single controlled observations establish overlap, bounded work and early publication; they do not establish production p95, throttling behavior or painted editor latency. The default remains two workers.
 
