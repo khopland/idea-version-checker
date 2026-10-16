@@ -65,6 +65,10 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     internal fun queuedChecks(adapterId: String) = executor.queuedChecks(adapterId)
 
+    /** Passive presentation state, including refresh discovery before executor work is queued. */
+    internal val hasActiveChecks: Boolean
+        get() = !disposed && (manualRefreshes.get() > 0 || executor.isBusy)
+
     internal fun observations() = executor.observations()
 
     internal fun cached(snapshot: BuildSnapshot, mode: UpdateMode = UpdateMode.MAJOR): UpdateReport? = executor.cached(snapshot, mode)
@@ -116,11 +120,15 @@ class VersionCheckService(private val project: Project, private val scope: Corou
             else files.forEach { invalidateSource(adapter.id, it); statusChanged(it) }
         }
         manualRefreshes.incrementAndGet()
+        statusChanged()
         val job = scope.launch(Dispatchers.IO) {
             if (currentFile == null && retryFiles == null) refreshMutex.withLock { refreshNow(adapters, null) }
             else refreshNow(adapters, currentFile, retryFiles = retryFiles)
         }
-        job.invokeOnCompletion { manualRefreshes.decrementAndGet() }
+        job.invokeOnCompletion {
+            manualRefreshes.decrementAndGet()
+            statusChanged()
+        }
         return job
     }
 
