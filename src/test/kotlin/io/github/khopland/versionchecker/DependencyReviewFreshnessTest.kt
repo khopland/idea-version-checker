@@ -46,6 +46,22 @@ class DependencyReviewFreshnessTest {
         assertEquals(0L, DependencyReviewFreshness.elapsedMillis(row.copy(checkedAtNanos = 0), 0))
     }
 
+    @Test fun `overflow cannot turn future or invalid timing into a fresh observation`() {
+        val overflow = row.copy(checkedAtNanos = Long.MAX_VALUE, expiresAtNanos = Long.MIN_VALUE + 1)
+        assertNull(DependencyReviewFreshness.elapsedMillis(overflow, Long.MIN_VALUE))
+        assertNull(DependencyReviewFreshness.remainingMillis(overflow, Long.MIN_VALUE))
+        assertEquals("Unknown", DependencyReviewFreshness.formatAge(overflow, Long.MIN_VALUE))
+        assertEquals("Unknown", DependencyReviewFreshness.formatExpiry(overflow, Long.MIN_VALUE))
+        assertEquals("unknown", DependencyReviewFreshness.expiryStatus(overflow, Long.MIN_VALUE))
+        val invalidInterval = row.copy(checkedAtNanos = Long.MIN_VALUE, expiresAtNanos = Long.MAX_VALUE)
+        assertEquals(0L, DependencyReviewFreshness.elapsedMillis(invalidInterval, Long.MIN_VALUE + 1))
+        assertNull(DependencyReviewFreshness.remainingMillis(invalidInterval, Long.MIN_VALUE + 1))
+        assertEquals("Unknown", DependencyReviewFreshness.formatExpiry(invalidInterval, Long.MIN_VALUE + 1))
+        val reversed = row.copy(checkedAtNanos = seconds(2), expiresAtNanos = seconds(1))
+        assertNull(DependencyReviewFreshness.remainingMillis(reversed, seconds(3)))
+        assertEquals("unknown", DependencyReviewFreshness.expiryStatus(reversed, seconds(3)))
+    }
+
     @Test fun `duration formatting remains useful at hour and day boundaries`() {
         val timed = row.copy(checkedAtNanos = 0)
         assertEquals("1h ago", DependencyReviewFreshness.formatAge(timed, seconds(3_600)))

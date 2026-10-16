@@ -4,7 +4,7 @@ The Dependency Versions review uses bounded, in-memory observations. Observation
 
 Timing comes from the original cache entry or active progress entry, including when the provider's report omits timestamps. Reading, filtering, repainting or exporting an observation does not reset its age or extend its deadline. Retained progress uses its earliest observation and original conservative expiry; it does not claim a separate exact check time for every contributing declaration. Pending declarations and declarations with unreported coverage without an observed result show unknown timing. Expired entries still leave the cache; no durable history or expired-result retention is introduced.
 
-Age and expiry use the process's monotonic clock. Missing or future observation times, missing expiry times and inconsistent intervals remain unknown. Zero is a valid monotonic timestamp. A known deadline reached at the display/export sample is expired. A positive remaining duration below one millisecond is rounded up to one millisecond so exported zero means expired. "Unexpired" only describes the cache deadline; refresh and review still precede editing.
+Age and expiry use the process's monotonic clock. Missing or future observation times, missing expiry times, inconsistent intervals and arithmetic overflow remain unknown. Zero is a valid monotonic timestamp. A known deadline reached at the display/export sample is expired. A positive remaining duration below one millisecond is rounded up to one millisecond so exported zero means expired. "Unexpired" only describes the cache deadline; refresh and review still precede editing.
 
 ## JSON schema 2
 

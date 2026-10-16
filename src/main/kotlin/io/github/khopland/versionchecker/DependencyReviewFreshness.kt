@@ -4,19 +4,11 @@ import java.util.concurrent.TimeUnit
 
 /** Display-only monotonic timing. Unexpired observations do not prove unchanged inputs or authorize edits. */
 internal object DependencyReviewFreshness {
-    fun elapsedMillis(row: DependencyReviewRow, nowNanos: Long = System.nanoTime()): Long? {
-        val checkedAt = row.checkedAtNanos ?: return null
-        val elapsed = nowNanos - checkedAt
-        return elapsed.takeIf { it >= 0 }?.let(TimeUnit.NANOSECONDS::toMillis)
-    }
+    fun elapsedMillis(row: DependencyReviewRow, nowNanos: Long = System.nanoTime()): Long? =
+        elapsedNanos(row, nowNanos)?.let(TimeUnit.NANOSECONDS::toMillis)
 
-    fun remainingMillis(row: DependencyReviewRow, nowNanos: Long = System.nanoTime()): Long? {
-        val checkedAt = row.checkedAtNanos ?: return null
-        val expiresAt = row.expiresAtNanos ?: return null
-        if (elapsedMillis(row, nowNanos) == null || expiresAt - checkedAt <= 0) return null
-        val remaining = expiresAt - nowNanos
-        return if (remaining <= 0) 0 else (remaining - 1) / 1_000_000 + 1
-    }
+    fun remainingMillis(row: DependencyReviewRow, nowNanos: Long = System.nanoTime()): Long? =
+        remainingNanos(row, nowNanos)?.let(::remainingMillis)
 
     fun formatAge(row: DependencyReviewRow, nowNanos: Long = System.nanoTime()): String {
         val elapsed = elapsedMillis(row, nowNanos) ?: return "Unknown"
@@ -24,20 +16,33 @@ internal object DependencyReviewFreshness {
     }
 
     fun formatExpiry(row: DependencyReviewRow, nowNanos: Long = System.nanoTime()): String {
-        val remaining = remainingMillis(row, nowNanos) ?: return "Unknown"
-        val expiresAt = row.expiresAtNanos ?: return "Unknown"
+        val remaining = remainingNanos(row, nowNanos) ?: return "Unknown"
         return when {
-            expiresAt - nowNanos <= 0 -> "Expired"
-            remaining < 1_000 -> "Expires in <1s"
-            else -> "Expires in ${duration(remaining)}"
+            remaining <= 0 -> "Expired"
+            remainingMillis(remaining) < 1_000 -> "Expires in <1s"
+            else -> "Expires in ${duration(remainingMillis(remaining))}"
         }
     }
 
-    fun expiryStatus(row: DependencyReviewRow, nowNanos: Long = System.nanoTime()): String = when {
-        remainingMillis(row, nowNanos) == null -> "unknown"
-        row.expiresAtNanos!! - nowNanos <= 0 -> "expired"
-        else -> "unexpired"
+    fun expiryStatus(row: DependencyReviewRow, nowNanos: Long = System.nanoTime()): String =
+        remainingNanos(row, nowNanos)?.let { if (it <= 0) "expired" else "unexpired" } ?: "unknown"
+
+    private fun elapsedNanos(row: DependencyReviewRow, nowNanos: Long): Long? =
+        row.checkedAtNanos?.let { difference(nowNanos, it)?.takeIf { elapsed -> elapsed >= 0 } }
+
+    private fun remainingNanos(row: DependencyReviewRow, nowNanos: Long): Long? {
+        val checkedAt = row.checkedAtNanos ?: return null
+        val expiresAt = row.expiresAtNanos ?: return null
+        if (elapsedNanos(row, nowNanos) == null || difference(expiresAt, checkedAt)?.let { it > 0 } != true) return null
+        return difference(expiresAt, nowNanos)
     }
+
+    /** Overflow cannot distinguish a wrapped clock from inconsistent timing; display unknown conservatively. */
+    private fun difference(later: Long, earlier: Long): Long? = try {
+        Math.subtractExact(later, earlier)
+    } catch (_: ArithmeticException) { null }
+
+    private fun remainingMillis(nanos: Long): Long = if (nanos <= 0) 0 else (nanos - 1) / 1_000_000 + 1
 
     private fun duration(millis: Long): String = when {
         millis < 60_000 -> "${millis / 1_000}s"

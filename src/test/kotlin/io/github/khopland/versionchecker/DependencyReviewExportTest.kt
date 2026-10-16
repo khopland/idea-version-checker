@@ -62,6 +62,15 @@ class DependencyReviewExportTest {
             assertFalse(private, exported.contains(private))
     }
 
+    @Test fun `export overflow timing stays unknown rather than fresh`() {
+        val overflow = row.copy(checkedAtNanos = Long.MAX_VALUE, expiresAtNanos = Long.MIN_VALUE + 1)
+        val result = JsonParser.parseString(DependencyReviewExport.json(listOf(overflow), "/project", Instant.EPOCH, Long.MIN_VALUE))
+            .asJsonObject.getAsJsonArray("results").single().asJsonObject
+        assertTrue(result.get("observationAgeMillis").isJsonNull)
+        assertTrue(result.get("cacheExpiresInMillis").isJsonNull)
+        assertEquals("unknown", result.get("cacheExpiryStatus").asString)
+    }
+
     @Test fun `export future timestamp is unknown rather than just observed`() {
         val future = row.copy(checkedAtNanos = 10, expiresAtNanos = 100)
         val result = JsonParser.parseString(DependencyReviewExport.json(listOf(future), "/project", Instant.EPOCH, 5))
