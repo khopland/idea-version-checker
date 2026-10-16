@@ -29,7 +29,7 @@ Checks run in the background when IDEA inspects supported build files.
 - **Update one version:** use **Alt+Enter** on a highlighted declaration.
 - **Refresh:** choose **Tools → Check Versions → Refresh Current File / Refresh Whole Project** to query fresh metadata.
 - **Review a batch:** right-click a build file and choose **Review Dependency Updates…**, or use **Tools → Update Versions → Current File / Whole Project**.
-- **Keep results open:** use **View → Tool Windows → Dependency Versions** to inspect cached checks, filter updates/review/failures and change type, open source files, or export the displayed rows as JSON. Use **Refresh Whole Project** and **Review Updates…** there for fresh checks and an editable review.
+- **Keep results open:** use **View → Tool Windows → Dependency Versions** to inspect cached checks, search packages and paths, combine build-system/root/outcome/change filters, inspect selected-row details, open source files, or export the displayed rows in their sort order as JSON. Use **Refresh Whole Project** and **Review Updates…** there for fresh checks and an editable review.
 - **Check status:** click the **Versions** status-bar item for the current file's state and actions.
 
 Bulk previews let you choose an update mode:

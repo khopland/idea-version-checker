@@ -69,6 +69,13 @@ If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) c
 **View → Tool Windows → Dependency Versions** presents cached results. Observation age and cache expiry describe the original cached observation, including failed or skipped checks; they do not prove unchanged build inputs or authorize edits. Reading or exporting results never renews their deadline. Pending rows without an observed result have unknown timing, and expired entries leave the cache.
 
 JSON exports use schema **2** with explicit observation age, remaining cache duration and expiry status. Unknown timing is `null`; zero remaining duration means expired. `generatedAt` is the export creation time, not a dependency-check or release-publication timestamp. Exports omit absolute monotonic timestamps, snapshots and edit leases. See [observation timing and schema details](dependency-observation-timing.md). Refresh and review before editing.
+## Dependency Versions tool window
+
+Open **View → Tool Windows → Dependency Versions** to browse cached observations. The toolbar offers **Refresh Whole Project**, **Review Updates…**, **Open Source** and **Export JSON…**. Opening the window, typing a search, changing filters, sorting or selecting a row does not query repositories. Use Refresh for fresh checks and Review before applying changes.
+
+Search matches literal package names and source/build paths, ignoring case. Combine it with **Build system**, **Build root**, **Outcome** and **Change** filters; **Clear filters** restores all cached rows. No matches means the current filters hide the results. An empty cache can follow expiry, invalidation or a check that has not run; the window does not infer which occurred.
+
+The table initially shows package, current/available versions, change, outcome and observation age. Observation ages sort numerically; unknown timing stays explicit. Select a row for its physical source, originating check/module, declaration, build root, mode, observation age, cache expiry and diagnostic details. Selection and sorting survive refreshed observations when the same declaration remains visible in the same check context; shared catalog targets from other modules cannot silently replace a selection. Press **Ctrl+F** (or **⌘F**) to focus search, use the arrow keys to select rows, and press **Enter** to open the selected physical source file. Open Source is unavailable when the selection or file is unavailable. JSON exports contain only the filtered rows, in the displayed sort order, with sanitized details and project-relative source paths; external paths are redacted.
 
 ## Bulk updates and submodules
 
