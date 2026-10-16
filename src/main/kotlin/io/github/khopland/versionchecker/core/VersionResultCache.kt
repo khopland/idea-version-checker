@@ -159,14 +159,16 @@ internal class VersionResultCache(
     /** Presentation only: bounded, unexpired observations with no edit lease or provider calls.
      * Build inputs may have changed since checking; consumers must label these as cached results. */
     data class Observation(val snapshot: BuildSnapshot, val report: UpdateReport, val mode: UpdateMode,
-                           val checking: Boolean)
+                           val checking: Boolean, val checkedAtNanos: Long? = null, val expiresAtNanos: Long? = null)
 
     @Synchronized fun observations(): List<Observation> {
         sweep(force = true)
         return contexts.values.flatMap { state ->
             val progress = state.progress
-            if (progress != null) listOf(Observation(progress.snapshot, progress.report().copy(lease = null), UpdateMode.MAJOR, true))
-            else state.entries.map { (mode, entry) -> Observation(entry.snapshot, entry.report.copy(lease = null), mode, false) }
+            if (progress != null) listOf(Observation(progress.snapshot, progress.report().copy(lease = null), UpdateMode.MAJOR, true,
+                progress.checkedAtNanos, progress.expiresAtNanos))
+            else state.entries.map { (mode, entry) -> Observation(entry.snapshot, entry.report.copy(lease = null), mode, false,
+                entry.checkedAtNanos, entry.expiresAtNanos) }
         }
     }
 

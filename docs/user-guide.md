@@ -64,6 +64,12 @@ When a quick fix rejects changed files or settings, it leaves the files untouche
 
 If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) can render these standard inspection messages using its own display. No dependency on that plugin is required.
 
+## Cached observations and JSON exports
+
+**View → Tool Windows → Dependency Versions** presents cached results. Observation age and cache expiry describe the original cached observation, including failed or skipped checks; they do not prove unchanged build inputs or authorize edits. Reading or exporting results never renews their deadline. Pending rows without an observed result have unknown timing, and expired entries leave the cache.
+
+JSON exports use schema **2** with explicit observation age, remaining cache duration and expiry status. Unknown timing is `null`; zero remaining duration means expired. `generatedAt` is the export creation time, not a dependency-check or release-publication timestamp. Exports omit absolute monotonic timestamps, snapshots and edit leases. See [observation timing and schema details](dependency-observation-timing.md). Refresh and review before editing.
+
 ## Bulk updates and submodules
 
 Right-click a supported build file in the editor and choose **Review Dependency Updates…** to start with patch updates for that file. You can change scope and update mode inside the preview. **Tools → Update Versions → Current File / Whole Project** also opens the preview. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven, npm and Gradle are implemented adapters; a mixed project gets one combined preview. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:

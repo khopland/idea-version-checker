@@ -3,16 +3,21 @@ package io.github.khopland.versionchecker
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.google.gson.JsonNull
+import com.google.gson.JsonPrimitive
 import io.github.khopland.versionchecker.core.DiagnosticSanitizer
 import java.nio.file.Path
 import java.time.Instant
 
 /** Explicit presentation export. It contains no cached inputs, native diagnostics or edit authority. */
 internal object DependencyReviewExport {
-    fun json(rows: List<DependencyReviewRow>, basePath: String?, generatedAt: Instant = Instant.now()): String {
+    fun json(rows: List<DependencyReviewRow>, basePath: String?, generatedAt: Instant = Instant.now(),
+             nowNanos: Long = System.nanoTime()): String {
         val document = JsonObject().apply {
-            addProperty("schemaVersion", 1)
+            addProperty("schemaVersion", 2)
             addProperty("generatedAt", generatedAt.toString())
+            addProperty("generatedAtPurpose", "export-creation")
+            addProperty("observationTimingBasis", "monotonic-durations-at-export")
             addProperty("scope", "cached-observations")
             addProperty("requiresFreshReviewBeforeEditing", true)
             add("results", JsonArray().apply {
@@ -30,10 +35,15 @@ internal object DependencyReviewExport {
                     addProperty("mode", row.mode.name.lowercase())
                     addProperty("checking", row.checking)
                     addProperty("checkFailed", row.checkFailed)
+                    add("observationAgeMillis", DependencyReviewFreshness.elapsedMillis(row, nowNanos)
+                        ?.let(::JsonPrimitive) ?: JsonNull.INSTANCE)
+                    add("cacheExpiresInMillis", DependencyReviewFreshness.remainingMillis(row, nowNanos)
+                        ?.let(::JsonPrimitive) ?: JsonNull.INSTANCE)
+                    addProperty("cacheExpiryStatus", DependencyReviewFreshness.expiryStatus(row, nowNanos))
                 }) }
             })
         }
-        return GsonBuilder().setPrettyPrinting().create().toJson(document) + "\n"
+        return GsonBuilder().serializeNulls().setPrettyPrinting().create().toJson(document) + "\n"
     }
 
     private fun safe(value: String) = DiagnosticSanitizer.sanitize(value)
