@@ -22,6 +22,7 @@ import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.*
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.model.MavenModel
+import org.jetbrains.idea.maven.model.MavenParent
 import org.jetbrains.idea.maven.model.MavenArtifactInfo
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import org.jetbrains.idea.maven.project.MavenProject
@@ -1151,8 +1152,20 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             assertTrue(metadataRequests.get() > beforePublication)
             publishedVersion.set("2.0")
 
-            manager.projectsTree.putVirtualFileToProjectMapping(mavenProject, mavenProject.mavenId)
-            manager.projectsTree.putVirtualFileToProjectMapping(childProject, childProject.mavenId)
+            // Native goal checks above accept a standalone POM. Registering imported projects below
+            // also requires their effective model: property resolution reads the child's inherited state.
+            for (imported in listOf(mavenProject, childProject)) {
+                imported.updateState(MavenModel().apply {
+                    mavenId = imported.mavenId
+                    setProperties(java.util.Properties().apply {
+                        setProperty("fixture.version", "1.0")
+                        setProperty("fixture-plugin.version", "1.0")
+                    })
+                    if (imported == childProject) setParent(MavenParent(mavenProject.mavenId, "../pom.xml"))
+                }, emptyList(), "21", emptyList(), MavenExplicitProfiles(listOf("fixture-profile")),
+                    emptySet(), emptyMap(), directory.resolve("repository"), false)
+                manager.projectsTree.putVirtualFileToProjectMapping(imported, imported.mavenId)
+            }
             val native = BuildSystemAdapter.find("maven")!!
             val snapshot = native.snapshot(project, virtualFile)!!
             val firstCategory = CompletableDeferred<InspectionUpdate>()

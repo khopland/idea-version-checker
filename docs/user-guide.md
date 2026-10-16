@@ -86,6 +86,14 @@ Routine hints show the package, update kind and declared version change. **Alt+E
 
 Refresh and preview actions save relevant build inputs, including required sibling declarations and configuration, while preserving unrelated unsaved editing. Applying a preview saves only the selected edit files. Custom build scripts can read inputs outside the supported adapters' tracked files; save those explicitly before native resolution.
 
+## Override an inherited Maven version property
+
+For a dependency controlled by a property in your Maven parent chain, **Alt+Enter → Define &lt;property&gt; as … in this POM** adds that exact property under the child POM's `<properties>`. For example, a parent declaration using `${junit.version}` can be overridden by adding `<junit.version>4.13.2</junit.version>` locally. The action follows exact references and aliases to the controlling literal property; it never guesses the property name from an artifact or a matching version number. Existing local properties keep their normal update action. The parent and dependency version references remain unchanged.
+
+The action's XML preview lists checked artifacts separately from unused managed entries whose metadata changes without a version check. It also works for a dependency inherited from the parent when the child has no dependency declaration; unused parent management catalogs do not expand editor checks. All actual used or resolved shared consumers must have an agreed candidate version; unused ordinary dependency-management entries need no extra query. BOM imports and plugin-management references remain subject to candidate agreement. An unchecked, ignored or conflicting active consumer, a separately overridden dependency version, a non-version property use, an ambiguous parent profile, or a `.mvn` property override requires manual review. Creation is also withheld when this POM has imported descendant modules, including ignored modules, because those modules would inherit the override. Properties inside an **imported BOM** have their own interpolation context and cannot be overridden this way; review an explicit `dependencyManagement` entry instead.
+
+Apply uses the IDE's undo command and rejects changed results, POMs, parent source files or Maven settings. Save and reload Maven, then inspect its effective dependency versions. A newer available version is not evidence that it fixes a vulnerability or remains compatible with Spring Boot's tested dependency set. Prefer a parent upgrade when appropriate; automatic vulnerability checks, reload verification and redundant-override cleanup are not provided by this action.
+
 ## Maven repositories and settings.xml
 
 The plugin uses IDEA's existing Maven server rather than querying a public dependency search service. Maven handles the effective repositories, active settings profiles, mirrors, server credentials, encrypted credentials, proxies, and local repository using IDEA's Maven configuration.
@@ -233,6 +241,8 @@ The locally opt-in integration tests start IDEA's real Maven server with both an
 
 ```bash
 ./gradlew test -PmavenIntegration=true --tests '*MavenSettingsIntegrationTest'
+# Prove a newly defined child property changes effective management and inherited dependencies.
+./gradlew test -PmavenIntegration=true --tests '*MavenInheritedVersionFixTest'
 # Maven 4 regressions execute on IDEA 2026.2.3; provide an extracted Maven 4 distribution.
 ./gradlew testMaven4 -Pmaven4Home=/path/to/apache-maven-4.0.0-rc-7
 ```

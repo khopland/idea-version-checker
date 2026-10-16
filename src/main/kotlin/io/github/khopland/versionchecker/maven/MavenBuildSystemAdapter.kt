@@ -99,7 +99,7 @@ internal class MavenBuildSystemAdapter(
             }
             VersionDeclaration(DeclarationId(file.path, "${coordinate.artifactKind.name}:${tag.textOffset}"), coordinate.artifactId(),
                 tag.findFirstSubTag("version")?.value?.trimmedText ?: coordinate.version, coordinate.version)
-        } + analysis.propertyConsumers.filter { it.tag.containingFile != psi }.map { consumer ->
+        } + (analysis.propertyConsumers + analysis.observedInheritedPropertyConsumers).filter { it.tag.containingFile != psi }.map { consumer ->
             val coordinate = consumer.coordinate
             VersionDeclaration(DeclarationId(file.path,
                 "${coordinate.artifactKind.name}:property:${consumer.target.textOffset}:${consumer.tag.containingFile.virtualFile.path}:${consumer.tag.textOffset}"),

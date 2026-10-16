@@ -42,6 +42,11 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
         manager = MavenProjectsManager.getInstance(project)
         manager.initForTests()
+        System.getProperty("versionchecker.mavenHome")?.takeIf { it.isNotBlank() }?.let { home ->
+            val path = Path.of(home)
+            VfsRootAccess.allowRootAccess(testRootDisposable, path.toString(), path.toRealPath().toString())
+            manager.generalSettings.setMavenHome(path.toString())
+        }
         manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
     }
 
@@ -540,11 +545,228 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertTrue(documents.isFileModified(source.virtualFile))
     }
 
+    fun testDefineInheritedPropertyPreservesReferencesAndParentAndShowsPreview() {
+        val parent = imported("define-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("define-child", dependency(), "define-parent")
+        val before = parent.text
+        val fix = fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single()
+        assertTrue(fix.name, fix.name.contains("<junit.version>"))
+        assertTrue(fix.name, fix.name.contains("1 checked artifact"))
+        val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
+            declaration(child), "Newer version", fix, ProblemHighlightType.WARNING, true)
+        assertTrue(fix.generatePreview(project, descriptor) is com.intellij.codeInsight.intention.preview.IntentionPreviewInfo.CustomDiff)
+        assertNull(child.rootTag!!.findFirstSubTag("properties"))
+        apply(fix, declaration(child))
+        assertEquals("4.13.2", child.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("junit.version")!!.value.trimmedText)
+        assertNull(declaration(child).findFirstSubTag("version"))
+        assertEquals(before, parent.text)
+    }
+
+    fun testCreatingInheritedPropertyCanBeUndone() {
+        imported("undo-define-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("undo-define-child", dependency(), "undo-define-parent")
+        myFixture.configureFromExistingVirtualFile(child.virtualFile)
+        val before = child.text
+        apply(fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single(), declaration(child))
+        val editor = com.intellij.openapi.fileEditor.impl.text.TextEditorProvider.getInstance().getTextEditor(myFixture.editor)
+        val undo = com.intellij.openapi.command.undo.UndoManager.getInstance(project)
+        assertTrue(undo.isUndoAvailable(editor))
+        undo.undo(editor)
+        PsiDocumentManager.getInstance(project).commitAllDocuments()
+        assertEquals(before, child.text)
+    }
+
+    fun testNativeEffectivePomUsesNewInheritedPropertyForManagedOnlyChild() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        imported("native-define-parent", "<packaging>pom</packaging><properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}") + dependency())
+        val child = imported("native-define-child", "", "native-define-parent")
+        WriteCommandAction.runWriteCommandAction(project) {
+            val parent = child.rootTag!!.findFirstSubTag("parent")!!
+            parent.addSubTag(parent.createChildTag("relativePath", parent.namespace, "../native-define-parent/pom.xml", false), false)
+        }
+        val pom = manager.findProject(child.virtualFile)!!
+        val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(child)!!, pom,
+            mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2"))
+        val problem = analysis.inheritedPropertyProblems().single()
+        apply(analysis.inheritedPropertyQuickFixes(problem).single(), problem.anchor)
+        FileDocumentManager.getInstance().saveAllDocuments()
+        val effective = PlatformTestUtil.waitForFuture(com.intellij.openapi.application.ApplicationManager.getApplication()
+            .executeOnPooledThread(java.util.concurrent.Callable {
+                kotlinx.coroutines.runBlocking { withMavenCheckSession(manager, pom) {
+                    it.evaluateEffectivePom(java.io.File(child.virtualFile.path), emptySet(), emptySet())
+                } }
+            }), 120_000) ?: error("No native effective POM")
+        val root = com.intellij.openapi.util.JDOMUtil.load(effective)
+        val dependencies = root.getChild("dependencyManagement", root.namespace).getChild("dependencies", root.namespace)
+        assertEquals("4.13.2", dependencies.getChild("dependency", root.namespace).getChildTextTrim("version", root.namespace))
+        assertEquals("4.13.2", root.getChild("dependencies", root.namespace).getChild("dependency", root.namespace)
+            .getChildTextTrim("version", root.namespace))
+        assertNull(child.rootTag!!.findFirstSubTag("dependencies"))
+    }
+
+    fun testDefinePropertyWithoutChildDependencyDeclaration() {
+        val parent = imported("managed-only-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}") + dependency())
+        val child = imported("managed-only-child", "", "managed-only-parent")
+        val snapshot = MavenBuildSystemAdapter().snapshot(project, child.virtualFile)!!
+        assertEquals(listOf(DependencyVersion("junit", "junit", "4.12")), snapshot.declarations.map { it.coordinate() })
+        val warning = inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results.single()
+        val parentText = parent.text
+        val fix = warning.fixes!!.filterIsInstance<DefineInheritedMavenPropertyFix>().single()
+        apply(fix, child.rootTag!!.findFirstSubTag("parent")!!)
+        assertEquals("4.13.2", child.rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
+        assertNull(child.rootTag!!.findFirstSubTag("dependencies"))
+        assertEquals(parentText, parent.text)
+    }
+
+    fun testCreatingInheritedPropertyRejectsStaleInputsAndResultLease() {
+        imported("stale-define-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("stale-define-child", dependency(), "stale-define-parent")
+        val warning = inspect(child, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results.single()
+        val fix = warning.fixes!!.filterIsInstance<DefineInheritedMavenPropertyFix>().single()
+        project.service<VersionCheckService>().invalidateForPreview(BuildSystemAdapter.find("maven")!!, child.virtualFile)
+        apply(fix, declaration(child))
+        assertNull(child.rootTag!!.findFirstSubTag("properties"))
+        val fresh = fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single()
+        WriteCommandAction.runWriteCommandAction(project) { declaration(child).findFirstSubTag("artifactId")!!.value.setText("changed") }
+        apply(fresh, declaration(child))
+        assertNull(child.rootTag!!.findFirstSubTag("properties"))
+    }
+
+    fun testCreatingInheritedPropertyRequiresAllConsumersToAgree() {
+        imported("conflict-define-parent", """<properties><shared.version>4.12</shared.version></properties>
+            <dependencyManagement><dependencies>
+            <dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>${'$'}{shared.version}</version></dependency>
+            <dependency><groupId>other</groupId><artifactId>library</artifactId><version>${'$'}{shared.version}</version></dependency>
+            </dependencies></dependencyManagement>""")
+        val child = imported("conflict-define-child", dependency().replace("</dependencies>",
+            "<dependency><groupId>other</groupId><artifactId>library</artifactId><version>\${shared.version}</version></dependency></dependencies>"), "conflict-define-parent")
+        for (other in listOf(null, "5.0")) {
+            val updates = mutableMapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")
+            if (other != null) updates[DependencyVersion("other", "library", "4.12")] = other
+            val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(child)!!, manager.findProject(child.virtualFile)!!, updates)
+            assertTrue(analysis.quickFixes(declaration(child), analysis.problem(declaration(child))!!).none { it is DefineInheritedMavenPropertyFix })
+        }
+    }
+
+    fun testUnusedSharedManagementDoesNotNeedACandidateOrExtraQuery() {
+        imported("unused-family-parent", """<properties><shared.version>4.12</shared.version></properties>
+            <dependencyManagement><dependencies>
+            <dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>${'$'}{shared.version}</version></dependency>
+            <dependency><groupId>other</groupId><artifactId>unused</artifactId><version>${'$'}{shared.version}</version></dependency>
+            </dependencies></dependencyManagement>""")
+        val child = imported("unused-family-child", dependency(), "unused-family-parent")
+        val snapshot = MavenBuildSystemAdapter().snapshot(project, child.virtualFile)!!
+        assertEquals(listOf(DependencyVersion("junit", "junit", "4.12")), snapshot.declarations.map { it.coordinate() })
+        val fix = fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single()
+        assertTrue(fix.name.contains("1 checked artifact"))
+        val descriptor = InspectionManager.getInstance(project).createProblemDescriptor(
+            declaration(child), "Newer version", fix, ProblemHighlightType.WARNING, true)
+        val preview = fix.generatePreview(project, descriptor) as com.intellij.codeInsight.intention.preview.IntentionPreviewInfo.CustomDiff
+        assertTrue(preview.fileName(), preview.fileName()!!.contains("unused managed entries changed but unchecked: other:unused"))
+        apply(fix, declaration(child))
+        assertEquals("4.13.2", child.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("shared.version")!!.value.trimmedText)
+    }
+
+    fun testUncheckedBomImportAndPluginManagementStillBlockSharedPropertyCreation() {
+        val extraUses = listOf(
+            """<dependencyManagement><dependencies><dependency><groupId>other</groupId><artifactId>bom</artifactId>
+                <version>${'$'}{shared.version}</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement>""",
+            """<build><pluginManagement><plugins><plugin><groupId>other</groupId><artifactId>plugin</artifactId>
+                <version>${'$'}{shared.version}</version></plugin></plugins></pluginManagement></build>""")
+        for ((index, extra) in extraUses.withIndex()) {
+            imported("active-family-parent-$index", "<properties><shared.version>4.12</shared.version></properties>" +
+                dependency("<version>\${shared.version}</version>") + extra)
+            val child = imported("active-family-child-$index", dependency("<version>\${shared.version}</version>"), "active-family-parent-$index")
+            assertTrue("Unchecked active consumer $index", fixes(child).none { it is DefineInheritedMavenPropertyFix })
+        }
+    }
+
+    fun testExplicitDifferentVersionRequiresFamilyContextReview() {
+        imported("explicit-family-parent", """<properties><shared.version>4.12</shared.version></properties>
+            <dependencyManagement><dependencies>
+            <dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>${'$'}{shared.version}</version></dependency>
+            <dependency><groupId>other</groupId><artifactId>library</artifactId><version>${'$'}{shared.version}</version></dependency>
+            </dependencies></dependencyManagement>""")
+        val child = imported("explicit-family-child", dependency().replace("</dependencies>",
+            "<dependency><groupId>other</groupId><artifactId>library</artifactId><version>5.0</version></dependency></dependencies>"), "explicit-family-parent")
+        assertTrue(fixes(child).none { it is DefineInheritedMavenPropertyFix })
+    }
+
+    fun testCreatingInheritedPropertyRejectsNonVersionUsesAndProfiles() {
+        for ((index, extra) in listOf("<name>\${junit.version}</name>",
+            "<profiles><profile><id>on</id><properties><junit.version>4.12</junit.version></properties></profile></profiles>").withIndex()) {
+            imported("unsafe-define-parent-$index", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}") + extra,
+                activatedProfiles = listOf("on"))
+            val child = imported("unsafe-define-child-$index", dependency(), "unsafe-define-parent-$index")
+            assertTrue("Unsafe inherited property case $index", fixes(child).none { it is DefineInheritedMavenPropertyFix })
+        }
+    }
+
+    fun testImportedBomPropertyIsNotShadowed() {
+        imported("unrelated-bom", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("bom-import-child", """<dependencyManagement><dependencies><dependency>
+            <groupId>demo</groupId><artifactId>unrelated-bom</artifactId><version>1</version><type>pom</type><scope>import</scope>
+            </dependency></dependencies></dependencyManagement>""" + dependency())
+        assertTrue(fixes(child).none { it is DefineInheritedMavenPropertyFix })
+    }
+
+    fun testUnusedInheritedManagementCatalogDoesNotExpandSnapshot() {
+        imported("catalog-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("catalog-child", "", "catalog-parent")
+        assertTrue(MavenBuildSystemAdapter().snapshot(project, child.virtualFile)!!.declarations.isEmpty())
+    }
+
+    fun testCreatingPropertyDeclinesImportedDescendantSubtree() {
+        imported("subtree-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("subtree-child", dependency(), "subtree-parent")
+        val grandchild = imported("subtree-grandchild", dependency(), "subtree-child")
+        assertTrue(fixes(child).none { it is DefineInheritedMavenPropertyFix })
+        manager.projectsTree.setIgnoredState(listOf(manager.findProject(grandchild.virtualFile)!!), true)
+        assertTrue("Ignored descendants still inherit this property", fixes(child).none { it is DefineInheritedMavenPropertyFix })
+    }
+
+    fun testUnimportedParentSavedBytesAreValidatedBeforeCreatingProperty() {
+        val parent = imported("external-define-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("external-define-child", dependency(), "external-define-parent")
+        manager.projectsTree.setIgnoredState(listOf(manager.findProject(parent.virtualFile)!!), true)
+        val fix = fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single()
+        val path = parent.virtualFile.toNioPath()
+        val stamp = Files.getLastModifiedTime(path)
+        Files.writeString(path, Files.readString(path).replace("junit.version", "other.version"))
+        Files.setLastModifiedTime(path, stamp)
+        apply(fix, declaration(child))
+        assertNull(child.rootTag!!.findFirstSubTag("properties"))
+    }
+
+    fun testMavenConfigPropertyPreventsIneffectiveLocalDefinition() {
+        imported("config-define-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("config-define-child", dependency(), "config-define-parent")
+        val config = Files.createDirectories(directory.resolve(".mvn")).resolve("maven.config")
+        Files.writeString(config, "-Dother.version=4.12")
+        val virtual = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(config)!!
+        assertTrue(fixes(child).any { it is DefineInheritedMavenPropertyFix })
+        val document = FileDocumentManager.getInstance().getDocument(virtual)!!
+        WriteCommandAction.runWriteCommandAction(project) {
+            document.setText("-Djunit.version=4.12")
+        }
+        assertTrue(FileDocumentManager.getInstance().isDocumentUnsaved(document))
+        assertEquals("-Dother.version=4.12", Files.readString(config))
+        assertTrue("Unsaved Maven config properties also override a new POM definition",
+            fixes(child).none { it is DefineInheritedMavenPropertyFix })
+    }
+
+    fun testInheritedPropertyAliasCreatesExactLiteralOwnerName() {
+        imported("alias-define-parent", "<properties><junit.version>\${shared.version}</junit.version><shared.version>4.12</shared.version></properties>" + management("\${junit.version}"))
+        val child = imported("alias-define-child", dependency(), "alias-define-parent")
+        apply(fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single(), declaration(child))
+        assertEquals("shared.version", child.rootTag!!.findFirstSubTag("properties")!!.subTags.single().localName)
+    }
+
     private fun dependency(version: String = "") = """<dependencies><dependency>
         <groupId>junit</groupId><artifactId>junit</artifactId>$version<scope>test</scope>
         </dependency></dependencies>"""
 
-    private fun declaration(file: XmlFile) = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags.single()
+    private fun declaration(file: XmlFile) = file.rootTag!!.findFirstSubTag("dependencies")!!.subTags.first()
 
     private fun fixes(file: XmlFile): Array<LocalQuickFix> {
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
@@ -603,7 +825,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val parent = imported("parent", "<properties><junit.version>4.12</junit.version></properties>")
         val child = imported("child", dependency("<version>\${junit.version}</version>"), "parent")
         val options = fixes(child)
-        assertEquals(2, options.size)
+        assertEquals(3, options.size)
         apply(options[0], declaration(child))
         assertEquals("4.13.2", declaration(child).findFirstSubTag("version")!!.value.trimmedText)
         assertEquals("4.12", parent.rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)

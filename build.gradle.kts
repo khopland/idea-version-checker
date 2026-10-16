@@ -136,6 +136,7 @@ intellijPlatformTesting {
                 includeTestsMatching("*MavenSettingsIntegrationTest.testSettingsProfileMirrorAndServerAuthentication")
                 includeTestsMatching("*MavenSettingsIntegrationTest.testMaven4Model41SettingsProfileMirrorAndServerAuthentication")
                 includeTestsMatching("*MavenSettingsIntegrationTest.testActiveProfilePropertyEditsChangeTheNativeEffectiveDependencyVersion")
+                includeTestsMatching("*MavenInheritedVersionFixTest.testNativeEffectivePomUsesNewInheritedPropertyForManagedOnlyChild")
                 includeTestsMatching("*MavenSettingsIntegrationTest.testMinimumReleaseAgeWithholdsRecentVersionsInNativeAndFallbackChecks")
                 includeTestsMatching("*MavenSettingsIntegrationTest.testMetadataResponsesKeepTheSelectedModulesRepositories")
             }

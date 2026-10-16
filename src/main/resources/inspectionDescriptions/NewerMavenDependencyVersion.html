@@ -15,8 +15,17 @@ conflicting or unchanged consumers require review. Bulk previews list inherited 
 <p>For inherited dependency versions, choose <b>Override version locally</b> to add or replace the child dependency's version,
 or <b>Update parent version</b> to change its controlling version/property in an imported, non-ignored parent POM.
 The parent action names the POM it edits and can follow multiple parent levels. Shared consumers inherit that update.
-Changes to POMs or configuration invalidate these fixes. External parent declarations and composite expressions require manual review.</p>
+Changes to POMs or configuration invalidate these fixes. Editing external parent declarations and composite expressions requires manual review.</p>
+<p>When a dependency version comes from an exact property in the parent chain, <b>Define &lt;property&gt; in this POM</b>
+creates the matching property under the child's <code>&lt;properties&gt;</code>. The XML preview lists the affected artifacts;
+all used consumers must agree on the same update. Unused ordinary management entries are listed separately as unchecked metadata changes;
+BOM imports and plugin-management references still require agreed checks. The parent and its version references remain unchanged.
+Inherited dependencies are checked even without a child dependency declaration; unused parent management catalogs are omitted.
+Imported BOM properties, profile ambiguity, non-version uses, Maven config overrides and imported descendant subtrees require manual review.
+An existing local property keeps its normal update action. The action uses the IDE's undo command and stale-input guards.
+Reload Maven to check the resulting effective dependency versions; availability of a newer version does not establish a security fix
+or compatibility with the parent's tested dependency set. Parent upgrades and removal of redundant overrides remain manual decisions.</p>
 <p>Build plugins in build/plugins and build/pluginManagement/plugins are supported.
 A <code>&lt;parent&gt;</code> version is updated in place when the parent is not a project in the workspace.
-Snapshots, version ranges, reporting plugins, build extensions and transitive dependencies are outside this inspection's scope.</p>
+Snapshots, version ranges, reporting plugins, build extensions and unmanaged transitive dependencies are outside this inspection's scope.</p>
 </body></html>
