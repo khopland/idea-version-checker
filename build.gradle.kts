@@ -16,12 +16,12 @@ dependencies {
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
     intellijPlatform {
-        intellijIdea("2025.3.6.1")
+        intellijIdea("2026.1.4")
         testFramework(TestFrameworkType.Platform)
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.idea.maven")
-        bundledPlugin("org.jetbrains.plugins.gradle")
+        bundledPlugin("com.intellij.gradle")
         bundledPlugin("JavaScript")
         bundledPlugin("com.intellij.modules.json")
     }
@@ -79,7 +79,8 @@ intellijPlatform {
             changelog.renderItem(entry.withHeader(false), Changelog.OutputType.HTML)
         }
         ideaVersion {
-            sinceBuild = "253.33813.55"
+            sinceBuild = "261.26222.65"
+            untilBuild = "262.*"
         }
     }
     publishing {
@@ -93,7 +94,6 @@ intellijPlatform {
     }
     pluginVerification {
         ides {
-            create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdea, "2025.3.6.1")
             create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdea, "2026.1.4")
             create(org.jetbrains.intellij.platform.gradle.IntelliJPlatformType.IntellijIdea, "2026.2.3")
         }
@@ -123,7 +123,7 @@ intellijPlatformTesting {
             disablePlugin("com.intellij.modules.ultimate")
             bundledPlugin("com.intellij.java")
             bundledPlugin("org.jetbrains.idea.maven")
-            bundledPlugin("org.jetbrains.plugins.gradle")
+            bundledPlugin("com.intellij.gradle")
             bundledPlugin("JavaScript")
             bundledPlugin("com.intellij.modules.json")
         }

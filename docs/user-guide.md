@@ -23,7 +23,7 @@ The parent choice is available only when the controlling declaration can be iden
 
 ## Install and use
 
-Requires IntelliJ IDEA **2025.3.6.1 or later**. Enable the bundled Java and Maven plugins for Maven projects, the bundled Gradle plugin for Gradle projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2025.3.6.1.
+Requires IntelliJ IDEA **2026.1.4 through 2026.2.x**. Enable the bundled Java and Maven plugins for Maven projects, the bundled Gradle plugin for Gradle projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2026.1.4.
 
 The plugin supports dynamic loading and unloading, allowing IDEA to enable, disable or update it without a restart when the IDE permits it. Unloading cancels background checks and scheduled timers and closes pending update previews. Previews use non-modal windows; build-file changes still invalidate a preview before it can apply edits.
 
@@ -211,7 +211,7 @@ Maven/npm performance changes restrict dependency goals to supported snapshot co
 ./gradlew verifyPlugin
 ```
 
-Compatibility checks target IDEA 2025.3.6.1, 2026.1.4 and 2026.2.3. Verifier compatibility and headless integration tests do not replace native workflow checks; see the [1.3.0 acceptance record](release-acceptance-1.3.0/README.md).
+Compatibility checks target IDEA 2026.1.4 and 2026.2.3. Verifier compatibility and headless integration tests do not replace native workflow checks; see the [1.3.0 acceptance record](release-acceptance-1.3.0/README.md).
 
 Build and release CI enable the native Maven/npm/Gradle integration tests; local runs can opt in using the flags below. The test task builds the distributable ZIP. Lifecycle tests load that ZIP with IDEA's real plugin class loader, exercise repeated unload/reload cycles, and check service disposal, cancellation of active checks and timers, closure of open previews, and class-loader collection. Dialog tests use the platform's headless UI interception; native window behavior can be checked with `runIde`.
 

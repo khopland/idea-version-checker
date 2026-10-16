@@ -13,8 +13,15 @@ import com.intellij.psi.xml.XmlFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.project.MavenProject
+import org.jetbrains.idea.maven.project.MavenProjectsManager
 
 class BulkUpdatePlanTest : BasePlatformTestCase() {
+    override fun setUp() {
+        super.setUp()
+        // IDEA 2026 resolves DOM properties only after the Maven manager is initialized.
+        MavenProjectsManager.getInstance(project).initForTests()
+    }
+
     private fun plan(body: String, updates: Map<DependencyVersion, String>, options: VersionCheckerSettings.Options = VersionCheckerSettings.Options()): BulkUpdatePlan {
         val file = myFixture.configureByText("pom.xml", """
             <project xmlns="http://maven.apache.org/POM/4.0.0">
