@@ -15,6 +15,8 @@ internal interface BuildSystemAdapter {
     fun supports(project: Project, selection: BuildSelection): Boolean
     /** Explicit IDE reload after declaration edits; providers own optional platform APIs. */
     fun reloadProject(project: Project): Boolean = false
+    /** Await a provider reload on IO, or return null to use the synchronous request fallback. */
+    suspend fun reloadProjectInBackground(project: Project): Boolean? = null
     fun verifyUpdatedVersions(project: Project, changes: io.github.khopland.versionchecker.AppliedVersionChanges,
                               publish: (String) -> Unit) = Unit
     fun isOffline(project: Project): Boolean

@@ -563,7 +563,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
     }
 
     fun testEffectiveVerificationRequiresSubsequentNativeResolveAndRejectsFurtherEdits() {
-        imported("verify-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val parent = imported("verify-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
         val child = imported("verify-child", dependency(), "verify-parent")
         val service = project.getService(MavenUpdateVerificationService::class.java)
         val target = io.github.khopland.versionchecker.MavenVerificationTarget(child.virtualFile.path,
@@ -573,17 +573,85 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val changes = io.github.khopland.versionchecker.AppliedVersionChanges(listOf(
             io.github.khopland.versionchecker.AppliedVersionFile(child.virtualFile.path, before, child.text)),
             mavenVerificationTargets = listOf(target))
-        assertTrue(service.evaluate(changes), service.evaluate(changes).contains("No subsequent Maven dependency resolution"))
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("No resolution with captured reload inputs"))
+        FileDocumentManager.getInstance().saveAllDocuments()
         val imported = manager.findProject(child.virtualFile)!!
-        manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
-            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL))
+        reload(service) { manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
+            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL)) }
         assertTrue(service.generation() > target.afterGeneration)
-        assertTrue(service.evaluate(changes), service.evaluate(changes).contains("Dependency absent"))
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Dependency absent"))
+        val artifact = Files.write(directory.resolve("verified-junit.jar"), byteArrayOf())
+        imported.addDependency(org.jetbrains.idea.maven.model.MavenArtifact("junit", "junit", "4.13.2", "4.13.2",
+            "jar", null, "test", false, "jar", artifact.toFile(), directory.toFile(), true, false))
+        reload(service) { manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
+            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL)) }
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
+        // Physical XML encoding does not need to share the editor's normalized line separators.
+        Files.writeString(child.virtualFile.toNioPath(), "\uFEFF" + child.text.replace("\n", "\r\n"))
+        reload(service) { manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
+            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL)) }
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
+        val parentPath = parent.virtualFile.toNioPath()
+        val parentBytes = Files.readString(parentPath)
+        val time = Files.getLastModifiedTime(parentPath)
+        Files.writeString(parentPath, parentBytes.replace("4.12", "4.11"))
+        Files.setLastModifiedTime(parentPath, time)
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Build files changed"))
+        Files.writeString(parentPath, parentBytes)
+        Files.setLastModifiedTime(parentPath, time)
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
+        manager.generalSettings.isWorkOffline = !manager.generalSettings.isWorkOffline
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Build files changed"))
+        manager.generalSettings.isWorkOffline = !manager.generalSettings.isWorkOffline
         WriteCommandAction.runWriteCommandAction(project) {
             child.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("junit.version")!!.value.setText("4.14")
         }
-        assertTrue(service.evaluate(changes), service.evaluate(changes).contains("Build files changed"))
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Build files changed"))
     }
+
+    fun testLateNativeEventDuringReloadCannotConfirmInputsChangedDuringThatRequest() {
+        imported("late-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("late-child", dependency(), "late-parent")
+        FileDocumentManager.getInstance().saveAllDocuments()
+        val service = project.getService(MavenUpdateVerificationService::class.java)
+        val target = MavenVerificationTarget(child.virtualFile.path, "junit", "junit", "DEPENDENCY", "4.13.2", service.generation())
+        val before = child.text
+        val fix = fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single()
+        val imported = manager.findProject(child.virtualFile)!!
+        reload(service) {
+            com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
+                apply(fix, declaration(child))
+                FileDocumentManager.getInstance().saveAllDocuments()
+                val artifact = Files.write(directory.resolve("late-junit.jar"), byteArrayOf())
+                imported.addDependency(org.jetbrains.idea.maven.model.MavenArtifact("junit", "junit", "4.13.2", "4.13.2",
+                    "jar", null, "test", false, "jar", artifact.toFile(), directory.toFile(), true, false))
+            }
+            manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
+                org.jetbrains.idea.maven.project.MavenProjectChanges.ALL))
+        }
+        val changes = AppliedVersionChanges(listOf(AppliedVersionFile(child.virtualFile.path, before, child.text)),
+            mavenVerificationTargets = listOf(target))
+        assertTrue(service.generation() > target.afterGeneration)
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Unknown:"))
+        assertFalse(evaluate(service, changes).contains("Confirmed:"))
+        reload(service) { }
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
+        // A late event from any other native task cannot inherit that successful request's evidence.
+        manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
+            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL))
+        assertFalse(evaluate(service, changes).contains("Confirmed:"))
+    }
+
+    private fun reload(service: MavenUpdateVerificationService, action: suspend () -> Unit) {
+        com.intellij.testFramework.PlatformTestUtil.waitForPromise(org.jetbrains.concurrency.runAsync {
+            kotlinx.coroutines.runBlocking { service.reloadAndCapture(action) }
+        })
+    }
+
+    private fun evaluate(service: MavenUpdateVerificationService, changes: AppliedVersionChanges): String =
+        com.intellij.testFramework.PlatformTestUtil.waitForPromise(org.jetbrains.concurrency.runAsync {
+            kotlinx.coroutines.runBlocking { service.evaluate(changes) }
+        })!!
 
     fun testCreatingInheritedPropertyCanBeUndone() {
         imported("undo-define-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
