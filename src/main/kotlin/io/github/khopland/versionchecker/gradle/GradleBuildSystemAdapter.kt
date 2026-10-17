@@ -1,41 +1,23 @@
 package io.github.khopland.versionchecker.gradle
 
-import io.github.khopland.versionchecker.core.sha256
-import io.github.khopland.versionchecker.core.CapturedEditInputs
-
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.*
 import com.intellij.psi.PsiManager
 import io.github.khopland.versionchecker.*
 import io.github.khopland.versionchecker.core.*
-import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
 
 internal class GradleBuildSystemAdapter(
-    private val externalInputBytes: (Path) -> ByteArray = Files::readAllBytes
+    externalInputBytes: (Path) -> ByteArray = Files::readAllBytes
 ) : BuildSystemAdapter {
-    private companion object {
-        // The Path getter was added in 2026.1; retain compatibility with 2025.3's String getter.
-        val gradleHomeGetter = try {
-            GradleProjectSettings::class.java.getMethod("getGradleHomePath")
-        } catch (_: NoSuchMethodException) {
-            GradleProjectSettings::class.java.getMethod("getGradleHome")
-        }
-    }
-
+    private val inputs = GradleBuildInputs(externalInputBytes)
     override fun reloadProject(project: Project): Boolean {
         if (project.isDisposed) return false
         ExternalSystemUtil.refreshProjects(ImportSpecBuilder(project, GradleConstants.SYSTEM_ID))
@@ -55,108 +37,16 @@ internal class GradleBuildSystemAdapter(
         return withGradleScanSession(project, eligible, mode, action)
     }
     override fun isOffline(project: Project) = GradleSettings.getInstance(project).isOfflineWork
-    private fun supported(project: Project, file: VirtualFile): Boolean {
-        if (file.isDirectory || !(file.name in setOf("build.gradle", "build.gradle.kts") ||
-                file.name == "libs.versions.toml" && file.parent.name == "gradle")) return false
-        val root = owner(project, file) ?: return false
-        val directories = listOf(root) + GradleSettings.getInstance(project).getLinkedProjectSettings(root)?.modules.orEmpty()
-        val boundary = directories.mapNotNull { find(project, it) }
-            .filter { VfsUtilCore.isAncestor(it, file, false) }.maxByOrNull { it.path.length } ?: return false
-        return generateSequence(file.parent) { it.parent }.takeWhile { it != boundary }.none { it.name in excluded }
-    }
-    private val excluded = GradleInputInventory.excludedDirectories
-    private fun roots(project: Project) = GradleSettings.getInstance(project).linkedProjectsSettings.mapNotNull { it.externalProjectPath }.sortedByDescending { it.length }
-    private fun owner(project: Project, file: VirtualFile) = roots(project).firstOrNull { root ->
-        if (file.name.endsWith(".toml")) {
-            find(project, root)?.findFileByRelativePath("gradle/libs.versions.toml") == file
-        } else {
-            val directories = listOf(root) + GradleSettings.getInstance(project).getLinkedProjectSettings(root)?.modules.orEmpty()
-            directories.any { directory -> find(project, directory)?.let { VfsUtilCore.isAncestor(it, file, false) } == true }
-        }
-    }
-    private val includedBuild = Regex("""\bincludeBuild\s*(?:\(\s*)?(["'])([^"'\r\n$]+)\1(?=[ \t]*(?:[){;}]|\r?$))""", RegexOption.MULTILINE)
-    private fun scriptText(file: VirtualFile): String = FileDocumentManager.getInstance().getCachedDocument(file)?.text
-        ?: String(file.contentsToByteArray(), Charsets.UTF_8)
-
-    private fun inputDirectories(project: Project, root: String): GradleInputDirectories {
-        val settings = GradleSettings.getInstance(project).getLinkedProjectSettings(root)
-        val directories = (listOf(root) + settings?.modules.orEmpty().sorted()).distinct().toMutableList()
-        val logicDirectories = mutableSetOf<String>()
-        // Settings scripts name included builds, including unlinked siblings. Inspect the
-        // current editor text so an unsaved include change cannot reuse the old inventory.
-        var index = 0
-        val visited = mutableSetOf<String>()
-        while (index < directories.size) {
-            val directory = directories[index++]
-            val canonical = find(project, directory)?.canonicalPath ?: directory
-            if (!visited.add(canonical)) continue
-            find(project, directory)?.findChild("buildSrc")?.takeIf { it.isDirectory }?.let { buildSrc ->
-                logicDirectories += buildSrc.path
-                val canonicalBuildSrc = buildSrc.canonicalPath ?: buildSrc.path
-                if (directories.none { (find(project, it)?.canonicalPath ?: it) == canonicalBuildSrc }) directories += buildSrc.path
-            }
-            for (name in listOf("settings.gradle", "settings.gradle.kts")) {
-                val script = find(project, directory)?.findChild(name) ?: continue
-                for (match in includedBuild.findAll(scriptText(script))) {
-                    val path = Path.of(directory).resolve(match.groupValues[2]).normalize().toString()
-                    if (find(project, path) != null) {
-                        logicDirectories += path
-                        val canonicalPath = find(project, path)?.canonicalPath ?: path
-                        if (directories.none { (find(project, it)?.canonicalPath ?: it) == canonicalPath }) directories += path
-                    }
-                }
-            }
-        }
-        // Gradle imports included builds as additional modules. Outside modules are
-        // executable build inputs, so conservatively capture their source/resources too.
-        // Imported modules may use the canonical alias of the user's linked symlink.
-        // Compare VFS-known identities here without adding physical IO to this read action.
-        val rootLocation = Path.of(find(project, root)?.canonicalPath ?: root).normalize()
-        logicDirectories += directories.filter {
-            !Path.of(find(project, it)?.canonicalPath ?: it).normalize().startsWith(rootLocation)
-        }
-        return GradleInputDirectories(directories.toList(), logicDirectories.toSet())
-    }
-    private fun inventory(project: Project, root: String): GradleInputInventory {
-        val directories = inputDirectories(project, root)
-        return project.service<GradleProjectCache>().inventory(root, directories) {
-            GradleInputInventory.discover(directories) { find(project, it) }
-        }
-    }
-    private fun files(project: Project, root: String): List<VirtualFile> = inventory(project, root).files
-
-    private fun find(project: Project, path: String): VirtualFile? = LocalFileSystem.getInstance().findFileByPath(path)
-        ?: ProjectRootManager.getInstance(project).contentRoots.firstNotNullOfOrNull { it.fileSystem.findFileByPath(path) }
     override fun supports(project: Project, selection: BuildSelection): Boolean = when (selection.scope) {
-        UpdateScope.CURRENT_FILE -> selection.currentFile?.let { find(project, it) }?.let { supported(project, it) } == true
-        UpdateScope.WHOLE_PROJECT -> roots(project).any { root -> files(project, root).any { supported(project, it) } }
+        UpdateScope.CURRENT_FILE -> selection.currentFile?.let { inputs.find(project, it) }?.let { inputs.supportsFile(project, it) } == true
+        UpdateScope.WHOLE_PROJECT -> inputs.roots(project).any { root -> inputs.files(project, root).any { inputs.supportsFile(project, it) } }
         UpdateScope.MAVEN_PLATFORM -> false
     }
-    override suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
-        val (inputs, home) = readAction {
-            val selectedRoots = if (selection.scope == UpdateScope.CURRENT_FILE)
-                listOfNotNull(selection.currentFile?.let { find(project, it) }?.let { owner(project, it) }) else roots(project)
-            val paths = selectedRoots.flatMap { inventory(project, it).resolutionInputPaths() }.toSet()
-            val home = Path.of(GradleSettings.getInstance(project).serviceDirectoryPath ?: System.getenv("GRADLE_USER_HOME")
-                ?: Path.of(System.getProperty("user.home"), ".gradle").toString())
-            paths to home
-        }
-        return withContext(Dispatchers.IO) {
-            val paths = inputs.toMutableSet()
-            listOf("gradle.properties", "init.gradle", "init.gradle.kts").forEach { paths += home.resolve(it).toString() }
-            val init = home.resolve("init.d")
-            val context = currentCoroutineContext()
-            if (Files.isDirectory(init)) Files.walk(init).use { stream ->
-                val iterator = stream.iterator()
-                while (iterator.hasNext()) {
-                    context.ensureActive()
-                    val path = iterator.next()
-                    if (Files.isRegularFile(path)) paths += path.toString()
-                }
-            }
-            paths
-        }
-    }
+    override suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> =
+        inputs.resolutionInputPaths(project, selection)
+
+    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs =
+        inputs.prepareEditValidation(project, snapshots)
 
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
         return CheckPerformance.measure(CheckPerformance.Stage.GRADLE_SNAPSHOT) { snapshot(project, file, mutableMapOf(), mutableMapOf()) }
@@ -165,26 +55,26 @@ internal class GradleBuildSystemAdapter(
         snapshot(project, file, mutableMapOf(), mutableMapOf(), allowUnsaved = true)
 
     override suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? =
-        withExternalInputs(project) { external ->
-            val home = externalHome(project)
-            val capture = { if (project.isDisposed || !file.isValid || home != externalHome(project)) null else
+        inputs.capture(project) { external ->
+            val home = inputs.externalHome(project)
+            val capture = { if (project.isDisposed || !file.isValid || home != inputs.externalHome(project)) null else
                 snapshot(project, file, mutableMapOf(), mutableMapOf(), allowUnsaved = true, externalHashes = external) }
             capture
         }
 
     override fun canCheckInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
-        !inventory(project, snapshot.context.root).hasUnsavedDocuments()
+        !inputs.inventory(project, snapshot.context.root).hasUnsavedDocuments()
 
     private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<String, BuildFingerprint>, unsaved: MutableMap<String, Boolean>,
                          allowUnsaved: Boolean = false, inspectionFingerprints: MutableMap<String, BuildFingerprint> = mutableMapOf(),
                          externalHashes: Map<String, String>? = null): BuildSnapshot? {
-        if (!supported(project, file)) return null
-        val root = owner(project, file) ?: return null
-        if (!allowUnsaved && unsaved.getOrPut(root) { inventory(project, root).hasUnsavedDocuments() }) return null
+        if (!inputs.supportsFile(project, file)) return null
+        val root = inputs.owner(project, file) ?: return null
+        if (!allowUnsaved && unsaved.getOrPut(root) { inputs.inventory(project, root).hasUnsavedDocuments() }) return null
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
-        val fingerprint = fingerprints.getOrPut(root) { fingerprint(project, root, externalHashes) }
+        val fingerprint = fingerprints.getOrPut(root) { inputs.fingerprint(project, root, externalHashes) }
         val inspectionFingerprint = inspectionFingerprints.getOrPut(root) {
-            fingerprint.copy(files = fingerprint.files + project.service<GradleProjectCache>().inspectionHashes(root, files(project, root)))
+            fingerprint.copy(files = fingerprint.files + project.service<GradleProjectCache>().inspectionHashes(root, inputs.files(project, root)))
         }
         val parsed = GradleDeclarations.parse(file.path, psi.text)
         return BuildSnapshot(BuildContextId(id, root, file.path), file.path, fingerprint,
@@ -212,111 +102,19 @@ internal class GradleBuildSystemAdapter(
             }
         )
     }
-    private fun externalHome(project: Project): Path = Path.of(GradleSettings.getInstance(project).serviceDirectoryPath
-        ?: System.getenv("GRADLE_USER_HOME") ?: Path.of(System.getProperty("user.home"), ".gradle").toString())
-
-    private fun readExternalInputs(home: Path, checkCancellation: () -> Unit): Map<String, String> {
-        val hashes = mutableMapOf<String, String>()
-        fun capture(path: Path) {
-            checkCancellation()
-            hashes[path.toString()] = if (Files.exists(path)) sha256(externalInputBytes(path)) else "missing"
-        }
-        for (name in listOf("gradle.properties", "init.gradle", "init.gradle.kts")) capture(home.resolve(name))
-        val init = home.resolve("init.d")
-        if (Files.isDirectory(init)) Files.walk(init).use { paths ->
-            val iterator = paths.iterator()
-            while (iterator.hasNext()) {
-                checkCancellation()
-                val path = iterator.next()
-                if (Files.isRegularFile(path)) capture(path)
-            }
-        }
-        return hashes
-    }
-
-    private data class InputCapture<T>(val value: T)
-
-    /** Capture disk inputs once per operation, then overlay the latest editor/settings state. */
-    private suspend fun <T> withExternalInputs(project: Project, action: (Map<String, String>) -> T): T =
-        withContext(Dispatchers.IO) {
-            val context = currentCoroutineContext()
-            repeat(3) {
-                context.ensureActive()
-                val home = readAction { externalHome(project) }
-                val hashes = readExternalInputs(home) { context.ensureActive() }
-                context.ensureActive()
-                val captured = readAction {
-                    if (home != externalHome(project)) null else InputCapture(action(hashes))
-                }
-                if (captured != null) return@withContext captured.value
-            }
-            error("Gradle user home changed during input capture. Run the check again.")
-        }
-
-    private fun fingerprint(project: Project, root: String, externalHashes: Map<String, String>? = null): BuildFingerprint {
-        fun hash(bytes: ByteArray) = sha256(bytes)
-        val settings = GradleSettings.getInstance(project)
-        val linked = settings.getLinkedProjectSettings(root)
-        val hashes = project.service<GradleProjectCache>().hashes(root, files(project, root)).toMutableMap()
-        // These inputs can change outside IntelliJ's VFS, so always read their current contents.
-        val external = externalHashes ?: readExternalInputs(externalHome(project)) { com.intellij.openapi.progress.ProgressManager.checkCanceled() }
-        for ((path, saved) in external) {
-            val documents = FileDocumentManager.getInstance()
-            val unsaved = LocalFileSystem.getInstance().findFileByNioFile(Path.of(path))?.let(documents::getCachedDocument)
-                ?.takeIf(documents::isDocumentUnsaved)?.let { hash(it.text.toByteArray()) }
-            hashes[path] = "$saved:$unsaved"
-        }
-        val sdk = ProjectRootManager.getInstance(project).projectSdk
-        val gradleHome = linked?.let { gradleHomeGetter.invoke(it)?.toString() }
-        return BuildFingerprint(hashes, listOf(root, linked?.modules?.sorted(), linked?.gradleJvm, gradleHome, linked?.distributionType, sdk?.name, sdk?.homePath, settings.serviceDirectoryPath, settings.gradleVmOptions, settings.isOfflineWork, project.service<VersionCheckerSettings>().state.deprecatedDependencies, System.getenv().toSortedMap()).joinToString("|").let { hash(it.toByteArray()) })
-    }
-    override fun isCurrent(project: Project, snapshot: BuildSnapshot) = find(project, snapshot.sourceFile)?.let { owner(project, it) == snapshot.context.root && snapshot.fingerprint == fingerprint(project, snapshot.context.root) } == true
+    override fun isCurrent(project: Project, snapshot: BuildSnapshot) = inputs.find(project, snapshot.sourceFile)?.let { inputs.owner(project, it) == snapshot.context.root && snapshot.fingerprint == inputs.fingerprint(project, snapshot.context.root) } == true
     override suspend fun isCurrentInBackground(project: Project, snapshot: BuildSnapshot): Boolean =
-        withExternalInputs(project) { external -> !project.isDisposed && areCurrent(project, listOf(snapshot), external) }
+        inputs.capture(project) { external -> !project.isDisposed && inputs.areCurrent(project, listOf(snapshot), external) }
 
-    override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs {
-        // Native Gradle reads physical files. A same-stamp external write can leave
-        // both VFS and PSI stale, so an edit must compare fresh bytes to their baseline.
-        val captured = readAction {
-            if (project.isDisposed) emptyList() else snapshots.map { it.context.root }.distinct().map { root ->
-                val inventory = inventory(project, root)
-                val saved = project.service<GradleProjectCache>().savedHashes(root, inventory.files)
-                    .filterKeys { it.fileSystem.protocol == "file" }
-                inventory to saved
-            }
-        }
-        val diskCurrent = withContext(Dispatchers.IO) {
-            val context = currentCoroutineContext()
-            captured.all { (inventory, saved) -> inventory.diskMatches(saved) { context.ensureActive() } }
-        }
-        return withExternalInputs(project) { external ->
-            val home = externalHome(project)
-            val guard = CapturedEditInputs { diskCurrent && !project.isDisposed && externalHome(project) == home &&
-                snapshots.all { inputCoverageLimitation(project, it.context.root) == null } && areCurrent(project, snapshots, external) }
-            guard
-        }
-    }
-
-    private fun areCurrent(project: Project, snapshots: Collection<BuildSnapshot>, externalHashes: Map<String, String>? = null): Boolean {
-        val fingerprints = mutableMapOf<String, BuildFingerprint>()
-        // Final synchronous validation needs fresh disk bytes too, shared across linked builds.
-        val external by lazy {
-            externalHashes ?: readExternalInputs(externalHome(project)) { com.intellij.openapi.progress.ProgressManager.checkCanceled() }
-        }
-        return snapshots.all { snapshot ->
-            find(project, snapshot.sourceFile)?.let { owner(project, it) == snapshot.context.root &&
-                snapshot.fingerprint == fingerprints.getOrPut(snapshot.context.root) { fingerprint(project, snapshot.context.root, external) } } == true
-        }
-    }
-    override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = withExternalInputs(project) { external ->
-        val files = if (selection.scope == UpdateScope.CURRENT_FILE) listOfNotNull(selection.currentFile?.let { find(project, it) }) else roots(project).flatMap { files(project, it) }.distinct()
+    override suspend fun discover(project: Project, selection: BuildSelection): List<BuildSnapshot> = inputs.capture(project) { external ->
+        val files = if (selection.scope == UpdateScope.CURRENT_FILE) listOfNotNull(selection.currentFile?.let { inputs.find(project, it) }) else inputs.roots(project).flatMap { inputs.files(project, it) }.distinct()
         val fingerprints = mutableMapOf<String, BuildFingerprint>()
         val unsaved = mutableMapOf<String, Boolean>()
         val inspectionFingerprints = mutableMapOf<String, BuildFingerprint>()
         files.mapNotNull { snapshot(project, it, fingerprints, unsaved, inspectionFingerprints = inspectionFingerprints, externalHashes = external) }
     }
     override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
-        val limitation = readAction { inputCoverageLimitation(project, snapshot.context.root) }
+        val limitation = readAction { inputs.coverageLimitation(project, snapshot.context.root) }
         if (limitation != null) return UpdateReport(emptyList(), snapshot.declarations.map {
             UpdateNotice(it, NoticeKind.MANUAL_REVIEW, limitation)
         }, coverage = snapshot.declarations.associate {
@@ -351,44 +149,20 @@ internal class GradleBuildSystemAdapter(
                 }
             } + snapshot.skippedCoverage())
     }
-    /** Arbitrary executable Gradle can load inputs we cannot infer statically. */
-    private fun inputCoverageLimitation(project: Project, root: String): String? {
-        for (file in files(project, root).filter { it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") }) {
-            val text = scriptText(file).lineSequence().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
-            if (includedBuild.findAll(text).any { match ->
-                    find(project, Path.of(file.parent.path).resolve(match.groupValues[2]).normalize().toString()) == null
-                }) return "Included build inputs are unavailable; Gradle input coverage is limited."
-            if (Regex("""\bincludeBuild\b""").findAll(text).count() != includedBuild.findAll(text).count())
-                return "Computed included build paths need manual review; Gradle input coverage is limited."
-            // External/dynamic applied scripts have no imported input inventory. Keep
-            // results reviewable until a fresh check and explicit source review occur.
-            val applied = Regex("""\bapply\s*(?:\(\s*)?from\s*[:=]\s*(["'])([^"']+)\1(?=[ \t]*(?:[);}]|\r?$))""", RegexOption.MULTILINE)
-            for (match in applied.findAll(text)) {
-                val path = match.groupValues[2]
-                val resolved = runCatching { Path.of(file.parent.path).resolve(path).normalize() }.getOrNull()
-                if ('$' in path || resolved == null || !resolved.startsWith(Path.of(root).normalize()) ||
-                    find(project, resolved.toString()) !in files(project, root))
-                    return "External applied scripts need manual review; Gradle input coverage is limited."
-            }
-            if (Regex("""\bapply\s*(?:\(\s*)?from\s*[:=]""").findAll(text).count() != applied.findAll(text).count())
-                return "Computed applied script paths need manual review; Gradle input coverage is limited."
-        }
-        return null
-    }
-    override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = withExternalInputs(project) { external ->
-        check(areCurrent(project, reports.keys, external)) { "Gradle build files or settings changed. Run the check again." }
+    override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan = inputs.capture(project) { external ->
+        check(inputs.areCurrent(project, reports.keys, external)) { "Gradle build files or settings changed. Run the check again." }
         val edits = mutableListOf<VersionEdit>(); val skipped = mutableListOf<String>()
         val review = mutableListOf<VersionReviewItem>()
         val editReviews = mutableMapOf<VersionEdit, List<VersionDeclaration>>()
         val followUp = mutableSetOf<String>()
         for ((snapshot, report) in reports) {
-            val limitation = inputCoverageLimitation(project, snapshot.context.root)
+            val limitation = inputs.coverageLimitation(project, snapshot.context.root)
             if (limitation != null) {
                 skipped += "${snapshot.sourceFile}: $limitation"
                 review += VersionReviewItem(limitation, VersionReviewSource(snapshot.sourceFile), buildContext = "Gradle")
                 continue
             }
-            val psi = find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")
+            val psi = inputs.find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")
             for (prepared in GradlePreparedUpdate.prepare(psi, report)) {
                 prepared.edit?.let { edits += it; editReviews[it] = prepared.consumers.map { consumer -> consumer.declaration }; followUp += prepared.followUp }
                 if (prepared.edit == null && prepared.reportSkipped) {
