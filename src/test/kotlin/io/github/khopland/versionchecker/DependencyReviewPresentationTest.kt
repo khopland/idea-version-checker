@@ -34,6 +34,19 @@ class DependencyReviewPresentationTest : BasePlatformTestCase() {
                     bounds.width >= 80)
             }
         }
+        panel.presentRows(listOf(observed("module")))
+        panel.search.text = "module"
+        panel.setSize(200, 500)
+        layout(panel)
+        val expandedHeight = panel.table.parent.height
+        panel.setFiltersVisible(false)
+        layout(panel)
+        assertTrue("Collapsing filters must leave more room for dependency rows", panel.table.parent.height > expandedHeight)
+        assertEquals(1, panel.visibleRows().size)
+        panel.setFiltersVisible(true)
+        layout(panel)
+        assertTrue(panel.provider.isVisible)
+        assertEquals("module", panel.search.text)
         assertEquals("Layout must not query providers", before, reads.get())
     }
 

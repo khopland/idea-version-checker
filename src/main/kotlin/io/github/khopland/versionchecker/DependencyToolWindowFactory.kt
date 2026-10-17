@@ -79,6 +79,7 @@ internal class DependencyToolWindowPanel(private val project: Project,
     internal val buildRoot = JComboBox<String>()
     internal val filter = JComboBox(DependencyReviewFilter.entries.toTypedArray())
     internal val kind = JComboBox(arrayOf("All changes") + VersionChangeKind.entries.map { it.name }.toTypedArray())
+    private val filterFields = JPanel(GridLayout(0, 1, JBUI.scale(4), JBUI.scale(4)))
     private val summary = JBTextArea().apply {
         isEditable = false; isOpaque = false
         lineWrap = true; wrapStyleWord = true; rows = 4
@@ -117,10 +118,14 @@ internal class DependencyToolWindowPanel(private val project: Project,
             add(object : DumbAwareAction("Export JSON…", "Export filtered rows in their displayed sort order", AllIcons.Actions.Download) {
                 override fun actionPerformed(event: AnActionEvent) = exportRows()
             })
+            add(object : ToggleAction("Show dependency filters", "Show or hide build system, root, outcome and change filters", AllIcons.General.Filter), DumbAware {
+                override fun isSelected(event: AnActionEvent) = filterFields.isVisible
+                override fun setSelected(event: AnActionEvent, state: Boolean) = setFiltersVisible(state)
+            })
         }
         toolbar = ActionManager.getInstance().createActionToolbar("DependencyVersions", actions, true).apply { targetComponent = this@DependencyToolWindowPanel }
         // Keep complete selectors reachable in narrow tool windows and at high IDE zoom.
-        val filters = JPanel(GridLayout(0, 1, JBUI.scale(4), JBUI.scale(4))).apply {
+        filterFields.apply {
             add(labeled("Build system", provider)); add(labeled("Build root", buildRoot))
             add(labeled("Outcome", filter)); add(labeled("Change", kind))
         }
@@ -155,7 +160,7 @@ internal class DependencyToolWindowPanel(private val project: Project,
                     addActionListener { clearFilters() }
                 }, BorderLayout.EAST)
             }, BorderLayout.CENTER)
-            add(filters, BorderLayout.SOUTH)
+            add(filterFields, BorderLayout.SOUTH)
         }, BorderLayout.NORTH)
         add(OnePixelSplitter(true, 0.65f).apply {
             firstComponent = JBScrollPane(table).apply { minimumSize = Dimension(0, 80) }
@@ -242,6 +247,12 @@ internal class DependencyToolWindowPanel(private val project: Project,
         control.accessibleContext.accessibleName = name
         add(control, BorderLayout.CENTER)
         minimumSize = Dimension(0, preferredSize.height)
+    }
+
+    internal fun setFiltersVisible(visible: Boolean) {
+        filterFields.isVisible = visible
+        revalidate()
+        repaint()
     }
 
     private fun relativePath(path: String) = project.basePath?.let {
