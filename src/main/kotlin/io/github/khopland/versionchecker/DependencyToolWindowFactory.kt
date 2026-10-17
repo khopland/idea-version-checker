@@ -80,8 +80,8 @@ internal class DependencyToolWindowPanel(private val project: Project,
     internal val filter = JComboBox(DependencyReviewFilter.entries.toTypedArray())
     internal val kind = JComboBox(arrayOf("All changes") + VersionChangeKind.entries.map { it.name }.toTypedArray())
     private val summary = JBTextArea().apply {
-        isEditable = false; isFocusable = false; isOpaque = false
-        lineWrap = true; wrapStyleWord = true; rows = 2
+        isEditable = false; isOpaque = false
+        lineWrap = true; wrapStyleWord = true; rows = 4
         accessibleContext.accessibleName = "Dependency check summary"
     }
     internal val details = JBTextArea("Select a dependency to see its source, context and check details.").apply {
@@ -162,7 +162,11 @@ internal class DependencyToolWindowPanel(private val project: Project,
                 toolTipText = "Build inputs may have changed since these cached observations."
                 accessibleContext.accessibleName = "Cached result limitations"
             }, BorderLayout.NORTH)
-            add(summary, BorderLayout.SOUTH)
+            add(JBScrollPane(summary).apply {
+                border = JBUI.Borders.empty()
+                isOpaque = false
+                viewport.isOpaque = false
+            }, BorderLayout.SOUTH)
         }, BorderLayout.SOUTH)
         table.selectionModel.addListSelectionListener {
             if (!disposed && !it.valueIsAdjusting && !replacingRows) { updateDetails(); toolbar.updateActionsAsync() }
@@ -281,9 +285,10 @@ internal class DependencyToolWindowPanel(private val project: Project,
         }) + when {
             rows.isEmpty() && checking && !paused -> "No cached results available yet."
             rows.isEmpty() -> "No cached results available. Refresh Whole Project to check dependencies."
-            model.rowCount == 0 -> "No matches in ${rows.size} cached declarations. Clear filters to show all."
-            else -> "${model.rowCount} of ${rows.size} declarations · ${rows.count { it.checking }} from checks in progress"
+            model.rowCount == 0 -> "No matches in ${rows.size} cached observations. Clear filters to show all."
+            else -> "${model.rowCount} of ${rows.size} cached observations · ${rows.count { it.checking }} from checks in progress"
         }
+        if (rows.isNotEmpty()) summary.text += "\n" + DependencyReviewCoverage.description(rows)
         summary.toolTipText = summary.text
         toolbar.updateActionsAsync()
     }
@@ -328,6 +333,7 @@ internal class DependencyToolWindowPanel(private val project: Project,
             "Current: ${row.current}", "Available: ${row.available ?: "—"}", "Change: ${row.kind?.name ?: "—"}",
             "Outcome: ${row.outcome.label}${if (row.checkFailed) " (check failed)" else ""}${if (row.checking) " (checking)" else ""}",
             "Mode: ${row.mode.label}", "Details: ${row.detail.ifEmpty { "No additional diagnostic reported." }}",
+            "Next action: ${DependencyReviewCoverage.nextAction(row)}",
             "Cached observations do not prove unchanged build inputs. Refresh and review before editing.",
         ).filter(String::isNotEmpty).joinToString("\n")
         details.caretPosition = 0
