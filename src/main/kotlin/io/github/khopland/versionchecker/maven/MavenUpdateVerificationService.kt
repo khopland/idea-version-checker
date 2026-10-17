@@ -1,7 +1,6 @@
 package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
@@ -33,22 +32,16 @@ internal class MavenUpdateVerificationService(private val project: Project, priv
     private val manager = MavenProjectsManager.getInstance(project)
     private val resolutions = linkedMapOf<String, Resolution>()
     private var generation = 0L
-        private var disposed = false
+    private var disposed = false
 
     init {
         manager.addProjectsTreeListener(object : MavenProjectsTree.Listener {
             override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>,
                                          nativeMavenProject: org.jetbrains.idea.maven.server.NativeMavenProjectHolder?) {
-                ApplicationManager.getApplication().runReadAction {
-                    synchronized(this@MavenUpdateVerificationService) {
-                        if (disposed || project.isDisposed) return@runReadAction
-                        val pom = projectWithChanges.first
-                        val versions = if (pom.hasReadingErrors() || pom.hasUnresolvedArtifacts()) emptyMap() else
-                            pom.dependencies.groupBy { "${it.groupId}:${it.artifactId}" }
-                                .mapValues { (_, artifacts) -> artifacts.map { it.version }.toSet() }
-                        while (resolutions.size >= 128 && pom.path !in resolutions) resolutions.remove(resolutions.keys.first())
-                        resolutions[pom.path] = Resolution(++generation, null, versions)
-                    }
+                synchronized(this@MavenUpdateVerificationService) {
+                    if (disposed || project.isDisposed) return
+                    generation++
+                    resolutions.remove(projectWithChanges.first.path)
                 }
             }
         }, this)
