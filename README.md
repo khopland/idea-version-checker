@@ -58,6 +58,8 @@ Complex Maven expressions, npm ranges and peer dependencies, and Gradle dynamic 
 
 The tool window and JSON export contain cached observations, which expire and may lag current build inputs. Opening or filtering them does not run native checks. Exports contain displayed rows, sanitized details and project-relative source paths; external paths are redacted. Refresh and review before editing.
 
+The tool-window coverage summary stays visible when filters hide incomplete results. It distinguishes checked observations and updates from skipped/unsupported, failed, pending, unknown and manual-review results. Counts refer to cached observations: separate build contexts or update modes can describe the same physical declaration. Zero updates does not mean complete coverage. Select a row for its source, diagnostic, coverage scope and suggested next action; declarations the parser does not recognize cannot be counted individually.
+
 See the [detailed guide](docs/user-guide.md) for complete scope, shared-property rules, workspace updates and Maven platform reviews.
 
 ## Settings and repositories
