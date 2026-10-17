@@ -12,6 +12,8 @@ Version Checker uses a shared checking and editing workflow with build-system ad
 | `CheckExecutor`                                    | Check queues, cancellation, result publication, and access to the result cache.                                                                                 |
 | `core/VersionResultCache`                          | Result identities, revisions, expiry, and inspection leases.                                                                                                    |
 | `BulkUpdateService`                                | Preview interactions, dialog lifecycle, navigation, and orchestration of accepted updates.                                                                      |
+| `VersionPreviewState`                            | Immutable dialog transitions and generations that retire held selections on refresh, replacement, cancellation, and disposal.                                  |
+| `PreviewRequestController`                        | Asynchronous request serials, cancellation, and delivery of only the current result on the EDT.                                                               |
 | `VersionPreviewPreparer`                           | Collection of adapter reports and plans, cache reuse, and binding the combined plan to observed results and settings. It does not construct dialogs.            |
 | `core/DeclarationCoverageAccumulator`              | Coverage across scan contexts, grouped by provider and physical declaration.                                                                                    |
 | `core/FileDigestCache`                             | Stamp-based reuse of saved VFS and unsaved document hashes. Providers own inventory and aggregate-hash invalidation.                                            |
@@ -46,6 +48,8 @@ flowchart TD
 4. The combined plan keeps a guard on the results and ignored-version policy. Selecting fewer edits preserves that authorization.
 5. Applying validates authorization before input capture and again inside the write command. Providers capture external inputs before acquiring write access. The final validation and declaration writes happen atomically.
 
+`VersionPreviewState` models ready, checking, failed, applying, accepted, and closed reviews. The dialog guards selected plans against the live generation and selectors. Refresh and replacement retire older selections; cancellation or disposal closes authorization. An accepted modal review retains its existing selection for the caller to apply after the dialog closes. A queued apply can finish only its own generation and cannot clear a newer check or failure. `PreviewRequestController` separately rejects stale asynchronous deliveries. Provider result leases and input validation remain authoritative, including expiry; the dialog state does not inspect or extend them.
+
 Inspection hints and retained warnings are presentation data. They must not authorize a fresh preview or an edit. Reading the dependency tool window also must not start native checks.
 
 ## Refresh policy
@@ -72,7 +76,7 @@ When contexts disagree, the accumulator keeps the outcome requiring the most att
 
 ## Verification
 
-`DeclarationCoverageAccumulatorTest` checks conflicting context outcomes in both orders, provider isolation, pending declarations, and unknown totals. `FileDigestCacheTest` checks unsaved edits, saves, and VFS changes with cached documents. `BuildCoordinatorTest` exercises refresh and preview preparation through the service, including scheduling, cache reuse, ignored versions, shared declarations, and stale-result guards. Provider capture tests verify external changes and read-lock boundaries. Dialog cancellation and disposal are covered by `BulkPreviewLifetimeTest` and the preview recovery tests; `DynamicPluginLifecycleTest` checks plugin unload and reload.
+`DeclarationCoverageAccumulatorTest` checks conflicting context outcomes in both orders, provider isolation, pending declarations, and unknown totals. `FileDigestCacheTest` checks unsaved edits, saves, and VFS changes with cached documents. `BuildCoordinatorTest` exercises refresh and preview preparation through the service, including scheduling, cache reuse, ignored versions, shared declarations, and stale-result guards. Provider capture tests verify external changes and read-lock boundaries. `VersionPreviewStateTest` covers transition authorization and late apply completion; `BulkUpdateDialogTest` checks held-plan cancellation and queued callback failure recovery. Dialog cancellation and disposal are covered by `BulkPreviewLifetimeTest` and the preview recovery tests; `DynamicPluginLifecycleTest` checks plugin unload and reload.
 
 Run the default suite and build checks with:
 
