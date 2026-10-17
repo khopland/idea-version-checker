@@ -32,10 +32,12 @@ internal class UpdateFollowUpService(private val project: Project, private val s
 
     fun previewNpmSync(sessionToken: Long? = null) {
         if (disposed || project.isDisposed || !active.compareAndSet(false, true)) return
+        var workspaceRoot: Path? = null
         fun reportMessage(message: String, warning: Boolean) {
+            val attributed = NpmFollowUpPresentation.withWorkspace(message, workspaceRoot, project.basePath)
             if (!disposed && !project.isDisposed)
-                project.service<UpdateSessionService>().recordFollowUp(sessionToken, "npm", message)
-            result(message, warning)
+                project.service<UpdateSessionService>().recordFollowUp(sessionToken, "npm", attributed)
+            result(attributed, warning)
         }
         fun report(outcome: NpmFollowUpOutcome) = reportMessage(outcome.message, outcome.warning)
         val job = scope.launch(Dispatchers.EDT) {
@@ -60,6 +62,9 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                     NpmWorkspaces.resolve(project, selected)
                 }
                 val directory = Path.of(workspace.root.path)
+                workspaceRoot = directory
+                project.service<UpdateSessionService>().recordFollowUp(sessionToken, "npm",
+                    NpmFollowUpPresentation.withWorkspace("Preparing npm lockfile command; command not yet started.", directory, project.basePath))
                 val inputs = (workspace.manifests.map { Path.of(it.path) } +
                     listOf(directory.resolve(".npmrc"), directory.resolve("package.json")) +
                     NpmLockfileSync.outputNames.map(directory::resolve)).distinct()

@@ -71,9 +71,20 @@ internal class BuildReloadService(private val project: Project, private val scop
                 withBackgroundProgress(project, "Saving $provider build files", cancellable = true) {
                     saveBuildInputs(project, BuildSelection(UpdateScope.WHOLE_PROJECT), listOf(adapter))
                 }
-                adapter.prepareReloadVerification(project)
                 record(sessionToken, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.REQUESTING, provider))
                 withBackgroundProgress(project, "Requesting $provider reload", cancellable = true) {
+                    if (disposed || project.isDisposed) return@withBackgroundProgress
+                    check(TrustedProjects.isProjectTrusted(project)) { "Project trust changed" }
+                    // A cancelling background hook may already have requested native import.
+                    requestAttempted = true
+                    val backgroundResult = adapter.reloadProjectInBackground(project)
+                    if (backgroundResult != null) {
+                        val phase = if (backgroundResult) BuildReloadOutcome.Phase.COMPLETED
+                            else BuildReloadOutcome.Phase.UNAVAILABLE
+                        record(sessionToken, adapterId, BuildReloadOutcome(phase, provider, requestAttempted))
+                        return@withBackgroundProgress
+                    }
+                    requestAttempted = false
                     withContext(Dispatchers.EDT) {
                         if (disposed || project.isDisposed) return@withContext
                         check(TrustedProjects.isProjectTrusted(project)) { "Project trust changed" }
