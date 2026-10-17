@@ -112,13 +112,8 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         private set
     private var configuring = true
     private var replacingRows = false
-    private var applyPending = false
-    private var preparedMode = mode
-    private var preparedScope = scopeSelector.selectedItem
-    private var generation = 0L
-    internal var checking = false
-        private set
-    private var failed = false
+    private var previewState = VersionPreviewState(mode, UpdateScope.entries.first { it.label == scopeLabel })
+    internal val checking get() = previewState.checking
     internal var onRecheckRequested: ((UpdateMode, UpdateScope, Boolean, CheckPerformance.Interaction?) -> Unit)? = null
     internal var onApplyRequested: ((BulkUpdatePlan, CheckPerformance.Interaction?) -> Unit)? = null
     private val commitSelectors = mutableListOf<() -> Unit>()
@@ -132,7 +127,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         scopeSelector.renderer = choiceRenderer<UpdateScope> { it.label }
         modeSelector.selectedItem = mode
         scopeSelector.selectedItem = UpdateScope.entries.first { it.label == scopeLabel }
-        preparedScope = scopeSelector.selectedItem
+        previewState = previewState.configured(scopeSelector.selectedItem as UpdateScope)
         table.rowSorter = sorter
         table.columnModel.getColumn(0).maxWidth = 70
         table.columnModel.getColumn(1).preferredWidth = 460
@@ -202,7 +197,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             if (platformAvailable && (0 until scopeSelector.itemCount).none { scopeSelector.getItemAt(it) == UpdateScope.MAVEN_PLATFORM })
                 scopeSelector.addItem(UpdateScope.MAVEN_PLATFORM)
             if (!platformAvailable) scopeSelector.removeItem(UpdateScope.MAVEN_PLATFORM)
-            preparedScope = scopeSelector.selectedItem
+            previewState = previewState.configured(scopeSelector.selectedItem as UpdateScope)
         } finally { configuring = false }
         val minutes = TimeUnit.NANOSECONDS.toMinutes((System.nanoTime() - prepared.checkedAtNanos).coerceAtLeast(0))
         val age = if (minutes == 0L) "just now" else "$minutes min ago"
@@ -220,10 +215,10 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     fun selectedPlan(): BulkUpdatePlan {
         if (table.isEditing) table.cellEditor.stopCellEditing()
-        val preparedGeneration = generation
+        val preparedGeneration = previewState.generation
         return plan.select(model.selectedIndices).guardedBy {
-            !checking && !failed && generation == preparedGeneration &&
-                modeSelector.selectedItem == preparedMode && scopeSelector.selectedItem == preparedScope
+            previewState.authorizes(preparedGeneration, modeSelector.selectedItem as UpdateMode,
+                scopeSelector.selectedItem as UpdateScope)
         }
     }
 
@@ -233,9 +228,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         val highlighted = table.selectedRows.map { model.changes[table.convertRowIndexToModel(it)].identity() }.toSet()
         val position = tableScroll.viewport.viewPosition
         plan = prepared.plan
-        preparedMode = mode
-        preparedScope = scope
-        generation++
+        previewState = previewState.prepared(mode, scope)
         configuring = true
         try {
             modeSelector.selectedItem = mode
@@ -247,8 +240,6 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             configure(prepared, currentFileAvailable, platformAvailable)
         } finally { configuring = false }
         title = "Review $buildSystems updates"
-        checking = false
-        failed = false
         refreshRequested = false
         table.clearSelection()
         model.changes.forEachIndexed { index, edit ->
@@ -263,16 +254,15 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     internal fun recheckFailed(message: String) {
         if (isDisposed) return
-        checking = false
-        failed = true
+        previewState = previewState.failed(message)
         coverageLabel.isVisible = false
         freshness.text = "$message Use Refresh to retry."
         updateSummary()
     }
 
     public override fun doOKAction() {
-        if (checking || failed || applyPending) return
-        if (modeSelector.selectedItem != preparedMode || scopeSelector.selectedItem != preparedScope) {
+        if (!previewState.canApply) return
+        if (modeSelector.selectedItem != previewState.mode || scopeSelector.selectedItem != previewState.scope) {
             requestRecheck()
             return
         }
@@ -282,16 +272,17 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         onApplyRequested?.let { callback ->
             val selected = selectedPlan()
             val trace = applyInteraction
-            val preparedGeneration = generation
-            applyPending = true
+            val preparedGeneration = previewState.generation
+            previewState = previewState.applying()
             updateSummary()
             // Production reviews are modeless. Accessibility button handlers can run
             // outside a write-safe transaction even on EDT; acquire one before applying.
             ApplicationManager.getApplication().invokeLater({
                 try {
-                    if (!isDisposed && generation == preparedGeneration) callback(selected, trace)
+                    if (!isDisposed && previewState.generation == preparedGeneration &&
+                        previewState.phase == VersionPreviewState.Phase.Applying) callback(selected, trace)
                 } finally {
-                    applyPending = false
+                    previewState = previewState.applyFinished(preparedGeneration)
                     if (!isDisposed) updateSummary()
                 }
             }, ModalityState.nonModal())
@@ -303,11 +294,9 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     private fun requestRecheck() {
         if (isDisposed) return
         recheckInteraction = CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
-        generation++
+        previewState = previewState.recheck()
         val callback = onRecheckRequested
         if (callback == null) close(RECHECK_EXIT_CODE) else {
-            checking = true
-            failed = false
             commitSelectors.forEach { it() }
             freshness.text = "Checking ${(scopeSelector.selectedItem as UpdateScope).label} · ${(modeSelector.selectedItem as UpdateMode).label}…"
             coverageLabel.isVisible = false
@@ -372,8 +361,8 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         summary.text = "${selected.size} selected · ${table.rowCount} of ${model.rowCount} visible" +
             if (hidden > 0) " · $hidden selected hidden by filter" else ""
         setOKButtonText("Update ${selected.size} selected declarations")
-        setOKActionEnabled(selected.isNotEmpty() && !checking && !failed && !applyPending)
-        openButton.isEnabled = table.selectedRows.size == 1 && !checking && !failed
+        setOKActionEnabled(selected.isNotEmpty() && previewState.canApply)
+        openButton.isEnabled = table.selectedRows.size == 1 && previewState.canInspect
         diffButton.isEnabled = openButton.isEnabled
     }
 
@@ -382,7 +371,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             coverage?.let { it.checked == 0 && (it.skipped > 0 || it.review > 0) } == true ->
                 "No declarations were checked. Review the skipped or unsupported items below."
             coverage == CoverageSummary() -> "No recognized version declarations were found."
-            else -> "No automatic updates available for ${preparedMode.label}."
+            else -> "No automatic updates available for ${previewState.mode.label}."
         } else
             "Each shared property or catalog version is one change affecting all listed consumers."
         val items = plan.reviewItems.ifEmpty { plan.skipped.map { VersionReviewItem(it) } }
@@ -392,6 +381,11 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         reviewToggle.text = "Needs review (${items.size})"
         reviewToggle.isVisible = items.isNotEmpty()
         reviewScroll.isVisible = items.isNotEmpty() && reviewToggle.isSelected
+    }
+
+    override fun dispose() {
+        previewState = previewState.closed(isOK)
+        super.dispose()
     }
 
     override fun getPreferredFocusedComponent(): JComponent = filter

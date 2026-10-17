@@ -79,6 +79,31 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
 
+    fun testCancelledReviewRetiresAHeldPlan() {
+        val edit = edit("cancelled-held-plan")
+        val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
+        val held = dialog.selectedPlan()
+        dialog.close(DialogWrapper.CANCEL_EXIT_CODE)
+        assertFalse(held.apply(project))
+        assertEquals("1.0", text(edit))
+    }
+
+    fun testApplyCallbackFailureStaysDisabledAfterQueuedApplyFinishes() {
+        val edit = edit("failed-apply-callback")
+        val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
+        dialog.onApplyRequested = { _, _ -> dialog.recheckFailed("Write preparation failed.") }
+        try {
+            dialog.doOKAction()
+            UIUtil.dispatchAllInvocationEvents()
+            assertFalse(dialog.isOKActionEnabled)
+            assertFalse(dialog.selectedPlan().apply(project))
+            assertEquals("1.0", text(edit))
+            dialog.replacePrepared(PreparedVersionPreview(BulkUpdatePlan(listOf(edit), emptyList()), System.nanoTime(), 0, 1),
+                UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, "Test", true, false)
+            assertTrue(dialog.isOKActionEnabled)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
     fun testClosingReviewBeforeScheduledApplyDoesNotModifyText() {
         val edit = edit("closed-before-apply")
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
