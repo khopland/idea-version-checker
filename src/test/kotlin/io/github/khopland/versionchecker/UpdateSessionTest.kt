@@ -23,11 +23,22 @@ class UpdateSessionTest {
         store.record(token, "npm", "Command completed; lockfile changed")
         val result = store.get(token)!!
         assertEquals(42L, result.diffToken)
-        assertTrue(result.summary().contains("Verification: Unknown"))
+        assertTrue(result.summary().contains("Historical verification observation (not revalidated): Unknown"))
         assertTrue(result.summary().contains("Declarations applied"))
         assertTrue(result.summary().contains("Cancellation does not undo"))
         store.record(token, "npm", "Expected version confirmed", verification = true)
-        assertTrue(store.get(token)!!.summary().contains("Verification: Expected version confirmed"))
+        assertTrue(store.get(token)!!.summary().contains("Historical verification observation (not revalidated): Recorded at"))
+        assertTrue(store.get(token)!!.summary().contains("Expected version confirmed"))
+    }
+
+    @Test fun `stale declaration evidence downgrades recorded confirmation to unknown`() {
+        val store = UpdateSessionStore()
+        val token = store.start(12, "Declarations applied", setOf("maven"))
+        store.record(token, "maven", "Confirmed expected version", verification = true)
+        val stale = store.get(token)!!.withoutCurrentEvidence()
+        assertTrue(stale.verification.getValue("maven").startsWith("Unknown."))
+        assertTrue(stale.summary().contains("Previous observation: Recorded at"))
+        assertTrue(stale.summary().contains("Verify again after any edit, undo"))
     }
 
     @Test fun `retention limits text and providers and clear removes all sessions`() {

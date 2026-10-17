@@ -71,6 +71,7 @@ internal class BuildReloadService(private val project: Project, private val scop
                 withBackgroundProgress(project, "Saving $provider build files", cancellable = true) {
                     saveBuildInputs(project, BuildSelection(UpdateScope.WHOLE_PROJECT), listOf(adapter))
                 }
+                adapter.prepareReloadVerification(project)
                 record(sessionToken, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.REQUESTING, provider))
                 withBackgroundProgress(project, "Requesting $provider reload", cancellable = true) {
                     withContext(Dispatchers.EDT) {
