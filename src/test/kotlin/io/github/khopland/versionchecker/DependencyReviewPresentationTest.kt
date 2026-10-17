@@ -12,6 +12,31 @@ import javax.swing.RowSorter
 import javax.swing.SortOrder
 
 class DependencyReviewPresentationTest : BasePlatformTestCase() {
+    fun testFiltersStayReachableInANarrowToolWindow() = panel { panel, reads ->
+        fun layout(container: java.awt.Container) {
+            container.doLayout()
+            container.components.filterIsInstance<java.awt.Container>().forEach(::layout)
+        }
+        fun descendants(container: java.awt.Container): List<java.awt.Component> =
+            container.components.flatMap { listOf(it) + if (it is java.awt.Container) descendants(it) else emptyList() }
+        val before = reads.get()
+        val clear = descendants(panel).filterIsInstance<javax.swing.JButton>()
+            .single { it.accessibleContext.accessibleName == "Clear dependency filters" }
+        // 200 available unscaled pixels represents a 400-pixel panel at 200% IDE zoom.
+        for (width in listOf(400, 200)) {
+            panel.setSize(width, 800)
+            layout(panel)
+            for (control in listOf(panel.search, panel.provider, panel.buildRoot, panel.filter, panel.kind, clear)) {
+                val bounds = javax.swing.SwingUtilities.convertRectangle(control.parent, control.bounds, panel)
+                assertTrue("${control.accessibleContext.accessibleName}: $bounds must fit ${panel.bounds}",
+                    bounds.x >= 0 && bounds.x + bounds.width <= panel.width && bounds.width > 0)
+                if (control != clear) assertTrue("${control.accessibleContext.accessibleName} needs usable input width: $bounds",
+                    bounds.width >= 80)
+            }
+        }
+        assertEquals("Layout must not query providers", before, reads.get())
+    }
+
     private val clock = TimeUnit.SECONDS.toNanos(1_000)
     private fun observed(module: String, location: String = "dependency:lib", ageSeconds: Long = 60): DependencyReviewRow {
         val source = "/project/$module/build.gradle.kts"

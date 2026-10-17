@@ -119,7 +119,8 @@ internal class DependencyToolWindowPanel(private val project: Project,
             })
         }
         toolbar = ActionManager.getInstance().createActionToolbar("DependencyVersions", actions, true).apply { targetComponent = this@DependencyToolWindowPanel }
-        val filters = JPanel(GridLayout(0, 2, 4, 4)).apply {
+        // Keep complete selectors reachable in narrow tool windows and at high IDE zoom.
+        val filters = JPanel(GridLayout(0, 1, JBUI.scale(4), JBUI.scale(4))).apply {
             add(labeled("Build system", provider)); add(labeled("Build root", buildRoot))
             add(labeled("Outcome", filter)); add(labeled("Change", kind))
         }
@@ -144,7 +145,8 @@ internal class DependencyToolWindowPanel(private val project: Project,
             add(toolbar.component, BorderLayout.NORTH)
             add(JPanel(BorderLayout(4, 0)).apply {
                 add(labeled("Search", search), BorderLayout.CENTER)
-                add(JButton("Clear filters").apply {
+                add(JButton(AllIcons.Actions.Cancel).apply {
+                    toolTipText = "Clear filters"
                     accessibleContext.accessibleName = "Clear dependency filters"
                     addActionListener { clearFilters() }
                 }, BorderLayout.EAST)
