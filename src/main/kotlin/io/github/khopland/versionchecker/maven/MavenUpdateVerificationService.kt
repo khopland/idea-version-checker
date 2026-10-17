@@ -36,15 +36,23 @@ internal class MavenUpdateVerificationService(private val project: Project, priv
 
     init {
         manager.addProjectsTreeListener(object : MavenProjectsTree.Listener {
+            // Both callbacks are implemented explicitly: Kotlin's synthesized delegation to
+            // the one-argument default method links to an API removed in IDEA 2026.2.
+            override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
+                invalidateResolution(projectWithChanges.first.path)
+            }
+
             override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>,
                                          nativeMavenProject: org.jetbrains.idea.maven.server.NativeMavenProjectHolder?) {
-                synchronized(this@MavenUpdateVerificationService) {
-                    if (disposed || project.isDisposed) return
-                    generation++
-                    resolutions.remove(projectWithChanges.first.path)
-                }
+                invalidateResolution(projectWithChanges.first.path)
             }
         }, this)
+    }
+
+    @Synchronized private fun invalidateResolution(path: String) {
+        if (disposed || project.isDisposed) return
+        generation++
+        resolutions.remove(path)
     }
 
     @Synchronized fun generation(): Long = generation
