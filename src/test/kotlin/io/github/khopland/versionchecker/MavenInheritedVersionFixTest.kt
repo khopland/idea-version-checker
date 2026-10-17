@@ -562,6 +562,29 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertEquals(before, parent.text)
     }
 
+    fun testEffectiveVerificationRequiresSubsequentNativeResolveAndRejectsFurtherEdits() {
+        imported("verify-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
+        val child = imported("verify-child", dependency(), "verify-parent")
+        val service = project.getService(MavenUpdateVerificationService::class.java)
+        val target = io.github.khopland.versionchecker.MavenVerificationTarget(child.virtualFile.path,
+            "junit", "junit", "DEPENDENCY", "4.13.2", service.generation())
+        val before = child.text
+        apply(fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single(), declaration(child))
+        val changes = io.github.khopland.versionchecker.AppliedVersionChanges(listOf(
+            io.github.khopland.versionchecker.AppliedVersionFile(child.virtualFile.path, before, child.text)),
+            mavenVerificationTargets = listOf(target))
+        assertTrue(service.evaluate(changes), service.evaluate(changes).contains("No subsequent Maven dependency resolution"))
+        val imported = manager.findProject(child.virtualFile)!!
+        manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
+            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL))
+        assertTrue(service.generation() > target.afterGeneration)
+        assertTrue(service.evaluate(changes), service.evaluate(changes).contains("Dependency absent"))
+        WriteCommandAction.runWriteCommandAction(project) {
+            child.rootTag!!.findFirstSubTag("properties")!!.findFirstSubTag("junit.version")!!.value.setText("4.14")
+        }
+        assertTrue(service.evaluate(changes), service.evaluate(changes).contains("Build files changed"))
+    }
+
     fun testCreatingInheritedPropertyCanBeUndone() {
         imported("undo-define-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
         val child = imported("undo-define-child", dependency(), "undo-define-parent")

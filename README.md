@@ -87,3 +87,5 @@ See the [architecture guide](docs/architecture.md), [performance measurements](d
 ## License
 
 Copyright 2026 Kristoffer Larsen Hopland. Licensed under the [Apache License, Version 2.0](LICENSE).
+
+After applying an inherited Maven property override, use **Save and reload Maven projects**, wait for Maven resolution, then choose **Verify Maven effective versions** in the update notification. Verification compares each checked dependency's expected version with a subsequently resolved native Maven model. It reports confirmed, mismatch, or unknown separately from declaration edits and reload requests. It does not run tests or establish compatibility. Plugins, parent POMs and absent or unresolved dependencies remain unknown; other update paths do not yet capture verification targets. Changed or undone declaration snapshots and changed imported POMs invalidate the captured evidence. Re-run the review after further edits.

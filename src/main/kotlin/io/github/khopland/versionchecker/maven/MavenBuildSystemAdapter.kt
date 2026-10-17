@@ -30,6 +30,9 @@ internal class MavenBuildSystemAdapter(
         MavenProjectsManager.getInstance(project).forceUpdateAllProjectsOrFindAllAvailablePomFiles()
         return true
     }
+    override fun verifyUpdatedVersions(project: Project, changes: AppliedVersionChanges, publish: (String) -> Unit) {
+        project.service<MavenUpdateVerificationService>().verify(changes, publish)
+    }
     override val id = "maven"
     override val displayName = "Maven"
     override val capabilities = AdapterCapabilities(incrementalInspections = true, updateScopes = UpdateScope.entries.toSet())
