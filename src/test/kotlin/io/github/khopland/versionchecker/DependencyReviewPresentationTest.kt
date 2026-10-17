@@ -104,6 +104,50 @@ class DependencyReviewPresentationTest : BasePlatformTestCase() {
         }
     }
 
+    fun testCoverageRemainsVisibleWhenUpdateFilterHidesIncompleteChecks() = panel { panel, reads ->
+        val before = reads.get()
+        val checked = observed("checked").copy(outcome = DependencyReviewOutcome.CHECKED, available = null)
+        val skipped = observed("unsupported").copy(outcome = DependencyReviewOutcome.SKIPPED,
+            detail = "Catalog alias cannot be resolved", available = null)
+        val unknown = observed("unknown").copy(outcome = DependencyReviewOutcome.UNREPORTED, available = null)
+        val failed = observed("failed").copy(outcome = DependencyReviewOutcome.FAILED, checkFailed = true, available = null)
+        panel.presentRows(listOf(checked, skipped, unknown, failed))
+        panel.filter.selectedItem = DependencyReviewFilter.UPDATES
+        assertEmpty(panel.visibleRows())
+        assertTrue(panel.summaryText().contains("No matches in 4 cached observations"))
+        assertTrue(panel.summaryText().contains("1 checked · 0 updates"))
+        assertTrue(panel.summaryText().contains("1 skipped / unsupported"))
+        assertTrue(panel.summaryText().contains("1 failed"))
+        assertTrue(panel.summaryText().contains("1 unknown"))
+        assertTrue(panel.summaryText().contains("Coverage incomplete"))
+        panel.clearFilters()
+        panel.table.setRowSelectionInterval(1, 1)
+        assertTrue(panel.details.text.contains("Catalog alias cannot be resolved"))
+        assertTrue(panel.details.text.contains("Source: /project/gradle/libs.versions.toml"))
+        assertTrue(panel.details.text.contains("Next action: Open the source"))
+        assertEquals("Filtering, selection and summaries must remain passive", before, reads.get())
+    }
+
+    fun testCoverageDoesNotInferCompleteChecksFromCandidatesOrEmptyContexts() {
+        val candidate = observed("partial").copy(checkFailed = true)
+        val empty = observed("empty").copy(outcome = DependencyReviewOutcome.NO_DECLARATIONS)
+        val pending = observed("pending").copy(outcome = DependencyReviewOutcome.PENDING, checking = true)
+        val review = observed("review").copy(outcome = DependencyReviewOutcome.REVIEW)
+        val summary = DependencyReviewCoverage.description(listOf(candidate, empty, pending, review))
+        assertTrue(summary.contains("0 checked · 1 updates"))
+        assertTrue(summary.contains("1 failed"))
+        assertTrue(summary.contains("1 pending"))
+        assertTrue(summary.contains("1 need review"))
+        assertTrue(summary.contains("1 contexts without recognized declarations"))
+        assertTrue(summary.contains("Coverage incomplete"))
+        assertTrue(DependencyReviewCoverage.nextAction(candidate).contains("repository problem"))
+        assertTrue(DependencyReviewCoverage.nextAction(empty).contains("coverage scope"))
+        assertTrue(DependencyReviewCoverage.nextAction(pending).startsWith("Wait"))
+        assertTrue(DependencyReviewCoverage.nextAction(review).contains("consumers"))
+        assertFalse(DependencyReviewCoverage.description(listOf(observed("complete")))
+            .contains("Coverage incomplete"))
+    }
+
     fun testExportRedactsCheckSourceAndNeverSerializesContextOrConfiguration() {
         val row = observed("module").copy(origin = observed("module").origin!!.copy(
             context = BuildContextId("gradle", "/private/root", "private-resolution-key"),
