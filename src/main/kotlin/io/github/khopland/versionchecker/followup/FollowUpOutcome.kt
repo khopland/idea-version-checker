@@ -4,12 +4,13 @@ import java.nio.file.Path
 
 /** Presentation only: a reload request is not evidence of successful IDE synchronization. */
 internal data class BuildReloadOutcome(val phase: Phase, val provider: String, val requestAttempted: Boolean = false) {
-    enum class Phase { SAVING, REQUESTING, REQUESTED, CANCELLED, UNAVAILABLE, FAILED }
+    enum class Phase { SAVING, REQUESTING, REQUESTED, COMPLETED, CANCELLED, UNAVAILABLE, FAILED }
     val warning get() = phase in setOf(Phase.UNAVAILABLE, Phase.FAILED)
     val message: String get() = when (phase) {
         Phase.SAVING -> "Saving $provider build files before requesting reload."
         Phase.REQUESTING -> "Requesting $provider reload from the IDE."
         Phase.REQUESTED -> "$provider reload requested. IDE synchronization completion was not observed. Check the build tool window for its result."
+        Phase.COMPLETED -> "$provider native import completed. Check the build tool window for import diagnostics; expected dependency versions have not been compared."
         Phase.CANCELLED -> if (requestAttempted) "$provider reload follow-up was cancelled during or after the reload request. Check the build tool window to see whether synchronization started."
             else "$provider reload follow-up was cancelled before requesting reload. Build files may already have been saved."
         Phase.UNAVAILABLE -> "$provider reload is unavailable. Enable or import the build tool and use its IDE tool window to reload."

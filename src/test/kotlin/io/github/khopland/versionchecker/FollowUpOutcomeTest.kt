@@ -2,11 +2,38 @@ package io.github.khopland.versionchecker
 
 import io.github.khopland.versionchecker.followup.BuildReloadOutcome
 import io.github.khopland.versionchecker.followup.NpmFollowUpOutcome
+import io.github.khopland.versionchecker.followup.NpmFollowUpPresentation
 import org.junit.Assert.*
 import org.junit.Test
 import java.nio.file.Path
 
 class FollowUpOutcomeTest {
+    @Test fun `completed native import remains distinct from effective version verification`() {
+        val outcome = BuildReloadOutcome(BuildReloadOutcome.Phase.COMPLETED, "Maven", requestAttempted = true)
+        assertTrue(outcome.message.contains("native import completed"))
+        assertTrue(outcome.message.contains("expected dependency versions have not been compared"))
+        assertTrue(outcome.message.contains("Dependency verification was not performed"))
+        assertFalse(outcome.message.contains("completion was not observed"))
+        assertFalse(outcome.warning)
+    }
+
+    @Test fun `npm outcomes identify selected workspace even without changed lockfiles`() {
+        for (phase in NpmFollowUpOutcome.Phase.entries) {
+            val message = NpmFollowUpPresentation.withWorkspace(NpmFollowUpOutcome(phase).message,
+                Path.of("/project/other-workspace"), "/project")
+            assertTrue(message.startsWith("Selected npm workspace root: other-workspace (project-relative)."))
+            assertFalse(message.contains("/project"))
+        }
+        assertTrue(NpmFollowUpPresentation.withWorkspace("Done", Path.of("/project"), "/project")
+            .contains("root: . (project-relative)"))
+        assertTrue(NpmFollowUpPresentation.withWorkspace("Done", Path.of("/elsewhere/private"), "/project")
+            .contains("<outside-project>"))
+        assertFalse(NpmFollowUpPresentation.withWorkspace("Done", Path.of("/elsewhere/private"), "/project")
+            .contains("private"))
+        assertTrue(NpmFollowUpPresentation.withWorkspace("Cancelled", Path.of("/project/work\nspace"), "/project")
+            .contains("work?space"))
+    }
+
     @Test fun `npm terminal outcomes distinguish execution and preserve verification limits`() {
         val lock = Path.of("package-lock.json")
         for (phase in NpmFollowUpOutcome.Phase.entries) {

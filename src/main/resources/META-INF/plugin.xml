@@ -31,6 +31,9 @@
         <action id="VersionChecker.ReviewCurrentFile" class="io.github.khopland.versionchecker.ReviewCurrentFileUpdatesAction" text="Review Dependency Updates…" description="Review and select dependency version changes in this build file">
             <add-to-group group-id="EditorPopupMenu" anchor="last" />
         </action>
+        <action id="VersionChecker.UpdateSession" class="io.github.khopland.versionchecker.ShowUpdateSessionAction" text="View Latest Version Update Session…" description="Review declaration changes, follow-up outcomes and verification status">
+            <add-to-group group-id="ToolsMenu" anchor="last" />
+        </action>
         <group id="VersionChecker.Updates" text="Update Versions" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last" />
             <group id="VersionChecker.Updates.CurrentFile" text="Current File" popup="true">

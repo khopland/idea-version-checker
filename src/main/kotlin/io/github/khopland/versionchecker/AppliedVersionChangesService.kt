@@ -33,6 +33,7 @@ internal class AppliedVersionChangesService(private val project: Project) : Disp
     private val store = AppliedVersionChangesStore()
     @Volatile private var disposed = false
     @Synchronized fun retain(changes: AppliedVersionChanges): Long? = if (disposed || project.isDisposed) null else store.retain(changes)
+    fun captured(token: Long): AppliedVersionChanges? = if (disposed || project.isDisposed) null else store.get(token)
     fun show(token: Long) {
         if (disposed || project.isDisposed) return
         val changes = store.get(token)
