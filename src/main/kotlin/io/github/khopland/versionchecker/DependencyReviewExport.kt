@@ -34,7 +34,7 @@ internal object DependencyReviewExport {
                     addProperty("currentVersion", safe(row.current))
                     row.available?.let { addProperty("availableVersion", safe(it)) }
                     row.kind?.let { addProperty("changeKind", it.name.lowercase()) }
-                    addProperty("outcome", safe(row.outcome))
+                    addProperty("outcome", row.outcome.label)
                     addProperty("detail", safe(row.detail))
                     addProperty("mode", row.mode.name.lowercase())
                     addProperty("checking", row.checking)

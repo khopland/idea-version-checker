@@ -12,7 +12,7 @@ import javax.swing.SortOrder
 
 class DependencyToolWindowQueryTest : BasePlatformTestCase() {
     private fun row(artifact: String, provider: String = "maven", root: String = "/project", source: String = "$root/pom.xml",
-                    outcome: String = "Update", kind: VersionChangeKind? = VersionChangeKind.PATCH) =
+                    outcome: DependencyReviewOutcome = DependencyReviewOutcome.UPDATE, kind: VersionChangeKind? = VersionChangeKind.PATCH) =
         DependencyReviewRow(provider, root, DeclarationId(source, "dependency:$artifact"), artifact,
             "1.0", "1.1", kind, outcome, "A reason for $artifact", UpdateMode.MAJOR, false)
 
@@ -21,7 +21,7 @@ class DependencyToolWindowQueryTest : BasePlatformTestCase() {
         val otherProvider = match.copy(adapter = "gradle")
         val otherRoot = match.copy(root = "/project/other")
         val otherKind = match.copy(kind = VersionChangeKind.MAJOR)
-        val otherOutcome = match.copy(outcome = "Skipped")
+        val otherOutcome = match.copy(outcome = DependencyReviewOutcome.SKIPPED)
         val rows = listOf(match, otherProvider, otherRoot, otherKind, otherOutcome, row("g:libcore"))
         assertEquals(listOf(match), DependencyReviewQuery("LIB[core]", "maven", "/project/service",
             DependencyReviewFilter.UPDATES, VersionChangeKind.PATCH).apply(rows))

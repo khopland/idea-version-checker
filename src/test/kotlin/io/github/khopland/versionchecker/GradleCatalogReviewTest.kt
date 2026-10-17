@@ -46,7 +46,7 @@ class GradleCatalogReviewTest : BasePlatformTestCase() {
         val rows = DependencyReviewRows.from(listOf(VersionResultCache.Observation(snapshot, report, UpdateMode.MAJOR, false)))
         val row = rows.single()
         assertEquals(rows, DependencyReviewRows.filter(rows, DependencyReviewFilter.REVIEW))
-        assertEquals("Skipped", row.outcome)
+        assertEquals(DependencyReviewOutcome.SKIPPED, row.outcome)
         assertEquals(file.virtualFile.path, row.source.file)
         assertTrue(row.detail.contains("coverage is unavailable"))
         assertNull(row.available)

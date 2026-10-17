@@ -14,11 +14,11 @@ class DependencyReviewRowsTest : BasePlatformTestCase() {
     fun testCoverageAndFiltersDoNotGuessSuccessFromNoCandidates() {
         val report = UpdateReport(coverage = mapOf(declaration.id to DeclarationCoverage(DeclarationOutcome.SKIPPED, "Managed externally")))
         val rows = DependencyReviewRows.from(listOf(observation(report)))
-        assertEquals("Skipped", rows.single().outcome)
+        assertEquals(DependencyReviewOutcome.SKIPPED, rows.single().outcome)
         assertEquals(rows, DependencyReviewRows.filter(rows, DependencyReviewFilter.REVIEW))
         assertEmpty(DependencyReviewRows.filter(rows, DependencyReviewFilter.UPDATES))
-        assertEquals("Coverage unreported", DependencyReviewRows.from(listOf(observation(UpdateReport()))).single().outcome)
-        assertEquals("Pending", DependencyReviewRows.from(listOf(observation(UpdateReport(), true))).single().outcome)
+        assertEquals(DependencyReviewOutcome.UNREPORTED, DependencyReviewRows.from(listOf(observation(UpdateReport()))).single().outcome)
+        assertEquals(DependencyReviewOutcome.PENDING, DependencyReviewRows.from(listOf(observation(UpdateReport(), true))).single().outcome)
     }
 
     fun testUpdatesRespectIgnoresAndPreservePhysicalNavigationAndKind() {
@@ -31,7 +31,7 @@ class DependencyReviewRowsTest : BasePlatformTestCase() {
         assertEquals(rows, DependencyReviewRows.filter(rows, DependencyReviewFilter.UPDATES, VersionChangeKind.MAJOR))
         assertEmpty(DependencyReviewRows.filter(rows, DependencyReviewFilter.UPDATES, VersionChangeKind.PATCH))
         val ignored = DependencyReviewRows.from(listOf(observation), "maven com.example:library = 2.0")
-        assertEquals("Ignored", ignored.single().outcome)
+        assertEquals(DependencyReviewOutcome.IGNORED, ignored.single().outcome)
         assertNull(ignored.single().available)
     }
 
@@ -42,11 +42,11 @@ class DependencyReviewRowsTest : BasePlatformTestCase() {
         assertEquals(failed, DependencyReviewRows.filter(failed, DependencyReviewFilter.FAILED))
         val manual = DependencyReviewRows.from(listOf(observation(UpdateReport(listOf(candidate),
             notices = listOf(UpdateNotice(declaration, NoticeKind.MANUAL_REVIEW, "Shared version requires review"))))))
-        assertEquals("Review", manual.single().outcome)
+        assertEquals(DependencyReviewOutcome.REVIEW, manual.single().outcome)
         assertEquals(manual, DependencyReviewRows.filter(manual, DependencyReviewFilter.REVIEW))
         val failedCoverage = DependencyReviewRows.from(listOf(observation(UpdateReport(listOf(candidate),
             coverage = mapOf(declaration.id to DeclarationCoverage(DeclarationOutcome.FAILED))))))
-        assertEquals("Failed", failedCoverage.single().outcome)
+        assertEquals(DependencyReviewOutcome.FAILED, failedCoverage.single().outcome)
     }
 
     fun testDisposedPanelRejectsLatePresentationAndClearsRows() {

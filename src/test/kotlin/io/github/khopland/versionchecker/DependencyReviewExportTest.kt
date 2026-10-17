@@ -9,7 +9,7 @@ import java.time.Instant
 
 class DependencyReviewExportTest {
     private val row = DependencyReviewRow("npm", "/project", DeclarationId("/project/packages/app/package.json", "dependencies/example"),
-        "example", "1.0.0", "1.0.1", VersionChangeKind.PATCH, "Update", "Newer stable version", UpdateMode.PATCH, false)
+        "example", "1.0.0", "1.0.1", VersionChangeKind.PATCH, DependencyReviewOutcome.UPDATE, "Newer stable version", UpdateMode.PATCH, false)
 
     @Test fun `export preserves useful observations and marks them as presentation only`() {
         val document = JsonParser.parseString(DependencyReviewExport.json(listOf(row), "/project", Instant.EPOCH)).asJsonObject
@@ -83,7 +83,7 @@ class DependencyReviewExportTest {
     @Test fun `export redacts diagnostics and paths outside project without losing failure status`() {
         val failed = row.copy(root = "/private/user/work", source = DeclarationId("/project-other/private/pom.xml", "version"),
             detail = "https://user:password@registry.test/pkg?token=private-query in /Users/person/private-project/.npmrc\nAuthorization: Bearer private-header",
-            available = null, outcome = "Failed", checking = true, checkFailed = true)
+            available = null, outcome = DependencyReviewOutcome.FAILED, checking = true, checkFailed = true)
         val exported = DependencyReviewExport.json(listOf(failed), "/project", Instant.EPOCH)
         for (private in listOf("password", "private-query", "private-header", "/private/user", "/Users/person", "/project-other"))
             assertFalse(private, exported.contains(private))

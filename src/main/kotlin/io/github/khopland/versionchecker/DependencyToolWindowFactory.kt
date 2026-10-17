@@ -326,7 +326,7 @@ internal class DependencyToolWindowPanel(private val project: Project,
             row.origin?.declaration?.location?.let { "Check declaration: $it" }.orEmpty(),
             row.origin?.coverageDescription?.let { "Coverage scope: $it" }.orEmpty(),
             "Current: ${row.current}", "Available: ${row.available ?: "—"}", "Change: ${row.kind?.name ?: "—"}",
-            "Outcome: ${row.outcome}${if (row.checkFailed) " (check failed)" else ""}${if (row.checking) " (checking)" else ""}",
+            "Outcome: ${row.outcome.label}${if (row.checkFailed) " (check failed)" else ""}${if (row.checking) " (checking)" else ""}",
             "Mode: ${row.mode.label}", "Details: ${row.detail.ifEmpty { "No additional diagnostic reported." }}",
             "Cached observations do not prove unchanged build inputs. Refresh and review before editing.",
         ).filter(String::isNotEmpty).joinToString("\n")
@@ -370,7 +370,7 @@ internal class DependencyReviewTableModel(private val basePath: String?, private
             4 -> row.current
             5 -> row.available.orEmpty()
             6 -> row.kind?.name.orEmpty()
-            7 -> row.outcome + (if (row.checkFailed) " (check failed)" else "") + (if (row.checking) " (checking)" else "")
+            7 -> row.outcome.label + (if (row.checkFailed) " (check failed)" else "") + (if (row.checking) " (checking)" else "")
             8 -> row.mode.label
             9 -> row.detail
             else -> DependencyReviewFreshness.elapsedMillis(row, sampledAtNanos)

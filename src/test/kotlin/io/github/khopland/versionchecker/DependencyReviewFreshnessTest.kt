@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit
 
 class DependencyReviewFreshnessTest {
     private val row = DependencyReviewRow("npm", "/project", DeclarationId("/project/package.json", "dependencies/example"),
-        "example", "1.0", "2.0", VersionChangeKind.MAJOR, "Update", "", UpdateMode.MAJOR, false)
+        "example", "1.0", "2.0", VersionChangeKind.MAJOR, DependencyReviewOutcome.UPDATE, "", UpdateMode.MAJOR, false)
     private fun seconds(value: Long) = TimeUnit.SECONDS.toNanos(value)
 
     @Test fun `unknown future and inconsistent timing never implies a fresh observation`() {
@@ -81,13 +81,13 @@ class DependencyReviewFreshnessTest {
         assertEquals(seconds(1), skipped.checkedAtNanos)
         assertEquals(seconds(61), skipped.expiresAtNanos)
         val pending = projected.single { it.source == b.id }
-        assertEquals("Pending", pending.outcome)
+        assertEquals(DependencyReviewOutcome.PENDING, pending.outcome)
         assertNull(pending.checkedAtNanos)
         assertNull(pending.expiresAtNanos)
         assertEquals("Unknown", DependencyReviewFreshness.formatAge(pending, seconds(2)))
         val completeButUnreported = DependencyReviewRows.from(listOf(observation.copy(checking = false)))
             .single { it.source == b.id }
-        assertEquals("Coverage unreported", completeButUnreported.outcome)
+        assertEquals(DependencyReviewOutcome.UNREPORTED, completeButUnreported.outcome)
         assertNull(completeButUnreported.checkedAtNanos)
         assertNull(completeButUnreported.expiresAtNanos)
         val unknown = DependencyReviewRows.from(listOf(observation.copy(checkedAtNanos = null, expiresAtNanos = null,
