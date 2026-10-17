@@ -35,13 +35,7 @@ internal fun notifyVersionUpdates(project: Project, followUp: List<String>, buil
     })
     if (reviewToken != null && changedFiles.mavenVerificationTargets.isNotEmpty()) {
         notification.addAction(NotificationAction.createSimple("Verify Maven effective versions") {
-            if (!project.isDisposed) {
-                val captured = project.service<AppliedVersionChangesService>().captured(reviewToken)
-                if (captured != null) BuildSystemAdapter.find("maven")?.verifyUpdatedVersions(project, captured) { message ->
-                    project.service<UpdateSessionService>().recordVerification(sessionToken, "maven", message)
-                } else project.service<UpdateSessionService>().recordVerification(sessionToken, "maven",
-                    "Unknown. Historical evidence expired; apply a fresh reviewed update to capture verification evidence.")
-            }
+            MavenSessionFollowUp.verify(project, reviewToken, sessionToken)
         })
     }
     for ((id, label) in listOf("maven" to "Maven", "gradle" to "Gradle")) {

@@ -4,6 +4,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class UpdateSessionTest {
+    @Test fun `session Maven followups require the matching provider and verification evidence`() {
+        val changes = AppliedVersionChanges(emptyList(), mavenVerificationTargets = listOf(
+            MavenVerificationTarget("/project/pom.xml", "g", "a", "DEPENDENCY", "2", 0)))
+        assertEquals(MavenSessionFollowUp.Availability(true, true),
+            MavenSessionFollowUp.availability(setOf("maven"), true, changes))
+        assertEquals(MavenSessionFollowUp.Availability(true, false),
+            MavenSessionFollowUp.availability(setOf("maven"), true, null))
+        assertEquals(MavenSessionFollowUp.Availability(false, false),
+            MavenSessionFollowUp.availability(setOf("gradle"), true, changes))
+        assertEquals(MavenSessionFollowUp.Availability(false, false),
+            MavenSessionFollowUp.availability(setOf("maven"), false, changes))
+        assertFalse(MavenSessionFollowUp.availability(setOf("maven"), true, AppliedVersionChanges(emptyList())).verify)
+    }
+
     @Test fun `late outcomes belong to the originating session and expired tokens are ignored`() {
         val store = UpdateSessionStore(2)
         val first = store.start(10, "First declaration", setOf("maven"))

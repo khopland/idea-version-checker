@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.core.BuildSystemAdapter
+import io.github.khopland.versionchecker.followup.BuildReloadService
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -102,6 +104,9 @@ internal class UpdateSessionService(private val project: Project) : Disposable {
                 }
             if (current) retained else retained.withoutCurrentEvidence()
         }
+        val mavenActions = MavenSessionFollowUp.availability(snapshot?.providers.orEmpty(),
+            BuildSystemAdapter.find("maven") != null,
+            snapshot?.diffToken?.let { project.service<AppliedVersionChangesService>().captured(it) })
         object : DialogWrapper(project) {
             init { title = "Version Update Session"; init() }
             override fun createCenterPanel(): JComponent = JBScrollPane(JTextArea(
@@ -115,6 +120,18 @@ internal class UpdateSessionService(private val project: Project) : Disposable {
                         project.service<AppliedVersionChangesService>().show(diff)
                     }
                 }) }
+                if (snapshot != null && mavenActions.reload) add(object : DialogWrapperAction("Reload Maven") {
+                    override fun doAction(event: java.awt.event.ActionEvent?) {
+                        close(OK_EXIT_CODE)
+                        if (!project.isDisposed) project.service<BuildReloadService>().reload("maven", snapshot.token)
+                    }
+                })
+                if (snapshot?.diffToken != null && mavenActions.verify) add(object : DialogWrapperAction("Verify Maven versions") {
+                    override fun doAction(event: java.awt.event.ActionEvent?) {
+                        close(OK_EXIT_CODE)
+                        MavenSessionFollowUp.verify(project, snapshot.diffToken, snapshot.token)
+                    }
+                })
                 add(okAction)
             }.toTypedArray()
         }.show()
