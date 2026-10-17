@@ -1,0 +1,7 @@
+2026-10-17T23:47:53 [main] INFO  verification - Finished 1 of 2 verifications (in 51.0 s): IU-261.26222.65 against io.github.khopland.version-checker:1.3.0: Compatible. 7 usages of deprecated API. 25 usages of experimental API
+2026-10-17T23:48:00 [main] INFO  verification - Finished 2 of 2 verifications (in 58.0 s): IU-262.10968.63 against io.github.khopland.version-checker:1.3.0: Compatible. 9 usages of deprecated API. 25 usages of experimental API
+Plugin io.github.khopland.version-checker:1.3.0 against IU-261.26222.65: Compatible. 7 usages of deprecated API. 25 usages of experimental API
+Plugin io.github.khopland.version-checker:1.3.0 against IU-262.10968.63: Compatible. 9 usages of deprecated API. 25 usages of experimental API
+BUILD SUCCESSFUL in 1m 56s
+25 actionable tasks: 4 executed, 21 up-to-date
+Configuration cache entry reused.

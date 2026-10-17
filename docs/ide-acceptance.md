@@ -6,6 +6,9 @@ replace interactive acceptance. Use a fresh isolated IDE configuration, system,
 plugins and log directory per target. Extract the candidate into an empty plugin
 directory so an older JAR cannot remain beside it. Keep normal IDE profiles intact.
 
+Latest bounded interactive review: [17 October 2026](acceptance/2026-10-17-review/README.md).
+Its results and remaining cases belong to the recorded ZIP, not future builds.
+
 ## Record the candidate
 
 Retain this information with every result:
@@ -53,6 +56,11 @@ scaling. A missing runtime or unavailable license is a blocked result, not a pas
 | npm synchronization | Preview command, cancel before start; run a failing command; cancel during execution; run a successful disposable case. | Session records each outcome, changed/unknown lockfiles and partial-write risk; declaration undo never claims to undo native writes. |
 | Session lifecycle | Apply twice; invoke a retained action from the first update; change an edited declaration; close/reopen project. | Outcomes stay attached to the right update; later edits invalidate verification; disposed project sessions are cleared. |
 | Interaction cost | Use small and large fixtures, cold and warm checks, delayed registry and cancellation. | Record first visible result, review-ready time, table/filter response and typing latency; record fixture/archive/runtime with each value. |
+
+At high zoom, use the **Show dependency filters** toolbar toggle to hide or
+restore the four selector rows while keeping search visible. Verify that selected
+filters survive this change and that it performs no queries. The clear icon has
+the accessible name **Clear dependency filters** and the tooltip **Clear filters**.
 
 ## Measurement policy
 

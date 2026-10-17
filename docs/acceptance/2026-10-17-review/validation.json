@@ -1,0 +1,172 @@
+{
+  "sourceCommit": "9602fbec692784d6e144fd7500dbacc37464e2a9",
+  "archive": "review-candidate.zip",
+  "sha256": "d87902a13ba68eeffcb628f49703a5257995d8b37e6dfe90ed93c05f072a62a8",
+  "pluginVersion": "1.3.0",
+  "baseCommit": "1108e431955c88cdfe72fafde133a3b48654e057",
+  "os": "macOS 27.0.1",
+  "hardware": "Mac16,1",
+  "buildJava": "21.0.12+1.1-tem",
+  "node": "22.23.1",
+  "npm": "10.9.8",
+  "profileState": "Isolated profiles; restarted with final ZIP after intermediate layout fixes; warm fixture caches",
+  "ides": [
+    {
+      "version": "2026.1.4",
+      "build": "IU-261.26222.65",
+      "runtime": "JBR-25.0.3+9-329.124-jcef",
+      "verifier": "Compatible",
+      "deprecatedApiUsages": 7,
+      "experimentalApiUsages": 25
+    },
+    {
+      "version": "2026.2.3",
+      "build": "IU-262.10968.63",
+      "runtime": "JBR-25.0.4+1-508.27-nomod",
+      "verifier": "Compatible",
+      "deprecatedApiUsages": 9,
+      "experimentalApiUsages": 25
+    }
+  ],
+  "automatedCommand": "./gradlew check buildPlugin verifyPluginProjectConfiguration verifyPlugin -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain",
+  "archiveVerification": {
+    "archiveSha256": "d87902a13ba68eeffcb628f49703a5257995d8b37e6dfe90ed93c05f072a62a8",
+    "installedFiles": {
+      "2026.1.4": {
+        "version-checker/lib/version-checker-1.3.0-searchableOptions.jar": "b75b8d14f60e137a9de18a31a028f97956ae38ed7d9e6696c8425de36c7391d8",
+        "version-checker/lib/antlr4-runtime-4.11.1.jar": "e06c6553c1ccc14d36052ec4b0fc6f13b808cf957b5b1dc3f61bf401996ada59",
+        "version-checker/lib/checker-qual-3.21.2.jar": "7e8554c902b9b839e61396cfe3a64c84ecabfb8eb652c410bfd8e4f5c1a8ece8",
+        "version-checker/lib/tomlj-1.1.1.jar": "383b7c66966c42ee4913ec977a7b6573631866bddc5318ec4a6215b688dd0d6c",
+        "version-checker/lib/version-checker-1.3.0.jar": "9e98364d2247f141460b647dfada66a3f8581159e5557938d900ca612f3ba032"
+      },
+      "2026.2.3": {
+        "version-checker/lib/version-checker-1.3.0-searchableOptions.jar": "b75b8d14f60e137a9de18a31a028f97956ae38ed7d9e6696c8425de36c7391d8",
+        "version-checker/lib/antlr4-runtime-4.11.1.jar": "e06c6553c1ccc14d36052ec4b0fc6f13b808cf957b5b1dc3f61bf401996ada59",
+        "version-checker/lib/checker-qual-3.21.2.jar": "7e8554c902b9b839e61396cfe3a64c84ecabfb8eb652c410bfd8e4f5c1a8ece8",
+        "version-checker/lib/tomlj-1.1.1.jar": "383b7c66966c42ee4913ec977a7b6573631866bddc5318ec4a6215b688dd0d6c",
+        "version-checker/lib/version-checker-1.3.0.jar": "9e98364d2247f141460b647dfada66a3f8581159e5557938d900ca612f3ba032"
+      }
+    },
+    "startupLogs": {
+      "2026.1.4": {
+        "plugin": "2026-10-17 23:47:11,011 [   1691]   INFO - #c.i.p.i.b.AppStarter - Loaded custom plugins: Version Checker (1.3.0)",
+        "errors": []
+      },
+      "2026.2.3": {
+        "plugin": "2026-10-17 23:47:05,431 [    653]   INFO - #c.i.p.i.b.AppStarter - Loaded custom plugins: Version Checker (1.3.0)",
+        "errors": []
+      }
+    },
+    "tests": {
+      "tests": 729,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "functional": {
+    "idea2026.1": {
+      "apply": {
+        "npm/package.json": {
+          "baseline": "4db4c799d644c98ed1a4aed70265135c5df5dc69b552fd7211b8ff85ec5fa1d3",
+          "applied": "035b23aad380271b4f607363f7e5fda17b140e9a655e372d9509f8eb842a21a1",
+          "changed": true
+        },
+        "npm/packages/app/package.json": {
+          "baseline": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+          "applied": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+          "changed": false
+        },
+        "npm/package-lock.json": {
+          "baseline": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c",
+          "applied": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c",
+          "changed": false
+        }
+      },
+      "undo": {
+        "npm/package.json": "4db4c799d644c98ed1a4aed70265135c5df5dc69b552fd7211b8ff85ec5fa1d3",
+        "npm/packages/app/package.json": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+        "npm/package-lock.json": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c"
+      },
+      "afterCancel": {
+        "npm/package.json": "4db4c799d644c98ed1a4aed70265135c5df5dc69b552fd7211b8ff85ec5fa1d3",
+        "npm/packages/app/package.json": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+        "npm/package-lock.json": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c"
+      }
+    },
+    "idea2026.2": {
+      "apply": {
+        "npm-2026.2.3/package.json": {
+          "baseline": "4db4c799d644c98ed1a4aed70265135c5df5dc69b552fd7211b8ff85ec5fa1d3",
+          "applied": "035b23aad380271b4f607363f7e5fda17b140e9a655e372d9509f8eb842a21a1",
+          "changed": true
+        },
+        "npm-2026.2.3/packages/app/package.json": {
+          "baseline": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+          "applied": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+          "changed": false
+        },
+        "npm-2026.2.3/package-lock.json": {
+          "baseline": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c",
+          "applied": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c",
+          "changed": false
+        }
+      },
+      "undo": {
+        "npm-2026.2.3/package.json": "4db4c799d644c98ed1a4aed70265135c5df5dc69b552fd7211b8ff85ec5fa1d3",
+        "npm-2026.2.3/packages/app/package.json": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+        "npm-2026.2.3/package-lock.json": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c"
+      },
+      "afterCancel": {
+        "npm-2026.2.3/package.json": "4db4c799d644c98ed1a4aed70265135c5df5dc69b552fd7211b8ff85ec5fa1d3",
+        "npm-2026.2.3/packages/app/package.json": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+        "npm-2026.2.3/package-lock.json": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c"
+      }
+    }
+  },
+  "passiveChecks": [
+    {
+      "startedUtc": "2026-10-17T21:53:06.460097+00:00",
+      "requestsBefore": 46,
+      "finishedUtc": "2026-10-17T21:53:20.627950+00:00",
+      "requestsAfter": 46,
+      "ide": "2026.1.4",
+      "operations": [
+        "focus search and type beta",
+        "clear filters with Tab + Space",
+        "choose npm provider and root using keyboard",
+        "select row and open source with Enter"
+      ],
+      "additionalRequests": 0
+    },
+    {
+      "startedUtc": "2026-10-17T21:53:28.520756+00:00",
+      "requestsBefore": 49,
+      "finishedUtc": "2026-10-17T21:53:44.516088+00:00",
+      "requestsAfter": 49,
+      "ide": "2026.2.3",
+      "operations": [
+        "open tool window via Find Action",
+        "focus search and type beta",
+        "clear filters with Tab + Space",
+        "choose npm provider and root using keyboard",
+        "select row and open source with Enter"
+      ],
+      "additionalRequests": 0
+    }
+  ],
+  "releaseAcceptance": "incomplete",
+  "notRun": [
+    "Full Maven and Gradle native matrix on this ZIP",
+    "Maven 4 rerun on this source",
+    "Observation expiry/export deadline",
+    "Malformed catalog/unsupported coverage native cases",
+    "Rapid scope/mode changes and late-completion acceptance",
+    "External and unsaved input changes",
+    "Reload failure and effective Maven verification",
+    "npm sync command lifecycle and successful installation",
+    "Retained-session/project-reopen lifecycle",
+    "Three cold/warm interaction measurements and regression budgets",
+    "Windows smoke"
+  ]
+}
