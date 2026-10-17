@@ -16,6 +16,7 @@ internal interface VersionEdit {
     val location: String
     val review: VersionReviewItem? get() = null
     val buildSystemId: String? get() = null
+    val mavenVerificationTargets: List<MavenVerificationTarget> get() = emptyList()
     /** Null inherits the containing plan's guidance; combined plans assign it per edit. */
     val followUp: List<String>? get() = null
     /** Captured text edits can be validated and committed once per file, including combined plans. */

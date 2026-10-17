@@ -10,7 +10,8 @@ import kotlinx.coroutines.CancellationException
 internal data class AppliedVersionFile(val path: String, val before: String, val after: String)
 
 internal class AppliedVersionChanges(files: List<AppliedVersionFile>, val omittedTargetFiles: Int = 0,
-                                     val captureUnavailable: Boolean = false) {
+                                     val captureUnavailable: Boolean = false,
+                                     val mavenVerificationTargets: List<MavenVerificationTarget> = emptyList()) {
     val files: List<AppliedVersionFile> = java.util.Collections.unmodifiableList(files.toList())
     val textCharacters: Long = files.sumOf { it.before.length.toLong() + it.after.length }
 }
@@ -18,6 +19,7 @@ internal class AppliedVersionChanges(files: List<AppliedVersionFile>, val omitte
 /** Short-lived bounded capture inside the write command; only immutable strings escape it. */
 internal class AppliedVersionChangeCapture private constructor(
     private val pending: List<Pair<PsiFile, String>>, private val omitted: Int, private val limits: Limits,
+    private val verificationTargets: List<MavenVerificationTarget>,
 ) {
     /** Worst-case UTF-16 text payload is 2 MiB; oversized targets are never copied or hashed. */
     internal data class Limits(val files: Int = 50, val characters: Int = 1_000_000) {
@@ -44,7 +46,7 @@ internal class AppliedVersionChangeCapture private constructor(
                 characters += before.length.toLong() + after.length
             }
         }
-        if (files.isEmpty() && skipped == 0) null else AppliedVersionChanges(files, skipped)
+        if (files.isEmpty() && skipped == 0) null else AppliedVersionChanges(files, skipped, mavenVerificationTargets = verificationTargets)
     } catch (failure: RuntimeException) {
         // These are optional presentation operations after the write, including cancellation.
         if (failure !is ProcessCanceledException && failure !is CancellationException)
@@ -68,7 +70,7 @@ internal class AppliedVersionChangeCapture private constructor(
                 pending += file to before
                 characters += before.length
             }
-            AppliedVersionChangeCapture(pending, skipped, limits)
+            AppliedVersionChangeCapture(pending, skipped, limits, changes.flatMap { it.mavenVerificationTargets }.distinct())
         } catch (cancelled: ProcessCanceledException) { throw cancelled }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: RuntimeException) {

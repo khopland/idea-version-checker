@@ -333,6 +333,7 @@ internal class MavenDependencyAnalysis(
         return DefineInheritedMavenPropertyFix(root, target.localName, latest,
             checked.map { "${it.coordinate.groupId}:${it.coordinate.artifactId}" }.distinct(),
             uncheckedManagement.map { "${it.groupId}:${it.artifactId}" },
+            verificationCoordinates = checked.map { it.coordinate }.distinct(),
             isCurrent = { resultIsCurrent() && provenance.all { (pointer, text) -> pointer.element?.text == text } &&
                 root.project.service<VersionCheckerSettings>().state.enabled &&
                 root.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy })
