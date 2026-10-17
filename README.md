@@ -82,7 +82,7 @@ Compatibility checks target IDEA 2026.1.4 and 2026.2.3. Native integration tests
 
 Demo projects: [Maven](src/test/resources/maven-demo/README.md), [npm](src/test/resources/npm-demo/README.md), [Gradle](src/test/resources/gradle-demo/README.md). Copy a demo to the Git-ignored `examples/` directory before trying updates.
 
-See [performance measurements](docs/performance.md) and the [release guide](docs/releasing.md) for further development details.
+See the [architecture guide](docs/architecture.md), [performance measurements](docs/performance.md), and the [release guide](docs/releasing.md) for further development details.
 
 ## License
 
