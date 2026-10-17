@@ -145,9 +145,13 @@ internal class DependencyToolWindowPanel(private val project: Project,
             add(toolbar.component, BorderLayout.NORTH)
             add(JPanel(BorderLayout(4, 0)).apply {
                 add(labeled("Search", search), BorderLayout.CENTER)
-                add(JButton(AllIcons.Actions.Cancel).apply {
+                add(object : JButton(AllIcons.Actions.Cancel) {
+                    override fun getPreferredSize(): Dimension = JBUI.size(28)
+                    override fun getMinimumSize(): Dimension = preferredSize
+                }.apply {
                     toolTipText = "Clear filters"
                     accessibleContext.accessibleName = "Clear dependency filters"
+                    // Islands otherwise gives even icon-only buttons a wide text-button minimum.
                     addActionListener { clearFilters() }
                 }, BorderLayout.EAST)
             }, BorderLayout.CENTER)
