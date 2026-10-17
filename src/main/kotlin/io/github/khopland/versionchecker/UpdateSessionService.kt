@@ -83,9 +83,11 @@ internal class UpdateSessionService(private val project: Project) : Disposable {
         if (!disposed && !project.isDisposed && token != null) store.record(token, provider, message, verification = true)
     }
     @Synchronized fun latest(): Long? = if (disposed || project.isDisposed) null else store.latest()
+    @Synchronized internal fun snapshot(token: Long): UpdateSessionSnapshot? =
+        if (disposed || project.isDisposed) null else store.get(token)
     fun show(token: Long? = latest()) {
         if (project.isDisposed || disposed) return
-        val snapshot = token?.let(store::get)?.let { retained ->
+        val snapshot = token?.let(::snapshot)?.let { retained ->
             val captures = retained.diffToken?.let { project.service<AppliedVersionChangesService>().captured(it) }
             val current = captures != null && !captures.captureUnavailable && captures.omittedTargetFiles == 0 &&
                 captures.files.isNotEmpty() && ApplicationManager.getApplication().runReadAction<Boolean> {
