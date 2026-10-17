@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.npm
 
+import io.github.khopland.versionchecker.core.sha256
 import com.google.gson.JsonParser
 import com.intellij.javascript.nodejs.interpreter.NodeJsInterpreterManager
 import com.intellij.javascript.nodejs.interpreter.local.NodeJsLocalInterpreter
@@ -183,5 +184,5 @@ internal object NpmBuildInputs {
     }
     private fun virtualDigest(project: Project, file: VirtualFile): String =
         project.service<NpmProjectCache>().digest(file)
-    private fun digest(bytes: ByteArray) = NpmProjectCache.hash(bytes)
+    private fun digest(bytes: ByteArray) = sha256(bytes)
 }

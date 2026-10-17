@@ -16,14 +16,12 @@ import com.intellij.openapi.vfs.newvfs.events.*
 import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiTreeChangeAdapter
 import com.intellij.psi.PsiTreeChangeEvent
-import java.security.MessageDigest
-import java.util.HexFormat
+import io.github.khopland.versionchecker.core.FileDigestCache
 import java.util.concurrent.atomic.AtomicLong
 
 /** Share discovery and manifest hashing between inspections, scans and write-time validation. */
 @Service(Service.Level.PROJECT)
 internal class NpmProjectCache(private val project: Project) : Disposable {
-    private data class Digest(val fileStamp: Long, val documentStamp: Long?, val value: String)
     private val manifestChanges = AtomicLong()
     private val structureChanges = AtomicLong()
     private var structureGeneration: List<Long> = emptyList()
@@ -31,7 +29,7 @@ internal class NpmProjectCache(private val project: Project) : Disposable {
     private var files: List<VirtualFile>? = null
     private val owners = mutableMapOf<VirtualFile, NpmWorkspace?>()
     private val workspaces = mutableMapOf<VirtualFile, NpmWorkspace>()
-    private val digests = mutableMapOf<VirtualFile, Digest>()
+    private val digests = FileDigestCache()
     private val workspaceDigests = mutableMapOf<VirtualFile, Map<String, String>>()
 
     init {
@@ -117,26 +115,12 @@ internal class NpmProjectCache(private val project: Project) : Disposable {
     @Synchronized
     fun digest(file: VirtualFile): String {
         invalidateIfChanged()
-        val documents = FileDocumentManager.getInstance()
-        val document = documents.getCachedDocument(file)?.takeIf { documents.isDocumentUnsaved(it) }
-        val fileStamp = file.modificationStamp
-        val documentStamp = document?.modificationStamp
-        val cached = digests[file]
-        if (cached != null && cached.fileStamp == fileStamp && cached.documentStamp == documentStamp) return cached.value
-        // Saved documents can lag external edits. Track saved bytes and unsaved text separately.
-        val disk = hash(file.contentsToByteArray())
-        val value = if (document == null) disk else hash("$disk|${hash(document.text.toByteArray())}".toByteArray())
-        digests[file] = Digest(fileStamp, documentStamp, value)
-        return value
+        return digests.get(file).current
     }
 
     @Synchronized
     fun manifestDigests(workspace: NpmWorkspace, compute: () -> Map<String, String>): Map<String, String> {
         invalidateIfChanged()
         return workspaceDigests.getOrPut(workspace.root, compute)
-    }
-
-    companion object {
-        fun hash(bytes: ByteArray): String = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
     }
 }

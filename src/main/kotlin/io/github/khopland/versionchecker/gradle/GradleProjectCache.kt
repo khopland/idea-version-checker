@@ -10,8 +10,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootModificationTracker
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
-import java.security.MessageDigest
-import java.util.HexFormat
+import io.github.khopland.versionchecker.core.FileDigestCache
+import io.github.khopland.versionchecker.core.sha256
 import java.util.concurrent.atomic.AtomicLong
 
 /** Reuse build inputs across all files in a linked build, without caching repository results. */
@@ -19,11 +19,10 @@ import java.util.concurrent.atomic.AtomicLong
 internal class GradleProjectCache(private val project: Project) : Disposable {
     private data class Inputs(val directories: GradleInputDirectories, val inventory: GradleInputInventory, var hashes: Map<String, String>? = null,
                               var inspectionHashes: Map<String, String>? = null)
-    private data class Digest(val fileStamp: Long, val documentStamp: Long?, val value: String,
-                              val savedHash: String? = null)
+    private data class InspectionDigest(val fileStamp: Long, val documentStamp: Long?, val value: String)
     private val inputs = mutableMapOf<String, Inputs>()
-    private val digests = mutableMapOf<VirtualFile, Digest>()
-    private val inspectionDigests = mutableMapOf<VirtualFile, Digest>()
+    private val digests = FileDigestCache()
+    private val inspectionDigests = mutableMapOf<VirtualFile, InspectionDigest>()
     private val documentChanges = AtomicLong()
     private val metadataChanges = AtomicLong()
     val metadataGeneration: Long get() = metadataChanges.get()
@@ -68,14 +67,14 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
     fun hashes(root: String, files: List<VirtualFile>): Map<String, String> {
         invalidateIfChanged()
         val cached = inputs[root]?.takeIf { it.inventory.files === files }
-        return cached?.hashes ?: files.associate { file -> file.path to digest(file) }.also { cached?.hashes = it }
+        return cached?.hashes ?: files.associate { file -> file.path to digests.get(file).current }.also { cached?.hashes = it }
     }
 
     /** The saved VFS baseline is separate from legitimate unsaved editor changes. */
     @Synchronized
     fun savedHashes(root: String, files: List<VirtualFile>): Map<VirtualFile, String> {
         hashes(root, files)
-        return files.associateWith { digests.getValue(it).savedHash!! }
+        return files.associateWith { digests.get(it).saved }
     }
 
     @Synchronized
@@ -85,7 +84,7 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
         return cached?.inspectionHashes ?: files.associate { file ->
             val editable = file.name in setOf("build.gradle", "build.gradle.kts") ||
                 file.name == "libs.versions.toml" && file.parent.name == "gradle"
-            file.path to if (editable) inspectionDigest(file) else digest(file)
+            file.path to if (editable) inspectionDigest(file) else digests.get(file).current
         }.also { cached?.inspectionHashes = it }
     }
 
@@ -107,26 +106,8 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
         // every other input still invalidate retained warnings, including unsaved configuration.
         val saved = normalized(String(file.contentsToByteArray(), Charsets.UTF_8))
         val edited = document?.let { normalized(it.text) } ?: saved
-        val value = hash((if (saved == edited) saved else "$saved|$edited").toByteArray())
-        inspectionDigests[file] = Digest(fileStamp, documentStamp, value)
+        val value = sha256((if (saved == edited) saved else "$saved|$edited").toByteArray())
+        inspectionDigests[file] = InspectionDigest(fileStamp, documentStamp, value)
         return value
-    }
-
-    private fun digest(file: VirtualFile): String {
-        val documents = FileDocumentManager.getInstance()
-        val document = documents.getCachedDocument(file)?.takeIf { documents.isFileModified(file) }
-        val fileStamp = file.modificationStamp
-        val documentStamp = document?.modificationStamp
-        val cached = digests[file]
-        if (cached != null && cached.fileStamp == fileStamp && cached.documentStamp == documentStamp) return cached.value
-        // Read saved bytes once. Unsaved text is tracked separately so uncommitted edits reject stale fixes.
-        val disk = hash(file.contentsToByteArray())
-        val value = if (document == null) disk else hash("$disk|${hash(document.text.toByteArray())}".toByteArray())
-        digests[file] = Digest(fileStamp, documentStamp, value, disk)
-        return value
-    }
-
-    companion object {
-        fun hash(bytes: ByteArray): String = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
     }
 }

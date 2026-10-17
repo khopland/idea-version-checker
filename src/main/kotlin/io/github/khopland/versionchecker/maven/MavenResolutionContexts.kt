@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.maven
 
+import io.github.khopland.versionchecker.core.sha256
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.EnvironmentUtil
@@ -16,8 +17,6 @@ import org.jetbrains.idea.maven.server.MavenServerManager
 import com.intellij.util.lang.JavaVersion
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
-import java.util.HexFormat
 import kotlinx.coroutines.currentCoroutineContext
 
 internal data class MavenResolutionContext(val id: String, val repository: Path,
@@ -37,7 +36,7 @@ internal class MavenResolutionContexts {
         val connector = MavenServerManager.getInstance().getConnector(manager.project, distributions.getMultimoduleDirectory(project.file.parent.path))
         val configuration = sortedMapOf<String, String>()
         fun file(path: Path) {
-            if (Files.isRegularFile(path)) configuration[path.toAbsolutePath().normalize().toString()] = digest(Files.readAllBytes(path))
+            if (Files.isRegularFile(path)) configuration[path.toAbsolutePath().normalize().toString()] = sha256(Files.readAllBytes(path))
         }
         MavenSettingsInputs.files(MavenSettingsInputs.userSettings(manager), distribution.mavenHome).forEach(::file)
         val extensionDirectory = distribution.mavenHome.resolve("lib/ext")
@@ -65,7 +64,7 @@ internal class MavenResolutionContexts {
         val properties = MavenConfigProperties.read(project.file.toNioPath().parent)
         if ("maven.ext.class.path" in properties) extensions = true
         configuration["properties"] = properties.toSortedMap().toString()
-        val configDigest = digest(configuration.toString().toByteArray())
+        val configDigest = sha256(configuration.toString().toByteArray())
         val key = Key(project.path, snapshot.fingerprint, configDigest, generation)
         synchronized(this) { entries[key] }?.let { return it }
         val context = withMavenCheckSession(manager, project, if (extensions) null else configDigest) { embedder ->
@@ -102,7 +101,7 @@ internal class MavenResolutionContexts {
             val supported = !extensions && !buildExtensions && !customVersions && supportedRuntime &&
                 connector.jdk.versionString?.let { JavaVersion.tryParse(it)?.feature?.let { feature -> feature >= 17 } } == true &&
                 properties.keys.none { it == "maven.version.rules" || it == "maven.ext.class.path" }
-            MavenResolutionContext(digest("$configDigest\n$repository\n$repositoryIdentity".toByteArray()), repository, properties, profiles, supported, configDigest)
+            MavenResolutionContext(sha256("$configDigest\n$repository\n$repositoryIdentity".toByteArray()), repository, properties, profiles, supported, configDigest)
         }
         synchronized(this) {
             entries[key] = context
@@ -111,8 +110,5 @@ internal class MavenResolutionContexts {
         return context
     }
 
-    companion object {
-        fun digest(bytes: ByteArray): String = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
-    }
 }
 

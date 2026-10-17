@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.core.sha256
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -11,7 +12,6 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.gradle.GradleInputDirectories
 import io.github.khopland.versionchecker.gradle.GradleInputInventory
-import io.github.khopland.versionchecker.gradle.GradleProjectCache
 import io.github.khopland.versionchecker.gradle.GradleBuildSystemAdapter
 import io.github.khopland.versionchecker.core.UpdateCandidate
 import io.github.khopland.versionchecker.core.UpdateReport
@@ -37,7 +37,7 @@ class GradleInputInventoryTest : BasePlatformTestCase() {
         }
 
     private fun baseline(inventory: GradleInputInventory): Map<VirtualFile, String> =
-        inventory.files.associateWith { GradleProjectCache.hash(it.contentsToByteArray()) }
+        inventory.files.associateWith { sha256(it.contentsToByteArray()) }
 
     private fun withDirectory(action: (Path) -> Unit) {
         val directory = Files.createTempDirectory("version-checker-inventory-").toRealPath()

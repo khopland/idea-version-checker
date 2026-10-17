@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.gradle
 
+import io.github.khopland.versionchecker.core.sha256
 import io.github.khopland.versionchecker.core.CapturedEditInputs
 
 import com.intellij.openapi.application.readAction
@@ -218,7 +219,7 @@ internal class GradleBuildSystemAdapter(
         val hashes = mutableMapOf<String, String>()
         fun capture(path: Path) {
             checkCancellation()
-            hashes[path.toString()] = if (Files.exists(path)) GradleProjectCache.hash(externalInputBytes(path)) else "missing"
+            hashes[path.toString()] = if (Files.exists(path)) sha256(externalInputBytes(path)) else "missing"
         }
         for (name in listOf("gradle.properties", "init.gradle", "init.gradle.kts")) capture(home.resolve(name))
         val init = home.resolve("init.d")
@@ -253,7 +254,7 @@ internal class GradleBuildSystemAdapter(
         }
 
     private fun fingerprint(project: Project, root: String, externalHashes: Map<String, String>? = null): BuildFingerprint {
-        fun hash(bytes: ByteArray) = GradleProjectCache.hash(bytes)
+        fun hash(bytes: ByteArray) = sha256(bytes)
         val settings = GradleSettings.getInstance(project)
         val linked = settings.getLinkedProjectSettings(root)
         val hashes = project.service<GradleProjectCache>().hashes(root, files(project, root)).toMutableMap()
