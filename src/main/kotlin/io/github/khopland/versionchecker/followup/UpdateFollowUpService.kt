@@ -16,6 +16,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.platform.ide.progress.withBackgroundProgress
+import io.github.khopland.versionchecker.UpdateSessionService
 import io.github.khopland.versionchecker.npm.NpmBuildInputs
 import io.github.khopland.versionchecker.npm.NpmRegistry
 import io.github.khopland.versionchecker.npm.NpmWorkspaces
@@ -29,20 +30,27 @@ internal class UpdateFollowUpService(private val project: Project, private val s
     override fun dispose() { disposed = true }
     private val active = AtomicBoolean(false)
 
-    fun previewNpmSync() {
+    fun previewNpmSync(sessionToken: Long? = null) {
         if (disposed || project.isDisposed || !active.compareAndSet(false, true)) return
+        fun reportMessage(message: String, warning: Boolean) {
+            if (!disposed && !project.isDisposed)
+                project.service<UpdateSessionService>().recordFollowUp(sessionToken, "npm", message)
+            result(message, warning)
+        }
+        fun report(outcome: NpmFollowUpOutcome) = reportMessage(outcome.message, outcome.warning)
         val job = scope.launch(Dispatchers.EDT) {
             var terminalReported = false
+            project.service<UpdateSessionService>().recordFollowUp(sessionToken, "npm", "Preparing npm lockfile synchronization; command not yet started.")
             try {
                 if (!TrustedProjects.isProjectTrusted(project)) {
-                    result("Trust the project before running npm lockfile synchronization. No command was started; dependency verification was not performed.", true)
+                    reportMessage("Trust the project before running npm lockfile synchronization. No command was started; dependency verification was not performed.", true)
                     return@launch
                 }
                 val selected = FileChooser.chooseFile(
                     FileChooserDescriptorFactory.createSingleFileDescriptor("json")
                         .withTitle("Choose package.json for npm lockfile synchronization"), project, null
                 ) ?: run {
-                    result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
+                    report(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
                     return@launch
                 }
                 val workspace = readAction {
@@ -75,7 +83,7 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                     "Review the resulting version control diff."
                 if (Messages.showOkCancelDialog(project, preview, "Preview npm lockfile synchronization",
                         "Synchronize lockfile", "Cancel", Messages.getQuestionIcon()) != Messages.OK) {
-                    result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
+                    report(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
                     return@launch
                 }
                 requireNoUnsavedFiles(inputs)
@@ -111,15 +119,15 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                             }
                         },
                         isAlive = { !disposed && !project.isDisposed },
-                        publish = { outcome -> result(outcome); terminalReported = true },
+                        publish = { outcome -> report(outcome); terminalReported = true },
                     )
                 }
             } catch (_: CancellationException) {
-                if (!terminalReported) result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
+                if (!terminalReported) report(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
             } catch (_: ProcessCanceledException) {
-                if (!terminalReported) result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
+                if (!terminalReported) report(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
             } catch (_: Exception) {
-                if (!terminalReported) result(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.NOT_STARTED))
+                if (!terminalReported) report(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.NOT_STARTED))
             }
         }
         job.invokeOnCompletion { active.set(false) }
@@ -133,8 +141,6 @@ internal class UpdateFollowUpService(private val project: Project, private val s
             NpmBuildInputs.hasUnsavedResolutionInputs(project, it.toString(), unsaved)
         }) { "Save manifest, npm configuration and lockfiles before synchronizing." }
     }
-
-    private fun result(outcome: NpmFollowUpOutcome) = result(outcome.message, outcome.warning)
 
     private fun result(message: String, failed: Boolean) {
         if (!disposed && !project.isDisposed) project.service<BuildReloadService>().publish(NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")

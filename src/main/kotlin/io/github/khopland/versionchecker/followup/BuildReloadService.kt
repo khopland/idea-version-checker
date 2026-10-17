@@ -6,6 +6,8 @@ import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.components.service
+import io.github.khopland.versionchecker.UpdateSessionService
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -52,7 +54,7 @@ internal class BuildReloadService(private val project: Project, private val scop
         retained.forEach(Notification::expire)
     }
 
-    fun reload(adapterId: String) {
+    fun reload(adapterId: String, sessionToken: Long? = null) {
         if (disposed || project.isDisposed || !active.add(adapterId)) return
         var provider = adapterId
         var requestAttempted = false
@@ -61,15 +63,15 @@ internal class BuildReloadService(private val project: Project, private val scop
                 check(TrustedProjects.isProjectTrusted(project)) { "Project is not trusted" }
                 val adapter = BuildSystemAdapter.find(adapterId)
                 if (adapter == null) {
-                    record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.UNAVAILABLE, provider))
+                    record(sessionToken, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.UNAVAILABLE, provider))
                     return@launch
                 }
                 provider = adapter.displayName
-                record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.SAVING, provider))
+                record(sessionToken, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.SAVING, provider))
                 withBackgroundProgress(project, "Saving $provider build files", cancellable = true) {
                     saveBuildInputs(project, BuildSelection(UpdateScope.WHOLE_PROJECT), listOf(adapter))
                 }
-                record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.REQUESTING, provider))
+                record(sessionToken, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.REQUESTING, provider))
                 withBackgroundProgress(project, "Requesting $provider reload", cancellable = true) {
                     withContext(Dispatchers.EDT) {
                         if (disposed || project.isDisposed) return@withContext
@@ -77,27 +79,28 @@ internal class BuildReloadService(private val project: Project, private val scop
                         requestAttempted = true
                         val phase = if (adapter.reloadProject(project)) BuildReloadOutcome.Phase.REQUESTED
                             else BuildReloadOutcome.Phase.UNAVAILABLE
-                        record(adapterId, BuildReloadOutcome(phase, provider, requestAttempted))
+                        record(sessionToken, adapterId, BuildReloadOutcome(phase, provider, requestAttempted))
                     }
                 }
             } catch (_: CancellationException) {
                 withContext(NonCancellable) {
-                    record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
+                    record(sessionToken, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
                 }
             } catch (_: ProcessCanceledException) {
                 withContext(NonCancellable) {
-                    record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
+                    record(sessionToken, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
                 }
             } catch (_: Exception) {
-                record(adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.FAILED, provider, requestAttempted))
+                record(sessionToken, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.FAILED, provider, requestAttempted))
             }
         }
         // Also release the action if its scope was already cancelled before the coroutine started.
         job.invokeOnCompletion { active.remove(adapterId) }
     }
 
-    private fun record(adapterId: String, outcome: BuildReloadOutcome) {
+    private fun record(sessionToken: Long?, adapterId: String, outcome: BuildReloadOutcome) {
         if (disposed || project.isDisposed) return
+        project.service<UpdateSessionService>().recordFollowUp(sessionToken, adapterId, outcome.message)
         synchronized(outcomes) {
             if (disposed || project.isDisposed) return
             while (outcomes.size >= 32 && adapterId !in outcomes) outcomes.remove(outcomes.keys.first())
