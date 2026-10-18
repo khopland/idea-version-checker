@@ -50,9 +50,15 @@ class NativeNpmFixtureTest(unittest.TestCase):
                 manifest = json.loads((root / "package.json").read_text())
                 manifest["devDependencies"]["@fixture/beta"] = "2.0.0"
                 fixture.write_json(root / "package.json", manifest)
-                subprocess.run(command, cwd=root, check=True, capture_output=True, timeout=60)
+                subprocess.run(command + ["--package-lock-only", "--update-notifier=false"],
+                               cwd=root, check=True, capture_output=True, timeout=60)
                 lock = json.loads((root / "package-lock.json").read_text())
                 self.assertEqual("2.0.0", lock["packages"]["node_modules/@fixture/beta"]["version"])
+                self.assertEqual("1.0.0", json.loads((root / "node_modules/@fixture/beta/package.json").read_text())["version"])
+                # A clean install separately verifies the new tarball; lockfile-only
+                # synchronization deliberately makes no installed-tree guarantee.
+                subprocess.run([command[0], "ci", *command[2:]], cwd=root,
+                               check=True, capture_output=True, timeout=60)
                 self.assertEqual("2.0.0", json.loads((root / "node_modules/@fixture/beta/package.json").read_text())["version"])
                 with self.assertRaises(HTTPError) as failure:
                     urlopen(registry + "@fixture/alpha/-/not-allowed.tgz", timeout=5)
