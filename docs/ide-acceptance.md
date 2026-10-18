@@ -29,9 +29,15 @@ python3 scripts/create-native-gradle-fixture.py build/acceptance/gradle \
 python3 scripts/create-native-npm-fixture.py --help
 ```
 
-The npm fixture registry serves metadata only; it cannot prove successful lockfile
-installation. Use a separate disposable workspace with installable packages for
-successful npm synchronization. Its delay/authentication controls can exercise
+The npm fixture registry serves metadata only by default. Pass `--installable`
+to serve tiny loopback-only packages for successful synchronization checks:
+
+```sh
+python3 scripts/create-native-npm-fixture.py build/acceptance/npm-installable --installable
+```
+
+The packages have no lifecycle scripts or dependencies. This verifies fixture
+lockfile synchronization, not real application compatibility. Its delay/authentication controls can exercise
 checking and recovery without a live private registry. Use fresh fixture paths
 for repeat runs; the generators deliberately refuse to overwrite existing work.
 
