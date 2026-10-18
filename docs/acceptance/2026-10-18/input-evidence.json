@@ -1,0 +1,16 @@
+{
+  "2026.1.4": {
+    "externalEditPreserved": true,
+    "sha256": "495e28b10f629de0d081239a36e62ea9c84b6fc609788a34b5281bfa7119c02f",
+    "previewAction": "Rejected stale apply and started rechecking",
+    "unsavedEditPreserved": true,
+    "unsavedScenario": "Open declaration from held preview; insert whitespace in workspace child; return to held preview; stale Apply rechecks and preserves editor whitespace; undo/save restores baseline"
+  },
+  "2026.2.3": {
+    "externalEditPreserved": true,
+    "sha256": "495e28b10f629de0d081239a36e62ea9c84b6fc609788a34b5281bfa7119c02f",
+    "previewAction": "Rejected stale apply and started rechecking",
+    "unsavedEditPreserved": true,
+    "unsavedScenario": "Open declaration from held preview; insert whitespace in workspace child; return to held preview; stale Apply rechecks and preserves editor whitespace; undo/save restores baseline"
+  }
+}

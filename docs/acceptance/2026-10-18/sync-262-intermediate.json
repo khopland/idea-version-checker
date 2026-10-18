@@ -1,0 +1,23 @@
+{
+  "archiveSha256": "cc01d71224cf9639705d91c9903b350957af2c1a15143187f88f49e845a31585",
+  "ide": "2026.2.3",
+  "session": 1,
+  "observations": [
+    "No sessions retained after previous project closed",
+    "Session retry action opens workspace manifest chooser and exact command preview",
+    "Cancel before command start recorded in session",
+    "Registry denial produces failed exit 1, no inspected lockfile changes, verification Unknown",
+    "Native progress cancellation produces cancellation requested with termination unconfirmed, no inspected lockfile changes, verification Unknown"
+  ],
+  "before": {
+    "package.json": "c69880216fa5b4c0a92ab097cd3bed9fed815d7d6ce23a9e4c1359933d61e1f9",
+    "packages/app/package.json": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+    "package-lock.json": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c"
+  },
+  "afterFailureAndCancel": {
+    "package.json": "c69880216fa5b4c0a92ab097cd3bed9fed815d7d6ce23a9e4c1359933d61e1f9",
+    "packages/app/package.json": "6e2b16ec97059024d839983a06558a951d65cdc79c2e7ad1ac4042ca8f890179",
+    "package-lock.json": "c3ea3f47c785d8db62680ca0d5fc63c1a3ce47867efcd9d42f2b67f7c1bafb9c"
+  },
+  "platformCaveat": "AX activation of built-in status TextPanel raised an AccessibleAction implementation error; native cancellation used the task icon action instead"
+}
