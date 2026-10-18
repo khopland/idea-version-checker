@@ -1,12 +1,11 @@
 # Remaining acceptance work — 18 October 2026
 
 This continues the [17 October review](../2026-10-17-review/README.md).
-The remaining interactive matrix is **blocked**, not certified complete. Native
-dialogs intermittently opened behind the project window and could not reliably
-be focused through the available macOS automation. Restarting isolated IDEs did
-not resolve this consistently. An EDT dump confirmed a hidden session dialog;
-the available UI snapshot exposed only its parent. Normal user profiles were
-not modified. Windows smoke is separately blocked by the lack of a Windows host.
+The interactive matrix is **not complete**. Earlier native dialogs intermittently
+opened behind the project window; fresh launches allowed the continuation below
+to complete successful npm synchronization, Undo and export on both supported
+IDEs. Normal user profiles were not modified. Windows smoke remains blocked by
+the lack of a Windows host.
 
 ## Changes resulting from the checks
 
@@ -24,10 +23,50 @@ not modified. Windows smoke is separately blocked by the lack of a Windows host.
   requested. Completion, inspected outputs and dependency verification remain
   unobserved until separately reported.
 
-The session retry button was exercised on an intermediate archive. Native
-confirmation of the final export scheduling and live-status changes is blocked.
+The session retry button and final export scheduling were exercised on both
+supported IDEs with the current archive. The live running-status text still
+needs a delayed-command observation on the current archive.
 
-## Final candidate and automated verification
+## Continuation: document retention and successful native synchronization
+
+Current production source: `9059c7f5dbd0af5f9f8ac9af1fd7732a10e59934`.
+Archive: `retained-document-candidate.zip`; SHA-256:
+`ddfc150a75b8b786b6054dba975f675c060d1f98833820728f0cb2c1cb8f19ed`.
+Both isolated profiles were cleanly installed and byte-compared against this ZIP.
+This supersedes the earlier candidate below.
+
+Forced soft-cache eviction reproduced the intermittent 10,000-declaration Maven
+Apply rejection with unchanged VFS stamps, current snapshots and valid edits.
+The saved-input guard held document stamps but allowed the clean documents to be
+collected. It now retains captured documents for its short lifetime and checks
+both identity and stamp. The regression forces eviction with IntelliJ GCUtil
+between capture and Apply. It failed before the fix and passes afterward; the
+unsaved sibling invalidation still passes. See the
+[diagnosis record](document-retention-regression.json).
+
+Serial validation passed: 729 main tests with all three native integrations,
+six Maven 4 integration tests, packaging/configuration, and both IDE verifiers.
+The 20 Python fixture tests were unchanged and previously passed.
+
+On both IDEA 2026.1.4 and 2026.2.3, native dialogs responded after fresh launches. The current ZIP
+applied five root/workspace selectors across two manifest files. The retained
+session action opened the exact lockfile-only npm command, which completed and
+changed the root lockfile. Declaration Undo and Save restored both manifests to
+their baseline hashes while preserving the lockfile write. The session continued
+to report verification Unknown and explained that installed dependencies were
+not synchronized. Byte evidence for [2026.1.4](successful-sync-261.json) and
+[2026.2.3](successful-sync-262.json), plus exports for
+[2026.1.4](export-261-ddfc.json) and [2026.2.3](export-262-ddfc.json),
+record this separately from older runs. The [current validation record](continuation-validation.json)
+pins tests, CI and installed files. Both latest startups had no SEVERE/ERROR
+entries when checked. The registry and isolated IDE processes were stopped; all
+six baseline fixture files were restored.
+
+The complete native matrix is still pending. In particular, these observations
+do not certify the remaining Maven/Gradle flows, repeated timing measurements,
+old-session attribution across multiple sessions, or Windows.
+
+## Earlier candidate and automated verification
 
 Source: `30651df877b51ca52eb9a6820169a6001ab7d755`, on merged #56 (`74142e4`).
 Archive: `final-candidate.zip`, copied from `build/distributions/version-checker-1.3.0.zip`.
@@ -46,9 +85,9 @@ startup excerpts, test counts and the explicit remaining cases.
   at its old version, then runs npm ci and checks the new package is installable.
   This verifies the fixture and native npm semantics, not the plugin's UI path.
 
-The final candidate was cleanly extracted into both closed isolated IDE profiles
-and every installed file compared with the ZIP. It has not been launched after
-the final queued-export expiration guard was added. Earlier `a9c31d73…` startups
+This earlier candidate was cleanly extracted into both closed isolated IDE profiles
+and every installed file compared with the ZIP. It was subsequently launched on IDEA 2026.2.3: JSON export completed with no new
+SEVERE/ERROR entries. See [export](export-262-080.json). Earlier `a9c31d73…` startups
 confirmed plugin 1.3.0 on both IDEs, with no SEVERE/ERROR entries at collection
 time; these observations are recorded separately and not transferred to the
 final ZIP. Runtime/environment
@@ -58,8 +97,8 @@ SDKMAN Java 21.0.12 for Gradle; Node 22.23.1 / npm 10.9.8.
 An overlapping validation attempt was stopped and excluded. Final validation was
 serial; see [excerpts](automated-excerpts.txt). Two additional diagnostic full
 runs passed without reproducing the previously observed 10,000-declaration Maven
-Apply rejection. Temporary instrumentation was removed. That intermittent
-scaling failure remains undiagnosed; no input guard or assertion was weakened.
+Apply rejection. Temporary instrumentation was removed. The subsequent continuation below diagnosed and fixed the scaling rejection.
+No input guard or assertion was weakened.
 
 ## Intermediate native observations
 
@@ -89,16 +128,17 @@ are retained as limitations, rather than attributed to successful plugin checks.
 
 ## Remaining matrix
 
-For **both IDEs on the final ZIP**, the following remain blocked by unreliable
-native dialog focus: optional-integration startup; complete keyboard/toolbar
-traversal and final theme/zoom pass; expiry/export and held-preview expiry;
-malformed catalog/zero-match coverage; rapid scope changes and late completion;
-Maven/npm/shared-catalog apply and undo; external/unsaved inputs; inherited Maven
-reload and effective-version verification; broken/disconnected reload; npm's
-complete synchronization lifecycle including successful writes; retained older
-session actions and project reopen; three cold/warm small/large interaction
-measurements. Earlier candidate results remain historical. Automated coverage
-does not substitute for these [native matrix requirements](../../ide-acceptance.md).
+For both IDEs on the current ZIP, the following remain pending: optional-integration
+startup; complete keyboard/toolbar traversal and theme/zoom pass; expiry and
+held-preview expiry; malformed catalog/zero-match coverage; rapid scope changes
+and late completion; Maven/shared-catalog apply and Undo; external/unsaved inputs;
+inherited Maven reload and effective-version verification; broken/disconnected
+reload; adverse npm synchronization phases and delayed running-status observation;
+retained older-session actions and project reopen; three cold/warm small/large
+interaction measurements. The successful npm Apply/synchronization/Undo and JSON
+export cases are complete on both IDEs. Earlier candidate results remain
+historical. Automated coverage does not substitute for the remaining
+[native matrix requirements](../../ide-acceptance.md).
 
 Fixture command for the successful npm case:
 
@@ -108,8 +148,8 @@ python3 scripts/create-native-npm-fixture.py build/acceptance/npm-installable --
 
 Use fresh paths. Delay/authentication controls remain in `registry-control.json`.
 The plugin's command updates only lockfiles; declaration Undo must not claim to
-undo those native writes. Successful plugin synchronization and that native Undo
-boundary have not yet been observed on the final ZIP.
+undo those native writes. Successful plugin synchronization and that native Undo boundary were subsequently
+observed on both supported IDEs with the current ZIP, as recorded above.
 
 The acceptance IDE processes and loopback registry were stopped after collecting
 the record. All six original fixture manifest/lockfile byte sequences were

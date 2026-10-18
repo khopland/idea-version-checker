@@ -1,0 +1,9 @@
+{
+  "sourceBefore": "84d7ee9",
+  "fixedSource": "9059c7f5dbd0af5f9f8ac9af1fd7732a10e59934",
+  "reproduction": "Force softly cached document eviction after input capture and before Apply. Reproduced both with explicit GC and SoftRefLRUPolicyMSPerMB=0, and with IntelliJ GCUtil under default JVM options.",
+  "failure": "junit.framework.AssertionFailedError: Apply rejected unchanged fixture: inputCurrent=false, captureChanges=[], applyChanges=[/root/modules/module-13/pom.xml: vfs=0, document=0, unsaved=false -> vfs=0, document=null, unsaved=null, /root/modules/module-14/pom.xml: vfs=0, document=0, unsaved=false -> vfs=0, document=null, unsaved=null, /root/modules/module-15/pom.xml: vfs=0, document=0, unsaved=false -> vfs=0, document=null, unsaved=null, /root/modules/module-16/pom.xml: vfs=0, document=0, unsaved=false -> vfs=0, document=null, unsaved=null, /root/modules/module-17/pom.xml: vfs=0, document=0, unsaved=false -> vfs=0, document=null, unsaved=null]; freshSavedCurrent=true; snapshotsCurrent=true; invalidEdits=[]",
+  "rootCause": "The guard retained document stamps but not the clean documents themselves. Soft-cache eviction made getCachedDocument return null for unchanged files.",
+  "fix": "Retain captured documents until the short-lived guard is checked; require cached identity and modification stamp to match. Existing physical-byte, VFS, disposal and unsaved-edit guards remain active.",
+  "regression": "The 101-POM / 10,000-declaration test calls IntelliJ GCUtil after capture. Apply succeeds and the existing unsaved sibling invalidation still passes."
+}

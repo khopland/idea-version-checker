@@ -1,0 +1,76 @@
+{
+  "sourceCommit": "9059c7f5dbd0af5f9f8ac9af1fd7732a10e59934",
+  "archive": "retained-document-candidate.zip",
+  "sha256": "ddfc150a75b8b786b6054dba975f675c060d1f98833820728f0cb2c1cb8f19ed",
+  "installedFiles": {
+    "2026.1.4": {
+      "version-checker/lib/version-checker-1.3.0-searchableOptions.jar": "b75b8d14f60e137a9de18a31a028f97956ae38ed7d9e6696c8425de36c7391d8",
+      "version-checker/lib/antlr4-runtime-4.11.1.jar": "e06c6553c1ccc14d36052ec4b0fc6f13b808cf957b5b1dc3f61bf401996ada59",
+      "version-checker/lib/checker-qual-3.21.2.jar": "7e8554c902b9b839e61396cfe3a64c84ecabfb8eb652c410bfd8e4f5c1a8ece8",
+      "version-checker/lib/tomlj-1.1.1.jar": "383b7c66966c42ee4913ec977a7b6573631866bddc5318ec4a6215b688dd0d6c",
+      "version-checker/lib/version-checker-1.3.0.jar": "b2144aa45e2e30d65f0fd181ce2a467d5b8b0252c0625ed242d33252e42ccf98"
+    },
+    "2026.2.3": {
+      "version-checker/lib/version-checker-1.3.0-searchableOptions.jar": "b75b8d14f60e137a9de18a31a028f97956ae38ed7d9e6696c8425de36c7391d8",
+      "version-checker/lib/antlr4-runtime-4.11.1.jar": "e06c6553c1ccc14d36052ec4b0fc6f13b808cf957b5b1dc3f61bf401996ada59",
+      "version-checker/lib/checker-qual-3.21.2.jar": "7e8554c902b9b839e61396cfe3a64c84ecabfb8eb652c410bfd8e4f5c1a8ece8",
+      "version-checker/lib/tomlj-1.1.1.jar": "383b7c66966c42ee4913ec977a7b6573631866bddc5318ec4a6215b688dd0d6c",
+      "version-checker/lib/version-checker-1.3.0.jar": "b2144aa45e2e30d65f0fd181ce2a467d5b8b0252c0625ed242d33252e42ccf98"
+    }
+  },
+  "tests": {
+    "test": {
+      "tests": 729,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "testMaven4": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "ci": {
+    "run": "https://github.com/khopland/idea-version-checker/actions/runs/39130949981",
+    "build": "passed",
+    "test": "passed",
+    "maven4": "passed",
+    "verifier": "passed"
+  },
+  "verifier": {
+    "IU-261.26222.65": "Compatible; 7 deprecated, 25 experimental API usages",
+    "IU-262.10968.63": "Compatible; 9 deprecated, 25 experimental API usages"
+  },
+  "nativeCases": {
+    "2026.1.4": {
+      "record": "successful-sync-261.json",
+      "passed": [
+        "five declaration updates across two manifests",
+        "retained-session npm sync action",
+        "successful root lockfile-only synchronization",
+        "session completion and verification Unknown",
+        "declaration Undo preserves native lockfile writes",
+        "JSON export"
+      ]
+    },
+    "2026.2.3": {
+      "record": "successful-sync-262.json",
+      "passed": [
+        "five declaration updates across two manifests",
+        "retained-session npm sync action",
+        "successful root lockfile-only synchronization",
+        "session completion and verification Unknown",
+        "declaration Undo preserves native lockfile writes",
+        "JSON export"
+      ]
+    }
+  },
+  "remainingAcceptance": "pending: remaining Maven/Gradle flows, expiry, adverse npm phases on current ZIP, old-session attribution, keyboard/theme/zoom and measurements; Windows requires a Windows host",
+  "cleanup": {
+    "fixtureHashesRestored": true,
+    "acceptanceIdeProcessesStopped": true,
+    "loopbackRegistryStopped": true
+  }
+}

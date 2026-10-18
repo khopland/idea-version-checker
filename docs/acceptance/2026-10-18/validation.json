@@ -22,7 +22,7 @@
     "errors": 0,
     "skipped": 0
   },
-  "releaseAcceptance": "blocked: remaining interactive cases require reliable native dialog focus",
+  "releaseAcceptance": "historical record: see continuation-validation.json and README for current status",
   "installedFiles": {
     "2026.1.4": {
       "version-checker/lib/version-checker-1.3.0-searchableOptions.jar": "b75b8d14f60e137a9de18a31a028f97956ae38ed7d9e6696c8425de36c7391d8",
@@ -95,5 +95,6 @@
       }
     }
   },
-  "finalNativeStartup": "blocked: final archive installed in closed isolated profiles but not launched"
+  "finalNativeStartup": "blocked: final archive installed in closed isolated profiles but not launched",
+  "supersededBy": "continuation-validation.json"
 }
