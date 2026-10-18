@@ -260,6 +260,16 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 }
             }
             assertTrue(fastReport.failure.orEmpty(), fastReport.successful)
+            // Results can wake the caller before the cache worker's completion handler
+            // releases its session reference. Probe without retaining an extra owner.
+            background {
+                withTimeout(5_000) {
+                    while (runCatching { automaticSession!!.retain() }.isSuccess) {
+                        automaticSession!!.release()
+                        delay(10)
+                    }
+                }
+            }
             assertTrue("Automatic checks must release their session", runCatching { automaticSession!!.retain() }.isFailure)
             assertEquals(26, fastReport.candidates.size)
             assertEquals(26, requests.size - fastBefore)
