@@ -6,8 +6,10 @@ replace interactive acceptance. Use a fresh isolated IDE configuration, system,
 plugins and log directory per target. Extract the candidate into an empty plugin
 directory so an older JAR cannot remain beside it. Keep normal IDE profiles intact.
 
-Latest bounded interactive review: [17 October 2026](acceptance/2026-10-17-review/README.md).
-Its results and remaining cases belong to the recorded ZIP, not future builds.
+Latest continuation: [18 October 2026](acceptance/2026-10-18/README.md), with
+automated verification and explicit native UI blockers. The earlier
+[17 October review](acceptance/2026-10-17-review/README.md) remains historical.
+Results belong to their recorded ZIP, not future builds.
 
 ## Record the candidate
 
@@ -29,9 +31,15 @@ python3 scripts/create-native-gradle-fixture.py build/acceptance/gradle \
 python3 scripts/create-native-npm-fixture.py --help
 ```
 
-The npm fixture registry serves metadata only; it cannot prove successful lockfile
-installation. Use a separate disposable workspace with installable packages for
-successful npm synchronization. Its delay/authentication controls can exercise
+The npm fixture registry serves metadata only by default. Pass `--installable`
+to serve tiny loopback-only packages for successful synchronization checks:
+
+```sh
+python3 scripts/create-native-npm-fixture.py build/acceptance/npm-installable --installable
+```
+
+The packages have no lifecycle scripts or dependencies. This verifies fixture
+lockfile synchronization, not real application compatibility. Its delay/authentication controls can exercise
 checking and recovery without a live private registry. Use fresh fixture paths
 for repeat runs; the generators deliberately refuse to overwrite existing work.
 

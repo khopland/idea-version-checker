@@ -578,7 +578,35 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
         }
         val plan = background { adapter.prepareUpdates(project, reports(snapshots)) }
         assertEquals(100, plan.changes.size)
-        assertTrue(plan.apply(project))
+        val paths = snapshots.flatMap { it.fingerprint.files.keys + it.sourceFile }.toSet()
+        fun states(): Map<String, String> = paths.associateWith { path ->
+            val file = LocalFileSystem.getInstance().findFileByPath(path)
+            val documents = FileDocumentManager.getInstance()
+            val document = file?.let(documents::getCachedDocument)
+            "vfs=${file?.modificationStamp}, document=${document?.modificationStamp}, unsaved=${document?.let(documents::isDocumentUnsaved)}"
+        }
+        fun changed(before: Map<String, String>, after: Map<String, String>) =
+            before.keys.filter { before[it] != after[it] }.take(5).map {
+                "${it.removePrefix(directory.toString())}: ${before[it]} -> ${after[it]}"
+            }
+        var validation = "Input guard was not called"
+        val diagnosed = plan.copy(prepareValidation = {
+            val before = com.intellij.openapi.application.readAction { states() }
+            val captured = plan.prepareValidation!!.capture()
+            val prepared = com.intellij.openapi.application.readAction { states() }
+            // Clean documents are softly cached. Apply must survive cache eviction.
+            com.intellij.util.ref.GCUtil.tryGcSoftlyReachableObjects()
+            CapturedEditInputs {
+                captured.isCurrent().also { current ->
+                    validation = "inputCurrent=$current, captureChanges=${changed(before, prepared)}, applyChanges=${changed(prepared, states())}"
+                }
+            }
+        })
+        if (!diagnosed.apply(project)) {
+            val saved = background { prepareSavedBuildInputValidation(project, snapshots) }
+            fail("Apply rejected unchanged fixture: $validation; freshSavedCurrent=${saved.isCurrent()}; " +
+                "snapshotsCurrent=${adapter.areCurrent(project, snapshots)}; invalidEdits=${plan.changes.filter { !it.isValid() }.take(5).map { it.location }}")
+        }
         assertTrue(modules.all { FileDocumentManager.getInstance().getDocument(it.file)!!.text.contains("<version>1.2.9</version>") })
 
         // A fresh validation pass must observe an uncommitted edit in an unselected sibling.

@@ -2,6 +2,8 @@ package io.github.khopland.versionchecker
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.ui.Messages
@@ -116,7 +118,13 @@ internal class DependencyToolWindowPanel(private val project: Project,
                 override fun actionPerformed(event: AnActionEvent) = openSelectedSource()
             })
             add(object : DumbAwareAction("Export JSON…", "Export filtered rows in their displayed sort order", AllIcons.Actions.Download) {
-                override fun actionPerformed(event: AnActionEvent) = exportRows()
+                override fun actionPerformed(event: AnActionEvent) {
+                    // Accessibility actions can arrive in a write-unsafe invocation event.
+                    // Let the platform establish a safe modality before opening its chooser.
+                    ApplicationManager.getApplication().invokeLater({
+                        if (!disposed && !project.isDisposed) exportRows()
+                    }, ModalityState.nonModal(), { disposed || project.isDisposed })
+                }
             })
             add(object : ToggleAction("Show dependency filters", "Show or hide build system, root, outcome and change filters", AllIcons.General.Filter), DumbAware {
                 override fun isSelected(event: AnActionEvent) = filterFields.isVisible

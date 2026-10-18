@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker
 
 import io.github.khopland.versionchecker.core.BuildSystemAdapter
 import io.github.khopland.versionchecker.followup.BuildReloadService
+import io.github.khopland.versionchecker.followup.UpdateFollowUpService
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -132,6 +133,14 @@ internal class UpdateSessionService(private val project: Project) : Disposable {
                         MavenSessionFollowUp.verify(project, snapshot.diffToken, snapshot.token)
                     }
                 })
+                if (snapshot != null && "npm" in snapshot.providers && BuildSystemAdapter.find("npm") != null)
+                    add(object : DialogWrapperAction("Preview npm lockfile sync") {
+                        override fun doAction(event: java.awt.event.ActionEvent?) {
+                            close(OK_EXIT_CODE)
+                            if (!project.isDisposed && BuildSystemAdapter.find("npm") != null)
+                                project.service<UpdateFollowUpService>().previewNpmSync(snapshot.token)
+                        }
+                    })
                 add(okAction)
             }.toTypedArray()
         }.show()

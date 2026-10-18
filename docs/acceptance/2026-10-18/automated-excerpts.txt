@@ -1,0 +1,13 @@
+2026-10-18T10:56:41 [main] INFO  verification - Finished 1 of 2 verifications (in 35.5 s): IU-261.26222.65 against io.github.khopland.version-checker:1.3.0: Compatible. 7 usages of deprecated API. 25 usages of experimental API
+2026-10-18T10:56:47 [main] INFO  verification - Finished 2 of 2 verifications (in 40.8 s): IU-262.10968.63 against io.github.khopland.version-checker:1.3.0: Compatible. 9 usages of deprecated API. 25 usages of experimental API
+Plugin io.github.khopland.version-checker:1.3.0 against IU-261.26222.65: Compatible. 7 usages of deprecated API. 25 usages of experimental API
+Plugin io.github.khopland.version-checker:1.3.0 against IU-262.10968.63: Compatible. 9 usages of deprecated API. 25 usages of experimental API
+BUILD SUCCESSFUL in 1m 43s
+27 actionable tasks: 15 executed, 12 up-to-date
+
+Continuation, source 9059c7f (document retention fix):
+2026-10-18T15:19:23 [main] INFO  verification - Finished 1 of 2 verifications (in 58.9 s): IU-261.26222.65 against io.github.khopland.version-checker:1.3.0: Compatible. 7 usages of deprecated API. 25 usages of experimental API
+2026-10-18T15:19:33 [main] INFO  verification - Finished 2 of 2 verifications (in 68.3 s): IU-262.10968.63 against io.github.khopland.version-checker:1.3.0: Compatible. 9 usages of deprecated API. 25 usages of experimental API
+BUILD SUCCESSFUL in 2m 20s
+Main suite: 729 tests, 0 failures/errors/skips. Maven 4: 6 tests, 0 failures/errors/skips.
+CI run 39130949981: Build, Test, Maven 4 integration and Verify plugin passed.

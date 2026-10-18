@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-18T13:17:56.039123Z",
+  "generatedAtPurpose": "export-creation",
+  "observationTimingBasis": "monotonic-durations-at-export",
+  "scope": "cached-observations",
+  "requiresFreshReviewBeforeEditing": true,
+  "results": [
+    {
+      "buildSystem": "npm",
+      "buildRoot": ".",
+      "sourceFile": "packages/app/package.json",
+      "sourceLocation": "dependencies/@fixture/alpha",
+      "checkSourceFile": "packages/app/package.json",
+      "artifact": "@fixture/alpha",
+      "currentVersion": "^1.0.0",
+      "availableVersion": "2.0.0",
+      "changeKind": "major",
+      "outcome": "Update",
+      "detail": "",
+      "mode": "major",
+      "checking": false,
+      "checkFailed": false,
+      "observationAgeMillis": 75297,
+      "cacheExpiresInMillis": 524575,
+      "cacheExpiryStatus": "unexpired"
+    },
+    {
+      "buildSystem": "npm",
+      "buildRoot": ".",
+      "sourceFile": "packages/app/package.json",
+      "sourceLocation": "dependencies/@fixture/gamma",
+      "checkSourceFile": "packages/app/package.json",
+      "artifact": "@fixture/gamma",
+      "currentVersion": "~1.0.0",
+      "availableVersion": "2.0.0",
+      "changeKind": "major",
+      "outcome": "Update",
+      "detail": "",
+      "mode": "major",
+      "checking": false,
+      "checkFailed": false,
+      "observationAgeMillis": 75297,
+      "cacheExpiresInMillis": 524575,
+      "cacheExpiryStatus": "unexpired"
+    }
+  ]
+}

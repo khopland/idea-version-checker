@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.core
 
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -17,7 +18,9 @@ import java.nio.file.Path
 internal suspend fun prepareSavedBuildInputValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs =
     prepareSavedBuildInputValidation(project, snapshots.flatMap { it.fingerprint.files.keys + it.sourceFile }.toSet())
 
-private data class SavedInput(val file: VirtualFile, val stamp: Long, val documentStamp: Long?,
+// Clean documents are softly cached by the platform. Keep the captured document
+// alive until this short-lived guard is checked, so eviction is not mistaken for an edit.
+private data class SavedInput(val file: VirtualFile, val stamp: Long, val document: Document?, val documentStamp: Long?,
                               val cleanText: String?, val charset: java.nio.charset.Charset)
 
 internal suspend fun prepareSavedBuildInputValidation(project: Project, paths: Set<String>,
@@ -27,7 +30,7 @@ internal suspend fun prepareSavedBuildInputValidation(project: Project, paths: S
             .filter { !it.isDirectory && it.fileSystem.protocol == "file" }.distinct().map { file ->
                 val documents = FileDocumentManager.getInstance()
                 val document = documents.getCachedDocument(file)
-                SavedInput(file, file.modificationStamp, document?.modificationStamp,
+                SavedInput(file, file.modificationStamp, document, document?.modificationStamp,
                     document?.takeUnless(documents::isDocumentUnsaved)?.text, file.charset)
             }
     }
@@ -49,8 +52,8 @@ internal suspend fun prepareSavedBuildInputValidation(project: Project, paths: S
     return CapturedEditInputs {
         matching && !project.isDisposed && inputs.all { input ->
             input.file.isValid && input.file.modificationStamp == input.stamp &&
-                (input.documentStamp == null || FileDocumentManager.getInstance().getCachedDocument(input.file)
-                    ?.modificationStamp == input.documentStamp)
+                (input.document == null || (FileDocumentManager.getInstance().getCachedDocument(input.file) === input.document &&
+                    input.document.modificationStamp == input.documentStamp))
         }
     }
 }

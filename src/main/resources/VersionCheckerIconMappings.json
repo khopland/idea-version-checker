@@ -1,0 +1,7 @@
+{
+  "icons": {
+    "expui": {
+      "dependencyVersions.svg": "icons/dependencyVersions.svg"
+    }
+  }
+}
