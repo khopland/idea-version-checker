@@ -111,7 +111,13 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                         check(outputs.isCurrent { context.ensureActive() }) { "Lockfiles changed after preview. Preview again." }
                     }
                     NpmFollowUpExecution.run(
-                        execute = { NpmRegistry.execute(command).exitCode },
+                        execute = {
+                            project.service<UpdateSessionService>().recordFollowUp(sessionToken, "npm",
+                                NpmFollowUpPresentation.withWorkspace(
+                                    "npm lockfile synchronization command start requested. Completion and lockfile changes have not yet been observed. " +
+                                        "Lockfile writes may occur. Dependency verification was not performed.", directory, project.basePath))
+                            NpmRegistry.execute(command).exitCode
+                        },
                         inspect = {
                             withContext(Dispatchers.IO) {
                                 val context = currentCoroutineContext()
