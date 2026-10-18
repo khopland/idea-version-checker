@@ -127,14 +127,6 @@ internal class UpdateSessionService(private val project: Project) : Disposable {
                         if (!project.isDisposed) project.service<BuildReloadService>().reload("maven", snapshot.token)
                     }
                 })
-                if (snapshot != null && "gradle" in snapshot.providers && BuildSystemAdapter.find("gradle") != null)
-                    add(object : DialogWrapperAction("Reload Gradle") {
-                        override fun doAction(event: java.awt.event.ActionEvent?) {
-                            close(OK_EXIT_CODE)
-                            if (!project.isDisposed && BuildSystemAdapter.find("gradle") != null)
-                                project.service<BuildReloadService>().reload("gradle", snapshot.token)
-                        }
-                    })
                 if (snapshot?.diffToken != null && mavenActions.verify) add(object : DialogWrapperAction("Verify Maven versions") {
                     override fun doAction(event: java.awt.event.ActionEvent?) {
                         close(OK_EXIT_CODE)
