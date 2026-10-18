@@ -594,6 +594,8 @@ class MavenSnapshotScalingTest : BasePlatformTestCase() {
             val before = com.intellij.openapi.application.readAction { states() }
             val captured = plan.prepareValidation!!.capture()
             val prepared = com.intellij.openapi.application.readAction { states() }
+            // Clean documents are softly cached. Apply must survive cache eviction.
+            com.intellij.util.ref.GCUtil.tryGcSoftlyReachableObjects()
             CapturedEditInputs {
                 captured.isCurrent().also { current ->
                     validation = "inputCurrent=$current, captureChanges=${changed(before, prepared)}, applyChanges=${changed(prepared, states())}"
