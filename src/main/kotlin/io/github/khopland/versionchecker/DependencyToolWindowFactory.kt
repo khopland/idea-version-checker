@@ -123,7 +123,7 @@ internal class DependencyToolWindowPanel(private val project: Project,
                     // Let the platform establish a safe modality before opening its chooser.
                     ApplicationManager.getApplication().invokeLater({
                         if (!disposed && !project.isDisposed) exportRows()
-                    }, ModalityState.nonModal())
+                    }, ModalityState.nonModal(), { disposed || project.isDisposed })
                 }
             })
             add(object : ToggleAction("Show dependency filters", "Show or hide build system, root, outcome and change filters", AllIcons.General.Filter), DumbAware {
