@@ -157,13 +157,13 @@ Copy a demo to the Git-ignored `examples/` directory before you try updates:
 [npm](src/test/resources/npm-demo/README.md), or
 [Gradle](src/test/resources/gradle-demo/README.md).
 
+See the [documentation index](docs/README.md) for current guides and historical records.
+
 Development references:
 
 - [Architecture](docs/architecture.md)
 - [Performance measurements](docs/performance.md)
 - [Release instructions](docs/releasing.md)
-- [1.3.0 acceptance record](docs/release-acceptance-1.3.0/README.md)
-- [Improvement roadmap](docs/improvement-roadmap.html)
 - [Packaged IDE acceptance matrix](docs/ide-acceptance.md)
 - [Writing rules](docs/writing.md)
 

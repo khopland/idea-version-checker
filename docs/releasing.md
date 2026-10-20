@@ -1,29 +1,51 @@
-# Release pipeline
+# Release procedure
 
-Version `1.3.0` is prepared for stable-release review, with dated change notes and a locally validated ZIP. It has not been published. See the [candidate acceptance record](release-acceptance-1.3.0/README.md) for the archive checksum, completed checks and the remaining minimum-IDE Maven smoke test. Version `1.2.0` is already published; existing versions and tags are preserved.
+The [Build workflow](../.github/workflows/build.yml) validates changes and prepares release drafts.
+The [Release workflow](../.github/workflows/release.yml) validates a published tag and delivers its archive to JetBrains Marketplace.
 
-New builds support IDEA 2026.1.4 through 2026.2.x. Compile against 2026.1.4
-(build 261.26222.65) and verify against 2026.1.4 and 2026.2.3. Keep native
-Maven/Gradle acceptance on the minimum supported IDE and native npm acceptance
-on a supported 2026 IDE, alongside automated integration tests. Existing dated
-acceptance records describe their original archives and retain the historical
-2025.3 results; they do not establish acceptance for a newly built archive.
-Before releasing the new baseline, record a fresh Maven/Gradle smoke test on
-2026.1.4 and npm smoke test on a supported 2026 IDE using the selected ZIP.
+The project version comes from `gradle.properties`.
+Dated [acceptance records](acceptance/README.md) describe their original archives, not the current release status.
+Check [GitHub Releases](https://github.com/khopland/idea-version-checker/releases) for published releases and drafts.
 
-## One-time setup
+## Supported IDEs
 
-1. Merge the pipeline changes into `main` before preparing the next version. GitHub must have Actions enabled; release creation uses the automatically supplied `GITHUB_TOKEN` with job-level `contents: write` permission.
+Compile against IDEA 2026.1.4, build 261.26222.65.
+Run Plugin Verifier against IDEA 2026.1.4 and 2026.2.3.
+The supported range is 2026.1.4 through 2026.2.x.
+
+Use the [packaged plugin acceptance procedure](ide-acceptance.md) with the selected archive on both targets.
+Earlier results, including IDEA 2025.3 results, do not establish acceptance for a new archive.
+
+## Configure publishing
+
+1. Enable GitHub Actions for the repository.
 2. Generate a [JetBrains Marketplace permanent token](https://plugins.jetbrains.com/docs/marketplace/plugin-upload.html) for the account that can update `io.github.khopland.version-checker`.
-3. Add it as the repository Actions secret **`PUBLISH_TOKEN`** in [Settings → Secrets and variables → Actions](https://github.com/khopland/idea-version-checker/settings/secrets/actions). Alternatively, run `gh secret set PUBLISH_TOKEN --repo khopland/idea-version-checker` and paste the token into the interactive prompt. Keep tokens out of source files and chat.
+3. Add the token as the repository Actions secret **`PUBLISH_TOKEN`**.
 
-Author signing is optional. To enable it, add **`PRIVATE_KEY`** (PEM private key) and **`CERTIFICATE_CHAIN`** (PEM certificate chain) as Actions secrets. Add **`PRIVATE_KEY_PASSWORD`** if the key is encrypted. Follow the [JetBrains signing instructions](https://plugins.jetbrains.com/docs/intellij/plugin-signing.html) to create the key and certificate. Both key and certificate must be supplied together; partial signing configuration stops delivery. Retain the key securely and track certificate expiry. With no signing secrets, the workflow publishes the unsigned distribution to Marketplace.
+Use [Actions secrets settings](https://github.com/khopland/idea-version-checker/settings/secrets/actions) or this interactive command:
 
-Publishing and signing secrets are only provided to the release steps that need them. Pull request checks do not receive them. Signing and publishing disable Gradle's configuration cache; release jobs do not write back the Gradle cache.
+```sh
+gh secret set PUBLISH_TOKEN --repo khopland/idea-version-checker
+```
+
+Keep tokens out of source files and chat.
+Release jobs use the supplied `GITHUB_TOKEN` with `contents: write` permission for GitHub release assets.
+
+Author signing is optional.
+To enable signing, configure **`PRIVATE_KEY`** and **`CERTIFICATE_CHAIN`** as Actions secrets.
+Add **`PRIVATE_KEY_PASSWORD`** if the key is encrypted.
+See the [JetBrains signing instructions](https://plugins.jetbrains.com/docs/intellij/plugin-signing.html).
+
+Supply the private key and certificate together. Partial signing configuration stops delivery.
+Without signing secrets, the workflow selects the unsigned distribution.
+Publishing and signing secrets are available only to the steps that need them.
+Pull request checks do not receive these secrets.
 
 ## Validate locally
 
-```bash
+Use Java 21 through SDKMAN, then run:
+
+```sh
 python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 python3 -B -m unittest discover -s scripts -p 'test_*.py'
 python3 .github/scripts/release_metadata.py
@@ -31,60 +53,91 @@ python3 .github/scripts/release_metadata.py
   -PmavenIntegration=true -PnpmIntegration=true -PgradleIntegration=true --console=plain
 ```
 
-The native npm fixtures need Node/npm on `PATH`; CI uses Node 22.23.1 and its bundled npm. Maven uses IDEA's bundled server. Gradle fixtures download their distribution if needed. All three use authenticated local HTTP repositories; Maven's fixture also checks public demo metadata. Validation needs network access for toolchains and uncached artifacts. Reports are under `build/reports`; the prepared archive is `build/distributions/version-checker-1.3.0.zip`. Tagged release validation must additionally use `--tag <version> --prerelease <true|false>` after finalizing the changelog. For this candidate:
+The npm fixtures require Node.js and npm on `PATH`. CI uses Node 22.23.1 and its bundled npm.
+Maven uses IDEA's bundled server. Gradle fixtures download their distribution if necessary.
+Validation needs network access for toolchains and uncached artifacts.
+Reports are under `build/reports`. Archives are under `build/distributions`.
+
+For a finalized version, validate its tag and prerelease flag without uploading.
+Replace `1.3.0` with the version under review:
 
 ```sh
 python3 .github/scripts/release_metadata.py --tag 1.3.0 --prerelease false
-(cd build/distributions && shasum -a 256 -c SHA256SUMS)
 ```
+
+Complete interactive acceptance on the selected archive before publication.
+Record its commit, SHA-256, runtime, fixture, results, and remaining blockers.
 
 ## Publish a stable version
 
-1. Set a new stable version, for example `version=1.3.0`, in `gradle.properties`.
-2. Move the completed changes from `CHANGELOG.md`'s `Unreleased` section into a dated `## [1.3.0] - YYYY-MM-DD` entry. Leave an empty `Unreleased` section for future work. The release entry needs at least one bullet.
-3. Merge these changes into `main`. The **Build** workflow builds the ZIP, runs `check` with native Maven/npm/Gradle integration enabled, tests release automation and performance reporting, and runs Plugin Verifier against IDEA 2026.1.4 and 2026.2.3.
-4. After all checks pass, the workflow creates or updates only the matching GitHub draft, attaches the tested ZIP, and pins its target to the checked commit. Review the draft and its release notes in [GitHub Releases](https://github.com/khopland/idea-version-checker/releases). Publish it as a regular release.
-5. The **Release** workflow checks out the release tag, verifies the tag against the project version and finalized changelog, reruns tests and compatibility checks, signs and verifies the signature when configured, and attaches the selected ZIP and `SHA256SUMS`. It uploads that exact ZIP to Marketplace's `default` channel. Marketplace approval can still be required before the update becomes available.
-6. After publishing, set the next development version, for example `version=1.3.1-SNAPSHOT`. Development builds show the `Unreleased` change notes.
+1. Set the new version in `gradle.properties`.
+2. Move completed changes from `Unreleased` into a dated `CHANGELOG.md` entry for that version.
+3. Keep an empty `Unreleased` section. Include at least one bullet in the release entry.
+4. Merge the changes into `main`.
+5. Wait for the Build workflow to pass.
+6. Review the matching GitHub draft, its target commit, release notes, and tested ZIP.
+7. Publish the draft as a regular release through GitHub's UI or an authenticated human account.
 
-Draft creation uses bare tags such as `1.3.0`; release validation also accepts `v1.3.0`. Published GitHub releases are never edited by the draft job, existing tags are never moved, and unrelated drafts are preserved. A matching tag that points to a different commit makes draft preparation skip that version. Prepare a new version to release newer code.
+Build CI runs packaging, tests, Maven 4 regressions, and compatibility verification independently.
+Draft preparation waits for all four jobs.
+It creates or updates only the matching draft and attaches the tested ZIP.
 
-Publish drafts through the GitHub UI or an authenticated human account. Publishing with a workflow's `GITHUB_TOKEN` does not trigger another workflow's release event. Merely pushing a tag does not start Marketplace delivery.
+The Release workflow checks out the published tag.
+It checks the version and changelog, then reruns tests, packaging, and compatibility checks.
+If signing is configured, it signs the plugin and verifies the signature.
+It attaches the selected ZIP and `SHA256SUMS` before Marketplace upload.
+It uploads that exact ZIP to the `default` channel.
+Marketplace approval can still be necessary before users receive the update.
 
-## Prereleases
+After publication, set the next development version, such as `1.3.1-SNAPSHOT`.
+Development builds use the `Unreleased` change notes.
 
-Use a version with a semantic prerelease suffix, such as `1.3.0-rc.1`, and a matching dated changelog entry. The draft is marked as a prerelease. Publishing it uploads to Marketplace's **`eap`** channel. GitHub's prerelease flag must agree with the version suffix. Stable versions publish to `default`; `SNAPSHOT` versions cannot be released.
+Draft creation uses bare tags such as `1.3.0`. Release validation also accepts `v1.3.0`.
+The draft job preserves published releases, existing tags, and unrelated drafts.
+If a matching tag points to another commit, draft preparation skips that version.
+Use a new version to release newer code. Do not move an existing release tag.
 
-To promote a prerelease, prepare a new stable version and changelog entry, then publish its regular GitHub release. Changing an existing prerelease to stable does not publish it to the stable channel.
+Publishing with a workflow's `GITHUB_TOKEN` does not trigger another workflow's release event.
+Pushing a tag alone does not start Marketplace delivery.
 
-## Failures and recovery
+## Publish a prerelease
 
-### IDE errors and UI freezes
+Use a semantic prerelease version, such as `1.3.0-rc.1`, and a matching dated changelog entry.
+The draft is marked as a prerelease.
+GitHub's prerelease flag must agree with the version suffix.
+Publishing sends the archive to Marketplace's `eap` channel.
+`SNAPSHOT` versions cannot be released.
 
-The plugin registers JetBrains' built-in Marketplace error reporter in `plugin.xml`. Users can submit reports through the IDE's error-reporting UI or enable **Send error reports to JetBrains automatically**. In the plugin's Marketplace management page, open **Freezes** to review UI freeze reports attributed to Version Checker. Reports depend on the user's reporting settings and the IDE identifying this plugin as involved. See [JetBrains' freeze-reporting guide](https://blog.jetbrains.com/platform/2026/10/ui-freeze-reports-in-marketplace/) for inspecting thread dumps and other attachments.
+To promote a prerelease, prepare a new stable version and publish its regular GitHub release.
+Changing an existing prerelease to stable does not publish it to the stable channel.
 
-### Release delivery
+## Recover failed delivery
 
-Validation reports are retained as workflow artifacts. Fix validation or credential failures before retrying. Never move a release tag to repair source code; use a new version.
+Validation reports are retained as workflow artifacts.
+Correct validation or credential failures before you retry.
+Use a new version for source corrections after a release.
 
-For a published GitHub release whose delivery failed, use **Actions → Release → Run workflow**, enter the existing tag, and leave **Upload to Marketplace** enabled only if that version has not already been uploaded. The workflow verifies that the GitHub release is published before building anything. It attaches GitHub assets before Marketplace upload, so a GitHub asset-upload failure occurs before delivery.
+For a published release with failed delivery:
 
-If Marketplace already received the version (including a manual upload, or an upload whose response was lost), disable **Upload to Marketplace** for asset-only recovery. Check Marketplace before retrying an ambiguous publishing failure: rerunning a successful delivery would attempt to upload the same version again. This recovery path requires a tag that includes the new pipeline files; it is intended for future releases, not the existing 1.0.0 draft.
+1. Open **Actions → Release → Run workflow**.
+2. Enter the existing published tag.
+3. Enable **Upload to Marketplace** only if that version has not already been uploaded.
+4. Run the workflow.
 
-## Local checks
+The workflow checks that the GitHub release is published before it builds.
+It attaches GitHub assets before Marketplace upload.
+If Marketplace already received the version, disable upload for asset-only recovery.
+Check Marketplace before retrying an upload with an unknown result.
+The recovery tag must contain the release workflow and its supporting scripts.
 
-Use Java 21 through SDKMAN, then run:
+The workflow uses `-PmarketplaceChannel=eap` for prereleases.
+It uses `-PreleaseArchive=build/distributions/<selected ZIP>` to publish the selected archive.
+Delivery disables the Gradle configuration cache and skips rebuilding, signing, and changelog patching after archive selection.
 
-```sh
-sdk use java 21.0.12+1.1-tem
-python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
-./gradlew check buildPlugin verifyPlugin
-```
+## Investigate IDE errors
 
-For a finalized version, validate release metadata without uploading:
-
-```sh
-python3 .github/scripts/release_metadata.py --tag 1.3.0 --prerelease false
-```
-
-`publishPlugin` without additional properties uses Marketplace's stable channel. The workflow supplies `-PmarketplaceChannel=eap` for prereleases and `-PreleaseArchive=build/distributions/<selected ZIP>` to publish the same archive attached to GitHub. Delivery skips rebuild, signing, and automatic changelog patching after that archive has been selected.
+The plugin registers JetBrains' Marketplace error reporter in `plugin.xml`.
+Users can submit reports through the IDE or enable **Send error reports to JetBrains automatically**.
+In the plugin's Marketplace management page, open **Freezes** to examine attributed freeze reports.
+Reports depend on user settings and the IDE identifying this plugin as involved.
+See [JetBrains' freeze-reporting guide](https://blog.jetbrains.com/platform/2026/10/ui-freeze-reports-in-marketplace/).

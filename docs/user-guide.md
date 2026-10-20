@@ -32,7 +32,7 @@ The plugin supports dynamic loading and unloading, allowing IDEA to enable, disa
 3. Open and import a Maven project. Checks start in the background when IDEA inspects an imported POM.
 4. Use **Tools → Check Versions → Refresh Current File** to refresh the POM in the editor, or **Refresh Whole Project** for all imported modules.
 
-Version checks show cancellable progress in IDEA's bottom status bar. A manual refresh bypasses the checker's cached results, queries repository metadata again, and refreshes the inspection highlighting when results arrive. Use this after publishing a new library version while the project is open. Right-click a supported build file in the editor and choose **Refresh Dependency Versions**, or find the refresh actions through **Find Action**.
+Version checks show cancellable progress in IDEA's bottom status bar. A manual refresh bypasses the checker's cached results, queries repository metadata again, and refreshes the inspection highlighting when results arrive. Use this after publishing a new library version while the project is open. Right-click a supported build file in the editor and choose **Refresh Current File**, or find the refresh actions through **Find Action**.
 
 For periodic checks, enable **Refresh periodically** under **Settings → Tools → Version Checker**. The default interval is 30 minutes, configurable from 1 minute to 24 hours; scheduling is off by default. Checks run after each interval without saving files or changing versions. They skip offline build systems, affected unsaved build files, indexing, and checks already in progress. The timer stops when the project closes or checking is disabled, and resumes with the saved settings when the project opens again. Squiggles appear only for supported newer stable versions; republishing an existing version or a snapshot does not create a version-update warning.
 
@@ -285,7 +285,7 @@ Java and Maven can be selected through SDKMAN. The Gradle wrapper builds the plu
 
 The shared coordinator owns scheduling and result caching; build-system adapters own discovery, native checks and edit preparation. npm separates workspace ownership and package-manager selection in `NpmWorkspaces` from registry/runtime fingerprints in `NpmBuildInputs`. `NpmProjectCache` caches those inputs without depending on the adapter. Metadata reuse tracks resolution configuration, while edit safety also tracks workspace manifests. Project deprecation rules share a parser in `core`, with ecosystem-specific name validation in the adapters.
 
-Maven/npm performance changes restrict dependency goals to supported snapshot coordinates, reuse Maven scan inputs, combine npm metadata queries and share responses across workspace manifests. See [performance measurements and tracing](performance.md) for request-count benchmarks, timing limits and the remaining work.
+Maven/npm performance changes restrict dependency goals to supported snapshot coordinates, reuse Maven scan inputs, combine npm metadata queries and share responses across workspace manifests. See [performance checks](performance.md) for tracing, benchmark commands, and measurement limits.
 
 ```bash
 ./gradlew runIde
@@ -293,7 +293,7 @@ Maven/npm performance changes restrict dependency goals to supported snapshot co
 ./gradlew verifyPlugin
 ```
 
-Compatibility checks target IDEA 2026.1.4 and 2026.2.3. Verifier compatibility and headless integration tests do not replace native workflow checks; see the [1.3.0 acceptance record](release-acceptance-1.3.0/README.md).
+Compatibility checks target IDEA 2026.1.4 and 2026.2.3. Verifier compatibility and headless integration tests do not replace native workflow checks. Use the [packaged plugin acceptance procedure](ide-acceptance.md) for the selected archive.
 
 Build and release CI enable the native Maven/npm/Gradle integration tests; local runs can opt in using the flags below. Build CI runs distribution packaging, tests, Maven 4 regressions and compatibility verification concurrently; the release draft still waits for all four checks. The test task builds the distributable ZIP. Lifecycle tests load that ZIP with IDEA's real plugin class loader, exercise repeated unload/reload cycles, and check service disposal, cancellation of active checks and timers, closure of open previews, and class-loader collection. Dialog tests use the platform's headless UI interception; native window behavior can be checked with `runIde`.
 
