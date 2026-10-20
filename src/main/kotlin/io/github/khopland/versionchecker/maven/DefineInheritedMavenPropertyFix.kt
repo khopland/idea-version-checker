@@ -67,11 +67,8 @@ internal class DefineInheritedMavenPropertyFix(
                 override val latest = this@DefineInheritedMavenPropertyFix.latest
                 override val location = root.containingFile.name
                 override val buildSystemId = "maven"
-                override val mavenVerificationTargets get() = verificationCoordinates.map { coordinate ->
-                    MavenVerificationTarget(root.containingFile.virtualFile.path, coordinate.groupId, coordinate.artifactId,
-                        coordinate.artifactKind.name, latest,
-                        project.getService(MavenUpdateVerificationService::class.java).generation())
-                }
+                override val mavenVerificationTargets get() = captureMavenVerificationTargets(project,
+                    verificationCoordinates.map { MavenVerificationConsumer(root.containingFile.virtualFile.path, it) }, latest)
                 override fun isValid() = element?.let { it.text == expected &&
                     it.findFirstSubTag("properties")?.findFirstSubTag(property) == null } == true
                 override fun apply() {

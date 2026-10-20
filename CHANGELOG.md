@@ -4,6 +4,8 @@
 
 ### Added
 
+- Maven dependency quick fixes and selected bulk edits capture expected effective versions for **Verify Maven versions**, retaining each imported shared consumer POM and attributing local overrides to their child only. Confirmation requires a subsequent full import with unchanged saved inputs; parent/plugin versions, vulnerability checks and runtime compatibility remain outside verification.
+
 - Successful declaration updates offer a read-only historical diff of the actual edited files, including grouped edits and newly defined Maven properties. Snapshots are bounded in project memory; omitted or evicted content is reported explicitly and native lockfile writes remain separate.
 
 - Maven **Define inherited property locally** quick fix creates the exact controlling parent version property in the child POM, with an XML preview, affected artifacts, undo and stale-input guards. It supports actual inherited dependencies without child declarations, requires agreed checks for active shared consumers while listing unused managed metadata separately without extra queries, and leaves BOM property overrides and imported descendant subtrees for manual review. Suggested versions indicate availability, not verified vulnerability fixes.

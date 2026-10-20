@@ -143,6 +143,8 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
 
 class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: String,
                                    private val isCurrent: () -> Boolean = { true }) : LocalQuickFix {
+    private var verificationConsumers: List<MavenVerificationConsumer> = emptyList()
+    internal fun withVerificationConsumer(consumer: MavenVerificationConsumer) = apply { verificationConsumers = listOf(consumer) }
     private var prepareValidation: EditInputCapture? = null
     internal fun withInputValidation(prepare: EditInputCapture) = apply { prepareValidation = prepare }
     private val pointer = SmartPointerManager.createPointer(dependency)
@@ -165,6 +167,8 @@ class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: Strin
                 override val expected = this@OverrideDependencyVersionFix.expected
                 override val latest = this@OverrideDependencyVersionFix.latest
                 override val location = dependency.containingFile.name
+                override val buildSystemId = "maven"
+                override val mavenVerificationTargets get() = captureMavenVerificationTargets(project, verificationConsumers, latest)
                 override fun isValid() = element?.let { it.text == expected &&
                     (it.findFirstSubTag("version") != null || it.findFirstSubTag("artifactId") != null) } == true
                 override fun apply() {
