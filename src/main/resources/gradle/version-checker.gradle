@@ -205,6 +205,8 @@ gradle.projectsEvaluated {
                         }
                         chosenVersion
                     }
+                    if (reason == null && versions.toSet().size() > 1)
+                        reason = 'Catalog consumer repository contexts disagree on the target version; needs manual review for ' + request.group + ':' + request.name
                     def reportResult = [versions: reason == null ? versions : [], reason: reason]
                     report[request.id] = reportResult
                     if (indexed) checkedCoordinates[checkedKey] = reportResult

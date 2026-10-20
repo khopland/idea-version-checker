@@ -25,17 +25,19 @@ internal data class GradlePreparedUpdate(
         private const val FOLLOW_UP = "Reload the Gradle project in IntelliJ after updating versions. Update dependency locks yourself if the build uses locking."
 
         /** Parse and index once per file/pass, including consumers with no available update. */
-        fun prepare(file: PsiFile, report: UpdateReport): List<GradlePreparedUpdate> {
+        fun prepare(file: PsiFile, report: UpdateReport,
+                    declarations: List<GradleDeclaration> = GradleDeclarations.parse(file.virtualFile.path, file.text)): List<GradlePreparedUpdate> {
             val original = file.text
             val path = file.virtualFile.path
             val candidatesById = report.candidates.groupBy { it.declaration.id }
             val noticesById = report.notices.withIndex().groupBy { it.value.declaration.id }
-            return GradleDeclarations.parse(path, original).groupBy { it.range }.map { (range, consumers) ->
+            return declarations.groupBy { it.range }.map { (range, consumers) ->
                 val ids = consumers.map { it.declaration.id }.toSet()
                 val updates = consumers.map { candidatesById[it.declaration.id].orEmpty() }
                 val candidates = updates.mapNotNull { it.singleOrNull() }
                 val notice = ids.flatMap { noticesById[it].orEmpty() }.minByOrNull { it.index }?.value
-                    ?: consumers.firstOrNull { it.declaration.id.location == GradleDeclarations.CATALOG_SYNTAX_LOCATION }?.let {
+                    ?: consumers.firstOrNull { it.declaration.id.location == GradleDeclarations.CATALOG_SYNTAX_LOCATION ||
+                        it.reason == GradleDeclarations.CATALOG_OWNER_REASON }?.let {
                         UpdateNotice(it.declaration, NoticeKind.MANUAL_REVIEW, it.reason!!)
                     }
                 val reasons = consumers.mapNotNull { it.reason }.toMutableList()

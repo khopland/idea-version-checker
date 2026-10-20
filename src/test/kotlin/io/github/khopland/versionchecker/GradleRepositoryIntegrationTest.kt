@@ -27,6 +27,109 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Real IDEA Gradle tooling + project wrapper + authenticated settings repositories. No public artifact queries. */
 class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
+    fun testNamedCatalogsUseEveryConsumerRepositoryAndKeepOnePhysicalEdit() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-named-catalogs-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val settings = GradleSettings.getInstance(project)
+        val previousOffline = settings.isOfflineWork
+        try {
+            settings.isOfflineWork = false
+            project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+            fun publish(repository: String, artifact: String, latest: String) {
+                val publication = Files.createDirectories(directory.resolve("$repository/fixture/$artifact"))
+                Files.writeString(publication.resolve("maven-metadata.xml"), """<metadata><groupId>fixture</groupId><artifactId>$artifact</artifactId>
+                    <versioning><versions><version>1.2.3</version><version>$latest</version></versions></versioning></metadata>""")
+                for (version in listOf("1.2.3", latest)) {
+                    val target = Files.createDirectories(publication.resolve(version))
+                    Files.writeString(target.resolve("$artifact-$version.pom"), """<project><modelVersion>4.0.0</modelVersion>
+                        <groupId>fixture</groupId><artifactId>$artifact</artifactId><version>$version</version></project>""")
+                }
+            }
+            publish("repo-root", "root", "1.2.9")
+            publish("repo-root", "default", "1.2.9")
+            publish("repo-root", "shared", "1.2.9")
+            publish("repo-root", "duplicate", "1.2.9")
+            publish("repo-child", "shared", "1.3.0")
+            Files.writeString(directory.resolve("settings.gradle"), """
+                rootProject.name = 'named-catalog-fixture'
+                include 'child'
+                dependencyResolutionManagement { versionCatalogs {
+                    create("tools") { from(files("versions/tools.toml")) }
+                    create("mirrored") { from(files("versions/tools.toml")) }
+                    create("checks") { from(files("versions/testing.toml")) }
+                } }
+            """.trimIndent())
+            Files.writeString(directory.resolve("gradle.properties"), "org.gradle.jvmargs=-Xmx384m\norg.gradle.workers.max=1\n")
+            Files.writeString(directory.resolve("build.gradle"), """
+                plugins { id 'java' }
+                repositories { maven { url = uri('repo-root') } }
+                dependencies { implementation tools.root; testImplementation mirrored.root; implementation tools.duplicate; implementation checks.shared; implementation libs.baseline }
+                tasks.withType(JavaCompile).configureEach { doFirst { throw new GradleException('Build task executed') } }
+            """.trimIndent())
+            val child = Files.createDirectories(directory.resolve("child"))
+            Files.writeString(child.resolve("build.gradle"), """
+                plugins { id 'java' }
+                repositories { maven { url = uri(rootProject.file('repo-child')) } }
+                dependencies { implementation checks.shared }
+                tasks.withType(JavaCompile).configureEach { doFirst { throw new GradleException('Build task executed') } }
+            """.trimIndent())
+            val catalogs = Files.createDirectories(directory.resolve("versions"))
+            Files.writeString(catalogs.resolve("tools.toml"), "[libraries]\nroot = 'fixture:root:1.2.3'\nduplicate = 'fixture:duplicate:1.2.3'\n")
+            Files.writeString(catalogs.resolve("testing.toml"), "[libraries]\nshared = 'fixture:shared:1.2.3'\nduplicate = 'fixture:duplicate:1.2.3'\n")
+            val gradle = Files.createDirectories(directory.resolve("gradle"))
+            Files.writeString(gradle.resolve("libs.versions.toml"), "[libraries]\nbaseline = 'fixture:default:1.2.3'\n")
+            val wrapper = Files.createDirectories(gradle.resolve("wrapper"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.properties"), wrapper.resolve("gradle-wrapper.properties"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.jar"), wrapper.resolve("gradle-wrapper.jar"))
+            val root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            VfsUtil.markDirtyAndRefresh(false, true, true, root)
+            settings.linkProject(GradleProjectSettings().apply {
+                externalProjectPath = directory.toString(); gradleJvm = "#JAVA_HOME"
+                distributionType = DistributionType.DEFAULT_WRAPPED
+            })
+            fun <T> background(work: suspend () -> T): T = PlatformTestUtil.waitForFuture(
+                ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { work() } }), 120_000)
+            val adapter = GradleBuildSystemAdapter()
+            val snapshots = background { adapter.discover(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
+                .filter { it.sourceFile.endsWith(".toml") }
+            assertEquals(3, snapshots.size)
+            assertEquals(2, snapshots.sumOf { snapshot -> snapshot.skippedDeclarations.values.count { it == GradleDeclarations.CATALOG_OWNER_REASON } })
+            val reports = background {
+                val results = GradleVersionLookup.checkBatch(project, snapshots, UpdateMode.MAJOR)
+                snapshots.associateWith { snapshot ->
+                    val native = results.getValue(snapshot)
+                    UpdateReport(snapshot.declarations.mapNotNull { declaration ->
+                        native[declaration.id.location]?.versions?.distinct()?.singleOrNull()?.let { UpdateCandidate(declaration, it) }
+                    }, snapshot.declarations.mapNotNull { declaration -> native[declaration.id.location]?.reason?.let {
+                        UpdateNotice(declaration, NoticeKind.MANUAL_REVIEW, it)
+                    } })
+                }
+            }
+            val shared = snapshots.single { it.sourceFile.endsWith("testing.toml") }
+            assertTrue(reports.getValue(shared).candidates.isEmpty())
+            assertTrue(reports.getValue(shared).notices.single().message.contains("repository contexts disagree"))
+            val tools = snapshots.single { it.sourceFile.endsWith("tools.toml") }
+            assertEquals(listOf("1.2.9"), reports.getValue(tools).candidates.map { it.version })
+            val plan = background { adapter.prepareUpdates(project, reports) }
+            assertEquals(2, plan.changes.size)
+            assertTrue(plan.apply(project))
+            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments()
+            assertTrue(Files.readString(catalogs.resolve("tools.toml")).contains("1.2.9"))
+            assertTrue(Files.readString(catalogs.resolve("tools.toml")).contains("duplicate = 'fixture:duplicate:1.2.3'"))
+            assertTrue(Files.readString(catalogs.resolve("testing.toml")).contains("duplicate = 'fixture:duplicate:1.2.3'"))
+            assertTrue(Files.readString(gradle.resolve("libs.versions.toml")).contains("1.2.9"))
+            assertTrue(Files.readString(catalogs.resolve("testing.toml")).contains("1.2.3"))
+            assertFalse(Files.exists(directory.resolve("build/classes")))
+            assertFalse(Files.exists(directory.resolve("child/build/classes")))
+            assertFalse(Files.walk(directory).use { paths -> paths.anyMatch { it.fileName.toString().endsWith(".jar") && it.fileName.toString() != "gradle-wrapper.jar" } })
+        } finally {
+            settings.unlinkExternalProject(directory.toString())
+            settings.isOfflineWork = previousOffline
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testBuildSrcPolicyChangeRejectsHeldEditAndFormerlyAllowedNativeTarget() {
         if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
         val directory = Files.createTempDirectory("version-checker-buildsrc-policy-").toRealPath()

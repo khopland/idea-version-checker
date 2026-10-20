@@ -49,6 +49,8 @@ internal object GradleVersions {
 
 internal object GradleDeclarations {
     const val CATALOG_SYNTAX_LOCATION = "catalog/syntax"
+    const val CATALOG_OWNER_REASON = "Identical coordinates and declared version occur in distinct catalog files; " +
+        "native source configurations cannot prove which catalog alias was consumed; manual review required"
     // Unknown calls may be user helpers, even if their arguments match a real dependency.
     private val configurations = setOf(
         "api", "implementation", "compileOnly", "compileOnlyApi", "runtimeOnly", "annotationProcessor",
@@ -59,8 +61,8 @@ internal object GradleDeclarations {
     private val identifier = Regex("[A-Za-z_][A-Za-z_0-9]*")
     private val coordinatePart = Regex("[A-Za-z0-9_.-]+")
     private val platformWrappers = setOf("platform", "enforcedPlatform")
-    private data class Token(val text: String, val start: Int, val string: Boolean = false)
-    private fun tokens(text: String, groovy: Boolean): List<Token> {
+    internal data class Token(val text: String, val start: Int, val string: Boolean = false)
+    internal fun tokens(text: String, groovy: Boolean): List<Token> {
         val result = mutableListOf<Token>()
         var i = 0
         while (i < text.length) {
@@ -110,7 +112,16 @@ internal object GradleDeclarations {
     }
 
     fun parse(file: String, text: String): List<GradleDeclaration> =
-        if (file.endsWith(".toml")) catalog(file, text) else script(file, text)
+        when {
+            file.endsWith(".toml") -> catalog(file, text)
+            file.substringAfterLast('/') in setOf("settings.gradle", "settings.gradle.kts") ->
+                GradleCatalogs.parse(text, file.endsWith(".gradle.kts")).reviews.map { review ->
+                    GradleDeclaration(VersionDeclaration(DeclarationId(file, "catalog-registration@${review.offset}"),
+                        ArtifactId("catalog", "registration"), "", ""),
+                        TextRange(review.offset, (review.offset + 1).coerceAtMost(text.length)), review.reason)
+                }
+            else -> script(file, text)
+        }
 
     private fun script(file: String, text: String): List<GradleDeclaration> {
         val tokens = tokens(text, !file.endsWith(".gradle.kts"))

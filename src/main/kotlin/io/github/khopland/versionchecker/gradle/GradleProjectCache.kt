@@ -78,12 +78,13 @@ internal class GradleProjectCache(private val project: Project) : Disposable {
     }
 
     @Synchronized
-    fun inspectionHashes(root: String, files: List<VirtualFile>): Map<String, String> {
+    fun inspectionHashes(root: String, files: List<VirtualFile>, catalogs: Set<VirtualFile>): Map<String, String> {
         invalidateIfChanged()
         val cached = inputs[root]?.takeIf { it.inventory.files === files }
+        val catalogPaths = catalogs.mapTo(mutableSetOf()) { it.canonicalPath ?: it.path }
         return cached?.inspectionHashes ?: files.associate { file ->
             val editable = file.name in setOf("build.gradle", "build.gradle.kts") ||
-                file.name == "libs.versions.toml" && file.parent.name == "gradle"
+                (file.canonicalPath ?: file.path) in catalogPaths
             file.path to if (editable) inspectionDigest(file) else digests.get(file).current
         }.also { cached?.inspectionHashes = it }
     }
