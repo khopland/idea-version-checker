@@ -49,6 +49,38 @@ class DependencyReviewRowsTest : BasePlatformTestCase() {
         assertEquals(DependencyReviewOutcome.FAILED, failedCoverage.single().outcome)
     }
 
+    fun testRepeatedResultsKeepTheFirstCandidateAndNotice() {
+        val first = UpdateCandidate(declaration, "2.0", kind = VersionChangeKind.MAJOR)
+        val notice = UpdateNotice(declaration, NoticeKind.MANUAL_REVIEW, "Review the shared version")
+        val report = UpdateReport(
+            candidates = listOf(first, first.copy(version = "3.0")),
+            notices = listOf(notice, notice.copy(message = "Later diagnostic")),
+        )
+        val row = DependencyReviewRows.from(listOf(observation(report))).single()
+        assertEquals("2.0", row.available)
+        assertEquals(VersionChangeKind.MAJOR, row.kind)
+        assertEquals(notice.message, row.detail)
+        assertEquals(DependencyReviewOutcome.REVIEW, row.outcome)
+    }
+
+    fun testEmptyContextsKeepFailureDetailsAndObservationTiming() {
+        val snapshot = snapshot().copy(declarations = emptyList(), coverageDescription = "No supported declarations")
+        val observation = VersionResultCache.Observation(snapshot, UpdateReport(failure = "Repository unavailable"),
+            UpdateMode.MAJOR, false, 10L, 20L)
+        val row = DependencyReviewRows.from(listOf(observation)).single()
+        assertEquals(DeclarationId(snapshot.sourceFile, ""), row.source)
+        assertEquals(DependencyReviewOutcome.FAILED, row.outcome)
+        assertTrue(row.failed)
+        assertEquals("Repository unavailable", row.detail)
+        assertEquals(10L, row.checkedAtNanos)
+        assertEquals(20L, row.expiresAtNanos)
+        assertEquals(snapshot.context, row.origin?.context)
+        val empty = DependencyReviewRows.from(listOf(observation.copy(report = UpdateReport()))).single()
+        assertEquals(DependencyReviewOutcome.NO_DECLARATIONS, empty.outcome)
+        assertEquals(snapshot.coverageDescription, empty.detail)
+        assertFalse(empty.failed)
+    }
+
     fun testDisposedPanelRejectsLatePresentationAndClearsRows() {
         val entered = java.util.concurrent.CountDownLatch(1)
         val release = java.util.concurrent.CountDownLatch(1)

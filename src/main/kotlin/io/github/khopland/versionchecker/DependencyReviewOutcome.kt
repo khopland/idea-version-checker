@@ -2,7 +2,7 @@ package io.github.khopland.versionchecker
 
 import io.github.khopland.versionchecker.core.DeclarationOutcome
 
-/** Presentation state has an identity independent of the labels used by the UI and JSON export. */
+/** UI and export labels do not define the identity of an outcome. */
 internal enum class DependencyReviewOutcome(val label: String, val hasObservationTime: Boolean = true) {
     UPDATE("Update"),
     REVIEW("Review"),
@@ -13,6 +13,11 @@ internal enum class DependencyReviewOutcome(val label: String, val hasObservatio
     PENDING("Pending", hasObservationTime = false),
     UNREPORTED("Coverage unreported", hasObservationTime = false),
     NO_DECLARATIONS("No recognized declarations");
+
+    val isChecked: Boolean get() = when (this) {
+        UPDATE, CHECKED, IGNORED -> true
+        else -> false
+    }
 
     companion object {
         fun fromCoverage(outcome: DeclarationOutcome): DependencyReviewOutcome = when (outcome) {

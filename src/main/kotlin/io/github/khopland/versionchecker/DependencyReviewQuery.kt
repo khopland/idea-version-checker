@@ -4,7 +4,7 @@ import io.github.khopland.versionchecker.core.DeclarationId
 import io.github.khopland.versionchecker.core.BuildContextId
 import io.github.khopland.versionchecker.core.VersionChangeKind
 
-/** Literal presentation filters. No repository lookup or edit authorization occurs here. */
+/** Filter display data without repository requests or edit authorization. */
 internal data class DependencyReviewQuery(
     val text: String = "",
     val provider: String? = null,
@@ -12,15 +12,22 @@ internal data class DependencyReviewQuery(
     val outcome: DependencyReviewFilter = DependencyReviewFilter.ALL,
     val kind: VersionChangeKind? = null,
 ) {
-    fun apply(rows: List<DependencyReviewRow>): List<DependencyReviewRow> =
-        DependencyReviewRows.filter(rows, outcome, kind).filter { row ->
-            (provider == null || row.adapter == provider) && (root == null || row.root == root) &&
-                (text.isBlank() || listOfNotNull(row.artifact, row.source.file, row.root, row.origin?.checkSourceFile)
-                    .any { it.contains(text.trim(), ignoreCase = true) })
+    fun apply(rows: List<DependencyReviewRow>): List<DependencyReviewRow> {
+        val search = text.trim()
+        return rows.filter { row ->
+            (provider == null || row.adapter == provider) &&
+                (root == null || row.root == root) &&
+                (kind == null || row.kind == kind) &&
+                outcome.matches(row) &&
+                (search.isEmpty() || row.artifact.contains(search, ignoreCase = true) ||
+                    row.source.file.contains(search, ignoreCase = true) ||
+                    row.root.contains(search, ignoreCase = true) ||
+                    row.origin?.checkSourceFile?.contains(search, ignoreCase = true) == true)
         }
+    }
 }
 
-/** Stable across result replacement, sorting and changes to versions, outcomes or reasons. */
+/** This identity stays the same when versions, outcomes, reasons, or sort order change. */
 internal data class DependencyReviewIdentity(
     val provider: String, val root: String, val source: DeclarationId, val artifact: String, val mode: UpdateMode,
     val context: BuildContextId? = null, val declaration: DeclarationId = source,

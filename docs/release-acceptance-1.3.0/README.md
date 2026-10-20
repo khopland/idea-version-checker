@@ -1,4 +1,8 @@
-# 1.3.0 stable review candidate
+# Historical 1.3.0 release review
+
+> Historical record for the archive identified below.
+> Release status, IDE targets, and remaining work describe the 12–13 October run.
+> Use the [current release procedure](../releasing.md) and [acceptance matrix](../ide-acceptance.md) for a new candidate.
 
 Prepared 12 October 2026; recorded and rechecked 13 October. The user chose
 `1.3.0` for stable review instead of `1.3.0-rc.1`. This is local preparation;
@@ -87,7 +91,7 @@ fresh plugin directory was populated from the stable ZIP before the checks above
 Native observations are retained here from the tool transcript. Temporary
 profiles, fixture baselines and raw native logs were cleared between sessions;
 no raw trace export survives for this candidate. The resumed session has no
-native UI automation tool. Earlier [dense snapshot traces](../native-validation-2026-10-12/README.md)
+native UI automation tool. Earlier dense snapshot traces (`native-validation-2026-10-12/README.md`; original file unavailable)
 remain separate historical evidence and are not relabeled as stable-ZIP traces.
 
 The typing report is one functional run, not a repeated p95/input-delay study.

@@ -49,14 +49,15 @@ internal data class BulkUpdatePlan(
                     }
                 }
             }
+            val captures = plans.mapNotNull { it.inputCapture }
             return BulkUpdatePlan(
                 changes = changes,
                 skipped = plans.flatMap { it.skipped }.distinct(),
                 reviewItems = plans.flatMap { it.reviewItems }.distinct(),
                 isCurrent = { plans.all { it.authorization.isCurrent() } },
                 followUp = plans.flatMap { it.followUp }.distinct(),
-                prepareValidation = if (plans.any { it.prepareValidation != null }) EditInputCapture {
-                    val guards = plans.map { it.inputCapture?.capture() ?: CapturedEditInputs { true } }
+                prepareValidation = if (captures.isNotEmpty()) EditInputCapture {
+                    val guards = captures.map { it.capture() }
                     CapturedEditInputs { guards.all { it.isCurrent() } }
                 } else null
             )

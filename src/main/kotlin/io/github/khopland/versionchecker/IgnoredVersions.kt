@@ -44,8 +44,9 @@ internal class VersionPresentationPolicy(private val adapter: String, text: Stri
 
     fun filter(report: UpdateReport): UpdateReport {
         if (ignored.isEmpty()) return report
-        val hidden = report.candidates.filter { !includes(it) }.map { it.declaration.id }.toSet()
-        return report.copy(candidates = report.candidates.filter(::includes), coverage = report.coverage?.mapValues { (id, result) ->
+        val (visible, hiddenCandidates) = report.candidates.partition(::includes)
+        val hidden = hiddenCandidates.map { it.declaration.id }.toSet()
+        return report.copy(candidates = visible, coverage = report.coverage?.mapValues { (id, result) ->
             if (id in hidden && result.outcome == DeclarationOutcome.CHECKED) result.copy(outcome = DeclarationOutcome.IGNORED)
             else result
         })

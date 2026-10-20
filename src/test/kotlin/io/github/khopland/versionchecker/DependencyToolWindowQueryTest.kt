@@ -30,6 +30,17 @@ class DependencyToolWindowQueryTest : BasePlatformTestCase() {
         assertEmpty(DependencyReviewQuery(".*").apply(rows))
     }
 
+    fun testSearchTrimsWhitespaceAndIncludesTheOriginalCheckSource() {
+        val row = row("g:library").copy(origin = DependencyReviewOrigin(
+            io.github.khopland.versionchecker.core.BuildContextId("maven", "/project", "module"),
+            DeclarationId("/project/module/pom.xml", "dependency:library"), "/project/module/pom.xml"))
+        val rows = listOf(row)
+        assertEquals(rows, DependencyReviewQuery("  G:LIBRARY  ").apply(rows))
+        assertEquals(rows, DependencyReviewQuery("  MODULE/POM.XML  ").apply(rows))
+        assertEquals(rows, DependencyReviewQuery(" \t ").apply(rows))
+        assertEmpty(DependencyReviewQuery("module", provider = "gradle").apply(rows))
+    }
+
     private fun withPanel(action: (DependencyToolWindowPanel, AtomicInteger) -> Unit) {
         val reads = AtomicInteger()
         val panel = DependencyToolWindowPanel(project) { reads.incrementAndGet(); emptyList() }
