@@ -111,20 +111,26 @@ After a successful declaration edit, **Versions updated → Review changed files
 
 Snapshots remain only in bounded project memory and may be unavailable after eviction or project closure. Large updates can omit files; the review reports omissions rather than presenting its subset as complete. The review action never applies or restores content. Use normal IDE undo to revert declaration edits and version control to inspect subsequent native changes.
 
-Maven and Gradle notifications offer **Save and reload … projects**. Reload follow-ups distinguish saving files, requesting reload, a request accepted by the provider, cancellation, and unavailable or failed requests. A requested reload does not establish that IDE synchronization succeeded. Check the native build tool window for its result and run the relevant build or tests; dependency verification is not performed by these actions.
+Maven and Gradle notifications offer **Save and reload … projects**. Reload follow-ups distinguish saving files, requesting reload, a request accepted by the provider, cancellation, and unavailable or failed requests. A requested reload does not establish that IDE synchronization succeeded. Check the native build tool window for its result and run the relevant build or tests.
 
 npm lockfile synchronization reports completion, cancellation, timeout or failure separately. Its output lists lockfiles changed at inspection time. Cancellation or timeout does not confirm process termination, and writes may continue after inspection. Inspect the lockfile diff before retrying. If inspection fails, the notification says that the changes could not be inspected.
 
 ## Maven effective-version verification
 
-After you apply an inherited Maven property override, select **Save and reload Maven projects**.
+Maven dependency quick fixes and selected bulk updates capture targets for **Verify Maven effective versions**.
+Supported edits include literal versions, local properties, managed versions, local overrides, and inherited-property definitions.
+Shared edits retain a separate expected dependency version for each recognized imported consumer POM.
+A local override is attributed to its child POM.
+
+After applying an update, select **Save and reload Maven projects**.
 Wait for Maven resolution. Then select **Verify Maven effective versions** in the update notification.
 Verification compares expected dependency versions with a subsequently resolved native Maven model.
 It reports confirmed, mismatch, and unknown results separately from declaration edits and reload requests.
-It does not run tests or confirm compatibility.
+It does not run builds or tests, check vulnerabilities, or confirm runtime compatibility.
 
-Plugins, parent POMs, and absent or unresolved dependencies stay unknown.
-Other update paths do not yet capture verification targets.
+Plugin and parent POM versions are outside dependency verification.
+Absent dependencies, failed resolution, omitted snapshots, and expired session evidence stay unknown.
+Existing models, edited XML, requested reloads, and effective-POM previews alone cannot confirm an update.
 Verification waits for the full native Maven import request to complete.
 Physical input content must be identical before and after that request.
 Unrelated resolution events invalidate the evidence.
@@ -166,7 +172,7 @@ For a dependency controlled by a property in your Maven parent chain, **Alt+Ente
 
 The action's XML preview lists checked artifacts separately from unused managed entries whose metadata changes without a version check. It also works for a dependency inherited from the parent when the child has no dependency declaration; unused parent management catalogs do not expand editor checks. All actual used or resolved shared consumers must have an agreed candidate version; unused ordinary dependency-management entries need no extra query. BOM imports and plugin-management references remain subject to candidate agreement. An unchecked, ignored or conflicting active consumer, a separately overridden dependency version, a non-version property use, an ambiguous parent profile, or a `.mvn` property override requires manual review. Creation is also withheld when this POM has imported descendant modules, including ignored modules, because those modules would inherit the override. Properties inside an **imported BOM** have their own interpolation context and cannot be overridden this way; review an explicit `dependencyManagement` entry instead.
 
-Apply uses the IDE's undo command and rejects changed results, POMs, parent source files or Maven settings. Save and reload Maven, then inspect its effective dependency versions. A newer available version is not evidence that it fixes a vulnerability or remains compatible with Spring Boot's tested dependency set. Prefer a parent upgrade when appropriate; automatic vulnerability checks, reload verification and redundant-override cleanup are not provided by this action.
+Apply uses the IDE's undo command and rejects changed results, POMs, parent source files or Maven settings. Save and reload Maven, then inspect its effective dependency versions. A newer available version is not evidence that it fixes a vulnerability or remains compatible with Spring Boot's tested dependency set. Prefer a parent upgrade when appropriate. Use the separate **Verify Maven versions** follow-up to compare captured dependency targets with a subsequent import; automatic vulnerability checks and redundant-override cleanup are not provided.
 
 ## Maven repositories and settings.xml
 
@@ -315,7 +321,7 @@ The locally opt-in integration tests start IDEA's real Maven server with both an
 
 ```bash
 ./gradlew test -PmavenIntegration=true --tests '*MavenSettingsIntegrationTest'
-# Prove a newly defined child property changes effective management and inherited dependencies.
+# Compare ordinary quick-fix/bulk verification targets with native effective POMs, and verify newly defined inherited properties.
 ./gradlew test -PmavenIntegration=true --tests '*MavenInheritedVersionFixTest'
 # Include the full 100-coordinate, 50/250 ms latency benchmark (slower; opt-in).
 ./gradlew test -PmavenIntegration=true -PmavenLatencyBenchmark=true \

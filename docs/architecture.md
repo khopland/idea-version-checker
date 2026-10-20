@@ -111,6 +111,12 @@ Missing outcomes stay pending.
 If any report has unknown coverage, the combined summary stays unknown.
 Dialogs and native build tools do not define these rules.
 
+## Maven update verification
+
+Maven prepared edits retain immutable consumer identities separately from physical XML ownership. A shared property or managed version can change several imported POM contexts; local overrides retain only their own child context. Quick fixes and bulk plans use the same ownership analysis. Selecting bulk edits preserves only those edits' consumers. Immediately before the authorized write, historical capture binds expected dependency versions to the current native-resolution generation and stores them with that update's captured file diff.
+
+`MavenUpdateVerificationService` accepts model evidence only after completion of its explicit full-import request with identical saved input captures before and after import. Verification compares those inputs, the captured after-text and the current IDE documents/settings/profiles again. Existing models and late unrelated resolution events cannot authorize confirmation. Bounded diff/session storage and unavailable or omitted captures keep their existing fail-closed behavior. Plugin/parent versions and runtime compatibility are not inferred from imported dependencies.
+
 ## Verification
 
 | Tests | Checks |

@@ -92,8 +92,10 @@ Examine the version control diff after lockfile changes, cancellation, or failur
 Lockfile changes are separate from declaration undo.
 Use your normal build process to update installed dependencies and run tests.
 
-For inherited Maven property overrides, reload Maven before you select **Verify Maven effective versions**.
-Verification compares expected dependency versions with the resolved Maven model.
+Maven dependency quick fixes and selected bulk updates capture expected versions for **Verify Maven effective versions**.
+Supported edits include literal versions, shared properties and managed versions, local overrides, and inherited-property definitions.
+Shared edits retain each recognized consumer POM; local overrides belong to their child.
+Save and reload Maven, wait for import completion, then verify against the resolved dependency model.
 See [Maven verification](docs/user-guide.md#maven-effective-version-verification) for its limits.
 
 Use **View update session** in the notification to examine declaration changes and subsequent action results.

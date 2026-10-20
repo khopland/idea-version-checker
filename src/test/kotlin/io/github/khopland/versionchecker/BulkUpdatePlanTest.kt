@@ -50,6 +50,44 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
         assertTrue(plan.apply(project))
         assertEquals("2.0", (myFixture.file as XmlFile).rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
     }
+    fun testSelectedBulkChangesCaptureOnlyTheirOwnDependencyVerificationTargets() {
+        val plan = plan("<properties><shared>1.0</shared></properties><dependencies>" +
+            dep("a", "${'$'}{shared}") + dep("b", "${'$'}{shared}") + dep("unselected", "1.0") + "</dependencies>",
+            mapOf(DependencyVersion("g", "a", "1.0") to "2.0", DependencyVersion("g", "b", "1.0") to "2.0",
+                DependencyVersion("g", "unselected", "1.0") to "3.0"))
+        assertEquals(2, plan.changes.size)
+        val selected = plan.select(setOf(plan.changes.indexOfFirst { (it.element as com.intellij.psi.xml.XmlTag).localName == "shared" }))
+        assertTrue(selected.apply(project))
+        val targets = selected.appliedChanges!!.mavenVerificationTargets
+        assertEquals(setOf("a", "b"), targets.map { it.artifactId }.toSet())
+        assertEquals(2, targets.size)
+        assertTrue(targets.all { it.pomPath == myFixture.file.virtualFile.path && it.expectedVersion == "2.0" })
+        assertNull(plan.appliedChanges)
+    }
+
+    fun testVerificationGenerationIsBoundWhenThePlanApplies() {
+        val plan = plan("<dependencies>" + dep("a", "1.0") + "</dependencies>",
+            mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
+        val verification = project.getService(MavenUpdateVerificationService::class.java)
+        val before = verification.generation()
+        MavenProjectsManager.getInstance(project).projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(
+            MavenProject(myFixture.file.virtualFile), org.jetbrains.idea.maven.project.MavenProjectChanges.ALL))
+        assertTrue(verification.generation() > before)
+        assertTrue(plan.apply(project))
+        assertEquals(verification.generation(), plan.appliedChanges!!.mavenVerificationTargets.single().afterGeneration)
+    }
+
+    fun testMavenPluginAndParentEditsHaveNoDependencyVerificationTargets() {
+        val plan = plan("""<parent><groupId>g</groupId><artifactId>parent</artifactId><version>1.0</version></parent>
+            <build><plugins><plugin><groupId>g</groupId><artifactId>plugin</artifactId><version>1.0</version></plugin></plugins></build>""",
+            mapOf(DependencyVersion("g", "parent", "1.0", MavenArtifactKind.PARENT) to "2.0",
+                DependencyVersion("g", "plugin", "1.0", MavenArtifactKind.PLUGIN) to "2.0"))
+        assertEquals(2, plan.changes.size)
+        assertTrue(plan.apply(project))
+        assertTrue(plan.appliedChanges!!.mavenVerificationTargets.isEmpty())
+        assertFalse(MavenSessionFollowUp.availability(setOf("maven"), true, plan.appliedChanges).verify)
+    }
+
     fun testSkipsConflictingSharedProperty() {
         val plan = plan("<properties><shared>1.0</shared></properties><dependencies>" +
             dep("a", "\${shared}") + dep("b", "\${shared}") + "</dependencies>",

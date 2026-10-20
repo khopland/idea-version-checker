@@ -101,8 +101,17 @@ internal class MavenDependencyAnalysis(
                 ArtifactId(coordinate.groupId, coordinate.artifactId), it) in ignored }
             MavenPreparedUpdate.Consumer(coordinate, latest,
                 relocations[coordinate] ?: deprecated["${coordinate.groupId}:${coordinate.artifactId}"])
-        }, blockers)
+        }, blockers, verificationConsumers = consumers.map { (_, context, coordinate) ->
+            MavenVerificationConsumer(context.virtualFile.path, coordinate)
+        })
     }
+
+    /** Reuse proven target ownership; equal version values alone never establish a consumer. */
+    internal fun verificationConsumers(target: XmlTag, coordinate: DependencyVersion): List<MavenVerificationConsumer> =
+        sharedConsumers[target].orEmpty().map { (_, context, consumer) ->
+            MavenVerificationConsumer(context.virtualFile.path, consumer)
+        }.ifEmpty { listOf(MavenVerificationConsumer(mavenProject.path, coordinate)) }.distinct()
+
     private fun scopedAction(target: XmlTag, latest: String): String {
         val scope = sharedScopes[target] ?: "shared scope requires review"
         return "Update ${target.localName} to $latest in ${target.containingFile.name} ($scope)"
@@ -373,7 +382,8 @@ internal class MavenDependencyAnalysis(
         problem.target?.let {
             val shared = it.parentTag?.localName == "properties" || it.parentTag?.parentTag?.parentTag?.localName == "dependencyManagement"
             val prepared = if (shared) prepareShared(it) else MavenPreparedUpdate.prepare(it,
-                listOf(MavenPreparedUpdate.Consumer(problem.coordinate, problem.latest, problem.notice)))
+                listOf(MavenPreparedUpdate.Consumer(problem.coordinate, problem.latest, problem.notice)),
+                verificationConsumers = listOf(MavenVerificationConsumer(mavenProject.path, problem.coordinate)))
             if (prepared.edit == null || prepared.replacement != latest) return emptyArray()
             val fix = UpdateDependencyVersionFix(it, latest,
                 isCurrent = guard(if (shared) sharedResultGuard(it, problem.coordinate) else resultGuard(setOf(problem.coordinate))))
@@ -387,6 +397,7 @@ internal class MavenDependencyAnalysis(
         // Composite expressions and ranges retain their existing manual-review behavior.
         if (version != null && versionPropertyName(version.value.trimmedText) == null) return emptyArray()
         val fixes = mutableListOf<LocalQuickFix>(OverrideDependencyVersionFix(tag, latest, guard(resultGuard(setOf(problem.coordinate))))
+            .withVerificationConsumer(MavenVerificationConsumer(mavenProject.path, problem.coordinate))
             .withInputValidation { adapter.prepareEditValidation(project, listOf(snapshot)) })
         val target = sharedVersionTarget(version ?: managingVersion(tag), problem.coordinate.version)
         val prepared = target?.let(::prepareShared)
