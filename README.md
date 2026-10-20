@@ -1,82 +1,146 @@
 # Version Checker
 
-An IntelliJ IDEA plugin that highlights newer stable dependency versions in Maven, npm and Gradle projects. Maven build plugins are supported too.
-
-Updates appear as standard IDEA inspections, with hover details, Problems entries and **Alt+Enter** quick fixes:
+Version Checker is an IntelliJ IDEA plugin for Maven, npm, and Gradle projects.
+It shows newer stable dependency versions through standard IDEA inspections.
+It also checks Maven build plugins.
 
 > Newer version of junit:junit is available: 4.12 → 4.13.2
 
-Update one declaration or review a batch of updates for the current file or whole project.
+Use **Alt+Enter** to update one declaration.
+Use an update preview to select several changes for a file or project.
 
 ## Install
 
-Requires **IntelliJ IDEA 2026.1.4 through 2026.2.x** and the relevant IDE plugins:
+Use **IntelliJ IDEA 2026.1.4 through 2026.2.x** with these plugins and settings:
 
-| Project | Required plugins and setup |
+| Build system | Required setup |
 | --- | --- |
-| Maven | Java and Maven; import the Maven project. Maven 4 requires IDEA 2026.2.3 or later. |
-| npm | JavaScript and TypeScript; configure a local Node.js interpreter and npm. |
-| Gradle | Gradle; link/import the Gradle project. |
+| Maven | Enable Java and Maven. Import the Maven project. Maven 4 requires IDEA 2026.2.3 or later. |
+| npm | Enable JavaScript and TypeScript. Configure a local Node.js interpreter and npm. |
+| Gradle | Enable Gradle. Import the Gradle project. |
 
-Open **Settings → Plugins → Marketplace**, search for **Version Checker**, and install it.
+1. Open **Settings → Plugins → Marketplace**.
+2. Search for **Version Checker**.
+3. Install the plugin.
 
-To install a local build, run `./gradlew buildPlugin` with Java 21 or later, then select the ZIP in `build/distributions/` through **Settings → Plugins → gear → Install Plugin from Disk**.
+To install a local build, run `./gradlew buildPlugin` with Java 21 or later.
+Open **Settings → Plugins → gear → Install Plugin from Disk**.
+Select the ZIP file in `build/distributions/`.
 
 ## Check and update versions
 
-Checks run in the background when IDEA inspects supported build files.
+IDEA starts background checks when it inspects supported build files.
 
-- **Update one version:** use **Alt+Enter** on a highlighted declaration.
-- **Refresh:** choose **Tools → Check Versions → Refresh Current File / Refresh Whole Project** to query fresh metadata.
-- **Review a batch:** right-click a build file and choose **Review Dependency Updates…**, or use **Tools → Update Versions → Current File / Whole Project**.
-- **Keep results open:** use **View → Tool Windows → Dependency Versions** to inspect cached checks, search packages and paths, combine build-system/root/outcome/change filters, inspect selected-row details, open source files, or export the displayed rows in their sort order as JSON. Use **Refresh Whole Project** and **Review Updates…** there for fresh checks and an editable review.
-- **Check status:** click the **Versions** status-bar item for the current file's state and actions.
+| Task | Action |
+| --- | --- |
+| Update one version | Use **Alt+Enter** on a highlighted declaration. |
+| Check a file again | Select **Tools → Check Versions → Refresh Current File**. |
+| Check the project again | Select **Tools → Check Versions → Refresh Whole Project**. |
+| Select several updates | Right-click a build file. Select **Review Dependency Updates…**. |
+| Review project updates | Select **Tools → Update Versions → Whole Project**. |
+| Examine cached results | Open **View → Tool Windows → Dependency Versions**. |
+| Examine check status | Click **Versions** in the status bar. |
 
-Bulk previews let you choose an update mode:
+Refresh and review actions save the relevant build inputs before a check.
+Checks compare declared versions with published versions.
+An available update does not confirm compatibility.
+
+Update previews offer these modes:
 
 | Mode | Allowed updates |
 | --- | --- |
 | Patch only | Keep the current major and minor versions. |
 | Minor + patch | Keep the current major version. |
-| Major + minor + patch | Any newer stable version. |
+| Major + minor + patch | Allow any newer stable version. |
 
-Select the changes you want, then click **Update selected declarations**. Changes apply in one undoable command. Shared versions are updated only when their consumers agree; conflicts and unsupported declarations appear under **Needs review**. Changed build inputs or expired results require a fresh preview. Select a change to see its captured declaration, target, consumers and build context. Select a **Needs review** item to see its reason and open its source when available.
-
-Refresh and review actions save relevant build inputs before checking. Version choices use declared versions, rather than installed or locked versions; an available update does not guarantee compatibility.
+Select the changes. Click **Update selected declarations**.
+The plugin applies the changes in one command that you can undo.
+A shared version changes only when its consumers agree.
+Conflicts and unsupported declarations appear under **Needs review**.
+If build inputs change or results expire, prepare a new preview.
 
 ## Supported declarations
 
 | Build system | Automatic updates |
 | --- | --- |
-| Maven | Dependencies, dependency management/BOMs and build plugins in imported POMs and active profiles. Literal versions and simple local properties have quick fixes; parent-managed versions can offer local overrides or updates to an imported parent. |
-| npm | `dependencies`, `devDependencies` and `optionalDependencies`, including scoped packages, aliases and npm workspaces. Exact versions and simple `^`/`~` selectors retain their operator. |
-| Gradle | Fixed stable library/BOM versions in supported Groovy/Kotlin dependency calls and the default local `gradle/libs.versions.toml` catalog, including simple `version.ref` entries. |
+| Maven | Dependencies, dependency management, BOMs, and build plugins in imported POMs and active profiles. Supports literal versions and simple local properties. Parent-managed versions can offer local overrides or imported-parent updates. |
+| npm | `dependencies`, `devDependencies`, and `optionalDependencies`. Supports scoped packages, aliases, and npm workspaces. Exact versions and simple `^` or `~` selectors keep their operator. |
+| Gradle | Fixed stable library and BOM versions in supported Groovy and Kotlin dependency calls. Supports the default local `gradle/libs.versions.toml` catalog and simple `version.ref` entries. |
 
-Complex Maven expressions, npm ranges and peer dependencies, and Gradle dynamic versions, script properties, plugin versions and custom catalogs require manual review. pnpm, Yarn and Bun projects are excluded from npm checks.
+These declarations require manual review:
 
-**After applying updates**, the notification offers **Save and reload Maven/Gradle projects** for the providers changed. npm updates offer **Preview npm lockfile sync**: choose a supported package.json and confirm the configured command and workspace root. This runs `npm install --package-lock-only --ignore-scripts` with audit, funding and update notices disabled. It checks saved inputs again before execution and reports changed lockfiles, cancellation or failure. Review the version control diff; lockfile writes are separate from declaration undo. Installed npm dependencies, Gradle locks and build verification still need their usual native workflow.
+- Maven expressions that use more than a simple property reference.
+- npm ranges and peer dependencies.
+- Gradle dynamic versions, script properties, plugin versions, and custom catalogs.
 
-After applying an inherited Maven property override, use **Save and reload Maven projects**, wait for Maven resolution, then choose **Verify Maven effective versions** in the update notification. Verification compares each checked dependency's expected version with a subsequently resolved native Maven model. It reports confirmed, mismatch, or unknown separately from declaration edits and reload requests. It does not run tests or establish compatibility. Plugins, parent POMs and absent or unresolved dependencies remain unknown; other update paths do not yet capture verification targets. Verification waits for the native full Maven import request to complete and requires identical physical input content before and after that request. Unrelated resolution events invalidate its evidence. Changed or undone declaration snapshots, physical parent/config/settings edits (including changes without a VFS event), and changed Maven settings or profiles invalidate the captured evidence. Re-run the review after further edits.
+The npm adapter excludes pnpm, Yarn, and Bun projects.
+See the [user guide](docs/user-guide.md) for declaration limits and shared-version rules.
 
-Use **View update session** in an update notification or **Tools → View Latest Version Update Session…** to review captured declaration diffs, provider reload and npm lockfile outcomes, and effective-version verification status together. Maven sessions offer **Reload Maven** and, when verification evidence was captured, **Verify Maven versions** directly in the summary. Opening the summary does not reload or verify. Follow-up actions belong to the notification's original session, even after another update. A reload request or successful npm command leaves verification unknown until effective dependency versions are explicitly confirmed. npm follow-up outcomes identify the selected workspace root, which can differ from the workspace edited by the update. Cancellation keeps the applied declarations and reports possible native writes; it does not roll them back. Verification observations carry a timestamp and are explicitly historical; verify again after edits, undo or import/configuration changes. Opening the summary downgrades observations to unknown when captured declaration text changed or is unavailable. Summaries do not otherwise track later edits or undo. The project retains up to eight bounded summaries in memory, with independently bounded declaration snapshots; older reviews can expire. Closing the project clears them.
+## After an update
 
-The tool window and JSON export contain cached observations, which expire and may lag current build inputs. Opening or filtering them does not run native checks. Exports contain displayed rows, sanitized details and project-relative source paths; external paths are redacted. Refresh and review before editing.
+Maven and Gradle notifications offer **Save and reload … projects**.
+Check the native build tool window for the reload result.
+Update Gradle dependency locks through your normal build process.
 
-The tool-window coverage summary stays visible when filters hide incomplete results. It distinguishes checked observations and updates from skipped/unsupported, failed, pending, unknown and manual-review results. Counts refer to cached observations: separate build contexts or update modes can describe the same physical declaration. Zero updates does not mean complete coverage. Select a row for its source, diagnostic, coverage scope and suggested next action; declarations the parser does not recognize cannot be counted individually.
+npm notifications offer **Preview npm lockfile sync**.
+Select a supported `package.json`. Confirm the workspace root and command.
+The command uses `npm install --package-lock-only --ignore-scripts`.
+It disables audit, funding, and update notices.
+The plugin checks saved inputs again before it starts the command.
 
-See the [detailed guide](docs/user-guide.md) for complete scope, shared-property rules, workspace updates and Maven platform reviews.
+Examine the version control diff after lockfile changes, cancellation, or failure.
+Lockfile changes are separate from declaration undo.
+Use your normal build process to update installed dependencies and run tests.
+
+For inherited Maven property overrides, reload Maven before you select **Verify Maven effective versions**.
+Verification compares expected dependency versions with the resolved Maven model.
+See [Maven verification](docs/user-guide.md#maven-effective-version-verification) for its limits.
+
+Use **View update session** in the notification to examine declaration changes and subsequent action results.
+You can also select **Tools → View Latest Version Update Session…**.
+Opening a summary does not reload or verify the project.
+See [update sessions](docs/user-guide.md#update-sessions) for retention and validity rules.
+
+## Cached results
+
+The **Dependency Versions** tool window can search, filter, sort, and export cached observations.
+Opening the window or changing filters does not start a native check.
+Cached results can expire or refer to earlier build inputs.
+Refresh and review before you edit versions.
+
+The coverage summary stays visible when filters hide incomplete results.
+Zero updates does not confirm complete coverage.
+Separate build contexts or update modes can describe the same physical declaration.
+The parser cannot count declarations that it does not recognize.
+
+JSON exports contain the displayed rows in their sort order.
+Exports use sanitized details and project-relative source paths. External paths are redacted.
+See the [tool window guide](docs/user-guide.md#dependency-versions-tool-window) for details.
 
 ## Settings and repositories
 
-Configure **Settings → Tools → Version Checker** to enable or disable checks, set severity by update type, manage deprecated dependencies and ignored versions, or enable periodic checks. Periodic checking is off by default; its default interval is 30 minutes. Updates default to Warning; deprecated or relocated artifacts default to Error. Set **Advanced Maven settings → Minimum release age (hours)** to suggest only Maven versions published at least that long ago, for example to match a 24-hour Nexus quarantine; see [minimum release age](docs/user-guide.md#minimum-release-age).
+Open **Settings → Tools → Version Checker** to configure checks, severity, dependency rules, and periodic checks.
+Periodic checks are off by default. The default interval is 30 minutes.
+Version updates use Warning severity by default.
+Deprecated and relocated artifacts use Error severity by default.
 
-Use **Alt+Enter → Ignore … in this project** to hide one published version. Restore it by removing its entry from **Dependency rules → Ignored versions** in settings. Individual inspections can also be disabled under **Settings → Editor → Inspections → Maven / npm / Gradle**.
+Use **Advanced Maven settings → Minimum release age (hours)** to exclude recent Maven releases.
+For example, use 24 hours to match a repository quarantine.
+See [minimum release age](docs/user-guide.md#minimum-release-age).
 
-Checks use each build system's existing repository and authentication configuration: IDEA's Maven settings, npm's `.npmrc`, or the linked Gradle build. No separate repository credentials are needed. Offline settings are respected. See the [repository and caching details](docs/user-guide.md#maven-repositories-and-settingsxml).
+Use **Alt+Enter → Ignore … in this project** to hide one published version.
+To restore it, remove its entry from **Dependency rules → Ignored versions**.
+Disable individual inspections under **Settings → Editor → Inspections → Maven / npm / Gradle**.
+
+Checks use the existing repository and authentication configuration for each build system.
+They use IDEA's Maven settings, npm's `.npmrc`, or the linked Gradle build.
+They respect offline settings. No separate repository credentials are necessary.
+See [repository settings](docs/user-guide.md#maven-repositories-and-settingsxml).
 
 ## Development
 
-Use Java 21 or later; the Gradle wrapper uses a Java 21 toolchain. Java and Maven can be selected through SDKMAN.
+Use Java 21 or later. The Gradle wrapper uses a Java 21 toolchain.
+Select Java and Maven through SDKMAN if necessary.
 
 ```bash
 ./gradlew runIde
@@ -84,16 +148,26 @@ Use Java 21 or later; the Gradle wrapper uses a Java 21 toolchain. Java and Mave
 ./gradlew verifyPlugin
 ```
 
-Compatibility checks target IDEA 2026.1.4 and 2026.2.3. Native integration tests are opt-in locally; commands and test coverage are in the [verification guide](docs/user-guide.md#development-and-verification). See the [release instructions](docs/releasing.md) and [1.3.0 acceptance record](docs/release-acceptance-1.3.0/README.md) for delivery and validation details.
+Compatibility checks target IDEA 2026.1.4 and 2026.2.3.
+Native integration tests require explicit selection in local runs.
+See the [verification guide](docs/user-guide.md#development-and-verification) for commands.
 
-Demo projects: [Maven](src/test/resources/maven-demo/README.md), [npm](src/test/resources/npm-demo/README.md), [Gradle](src/test/resources/gradle-demo/README.md). Copy a demo to the Git-ignored `examples/` directory before trying updates.
+Copy a demo to the Git-ignored `examples/` directory before you try updates:
+[Maven](src/test/resources/maven-demo/README.md),
+[npm](src/test/resources/npm-demo/README.md), or
+[Gradle](src/test/resources/gradle-demo/README.md).
 
-See the [improvement roadmap](docs/improvement-roadmap.html) and [packaged IDE acceptance matrix](docs/ide-acceptance.md) for the next delivery and validation work.
+Development references:
 
-See the [architecture guide](docs/architecture.md), [performance measurements](docs/performance.md), and the [release guide](docs/releasing.md) for further development details.
+- [Architecture](docs/architecture.md)
+- [Performance measurements](docs/performance.md)
+- [Release instructions](docs/releasing.md)
+- [1.3.0 acceptance record](docs/release-acceptance-1.3.0/README.md)
+- [Improvement roadmap](docs/improvement-roadmap.html)
+- [Packaged IDE acceptance matrix](docs/ide-acceptance.md)
+- [Writing rules](docs/writing.md)
 
 ## License
 
-Copyright 2026 Kristoffer Larsen Hopland. Licensed under the [Apache License, Version 2.0](LICENSE).
-
-After applying an inherited Maven property override, use **Save and reload Maven projects**, wait for Maven resolution, then choose **Verify Maven effective versions** in the update notification. Verification compares each checked dependency's expected version with a subsequently resolved native Maven model. It reports confirmed, mismatch, or unknown separately from declaration edits and reload requests. It does not run tests or establish compatibility. Plugins, parent POMs and absent or unresolved dependencies remain unknown; other update paths do not yet capture verification targets. Verification waits for the native full Maven import request to complete and requires identical physical input content before and after that request. Unrelated resolution events invalidate its evidence. Changed or undone declaration snapshots, physical parent/config/settings edits (including changes without a VFS event), and changed Maven settings or profiles invalidate the captured evidence. Re-run the review after further edits.
+Copyright 2026 Kristoffer Larsen Hopland.
+Licensed under the [Apache License, Version 2.0](LICENSE).

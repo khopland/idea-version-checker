@@ -68,7 +68,13 @@ If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) c
 
 **View → Tool Windows → Dependency Versions** presents cached results. Observation age and cache expiry describe the original cached observation, including failed or skipped checks; they do not prove unchanged build inputs or authorize edits. Reading or exporting results never renews their deadline. Pending rows without an observed result have unknown timing, and expired entries leave the cache.
 
-JSON exports use schema **2** with explicit observation age, remaining cache duration and expiry status. Unknown timing is `null`; zero remaining duration means expired. `generatedAt` is the export creation time, not a dependency-check or release-publication timestamp. Exports omit absolute monotonic timestamps, snapshots and edit leases. See [observation timing and schema details](dependency-observation-timing.md). Refresh and review before editing.
+JSON exports use schema **2**.
+Each result includes observation age, remaining cache duration, and expiry status.
+Unknown timing is `null`. Zero remaining duration means expired.
+`generatedAt` gives the export creation time. It does not give the check time or release publication time.
+Exports omit absolute monotonic timestamps, snapshots, and edit leases.
+Refresh and review before you edit versions.
+
 ## Dependency Versions tool window
 
 Open **View → Tool Windows → Dependency Versions** to browse cached observations. The toolbar offers **Refresh Whole Project**, **Review Updates…**, **Open Source** and **Export JSON…**. Opening the window, typing a search, changing filters, sorting or selecting a row does not query repositories. Use Refresh for fresh checks and Review before applying changes.
@@ -108,6 +114,51 @@ Snapshots remain only in bounded project memory and may be unavailable after evi
 Maven and Gradle notifications offer **Save and reload … projects**. Reload follow-ups distinguish saving files, requesting reload, a request accepted by the provider, cancellation, and unavailable or failed requests. A requested reload does not establish that IDE synchronization succeeded. Check the native build tool window for its result and run the relevant build or tests; dependency verification is not performed by these actions.
 
 npm lockfile synchronization reports completion, cancellation, timeout or failure separately. Its output lists lockfiles changed at inspection time. Cancellation or timeout does not confirm process termination, and writes may continue after inspection. Inspect the lockfile diff before retrying. If inspection fails, the notification says that the changes could not be inspected.
+
+## Maven effective-version verification
+
+After you apply an inherited Maven property override, select **Save and reload Maven projects**.
+Wait for Maven resolution. Then select **Verify Maven effective versions** in the update notification.
+Verification compares expected dependency versions with a subsequently resolved native Maven model.
+It reports confirmed, mismatch, and unknown results separately from declaration edits and reload requests.
+It does not run tests or confirm compatibility.
+
+Plugins, parent POMs, and absent or unresolved dependencies stay unknown.
+Other update paths do not yet capture verification targets.
+Verification waits for the full native Maven import request to complete.
+Physical input content must be identical before and after that request.
+Unrelated resolution events invalidate the evidence.
+
+These changes also invalidate the evidence:
+
+- Changed or undone declaration snapshots.
+- Changed parent, configuration, or settings files, including changes without a VFS event.
+- Changed Maven settings or profiles.
+
+Prepare a new update preview after further edits.
+
+## Update sessions
+
+Select **View update session** in an update notification.
+Alternatively, select **Tools → View Latest Version Update Session…**.
+The summary shows captured declaration diffs, reload results, npm lockfile results, and effective-version verification status.
+Opening the summary does not reload or verify the project.
+
+Maven sessions offer **Reload Maven**.
+They also offer **Verify Maven versions** when the session has verification evidence.
+Each notification keeps its original session, even after another update.
+A reload request or successful npm command leaves verification unknown until effective versions are explicitly confirmed.
+The npm result identifies the selected workspace root. This root can differ from the workspace that the update changed.
+Cancellation keeps the applied declarations. It reports possible native writes and does not roll them back.
+
+Verification observations have timestamps and describe past results.
+Verify again after edits, undo, or import and configuration changes.
+Opening the summary changes verification status to unknown if captured declaration text changed or is unavailable.
+Summaries do not otherwise track later edits or undo.
+
+The project keeps up to eight summaries in memory.
+Declaration snapshots have separate size limits. Older reviews can expire.
+Closing the project clears the summaries.
 
 ## Override an inherited Maven version property
 

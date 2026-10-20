@@ -1,26 +1,27 @@
 # Architecture
 
-Version Checker uses a shared checking and editing workflow with build-system adapters for Maven, npm, and Gradle. Keep repository resolution, declaration parsing, and build-specific IntelliJ APIs in the adapter packages.
+Version Checker shares the check and edit workflow across Maven, npm, and Gradle adapters.
+Each adapter owns repository resolution, declaration parsing, and build-specific IntelliJ APIs.
 
 ## Responsibilities
 
-| Component                                          | Owns                                                                                                                                                            |
-|----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `core/BuildSystemAdapter`                          | Provider contract for discovery, snapshots, native checks, and update preparation. Optional IDE integrations are registered in the provider plugin descriptors. |
-| `VersionCheckService`                              | Project service entry points, lifecycle, editor selection, and inspection input caching.                                                                        |
-| `VersionRefreshCoordinator`                        | Manual and scheduled refresh discovery, retries, progress, and refresh activity. `VersionRefreshRequest` keeps their distinct policies explicit.                |
-| `CheckExecutor`                                    | Check queues, cancellation, result publication, and access to the result cache.                                                                                 |
-| `core/VersionResultCache`                          | Result identities, revisions, expiry, and inspection leases.                                                                                                    |
-| `BulkUpdateService`                                | Preview interactions, dialog lifecycle, navigation, and orchestration of accepted updates.                                                                      |
-| `VersionPreviewState`                            | Immutable dialog transitions and generations that retire held selections on refresh, replacement, cancellation, and disposal.                                  |
-| `PreviewRequestController`                        | Asynchronous request serials, cancellation, and delivery of only the current result on the EDT.                                                               |
-| `VersionPreviewPreparer`                           | Collection of adapter reports and plans, cache reuse, and binding the combined plan to observed results and settings. It does not construct dialogs.            |
-| `core/DeclarationCoverageAccumulator`              | Coverage across scan contexts, grouped by provider and physical declaration.                                                                                    |
-| `core/FileDigestCache`                             | Stamp-based reuse of saved VFS and unsaved document hashes. Providers own inventory and aggregate-hash invalidation.                                            |
-| `gradle/GradleBuildInputs`                         | Linked-build ownership, input discovery, external capture, fingerprints, coverage limitations, and edit-input validation.                                       |
-| `DependencyReviewRows` / `DependencyReviewOutcome` | Passive presentation of observations, with typed outcomes independent of UI labels.                                                                             |
-| `BulkUpdatePlan`                                   | Plan composition, selection, input validation, and one undoable write command.                                                                                  |
-| `followup/`                                        | Explicit build reloads and npm lockfile synchronization after edits.                                                                                            |
+| Component | Responsibility |
+| --- | --- |
+| `core/BuildSystemAdapter` | Define discovery, snapshots, native checks, and update preparation. Provider plugin descriptors register optional IDE integrations. |
+| `VersionCheckService` | Provide project entry points, lifecycle control, editor selection, and inspection input caching. |
+| `VersionRefreshCoordinator` | Discover inputs and manage refresh requests, retries, and progress. `VersionRefreshRequest` defines manual and scheduled policies. |
+| `CheckExecutor` | Queue checks, handle cancellation, publish results, and access the result cache. |
+| `core/VersionResultCache` | Track result identities, revisions, expiry, and inspection leases. |
+| `BulkUpdateService` | Manage previews, dialogs, source navigation, and accepted updates. |
+| `VersionPreviewState` | Track dialog state and generation. Reject old selections after refresh, replacement, cancellation, or disposal. |
+| `PreviewRequestController` | Cancel asynchronous requests and deliver only the current result on the EDT. |
+| `VersionPreviewPreparer` | Collect adapter reports and plans. Bind combined plans to observed results and settings. |
+| `core/DeclarationCoverageAccumulator` | Combine coverage by provider and physical declaration across check contexts. |
+| `core/FileDigestCache` | Reuse hashes for saved files and unsaved documents when their stamps match. |
+| `gradle/GradleBuildInputs` | Track build ownership and inputs. Capture external inputs and validate edit inputs. |
+| `DependencyReviewRows` / `DependencyReviewOutcome` | Convert cached observations to display data. Keep typed outcomes separate from UI labels. |
+| `BulkUpdatePlan` | Combine plans, select edits, validate inputs, and apply one command that the user can undo. |
+| `followup/` | Reload builds and synchronize npm lockfiles after explicit user actions. |
 
 ```mermaid
 flowchart TD
@@ -43,45 +44,92 @@ flowchart TD
 ## Preview and apply
 
 1. The UI selects a scope and saves the relevant build inputs.
-2. The preparer asks each adapter to discover immutable snapshots. Native resources are scoped through `withScan`; current successful reports can be reused.
-3. Each checked report must still be the exact cached result observed by the preparer. Adapters prepare edits from those reports and capture their build-specific validation requirements.
-4. The combined plan keeps a guard on the results and ignored-version policy. Selecting fewer edits preserves that authorization.
-5. Applying validates authorization before input capture and again inside the write command. Providers capture external inputs before acquiring write access. The final validation and declaration writes happen atomically.
+2. The preparer asks each adapter to discover immutable snapshots.
+3. Each adapter uses `withScan` to control native resource lifetime. The preparer can reuse current successful reports.
+4. Each report must remain the exact cached result that the preparer observed.
+5. The adapters prepare edits and capture their input validation requirements.
+6. The combined plan keeps authorization checks for the results and ignored-version policy. Selecting fewer edits keeps these checks.
+7. Before application, the plan checks authorization and captures external inputs without write access.
+8. Inside the write command, the plan checks authorization and inputs again. Final validation and declaration writes are atomic.
 
-`VersionPreviewState` models ready, checking, failed, applying, accepted, and closed reviews. The dialog guards selected plans against the live generation and selectors. Refresh and replacement retire older selections; cancellation or disposal closes authorization. An accepted modal review retains its existing selection for the caller to apply after the dialog closes. A queued apply can finish only its own generation and cannot clear a newer check or failure. `PreviewRequestController` separately rejects stale asynchronous deliveries. Provider result leases and input validation remain authoritative, including expiry; the dialog state does not inspect or extend them.
+`VersionPreviewState` tracks ready, checking, failed, applying, accepted, and closed reviews.
+The dialog checks each selection against the current generation, mode, and scope.
+Refresh and replacement invalidate older selections. Cancellation or disposal closes authorization.
+An accepted modal review keeps its selection for application after the dialog closes.
+A queued apply callback can finish only its own generation.
+It cannot clear a newer check or failure.
+`PreviewRequestController` rejects old asynchronous results separately.
 
-Inspection hints and retained warnings are presentation data. They must not authorize a fresh preview or an edit. Reading the dependency tool window also must not start native checks.
+Result leases and provider input validation authorize edits.
+Dialog state cannot extend result expiry.
+Inspection hints and retained warnings cannot authorize a preview or edit.
+Reading the dependency tool window must not start native checks.
 
 ## Refresh policy
 
-Manual refresh invalidates metadata and results immediately, saves the requested inputs, then discovers and checks them. A current-file request has interactive queue priority. Whole-project manual refreshes serialize with scheduled refreshes.
+Manual refresh first invalidates metadata and results.
+It then saves the requested inputs, discovers snapshots, and runs checks.
+Current-file requests have interactive queue priority.
+Whole-project manual refreshes run in sequence with scheduled refreshes.
 
-Retries also have interactive priority. They retain their provider/source targets through saving, discovery, invalidation, and failure reporting. Missing sources must be reported rather than silently discarded.
+Retries also have interactive priority.
+They keep provider and source targets through saving, discovery, invalidation, and failure reporting.
+Missing sources produce a failure report.
 
-Scheduled refreshes skip active work, offline providers, and unsaved resolution inputs. They do not save editor changes. They invalidate metadata only for providers with eligible snapshots and invalidate each source immediately before its check.
+Scheduled refreshes skip active work, offline providers, and unsaved resolution inputs.
+They do not save editor changes.
+They invalidate metadata only for providers with eligible snapshots.
+They invalidate each source immediately before its check.
 
-## Shared infrastructure and provider policy
+## Shared code and provider rules
 
-Maven and npm metadata caches deliberately remain separate: Maven batches requests and supports persistence; npm shares individual package workers and accounts for retained version indexes. Their common lifecycle expectations are tested through `MetadataCacheContractTest` rather than hidden behind a generic cache with provider switches.
+Maven and npm keep separate metadata caches.
+Maven batches requests and supports persistent storage.
+npm shares package workers and tracks retained version indexes.
+`MetadataCacheContractTest` checks their common lifecycle rules.
 
-File hashing is shared because saved bytes and unsaved editor text follow the same identity rules. Inspection normalization remains provider-owned: Gradle can ignore supported version-value changes when retaining warnings, while those changes must still invalidate edit authorization. Shared infrastructure must not erase that distinction.
+File hashing is shared because saved bytes and unsaved editor text use the same identity rules.
+Providers own input inventories and combined-hash invalidation.
+Providers also own inspection normalization.
+Gradle can retain warnings across supported version-value changes.
+Those changes must still invalidate edit authorization.
 
-Keep provider-specific IntelliJ APIs in their provider packages so optional plugin dependencies remain isolated. Add shared mechanisms to `core` only when they have the same semantics across providers. UI labels are formatted at presentation/export boundaries; filtering and timing use typed outcomes.
+Keep build-specific IntelliJ APIs in their provider packages.
+This keeps optional plugin dependencies separate.
+Add shared code to `core` only when its behavior is the same for all providers.
+Format UI labels for display and export. Use typed outcomes for filtering and timing.
 
 ## Coverage
 
-Coverage counts recognized declarations, including declarations skipped before native resolution. A shared declaration can appear in several resolution contexts; `sourceId` maps those observations back to one physical declaration within a provider.
+Coverage counts recognized declarations, including declarations skipped before native resolution.
+A shared declaration can appear in several resolution contexts.
+`sourceId` maps these observations to one physical declaration within a provider.
 
-When contexts disagree, the accumulator keeps the outcome requiring the most attention: failed, manual review, checked, ignored, then skipped. Missing outcomes remain pending. If any report has unknown coverage, the combined summary stays unknown. These rules are independent of dialogs and native build tools.
+If contexts disagree, keep the outcome with the highest priority:
+failed, manual review, checked, ignored, then skipped.
+Missing outcomes stay pending.
+If any report has unknown coverage, the combined summary stays unknown.
+Dialogs and native build tools do not define these rules.
 
 ## Verification
 
-`DeclarationCoverageAccumulatorTest` checks conflicting context outcomes in both orders, provider isolation, pending declarations, and unknown totals. `FileDigestCacheTest` checks unsaved edits, saves, and VFS changes with cached documents. `BuildCoordinatorTest` exercises refresh and preview preparation through the service, including scheduling, cache reuse, ignored versions, shared declarations, and stale-result guards. Provider capture tests verify external changes and read-lock boundaries. `VersionPreviewStateTest` covers transition authorization and late apply completion; `BulkUpdateDialogTest` checks held-plan cancellation and queued callback failure recovery. Dialog cancellation and disposal are covered by `BulkPreviewLifetimeTest` and the preview recovery tests; `DynamicPluginLifecycleTest` checks plugin unload and reload.
+| Tests | Checks |
+| --- | --- |
+| `DeclarationCoverageAccumulatorTest` | Conflicting context outcomes, provider isolation, pending declarations, and unknown totals. |
+| `FileDigestCacheTest` | Unsaved edits, saves, and VFS changes with cached documents. |
+| `BuildCoordinatorTest` | Refresh, preview preparation, scheduling, cache reuse, ignored versions, shared declarations, and rejection of old results. |
+| Provider capture tests | External changes and read-lock boundaries. |
+| `VersionPreviewStateTest` | State transitions, authorization, and late apply completion. |
+| `BulkUpdateDialogTest` | Held-plan cancellation and recovery from queued callback failures. |
+| `BulkPreviewLifetimeTest` and preview recovery tests | Dialog cancellation and disposal. |
+| `DynamicPluginLifecycleTest` | Plugin unload and reload. |
 
-Run the default suite and build checks with:
+Run the default suite and build checks:
 
 ```bash
 ./gradlew test buildPlugin verifyPluginProjectConfiguration
 ```
 
-Native repository integration tests remain opt-in; see the [verification guide](user-guide.md#development-and-verification).
+Select native repository integration tests explicitly.
+See the [verification guide](user-guide.md#development-and-verification).
+Use the [writing rules](writing.md) for comments, documentation, and user messages.

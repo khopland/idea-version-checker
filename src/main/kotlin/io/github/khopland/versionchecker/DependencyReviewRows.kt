@@ -2,73 +2,122 @@ package io.github.khopland.versionchecker
 
 import io.github.khopland.versionchecker.core.*
 
-/** Where a cached observation was made, separate from its physical declaration target. */
+/** The context of a cached result can differ from its physical declaration. */
 internal data class DependencyReviewOrigin(
     val context: BuildContextId, val declaration: DeclarationId, val checkSourceFile: String,
     val coverageDescription: String? = null,
 )
 
-/** Presentation values only. They do not authorize edits or claim the build inputs are still current. */
+/** Display data does not authorize edits or confirm that build inputs are current. */
 internal data class DependencyReviewRow(
     val adapter: String, val root: String, val source: DeclarationId, val artifact: String,
     val current: String, val available: String?, val kind: VersionChangeKind?, val outcome: DependencyReviewOutcome,
     val detail: String, val mode: UpdateMode, val checking: Boolean, val checkFailed: Boolean = false,
     val checkedAtNanos: Long? = null, val expiresAtNanos: Long? = null,
     val origin: DependencyReviewOrigin? = null,
-)
+) {
+    val failed: Boolean get() = checkFailed || outcome == DependencyReviewOutcome.FAILED
+}
 
-internal enum class DependencyReviewFilter { ALL, UPDATES, REVIEW, FAILED }
+internal enum class DependencyReviewFilter {
+    ALL, UPDATES, REVIEW, FAILED;
+
+    fun matches(row: DependencyReviewRow): Boolean = when (this) {
+        ALL -> true
+        UPDATES -> row.outcome == DependencyReviewOutcome.UPDATE
+        REVIEW -> when (row.outcome) {
+            DependencyReviewOutcome.REVIEW, DependencyReviewOutcome.SKIPPED, DependencyReviewOutcome.UNREPORTED -> true
+            else -> false
+        }
+        FAILED -> row.failed
+    }
+}
 
 internal object DependencyReviewRows {
-    fun from(observations: List<VersionResultCache.Observation>, ignoredVersions: String = ""): List<DependencyReviewRow> =
-        observations.flatMap { observation ->
-            val snapshot = observation.snapshot
-            val report = VersionPresentationPolicy(snapshot.context.adapterId, ignoredVersions).filter(observation.report)
-            val declarations = snapshot.declarations.associateBy { it.id }
-            val ids = snapshot.declarationIds() + report.candidates.map { it.declaration.id } +
-                report.notices.map { it.declaration.id } + report.coverage.orEmpty().keys
-            val candidates = report.candidates.groupBy { it.declaration.id }
-            val notices = report.notices.groupBy { it.declaration.id }
-            ids.map { id ->
-                val candidate = candidates[id]?.firstOrNull()
-                val notice = notices[id]?.firstOrNull()
-                val declaration = declarations[id] ?: candidate?.declaration ?: notice?.declaration
-                val coverage = report.coverage?.get(id)
-                val outcome = when {
-                    coverage?.outcome == DeclarationOutcome.FAILED -> DependencyReviewOutcome.FAILED
-                    notice != null || coverage?.outcome == DeclarationOutcome.MANUAL_REVIEW -> DependencyReviewOutcome.REVIEW
-                    candidate != null -> DependencyReviewOutcome.UPDATE
-                    coverage != null -> DependencyReviewOutcome.fromCoverage(coverage.outcome)
-                    report.failure != null -> DependencyReviewOutcome.FAILED
-                    observation.checking -> DependencyReviewOutcome.PENDING
-                    else -> DependencyReviewOutcome.UNREPORTED
-                }
-                DependencyReviewRow(snapshot.context.adapterId, snapshot.context.root, declaration?.sourceId ?: id,
-                    declaration?.let { artifactLabel(it.artifact) }.orEmpty(), declaration?.selector.orEmpty(),
-                    candidate?.version, candidate?.kind, outcome,
-                    DiagnosticSanitizer.sanitize(listOfNotNull(notice?.message, coverage?.reason,
-                        snapshot.skippedDeclarations[id], report.failure).distinct().joinToString(" ")),
-                    observation.mode, observation.checking, report.failure != null,
-                    observation.checkedAtNanos.takeIf { outcome.hasObservationTime },
-                    observation.expiresAtNanos.takeIf { outcome.hasObservationTime },
-                    DependencyReviewOrigin(snapshot.context, id, snapshot.sourceFile, snapshot.coverageDescription))
-            } + if (ids.isEmpty()) listOf(DependencyReviewRow(snapshot.context.adapterId, snapshot.context.root,
-                DeclarationId(snapshot.sourceFile, ""), "", "", null, null,
-                if (report.failure != null) DependencyReviewOutcome.FAILED else DependencyReviewOutcome.NO_DECLARATIONS,
-                DiagnosticSanitizer.sanitize(report.failure ?: snapshot.coverageDescription.orEmpty()),
-                observation.mode, observation.checking, report.failure != null,
-                observation.checkedAtNanos, observation.expiresAtNanos,
-                DependencyReviewOrigin(snapshot.context, DeclarationId(snapshot.sourceFile, ""), snapshot.sourceFile,
-                    snapshot.coverageDescription))) else emptyList()
+    fun from(observations: List<VersionResultCache.Observation>, ignoredVersions: String = ""): List<DependencyReviewRow> {
+        val policies = mutableMapOf<String, VersionPresentationPolicy>()
+        return observations.flatMap { observation ->
+            val adapter = observation.snapshot.context.adapterId
+            val policy = policies.getOrPut(adapter) { VersionPresentationPolicy(adapter, ignoredVersions) }
+            fromObservation(observation, policy.filter(observation.report))
         }.sortedWith(compareBy({ it.root }, { it.source.file }, { it.adapter }, { it.artifact }, { it.mode.ordinal }))
+    }
+
+    private fun fromObservation(observation: VersionResultCache.Observation, report: UpdateReport): List<DependencyReviewRow> {
+        val snapshot = observation.snapshot
+        val declarations = snapshot.declarations.associateBy { it.id }
+        val candidates = report.candidates.associateByFirst { it.declaration.id }
+        val notices = report.notices.associateByFirst { it.declaration.id }
+        val ids = snapshot.declarationIds() + candidates.keys + notices.keys + report.coverage.orEmpty().keys
+        if (ids.isEmpty()) return listOf(emptyRow(observation, report))
+
+        return ids.map { id ->
+            val candidate = candidates[id]
+            val notice = notices[id]
+            val declaration = declarations[id] ?: candidate?.declaration ?: notice?.declaration
+            val coverage = report.coverage?.get(id)
+            val outcome = outcome(coverage, notice, candidate, report.failure, observation.checking)
+            DependencyReviewRow(
+                adapter = snapshot.context.adapterId,
+                root = snapshot.context.root,
+                source = declaration?.sourceId ?: id,
+                artifact = declaration?.let { artifactLabel(it.artifact) }.orEmpty(),
+                current = declaration?.selector.orEmpty(),
+                available = candidate?.version,
+                kind = candidate?.kind,
+                outcome = outcome,
+                detail = DiagnosticSanitizer.sanitize(listOfNotNull(notice?.message, coverage?.reason,
+                    snapshot.skippedDeclarations[id], report.failure).distinct().joinToString(" ")),
+                mode = observation.mode,
+                checking = observation.checking,
+                checkFailed = report.failure != null,
+                checkedAtNanos = observation.checkedAtNanos.takeIf { outcome.hasObservationTime },
+                expiresAtNanos = observation.expiresAtNanos.takeIf { outcome.hasObservationTime },
+                origin = DependencyReviewOrigin(snapshot.context, id, snapshot.sourceFile, snapshot.coverageDescription),
+            )
+        }
+    }
+
+    private fun outcome(coverage: DeclarationCoverage?, notice: UpdateNotice?, candidate: UpdateCandidate?,
+                        failure: String?, checking: Boolean): DependencyReviewOutcome = when {
+        coverage?.outcome == DeclarationOutcome.FAILED -> DependencyReviewOutcome.FAILED
+        notice != null || coverage?.outcome == DeclarationOutcome.MANUAL_REVIEW -> DependencyReviewOutcome.REVIEW
+        candidate != null -> DependencyReviewOutcome.UPDATE
+        coverage != null -> DependencyReviewOutcome.fromCoverage(coverage.outcome)
+        failure != null -> DependencyReviewOutcome.FAILED
+        checking -> DependencyReviewOutcome.PENDING
+        else -> DependencyReviewOutcome.UNREPORTED
+    }
+
+    private fun emptyRow(observation: VersionResultCache.Observation, report: UpdateReport): DependencyReviewRow {
+        val snapshot = observation.snapshot
+        val source = DeclarationId(snapshot.sourceFile, "")
+        return DependencyReviewRow(
+            adapter = snapshot.context.adapterId,
+            root = snapshot.context.root,
+            source = source,
+            artifact = "",
+            current = "",
+            available = null,
+            kind = null,
+            outcome = if (report.failure != null) DependencyReviewOutcome.FAILED else DependencyReviewOutcome.NO_DECLARATIONS,
+            detail = DiagnosticSanitizer.sanitize(report.failure ?: snapshot.coverageDescription.orEmpty()),
+            mode = observation.mode,
+            checking = observation.checking,
+            checkFailed = report.failure != null,
+            checkedAtNanos = observation.checkedAtNanos,
+            expiresAtNanos = observation.expiresAtNanos,
+            origin = DependencyReviewOrigin(snapshot.context, source, snapshot.sourceFile, snapshot.coverageDescription),
+        )
+    }
 
     fun filter(rows: List<DependencyReviewRow>, filter: DependencyReviewFilter,
                kind: VersionChangeKind? = null): List<DependencyReviewRow> = rows.filter { row ->
-        (kind == null || row.kind == kind) && when (filter) {
-            DependencyReviewFilter.ALL -> true
-            DependencyReviewFilter.UPDATES -> row.outcome == DependencyReviewOutcome.UPDATE
-            DependencyReviewFilter.REVIEW -> row.outcome in setOf(DependencyReviewOutcome.REVIEW, DependencyReviewOutcome.SKIPPED, DependencyReviewOutcome.UNREPORTED)
-            DependencyReviewFilter.FAILED -> row.outcome == DependencyReviewOutcome.FAILED || row.checkFailed
-        }
+        (kind == null || row.kind == kind) && filter.matches(row)
+    }
+
+    /** Keep the first result for each declaration, in report order. */
+    private fun <T, K> List<T>.associateByFirst(key: (T) -> K): Map<K, T> = buildMap {
+        for (value in this@associateByFirst) putIfAbsent(key(value), value)
     }
 }
