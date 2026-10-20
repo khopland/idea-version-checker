@@ -4,6 +4,7 @@ import com.intellij.openapi.util.TextRange
 import io.github.khopland.versionchecker.core.*
 import org.tomlj.Toml
 import org.tomlj.TomlArray
+import org.tomlj.TomlParseOptions
 import org.tomlj.TomlPosition
 import org.tomlj.TomlTable
 import java.math.BigInteger
@@ -207,7 +208,7 @@ internal object GradleDeclarations {
     }
 
     private fun catalog(file: String, text: String): List<GradleDeclaration> {
-        val parsed = Toml.parse(text)
+        val parsed = Toml.parse(text, TomlParseOptions.sourceless())
         if (parsed.hasErrors()) {
             // A syntax failure invalidates the whole catalog, including ownership of
             // apparently valid siblings. Keep one file-level coverage item rather
