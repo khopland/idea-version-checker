@@ -5,6 +5,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.*
 import io.github.khopland.versionchecker.VersionCheckerSettings
 import io.github.khopland.versionchecker.core.*
@@ -29,9 +30,11 @@ internal class GradleBuildInputs(private val externalInputBytes: (Path) -> ByteA
     }
 
     fun supportsFile(project: Project, file: VirtualFile): Boolean {
-        if (file.isDirectory || !(file.name in setOf("build.gradle", "build.gradle.kts") ||
-                file.name == "libs.versions.toml" && file.parent.name == "gradle")) return false
+        if (file.isDirectory || !(file.name in setOf("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts") ||
+                file.name.endsWith(".toml"))) return false
         val root = owner(project, file) ?: return false
+        if (file.name in setOf("settings.gradle", "settings.gradle.kts"))
+            return catalogReviews(project, root).any { it.declaration.id.file == file.path }
         val directories = listOf(root) + GradleSettings.getInstance(project).getLinkedProjectSettings(root)?.modules.orEmpty()
         val boundary = directories.mapNotNull { find(project, it) }
             .filter { VfsUtilCore.isAncestor(it, file, false) }.maxByOrNull { it.path.length } ?: return false
@@ -39,12 +42,91 @@ internal class GradleBuildInputs(private val externalInputBytes: (Path) -> ByteA
     }
     private val excluded = GradleInputInventory.excludedDirectories
     fun roots(project: Project) = GradleSettings.getInstance(project).linkedProjectsSettings.mapNotNull { it.externalProjectPath }.sortedByDescending { it.length }
-    fun owner(project: Project, file: VirtualFile) = roots(project).firstOrNull { root ->
+    fun owner(project: Project, file: VirtualFile): String? {
         if (file.name.endsWith(".toml")) {
-            find(project, root)?.findFileByRelativePath("gradle/libs.versions.toml") == file
-        } else {
+            // One physical file may have several catalog names, but cannot be edited on
+            // behalf of several independently linked builds with unchecked consumers.
+            val owners = roots(project).filter { root -> catalogs(project, root).files.any { sameFile(it, file) } }
+            return owners.distinctBy { find(project, it)?.canonicalPath ?: it }.singleOrNull()
+        }
+        return roots(project).firstOrNull { root ->
             val directories = listOf(root) + GradleSettings.getInstance(project).getLinkedProjectSettings(root)?.modules.orEmpty()
             directories.any { directory -> find(project, directory)?.let { VfsUtilCore.isAncestor(it, file, false) } == true }
+        }
+    }
+    private fun sameFile(first: VirtualFile, second: VirtualFile): Boolean =
+        (first.canonicalPath ?: first.path) == (second.canonicalPath ?: second.path)
+
+    private data class Catalogs(val files: List<VirtualFile>, val reviews: List<GradleDeclaration>)
+
+    private fun catalogs(project: Project, root: String): Catalogs {
+        val directory = find(project, root) ?: return Catalogs(emptyList(), emptyList())
+        val files = mutableListOf<VirtualFile>()
+        directory.findFileByRelativePath("gradle/libs.versions.toml")?.takeUnless { it.isDirectory }?.let(files::add)
+        val reviews = mutableListOf<GradleDeclaration>()
+        val scripts = listOfNotNull(directory.findChild("settings.gradle"), directory.findChild("settings.gradle.kts"))
+        fun review(script: VirtualFile, offset: Int, message: String) {
+            reviews += GradleDeclaration(VersionDeclaration(DeclarationId(script.path, "catalog-registration@$offset"),
+                ArtifactId("catalog", "registration"), "", ""), TextRange(offset, offset + 1), "$message; manual review required")
+        }
+        for (script in scripts) {
+            val text = scriptText(script)
+            val parsed = GradleCatalogs.parse(text, script.name.endsWith(".kts"))
+            reviews += GradleDeclarations.parse(script.path, text)
+            if (scripts.size > 1 && parsed.registrations.isNotEmpty()) {
+                review(script, parsed.registrations.first().offset, "Multiple settings scripts prevent proving local catalog ownership")
+                continue
+            }
+            for (registration in parsed.registrations) {
+                val relative = runCatching { Path.of(registration.path) }.getOrNull()
+                val path = relative?.takeUnless { it.isAbsolute }?.let { Path.of(root).resolve(it).normalize() }
+                val file = path?.let { find(project, it.toString()) }
+                val physicalRoot = Path.of(directory.canonicalPath ?: directory.path).normalize()
+                val physical = file?.let { Path.of(it.canonicalPath ?: it.path).normalize() }
+                if (path == null || !path.startsWith(Path.of(root).normalize()) || !registration.path.endsWith(".toml") ||
+                    file == null || file.isDirectory || physical == null || !physical.startsWith(physicalRoot) ||
+                    physicalRoot.relativize(physical).any { it.toString() in excluded } ||
+                    Path.of(root).normalize().relativize(path).any { it.toString() in excluded }) {
+                    review(script, registration.offset, "Catalog '${registration.name}' needs an available local TOML file inside the linked build")
+                } else files += file
+            }
+        }
+        return Catalogs(files.distinctBy { it.canonicalPath ?: it.path }, reviews)
+    }
+
+    private fun catalogReviews(project: Project, root: String): List<GradleDeclaration> {
+        val state = catalogs(project, root)
+        val others = roots(project).filter { (find(project, it)?.canonicalPath ?: it) != (find(project, root)?.canonicalPath ?: root) }
+        if (others.none { other -> catalogs(project, other).files.any { file -> state.files.any { sameFile(it, file) } } })
+            return state.reviews
+        val directory = find(project, root) ?: return state.reviews
+        val script = directory.findChild("settings.gradle") ?: directory.findChild("settings.gradle.kts") ?: return state.reviews
+        return state.reviews + GradleDeclaration(VersionDeclaration(DeclarationId(script.path, "catalog-shared-build"),
+            ArtifactId("catalog", "shared-build"), "", ""), TextRange(0, minOf(1, scriptText(script).length)),
+            "A catalog file is shared by independently linked Gradle builds; its consumers need manual review")
+    }
+
+    fun catalogFiles(project: Project, root: String): Set<VirtualFile> = catalogs(project, root).files.toSet()
+
+    fun declarations(project: Project, file: VirtualFile, text: String): List<GradleDeclaration> {
+        if (file.name in setOf("settings.gradle", "settings.gradle.kts"))
+            return owner(project, file)?.let { root -> catalogReviews(project, root).filter { it.declaration.id.file == file.path } }.orEmpty()
+        val parsed = GradleDeclarations.parse(file.path, text)
+        if (!file.name.endsWith(".toml")) return parsed
+        val root = owner(project, file) ?: return parsed
+        // Gradle's resolved dependencies retain coordinates and baseline, not catalog alias
+        // provenance. Do not borrow one consumed alias's authority for a second TOML owner.
+        val owners = catalogs(project, root).files.flatMap { catalog ->
+            val declarations = if (sameFile(catalog, file)) parsed else GradleDeclarations.parse(catalog.path, scriptText(catalog))
+            declarations.filter { GradleVersions.fixed(it.declaration.selector) }.map {
+                (it.declaration.artifact to it.declaration.selector) to (catalog.canonicalPath ?: catalog.path)
+            }
+        }.groupBy({ it.first }, { it.second })
+        val ambiguous = owners.filterValues { it.distinct().size > 1 }.keys
+        return parsed.map { declaration ->
+            if (declaration.reason == null && (declaration.declaration.artifact to declaration.declaration.selector) in ambiguous)
+                declaration.copy(declaration = declaration.declaration.copy(baseline = ""), reason = GradleDeclarations.CATALOG_OWNER_REASON)
+            else declaration
         }
     }
     private val includedBuild = Regex("""\bincludeBuild\s*(?:\(\s*)?(["'])([^"'\r\n$]+)\1(?=[ \t]*(?:[){;}]|\r?$))""", RegexOption.MULTILINE)
@@ -221,6 +303,7 @@ internal class GradleBuildInputs(private val externalInputBytes: (Path) -> ByteA
     }
     /** Arbitrary executable Gradle can load inputs we cannot infer statically. */
     fun coverageLimitation(project: Project, root: String): String? {
+        catalogReviews(project, root).firstOrNull()?.let { return it.reason }
         for (file in files(project, root).filter { it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") }) {
             val text = scriptText(file).lineSequence().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
             if (includedBuild.findAll(text).any { match ->

@@ -8,6 +8,7 @@ import org.jetbrains.plugins.gradle.util.GradleConstants
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.*
 import com.intellij.psi.PsiManager
+import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.*
 import io.github.khopland.versionchecker.core.*
 import org.jetbrains.plugins.gradle.settings.GradleSettings
@@ -54,6 +55,9 @@ internal class GradleBuildSystemAdapter(
     override fun inspectionSnapshot(project: Project, file: VirtualFile): BuildSnapshot? =
         snapshot(project, file, mutableMapOf(), mutableMapOf(), allowUnsaved = true)
 
+    internal fun declarations(project: Project, file: PsiFile): List<GradleDeclaration> =
+        inputs.declarations(project, file.virtualFile, file.text)
+
     override suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? =
         inputs.capture(project) { external ->
             val home = inputs.externalHome(project)
@@ -74,9 +78,9 @@ internal class GradleBuildSystemAdapter(
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
         val fingerprint = fingerprints.getOrPut(root) { inputs.fingerprint(project, root, externalHashes) }
         val inspectionFingerprint = inspectionFingerprints.getOrPut(root) {
-            fingerprint.copy(files = fingerprint.files + project.service<GradleProjectCache>().inspectionHashes(root, inputs.files(project, root)))
+            fingerprint.copy(files = fingerprint.files + project.service<GradleProjectCache>().inspectionHashes(root, inputs.files(project, root), inputs.catalogFiles(project, root)))
         }
-        val parsed = GradleDeclarations.parse(file.path, psi.text)
+        val parsed = inputs.declarations(project, file, psi.text)
         return BuildSnapshot(BuildContextId(id, root, file.path), file.path, fingerprint,
             parsed.map { it.declaration }, inspectionFingerprint, skippedDeclarations = parsed.filter {
                 it.declaration.baseline.isEmpty()
@@ -163,7 +167,7 @@ internal class GradleBuildSystemAdapter(
                 continue
             }
             val psi = inputs.find(project, snapshot.sourceFile)?.let { PsiManager.getInstance(project).findFile(it) } ?: error("Gradle build file is unavailable")
-            for (prepared in GradlePreparedUpdate.prepare(psi, report)) {
+            for (prepared in GradlePreparedUpdate.prepare(psi, report, inputs.declarations(project, psi.virtualFile, psi.text))) {
                 prepared.edit?.let { edits += it; editReviews[it] = prepared.consumers.map { consumer -> consumer.declaration }; followUp += prepared.followUp }
                 if (prepared.edit == null && prepared.reportSkipped) {
                     skipped += "${prepared.location}: ${prepared.blockingReasons.first()}"
