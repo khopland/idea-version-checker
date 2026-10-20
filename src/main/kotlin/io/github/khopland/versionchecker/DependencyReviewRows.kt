@@ -34,12 +34,12 @@ internal enum class DependencyReviewFilter {
 }
 
 internal object DependencyReviewRows {
-    fun from(observations: List<VersionResultCache.Observation>, ignoredVersions: String = ""): List<DependencyReviewRow> {
+    fun from(observations: List<VersionResultCache.Observation>, ignoredVersions: String = "", policy: ProjectPolicySnapshot? = null): List<DependencyReviewRow> {
         val policies = mutableMapOf<String, VersionPresentationPolicy>()
         return observations.flatMap { observation ->
             val adapter = observation.snapshot.context.adapterId
-            val policy = policies.getOrPut(adapter) { VersionPresentationPolicy(adapter, ignoredVersions) }
-            fromObservation(observation, policy.filter(observation.report))
+            val presentation = policies.getOrPut(adapter) { VersionPresentationPolicy(adapter, ignoredVersions, policy) }
+            fromObservation(observation, presentation.filter(observation.report))
         }.sortedWith(compareBy({ it.root }, { it.source.file }, { it.adapter }, { it.artifact }, { it.mode.ordinal }))
     }
 

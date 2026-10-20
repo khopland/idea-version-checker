@@ -41,9 +41,14 @@ internal class MavenDependencyAnalysis(
     private val relocations: Map<DependencyVersion, String> = emptyMap(),
     private val inspection: MavenInspectionResult? = null,
 ) {
-    private val deprecated = deprecatedDependencies(options.deprecatedDependencies)
-    private val ignoredPolicy = options.ignoredVersions
-    private val ignored = ignoredVersions(ignoredPolicy)
+    private val policy = projectPolicy(model.manager.project).copy(ignoredText = options.ignoredVersions, deprecatedText = options.deprecatedDependencies)
+    private val deprecated = policy.deprecations("maven")
+    private val ignored = ignoredVersions(options.ignoredVersions)
+    private fun isRestricted(coordinate: DependencyVersion, version: String): Boolean {
+        val artifact = ArtifactId(coordinate.groupId, coordinate.artifactId)
+        return IgnoredVersion("maven", artifact, version) in ignored ||
+            policy.restriction("maven", artifact, version, MavenVersionSemantics.between(coordinate.version, version)) != null
+    }
     private val versionProperties by lazy {
         MavenVersionProperties(model, mavenProject.activatedProfilesIds.enabledProfiles, ::coordinate, ::managingVersion)
     }
@@ -97,8 +102,7 @@ internal class MavenDependencyAnalysis(
             tag.findFirstSubTag("version")?.let { MavenPropertyEligibility.Consumer(it, context) }
         })
         MavenPreparedUpdate.prepare(target, consumers.map { (_, _, coordinate) ->
-            val latest = updates[coordinate]?.takeUnless { IgnoredVersion("maven",
-                ArtifactId(coordinate.groupId, coordinate.artifactId), it) in ignored }
+            val latest = updates[coordinate]?.takeUnless { isRestricted(coordinate, it) }
             MavenPreparedUpdate.Consumer(coordinate, latest,
                 relocations[coordinate] ?: deprecated["${coordinate.groupId}:${coordinate.artifactId}"])
         }, blockers, verificationConsumers = consumers.map { (_, context, coordinate) ->
@@ -209,8 +213,7 @@ internal class MavenDependencyAnalysis(
 
     fun problem(tag: XmlTag): DependencyProblem? {
         val coordinate = coordinate(tag) ?: return null
-        val latest = updates[coordinate]?.takeUnless { IgnoredVersion("maven",
-            ArtifactId(coordinate.groupId, coordinate.artifactId), it) in ignored }
+        val latest = updates[coordinate]?.takeUnless { isRestricted(coordinate, it) }
         val id = "${coordinate.groupId}:${coordinate.artifactId}"
         val label = when (coordinate.artifactKind) {
             MavenArtifactKind.PLUGIN -> "Maven plugin"
@@ -243,7 +246,7 @@ internal class MavenDependencyAnalysis(
         val authorized = contexts.isNotEmpty() && contexts.all { (_, context, coordinate) ->
             val analysis = selected[context] ?: return@all false
             val latest = analysis.updates[coordinate] ?: return@all false
-            latest == replacement && IgnoredVersion("maven", ArtifactId(coordinate.groupId, coordinate.artifactId), latest) !in analysis.ignored &&
+            latest == replacement && !analysis.isRestricted(coordinate, latest) &&
                 coordinate !in analysis.relocations && "${coordinate.groupId}:${coordinate.artifactId}" !in analysis.deprecated
         }
         return if (authorized) emptyList() else listOf("${target.localName}: consumers outside the selected results need review")
@@ -271,7 +274,7 @@ internal class MavenDependencyAnalysis(
         val resultIsCurrent = resultGuard(consumers.map { it.coordinate }.toSet())
         return arrayOf(UpdateDependencyVersionFix(property, latest,
             isCurrent = { resultIsCurrent() && property.project.service<VersionCheckerSettings>().state.enabled &&
-                property.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy })
+                policy.isCurrent(property.project) })
             .withPreparedUpdate(prepared)
             .withInputValidation { quickFixAdapter.prepareEditValidation(property.project, listOf(snapshot)) }
             .withActionName { scopedAction(property, latest) })
@@ -329,7 +332,7 @@ internal class MavenDependencyAnalysis(
         val prepared = MavenPreparedUpdate.prepare(target, checked.map { consumer ->
             val coordinate = consumer.coordinate
             MavenPreparedUpdate.Consumer(coordinate, updates[coordinate]?.takeUnless {
-                IgnoredVersion("maven", ArtifactId(coordinate.groupId, coordinate.artifactId), it) in ignored
+                isRestricted(coordinate, it)
             }, relocations[coordinate] ?: deprecated["${coordinate.groupId}:${coordinate.artifactId}"])
         }, blockers)
         if (prepared.edit == null || prepared.replacement != latest) return null
@@ -345,7 +348,7 @@ internal class MavenDependencyAnalysis(
             verificationCoordinates = checked.map { it.coordinate }.distinct(),
             isCurrent = { resultIsCurrent() && provenance.all { (pointer, text) -> pointer.element?.text == text } &&
                 root.project.service<VersionCheckerSettings>().state.enabled &&
-                root.project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy })
+                policy.isCurrent(root.project) })
             .withInputValidation {
                 val standard = quickFixAdapter.prepareEditValidation(root.project, listOf(snapshot))
                 val sources = io.github.khopland.versionchecker.core.prepareSavedBuildInputValidation(root.project, provenancePaths)
@@ -377,7 +380,7 @@ internal class MavenDependencyAnalysis(
         val snapshot = quickFixSnapshot ?: return emptyArray()
         fun guard(resultIsCurrent: () -> Boolean): () -> Boolean = {
             resultIsCurrent() && project.service<VersionCheckerSettings>().state.enabled &&
-                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy
+                policy.isCurrent(project)
         }
         problem.target?.let {
             val shared = it.parentTag?.localName == "properties" || it.parentTag?.parentTag?.parentTag?.localName == "dependencyManagement"

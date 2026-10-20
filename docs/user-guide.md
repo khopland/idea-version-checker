@@ -52,6 +52,42 @@ old.group:library = Use new.group:library instead
 
 These notices appear even without a newer version. The checker also reads [Maven relocation declarations](https://maven.apache.org/guides/mini/guide-relocation.html) from dependency POMs already downloaded into the project's Maven local repository. Reload Maven to download missing dependency POMs, then refresh the checks. No deprecation is inferred from a library's age or a major-version update. Deprecated/relocated coordinates are listed for manual review during bulk updates, since migration may require coordinate and API changes.
 
+## Shared project rules
+
+Commit an optional `.version-checker.json` in the IDE project's root directory to share dependency rules:
+
+```json
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "ecosystem": "maven",
+      "package": "org.example:library",
+      "ignoredVersions": [{ "version": "2.1.0", "reason": "Await compatibility testing", "until": "2026-12-01T00:00:00Z" }],
+      "allowedUpdates": ["patch", "minor"]
+    },
+    {
+      "ecosystem": "npm",
+      "package": "@example/old-package",
+      "deprecated": "Use @example/replacement instead"
+    },
+    {
+      "ecosystem": "gradle",
+      "package": "org.example:legacy",
+      "deprecated": "Use org.example:replacement instead"
+    }
+  ]
+}
+```
+
+Each rule matches one exact ecosystem and package: Maven/Gradle use `group:artifact`; npm uses the registry package name, including an alias's target package. Wildcards, duplicate rules, duplicate JSON fields and unknown fields are rejected. `schemaVersion` must be the integer `1` and `rules` must be an array. No file means the existing workspace settings continue to apply.
+
+`ignoredVersions` contains exact published versions and an optional non-empty `reason`, shown with shared policy provenance. An optional `until` is an ISO-8601 timestamp with a UTC offset; the ignore ends at that instant. Omit `until` for an indefinite ignore. `deprecated` supplies a non-empty reason and requires manual replacement review. `allowedUpdates` accepts any subset of `patch`, `minor`, `major`, `other`; an empty array blocks every automatic version update for that package. Unknown/nonstandard version changes require `other`. The checker filters the versions available in the selected check mode; it does not query additional versions to find an allowed replacement when a suggested release is blocked.
+
+Workspace ignores and deprecations add restrictions. Removing a local rule cannot override a shared rule, and a shared deprecation reason takes precedence over a local reason for the same package. Warnings and dependency review details identify shared rule provenance. Presentation severity, enable/disable, performance and scheduling preferences stay local. **Ignore published version** also stays local; settings never create, migrate or rewrite the shared file.
+
+Unsaved shared-file edits take effect in the IDE and retire prepared updates. Changes to shared rules invalidate cached checks, and applying an update captures fresh physical policy input, including a file created or deleted outside the IDE. Policies with malformed JSON or unsupported schema/fields block edits; Settings → Tools → Version Checker and the version status/preview show the diagnostic. Fix the file and refresh checks to continue. A prepared selection also expires when one of its ignore timestamps passes. Parsed policy is reused by file/document stamps; fresh pre-write validation still rejects external writes with unchanged timestamps. Policies are limited to 1 MiB.
+
 ## IDEA highlighting and InlineProblems
 
 Messages use IDEA's standard inspection highlighting, hover tooltips, Problems view, and Alt+Enter quick fixes. Configure their severity under **Settings → Tools → Version Checker**. You can disable automatic checking altogether there, or disable the inspection under **Settings → Editor → Inspections → Maven**.

@@ -153,9 +153,10 @@ internal class MavenBuildSystemAdapter(
         }
 
     override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs {
+        val policy = prepareProjectPolicyValidation(project, projectPolicy(project))
         val saved = prepareSavedBuildInputValidation(project, snapshots)
         return MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
-            CapturedEditInputs { saved.isCurrent() && !project.isDisposed && inputs.currentView()?.let { areCurrent(it, snapshots) } == true }
+            CapturedEditInputs { policy.isCurrent() && saved.isCurrent() && !project.isDisposed && inputs.currentView()?.let { areCurrent(it, snapshots) } == true }
         }
     }
 

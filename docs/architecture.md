@@ -48,9 +48,18 @@ flowchart TD
 3. Each adapter uses `withScan` to control native resource lifetime. The preparer can reuse current successful reports.
 4. Each report must remain the exact cached result that the preparer observed.
 5. The adapters prepare edits and capture their input validation requirements.
-6. The combined plan keeps authorization checks for the results and ignored-version policy. Selecting fewer edits keeps these checks.
+6. The combined plan keeps authorization checks for the results and complete shared/workspace dependency policy. Selecting fewer edits keeps these checks.
 7. Before application, the plan checks authorization and captures external inputs without write access.
 8. Inside the write command, the plan checks authorization and inputs again. Final validation and declaration writes are atomic.
+
+`SharedProjectPolicy` parses strict schema-versioned project rules and composes them with workspace restrictions.
+`VersionPresentationPolicy` applies one predicate to hints, status, review rows and previews without modifying raw reports.
+Providers use effective deprecations and include shared policy input in their fingerprints.
+Each provider captures fresh physical policy input before write access, including absent, created or deleted files.
+The final callback reads IDE state only.
+Shared-file VFS/document changes retire observations and inspection inputs.
+Parsed content and snapshots are cached by saved/document stamps and local text.
+Expiry boundaries retire snapshots without reparsing, keeping repeated status and atomic guard reads cheap.
 
 `VersionPreviewState` tracks ready, checking, failed, applying, accepted, and closed reviews.
 The dialog checks each selection against the current generation, mode, and scope.

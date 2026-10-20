@@ -30,7 +30,7 @@ internal class GradleBuildSystemAdapter(
     override suspend fun <T> withScan(project: Project, snapshots: List<BuildSnapshot>, mode: UpdateMode,
                                     action: suspend () -> T): T {
         if (!java.lang.Boolean.getBoolean("versionchecker.gradleScanAggregation")) return action()
-        val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }
+        val policy = readAction { projectDeprecations(project, "gradle") }
         val eligible = snapshots.map { snapshot ->
             snapshot.copy(declarations = snapshot.declarations.filter { "${it.artifact.namespace}:${it.artifact.name}" !in policy })
         }
@@ -120,7 +120,7 @@ internal class GradleBuildSystemAdapter(
         }, coverage = snapshot.declarations.associate {
             it.id to DeclarationCoverage(DeclarationOutcome.MANUAL_REVIEW, limitation)
         } + snapshot.skippedCoverage())
-        val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }
+        val policy = readAction { projectDeprecations(project, "gradle") }
         val checked = GradleVersionLookup.check(project, snapshot.copy(declarations = snapshot.declarations.filter { "${it.artifact.namespace}:${it.artifact.name}" !in policy }), mode)
         val results = checked.results
         return UpdateReport(snapshot.declarations.mapNotNull { declaration ->

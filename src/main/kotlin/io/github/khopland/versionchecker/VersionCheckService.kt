@@ -5,6 +5,13 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.event.DocumentEvent
+import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
@@ -32,10 +39,30 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     @Volatile private var disposed = false
 
     init {
+        val policyPath = project.basePath?.let { "$it/$PROJECT_POLICY_FILE" }
+        project.messageBus.connect(this).subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
+            override fun after(events: List<VFileEvent>) {
+                if (events.any { it.path == policyPath }) sharedPolicyChanged()
+            }
+        })
+        EditorFactory.getInstance().eventMulticaster.addDocumentListener(object : DocumentListener {
+            override fun documentChanged(event: DocumentEvent) {
+                if (FileDocumentManager.getInstance().getFile(event.document)?.path == policyPath) sharedPolicyChanged()
+            }
+        }, this)
         project.messageBus.connect(this).subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
             override fun selectionChanged(event: FileEditorManagerEvent) { captureSelection() }
         })
         scope.launch(Dispatchers.EDT) { if (!disposed && !project.isDisposed) captureSelection() }
+    }
+
+    private fun sharedPolicyChanged() {
+        if (disposed || project.isDisposed) return
+        val paths = executor.observations().map { it.snapshot.sourceFile }.toSet()
+        inspectionInputs.invalidate()
+        executor.pause()
+        paths.forEach { project.service<FileProblemRefresh>().request(it) }
+        statusChanged()
     }
 
     private fun captureSelection() {

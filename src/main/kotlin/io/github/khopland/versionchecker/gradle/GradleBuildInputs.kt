@@ -181,9 +181,11 @@ internal class GradleBuildInputs(private val externalInputBytes: (Path) -> ByteA
         }
         val sdk = ProjectRootManager.getInstance(project).projectSdk
         val gradleHome = linked?.let { gradleHomeGetter.invoke(it)?.toString() }
-        return BuildFingerprint(hashes, listOf(root, linked?.modules?.sorted(), linked?.gradleJvm, gradleHome, linked?.distributionType, sdk?.name, sdk?.homePath, settings.serviceDirectoryPath, settings.gradleVmOptions, settings.isOfflineWork, project.service<VersionCheckerSettings>().state.deprecatedDependencies, System.getenv().toSortedMap()).joinToString("|").let { sha256(it.toByteArray()) })
+        return BuildFingerprint(hashes, listOf(root, linked?.modules?.sorted(), linked?.gradleJvm, gradleHome, linked?.distributionType, sdk?.name, sdk?.homePath, settings.serviceDirectoryPath, settings.gradleVmOptions, settings.isOfflineWork, io.github.khopland.versionchecker.projectPolicy(project).deprecationFingerprint, System.getenv().toSortedMap()).joinToString("|").let { sha256(it.toByteArray()) })
     }
     suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs {
+        val policy = io.github.khopland.versionchecker.prepareProjectPolicyValidation(project,
+            io.github.khopland.versionchecker.projectPolicy(project))
         // Native Gradle reads physical files. A same-stamp external write can leave
         // both VFS and PSI stale, so an edit must compare fresh bytes to their baseline.
         val captured = readAction {
@@ -200,7 +202,7 @@ internal class GradleBuildInputs(private val externalInputBytes: (Path) -> ByteA
         }
         return capture(project) { external ->
             val home = externalHome(project)
-            val guard = CapturedEditInputs { diskCurrent && !project.isDisposed && externalHome(project) == home &&
+            val guard = CapturedEditInputs { policy.isCurrent() && diskCurrent && !project.isDisposed && externalHome(project) == home &&
                 snapshots.all { coverageLimitation(project, it.context.root) == null } && areCurrent(project, snapshots, external) }
             guard
         }

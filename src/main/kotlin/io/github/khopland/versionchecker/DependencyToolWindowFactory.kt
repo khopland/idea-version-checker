@@ -221,8 +221,8 @@ internal class DependencyToolWindowPanel(private val project: Project,
         scope.launch {
             val captured = revision.get()
             try {
-                val updated = DependencyReviewRows.from(observations(),
-                    project.service<VersionCheckerSettings>().state.ignoredVersions)
+                val policy = projectPolicy(project)
+                val updated = DependencyReviewRows.from(observations(), policy.ignoredText, policy)
                 withContext(Dispatchers.EDT) {
                     if (!disposed && !project.isDisposed) { presentRows(updated) }
                 }

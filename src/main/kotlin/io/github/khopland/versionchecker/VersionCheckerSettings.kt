@@ -95,6 +95,11 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
             .addComponent(JBLabel("One per line: maven org.example:library = 1.2.3 or npm @scope/package = 1.2.3"))
             .addComponent(JBLabel("Use gradle instead of maven for Gradle rules. Remove a line to restore a warning."))
         form.addComponent(collapsedSection("Dependency rules", rules.panel))
+        form.addComponent(JBLabel("Shared rules: $PROJECT_POLICY_FILE in the project root; workspace rules add restrictions."))
+        form.addComponent(JBLabel("Shared policy is edited in its file. These settings never create or change it."))
+        projectPolicy(project).shared.diagnostic?.let { diagnostic ->
+            form.addComponent(JBLabel(diagnostic).apply { accessibleContext.accessibleName = "Shared policy error" })
+        }
 
         platformFirst = JBCheckBox("Check Maven parents and Spring Boot BOMs first")
         platformFirst!!.toolTipText = "Show platform results before checking the remaining dependencies."

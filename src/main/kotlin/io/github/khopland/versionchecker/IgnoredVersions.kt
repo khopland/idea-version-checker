@@ -29,11 +29,13 @@ internal fun ignoredVersions(text: String): Set<IgnoredVersion> = text.lineSeque
 }.toSet()
 
 /** The same predicate serves hints, previews and status, without modifying raw cached reports. */
-internal class VersionPresentationPolicy(private val adapter: String, text: String) {
+internal class VersionPresentationPolicy(private val adapter: String, text: String,
+    private val sharedPolicy: ProjectPolicySnapshot? = null) {
     private val ignored = ignoredVersions(text)
-    val candidateFilter: ((UpdateCandidate) -> Boolean)? get() = if (ignored.isEmpty()) null else ::includes
+    val candidateFilter: ((UpdateCandidate) -> Boolean)? get() = if (ignored.isEmpty() && sharedPolicy?.shared?.let { it.rules.isNotEmpty() || it.diagnostic != null } != true) null else ::includes
 
     fun includes(candidate: UpdateCandidate): Boolean {
+        if (sharedPolicy?.restriction(adapter, candidate) != null) return false
         if (ignored.isEmpty()) return true
         val artifact = candidate.declaration.artifact
         // Maven snapshots store the coordinate in the name; settings use group/artifact identity.
@@ -43,26 +45,38 @@ internal class VersionPresentationPolicy(private val adapter: String, text: Stri
     }
 
     fun filter(report: UpdateReport): UpdateReport {
-        if (ignored.isEmpty()) return report
+        if (candidateFilter == null) return report
         val (visible, hiddenCandidates) = report.candidates.partition(::includes)
-        val hidden = hiddenCandidates.map { it.declaration.id }.toSet()
-        return report.copy(candidates = visible, coverage = report.coverage?.mapValues { (id, result) ->
-            if (id in hidden && result.outcome == DeclarationOutcome.CHECKED) result.copy(outcome = DeclarationOutcome.IGNORED)
+        val hidden = hiddenCandidates.map { it.declaration.id }.toSet() - visible.map { it.declaration.id }.toSet()
+        val reasons = hiddenCandidates.associate { it.declaration.id to sharedPolicy?.restriction(adapter, it) }
+        return report.copy(candidates = visible,
+            failure = sharedPolicy?.shared?.diagnostic ?: report.failure, coverage = report.coverage?.mapValues { (id, result) ->
+            if (id in hidden && result.outcome == DeclarationOutcome.CHECKED)
+                result.copy(outcome = DeclarationOutcome.IGNORED, reason = reasons[id] ?: result.reason)
             else result
         })
     }
 
     fun coverageSummary(report: UpdateReport, snapshot: BuildSnapshot): CoverageSummary? = report.coverage?.let {
         CoverageSummary.from(it, snapshot.declarationIds(),
-            if (ignored.isEmpty()) emptySet() else report.candidates.filter { !includes(it) }.map { it.declaration.id }.toSet())
+            if (candidateFilter == null) emptySet() else hiddenDeclarations(report))
     }
 
+    private fun hiddenDeclarations(report: UpdateReport): Set<DeclarationId> =
+        report.candidates.filter { !includes(it) }.map { it.declaration.id }.toSet() -
+            report.candidates.filter(::includes).map { it.declaration.id }.toSet()
+
     fun count(report: UpdateReport): Int =
-        if (ignored.isEmpty()) report.candidates.size else report.candidates.count(::includes)
+        if (candidateFilter == null) report.candidates.size else report.candidates.count(::includes)
 }
 
 internal fun UpdateReport.withoutIgnored(adapter: String, options: VersionCheckerSettings.Options): UpdateReport =
     VersionPresentationPolicy(adapter, options.ignoredVersions).filter(this)
+
+internal fun UpdateReport.withProjectPolicy(adapter: String, project: Project): UpdateReport {
+    val policy = projectPolicy(project)
+    return VersionPresentationPolicy(adapter, policy.ignoredText, policy).filter(this)
+}
 
 internal class IgnorePublishedVersionFix(private val ignored: IgnoredVersion) : LocalQuickFix, LowPriorityAction {
     override fun getFamilyName() = "Ignore published version"
