@@ -111,6 +111,19 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     private val targetReason = JBLabel()
     private var targetChoices = VersionTargetChoices(plan, mode)
     private var configuringTargets = false
+    private var targetPopupOpen = false
+    private var targetPopupChoice: VersionTargetChoice? = null
+    internal val targetPopupListener = object : PopupMenuListener {
+        override fun popupMenuWillBecomeVisible(event: PopupMenuEvent) {
+            targetPopupChoice = targetSelector.selectedItem as? VersionTargetChoice
+            targetPopupOpen = true
+        }
+        override fun popupMenuWillBecomeInvisible(event: PopupMenuEvent) {
+            targetPopupOpen = false
+            commitTargetSelection()
+        }
+        override fun popupMenuCanceled(event: PopupMenuEvent) { restoreTargetSelection() }
+    }
     internal var targetChoicesRequested = false
         private set
     internal val summary = JBLabel()
@@ -194,21 +207,18 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         openButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().openDeclaration(it) } }
         diffButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().previewEdit(it) } }
         targetSelector.accessibleContext.accessibleName = "Checked target version"
-        targetSelector.addActionListener {
-            if (configuringTargets || !previewState.canApply) return@addActionListener
-            val row = table.selectedRows.singleOrNull()?.let(table::convertRowIndexToModel) ?: return@addActionListener
-            val choice = targetSelector.selectedItem as? VersionTargetChoice ?: return@addActionListener
-            if (!targetChoices.choose(row, choice)) return@addActionListener
-            previewState = previewState.prepared(previewState.mode, previewState.scope)
-            replacingRows = true
-            try { model.replaceTarget(row, choice.edit) } finally { replacingRows = false }
-            table.clearSelection()
-            table.convertRowIndexToView(row).takeIf { it >= 0 }?.let { table.setRowSelectionInterval(it, it) }
-            changeDetails.text = choice.edit.review?.description().orEmpty()
-            changeDetails.caretPosition = 0
-            updateTargetDetails()
-            updateSummary()
-        }
+        targetSelector.addPopupMenuListener(targetPopupListener)
+        targetSelector.addActionListener { if (!targetPopupOpen) commitTargetSelection() }
+        val escape = KeyStroke.getKeyStroke("ESCAPE")
+        targetSelector.getInputMap(JComponent.WHEN_FOCUSED).put(escape, "cancelTargetChoice")
+        targetSelector.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(escape, "cancelTargetChoice")
+        targetSelector.actionMap.put("cancelTargetChoice", object : AbstractAction() {
+            override fun isEnabled() = targetPopupOpen
+            override fun actionPerformed(event: ActionEvent) {
+                restoreTargetSelection()
+                targetSelector.isPopupVisible = false
+            }
+        })
         filter.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(event: DocumentEvent) {
                 sorter.rowFilter = filter.text.takeIf { it.isNotBlank() }?.let {
@@ -419,6 +429,27 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
                 else "Use Check other targets for checked patch and minor alternatives."
             } else targetReason.text = "Select one declaration to choose a target."
         } finally { configuringTargets = false }
+    }
+
+    private fun restoreTargetSelection() {
+        configuringTargets = true
+        try { targetSelector.selectedItem = targetPopupChoice } finally { configuringTargets = false }
+    }
+
+    private fun commitTargetSelection() {
+        if (configuringTargets || !previewState.canApply || isDisposed) return
+        val row = table.selectedRows.singleOrNull()?.let(table::convertRowIndexToModel) ?: return
+        val choice = targetSelector.selectedItem as? VersionTargetChoice ?: return
+        if (!targetChoices.choose(row, choice)) return
+        previewState = previewState.prepared(previewState.mode, previewState.scope)
+        replacingRows = true
+        try { model.replaceTarget(row, choice.edit) } finally { replacingRows = false }
+        table.clearSelection()
+        table.convertRowIndexToView(row).takeIf { it >= 0 }?.let { table.setRowSelectionInterval(it, it) }
+        changeDetails.text = choice.edit.review?.description().orEmpty()
+        changeDetails.caretPosition = 0
+        updateTargetDetails()
+        updateSummary()
     }
 
     private fun updatePlanDetails() {
