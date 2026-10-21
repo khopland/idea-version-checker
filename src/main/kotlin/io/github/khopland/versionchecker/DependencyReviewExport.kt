@@ -50,6 +50,48 @@ internal object DependencyReviewExport {
         return GsonBuilder().serializeNulls().setPrettyPrinting().create().toJson(document) + "\n"
     }
 
+    /** A shareable summary of precisely the supplied displayed rows; it cannot authorize edits. */
+    fun markdown(rows: List<DependencyReviewRow>, basePath: String?, generatedAt: Instant = Instant.now(),
+                 nowNanos: Long = System.nanoTime()): String = buildString {
+        append("# Dependency review\n\n")
+        append("Exported: $generatedAt (report creation time, not check time).\n\n")
+        append("${rows.size} displayed cached observation${if (rows.size == 1) "" else "s"}, in displayed order. ")
+        append("Filters can omit dependencies; this is not a complete dependency audit.\n\n")
+        append("Refresh and review before editing. Cached observations do not establish unchanged build inputs, ")
+        append("successful resolution, or compatibility. Observation age and expiry below retain their original check timing.\n")
+        if (rows.isEmpty()) append("\nNo displayed cached observations.\n")
+        rows.forEachIndexed { index, row ->
+            append("\n## ${index + 1}. ${markdownText(row.artifact.ifBlank { "Unidentified declaration" })}\n\n")
+            append("- Build system: ${markdownText(row.adapter)}; root: ${markdownText(sourcePath(row.root, basePath))}\n")
+            append("- Source: ${markdownText(sourcePath(row.source.file, basePath))}")
+            if (row.source.location.isNotBlank()) append("; declaration: ${markdownText(row.source.location)}")
+            append("\n- Check source: ${markdownText(row.origin?.checkSourceFile?.let { sourcePath(it, basePath) } ?: "Unknown")}")
+            append("; coverage: ${markdownText(row.origin?.coverageDescription ?: "Unknown")}\n")
+            append("- Version: ${markdownText(row.current.ifBlank { "Unknown" })}")
+            row.available?.let { append(" → ${markdownText(it)}") }
+            append("; mode: ${row.mode.name.lowercase()}")
+            row.kind?.let { append("; change: ${it.name.lowercase()}") }
+            append("\n- Outcome: ${row.outcome.label}; checking: ${if (row.checking) "yes" else "no"}")
+            append("; check failed: ${if (row.checkFailed) "yes" else "no"}\n")
+            append("- Observation: ${DependencyReviewFreshness.formatAge(row, nowNanos)}; ")
+            append("cache: ${DependencyReviewFreshness.formatExpiry(row, nowNanos)}\n")
+            if (row.detail.isNotBlank()) append("- Details: ${markdownText(row.detail)}\n")
+        }
+    }
+
+    /** Escape presentation text so diagnostics and declaration names cannot add Markdown structure or HTML. */
+    private fun markdownText(value: String): String = buildString {
+        safe(value).replace(Regex("[\\p{Cntrl}]+"), " ").forEach { character ->
+            when (character) {
+                '&' -> append("&amp;")
+                '<' -> append("&lt;")
+                '>' -> append("&gt;")
+                '\\', '`', '*', '_', '[', ']', '(', ')', '#', '|', '~' -> append('\\').append(character)
+                else -> append(character)
+            }
+        }
+    }
+
     private fun safe(value: String) = DiagnosticSanitizer.sanitize(value)
 
     private fun sourcePath(value: String, basePath: String?): String = runCatching {

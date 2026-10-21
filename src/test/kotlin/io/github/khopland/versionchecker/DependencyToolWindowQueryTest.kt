@@ -76,6 +76,24 @@ class DependencyToolWindowQueryTest : BasePlatformTestCase() {
         assertTrue(panel.details.text.startsWith("Select a dependency"))
     }
 
+    fun testMarkdownClipboardActionUsesDisplayedFilteredOrderWithoutStartingChecks() = withPanel { panel, reads ->
+        val alpha = row("g:alpha")
+        val beta = row("g:beta")
+        panel.presentRows(listOf(alpha, beta, row("other:hidden", provider = "gradle")))
+        val originalReads = reads.get()
+        panel.provider.selectedItem = "maven"
+        panel.table.rowSorter.sortKeys = listOf(RowSorter.SortKey(3, SortOrder.DESCENDING))
+        panel.copyMarkdownAction.actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent.createFromDataContext(
+            "test", null, com.intellij.openapi.actionSystem.DataContext.EMPTY_CONTEXT))
+        val markdown = com.intellij.openapi.ide.CopyPasteManager.getInstance().getContents<String>(java.awt.datatransfer.DataFlavor.stringFlavor)!!
+        assertTrue(markdown.contains("## 1. g:beta"))
+        assertTrue(markdown.contains("## 2. g:alpha"))
+        assertTrue(markdown.indexOf("## 1. g:beta") < markdown.indexOf("## 2. g:alpha"))
+        assertTrue(markdown.contains("2 displayed cached observations"))
+        assertFalse(markdown.contains("other:hidden"))
+        assertEquals(originalReads, reads.get())
+    }
+
     fun testFiltersAndDetailsArePassiveAccessibleAndClearable() = withPanel { panel, reads ->
         val source = java.nio.file.Files.createTempFile("dependency-source", ".xml")
         source.toFile().deleteOnExit()
