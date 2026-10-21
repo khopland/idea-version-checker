@@ -86,6 +86,7 @@ internal class CheckExecutor(
         if (!project.service<VersionCheckerSettings>().state.enabled) return VersionCheckStatus(CheckPhase.PAUSED)
         if (adapter.isOffline(project)) return VersionCheckStatus(CheckPhase.OFFLINE)
         if (!adapter.canCheckInBackground(project, snapshot)) return VersionCheckStatus(CheckPhase.SAVE_REQUIRED)
+        projectPolicy(project).shared.diagnostic?.let { return VersionCheckStatus(CheckPhase.FAILED, recoveryMessage = it) }
         val revision = cache.revision(snapshot.context)
         fun ScanToken.matches() = sourceFile == snapshot.sourceFile && fingerprint == snapshot.fingerprint &&
             declarations == snapshot.declarations && this.revision == revision
@@ -96,7 +97,7 @@ internal class CheckExecutor(
             else -> null
         }
         val result = cache.getResult(snapshot, UpdateMode.MAJOR)
-        val presentation = VersionPresentationPolicy(adapter.id, project.service<VersionCheckerSettings>().state.ignoredVersions)
+        val presentation = projectPolicy(project).let { VersionPresentationPolicy(adapter.id, it.ignoredText, it) }
         if (phase != null) {
             val counts = result?.let { Triple(presentation.count(it.report), it.report.notices.size, it.expiresAtNanos) }
                 ?: cache.inspectionProgressCounts(snapshot, presentation.candidateFilter)
@@ -116,7 +117,7 @@ internal class CheckExecutor(
         val entry = cache.get(snapshot)
         if (entry == null && adapter.canCheckInBackground(project, snapshot)) schedule(adapter, snapshot)
         return cache.inspectionReport(adapter, snapshot)
-            ?.withoutIgnored(adapter.id, project.service<VersionCheckerSettings>().state)
+            ?.withProjectPolicy(adapter.id, project)
     }
 
     internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode,

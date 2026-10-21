@@ -112,7 +112,7 @@ internal object NpmBuildInputs {
             files["virtual-config:$virtualPath"] = if (entry.role == NpmInputInventory.Role.OTHER_MANAGER_MARKER)
                 (file != null).toString() else file?.let { virtualDigest(project, it) } ?: "missing"
         }
-        val policy = project.service<VersionCheckerSettings>().state.deprecatedDependencies
+        val policy = io.github.khopland.versionchecker.projectPolicy(project).deprecationFingerprint
         return BuildFingerprint(files, digest((resolutionContext(project, workspace.root, external).configuration + policy).toByteArray()))
     }
 

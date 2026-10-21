@@ -382,7 +382,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             assertEquals("1.0", file.text)
         } finally { settings.enabled = true }
         assertTrue(held.apply(project))
-        assertEquals(1, providerGuards)
+        assertEquals("Authorization runs before policy capture and again inside the write command", 2, providerGuards)
         assertEquals(1, native.checked.size)
     }
 

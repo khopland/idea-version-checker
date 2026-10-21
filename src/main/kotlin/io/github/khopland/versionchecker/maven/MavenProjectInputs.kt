@@ -72,7 +72,7 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
     private val inspectionFingerprints = mutableMapOf<Path, BuildFingerprint>()
     private val readPass by lazy { MavenInputInventory.ReadPass(manager) }
     private val configuration by lazy {
-        val policy = manager.project.service<VersionCheckerSettings>().state.deprecatedDependencies.hashCode()
+        val policy = io.github.khopland.versionchecker.projectPolicy(manager.project).deprecationFingerprint
         val fastScope = manager.project.service<VersionCheckerSettings>().state.mavenFastEditorChecks
         val persistent = manager.project.service<VersionCheckerSettings>().state.mavenPersistentMetadata
         "${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy:$fastScope:$persistent"

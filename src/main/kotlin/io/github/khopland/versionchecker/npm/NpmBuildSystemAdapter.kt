@@ -91,10 +91,11 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         }
 
     override suspend fun prepareEditValidation(project: Project, snapshots: Collection<BuildSnapshot>): CapturedEditInputs {
+        val policy = prepareProjectPolicyValidation(project, projectPolicy(project))
         val saved = prepareSavedBuildInputValidation(project, snapshots)
         return capture(project, { snapshots.mapNotNull { findFile(project, it.sourceFile) } }) { external ->
             val guard = CapturedEditInputs {
-                saved.isCurrent() && !project.isDisposed && external.layoutIsCurrent(project, snapshots.mapNotNull { snapshot ->
+                policy.isCurrent() && saved.isCurrent() && !project.isDisposed && external.layoutIsCurrent(project, snapshots.mapNotNull { snapshot ->
                     findFile(project, snapshot.sourceFile)?.let { NpmWorkspaces.resolve(project, it).root.path }
                 }.toSet()) && areCurrent(project, snapshots, external)
             }
@@ -120,7 +121,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             NpmBuildInputs.resolutionContext(project, root, external)
         }
         val metadata = project.service<NpmMetadataService>()
-        val policy = readAction { parseDeprecationPolicy(project.service<VersionCheckerSettings>().state.deprecatedDependencies) }
+        val policy = readAction { projectDeprecations(project, "npm") }
         val expires = AtomicLong(Long.MAX_VALUE)
         val report = metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory) }) { runtime ->
             checkNpmVersions(snapshot.declarations, mode, policy, registrySlots,
@@ -209,13 +210,14 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
     /** Local edits belong to their declaration; a prepared workspace action may be shared by a pass. */
     internal fun quickFixes(project: Project, snapshot: BuildSnapshot, candidate: UpdateCandidate,
                             value: JsonStringLiteral, workspaceFix: LocalQuickFix?, lease: VersionResultLease? = null): Array<LocalQuickFix> {
+        val policy = projectPolicy(project)
+        if (!VersionPresentationPolicy(id, policy.ignoredText, policy).includes(candidate)) return emptyArray()
         val prepared = NpmPreparedUpdate.prepare(project, value.containingFile.virtualFile, candidate.declaration,
             value, candidate.replacementSelector)
         val edit = prepared.edit ?: return emptyArray()
-        val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
         val localLease = lease?.forDeclarations(prepared.affectedDeclarations)
         val current = { (localLease == null || localLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
-            project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy }
+            policy.isCurrent(project) }
         if (workspaceFix == null) return arrayOf(UpdateNpmVersionFix(edit, null, current)
             .withInputValidation { prepareEditValidation(project, listOf(snapshot)) })
         return arrayOf(UpdateNpmVersionFix(edit, "Update locally to ${prepared.replacement}", current)
@@ -231,6 +233,12 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
             declaration.artifact == candidate.declaration.artifact && declaration.baseline.isNotEmpty() &&
                 NpmSelector.parse(declaration.artifact.name, declaration.selector)?.baseline?.let { it < latest } == true
         }
+        val policy = projectPolicy(project)
+        val presentation = VersionPresentationPolicy(id, policy.ignoredText, policy)
+        if (eligible.any { (declaration, _) ->
+                val baseline = NpmVersion.parse(declaration.baseline) ?: return@any true
+                !presentation.includes(candidate.copy(declaration = declaration, kind = baseline.change(latest)))
+            }) return null
         val prepared = eligible.map { (declaration, target) ->
             val selector = NpmSelector.parse(declaration.artifact.name, declaration.selector)!!
             NpmPreparedUpdate.prepare(project, target.containingFile.virtualFile, declaration, target,
@@ -240,7 +248,6 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         if (prepared.any { it.blockingReasons.isNotEmpty() }) return null
         val edits = prepared.mapNotNull { it.edit }
         if (edits.mapNotNull { it.element?.containingFile?.virtualFile?.path }.distinct().size < 2) return null
-        val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
         val contributingIds = snapshot.declarations.filter { declaration ->
             declaration.artifact == candidate.declaration.artifact && declaration.baseline.isNotEmpty() &&
                 NpmSelector.parse(declaration.artifact.name, declaration.selector)?.baseline?.let { it < latest } == true
@@ -248,7 +255,7 @@ internal class NpmBuildSystemAdapter(private val readExternalBytes: (Path) -> By
         val workspaceLease = lease?.forDeclarations(contributingIds)
         return UpdateNpmWorkspaceVersionFix(candidate.declaration.artifact.name, candidate.version, edits) {
             (workspaceLease == null || workspaceLease.isCurrent()) && project.service<VersionCheckerSettings>().state.enabled &&
-                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy
+                policy.isCurrent(project)
         }.withInputValidation { prepareEditValidation(project, listOf(snapshot)) }
     }
     private fun findFile(project: Project, path: String): VirtualFile? =

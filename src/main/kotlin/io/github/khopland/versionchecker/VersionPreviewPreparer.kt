@@ -29,7 +29,8 @@ internal class VersionPreviewPreparer(private val project: Project) {
         val service = project.service<VersionCheckService>()
         val results = mutableListOf<Pair<BuildSnapshot, VersionResultCache.CachedResult>>()
         val coverage = DeclarationCoverageAccumulator()
-        val ignoredPolicy = project.service<VersionCheckerSettings>().state.ignoredVersions
+        val policy = projectPolicy(project)
+        check(policy.shared.diagnostic == null) { policy.shared.diagnostic.orEmpty() }
         var reused = 0
         val plans = adapters.map { adapter ->
             check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
@@ -45,16 +46,16 @@ internal class VersionPreviewPreparer(private val project: Project) {
                     val result = service.cachedResult(snapshot, mode) ?: error("Repository results expired. Refresh version checks to retry.")
                     check(result.report === report) { "Version results changed during preparation. Refresh the preview." }
                     results += snapshot to result
-                    report.withoutIgnored(adapter.id, project.service<VersionCheckerSettings>().state).also { filtered ->
+                    VersionPresentationPolicy(adapter.id, policy.ignoredText, policy).filter(report).also { filtered ->
                         coverage.add(snapshot, filtered)
                     }
                 }
             }
             CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PLAN, reports.size) { adapter.prepareUpdates(project, reports) }
         }
-        val plan = BulkUpdatePlan.combine(plans).guardedBy {
+        val plan = BulkUpdatePlan.combine(plans).withProjectPolicy(project, policy).guardedBy {
             project.service<VersionCheckerSettings>().state.enabled &&
-                project.service<VersionCheckerSettings>().state.ignoredVersions == ignoredPolicy &&
+                policy.isCurrent(project) &&
                 results.all { (snapshot, result) -> service.isCachedResultCurrent(snapshot, mode, result) }
         }
         return PreparedVersionPreview(plan, results.minOf { it.second.checkedAtNanos }, reused, results.size,

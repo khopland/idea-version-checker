@@ -34,7 +34,7 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
         val snapshot = holder.project.service<VersionCheckService>().inspectionSnapshot(adapter, file) ?: return PsiElementVisitor.EMPTY_VISITOR
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR
         val options = holder.project.service<VersionCheckerSettings>().state
-        val ignoredPolicy = options.ignoredVersions
+        val policy = projectPolicy(holder.project)
         val preparedUpdates = GradlePreparedUpdate.prepare(holder.file, report)
         return object : PsiElementVisitor() {
             override fun visitFile(file: PsiFile) {
@@ -52,7 +52,7 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
                     val safe = prepared.edit != null
                     val lease = report.lease?.forDeclarations(prepared.affectedDeclarations)
                     val updateFixes = prepared.edit?.let { edit -> arrayOf<LocalQuickFix>(UpdateGradleVersionFix(edit, {
-                        lease?.isCurrent() == true && options.enabled && options.ignoredVersions == ignoredPolicy
+                        lease?.isCurrent() == true && options.enabled && policy.isCurrent(holder.project)
                     }).withInputValidation { adapter.prepareEditValidation(holder.project, listOf(snapshot)) }) } ?: emptyArray()
                     val fixes = updateFixes + (if (notice != null) emptyList() else prepared.candidates.distinctBy { it.declaration.artifact to it.version }
                         .map { IgnorePublishedVersionFix(IgnoredVersion("gradle", it.declaration.artifact, it.version)) })
