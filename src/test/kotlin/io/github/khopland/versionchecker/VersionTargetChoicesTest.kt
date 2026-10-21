@@ -14,6 +14,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.Callable
+import javax.swing.event.PopupMenuEvent
 
 class VersionTargetChoicesTest : BasePlatformTestCase() {
     private fun <T> background(block: suspend () -> T): T = PlatformTestUtil.waitForFuture(
@@ -107,6 +108,45 @@ class VersionTargetChoicesTest : BasePlatformTestCase() {
             assertEquals("1.0.2", dialog.selectedPlan().changes.single().latest)
             dialog.targetSelector.selectedIndex = 0
             assertEquals("2.0.0", dialog.selectedPlan().changes.single().latest)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
+    fun testCancelledPopupDoesNotCommitOrRetireTheReviewedTarget() {
+        val primary = BulkUpdatePlan(listOf(edit("cancel-popup", "2.0.0")), emptyList())
+        val patch = BulkUpdatePlan(listOf(edit("cancel-popup", "1.0.2")), emptyList())
+        val dialog = BulkUpdateDialog(project, UpdateMode.MAJOR, UpdateScope.WHOLE_PROJECT.label, "Test", primary)
+        try {
+            dialog.configure(PreparedVersionPreview(primary, System.nanoTime(), 0, 1,
+                targetPlans = mapOf(UpdateMode.PATCH to patch)), true)
+            dialog.table.setRowSelectionInterval(0, 0)
+            val held = dialog.selectedPlan()
+            val event = PopupMenuEvent(dialog.targetSelector)
+            dialog.targetPopupListener.popupMenuWillBecomeVisible(event)
+            dialog.targetSelector.selectedIndex = 1
+            assertEquals("2.0.0", dialog.selectedPlan().changes.single().latest)
+            dialog.targetPopupListener.popupMenuCanceled(event)
+            dialog.targetPopupListener.popupMenuWillBecomeInvisible(event)
+            assertEquals(0, dialog.targetSelector.selectedIndex)
+            assertEquals("2.0.0", dialog.selectedPlan().changes.single().latest)
+            assertTrue("Cancelling a popup keeps the original reviewed selection valid", held.apply(project))
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
+    fun testCommittedPopupTargetRetiresTheHeldSelection() {
+        val primary = BulkUpdatePlan(listOf(edit("commit-popup", "2.0.0")), emptyList())
+        val patch = BulkUpdatePlan(listOf(edit("commit-popup", "1.0.2")), emptyList())
+        val dialog = BulkUpdateDialog(project, UpdateMode.MAJOR, UpdateScope.WHOLE_PROJECT.label, "Test", primary)
+        try {
+            dialog.configure(PreparedVersionPreview(primary, System.nanoTime(), 0, 1,
+                targetPlans = mapOf(UpdateMode.PATCH to patch)), true)
+            dialog.table.setRowSelectionInterval(0, 0)
+            val held = dialog.selectedPlan()
+            val event = PopupMenuEvent(dialog.targetSelector)
+            dialog.targetPopupListener.popupMenuWillBecomeVisible(event)
+            dialog.targetSelector.selectedIndex = 1
+            dialog.targetPopupListener.popupMenuWillBecomeInvisible(event)
+            assertEquals("1.0.2", dialog.selectedPlan().changes.single().latest)
+            assertFalse(held.apply(project))
         } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
 
