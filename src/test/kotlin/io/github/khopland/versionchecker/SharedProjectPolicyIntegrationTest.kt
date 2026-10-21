@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -17,6 +18,14 @@ class SharedProjectPolicyIntegrationTest : BasePlatformTestCase() {
     private val policyPath: Path get() = Path.of(project.basePath!!, PROJECT_POLICY_FILE)
     private val empty = """{"schemaVersion":1,"rules":[]}"""
     private val restricted = """{"schemaVersion":1,"rules":[{"ecosystem":"npm","package":"library","allowedUpdates":["patch"]}]}"""
+
+    override fun setUp() {
+        super.setUp()
+        // Light projects expose a base path without creating its physical directory.
+        Files.createDirectories(policyPath.parent)
+        VfsRootAccess.allowRootAccess(testRootDisposable, policyPath.parent.toString())
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(policyPath.parent)
+    }
 
     private fun writePolicy(text: String) = WriteCommandAction.runWriteCommandAction(project, Runnable {
         val root = LocalFileSystem.getInstance().findFileByPath(project.basePath!!)!!
