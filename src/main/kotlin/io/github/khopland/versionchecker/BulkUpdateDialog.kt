@@ -58,6 +58,10 @@ internal class VersionUpdateTableModel(changes: List<VersionEdit>, private val b
         rows.forEach { selected[it] = value }
         fireTableDataChanged()
     }
+    fun replaceTarget(row: Int, edit: VersionEdit) {
+        changes = changes.toMutableList().also { it[row] = edit }
+        fireTableRowsUpdated(row, row)
+    }
     /** Remember exact reviewed targets across scopes; new/replaced targets require explicit selection. */
     fun replaceChanges(replacement: List<VersionEdit>) {
         changes.forEachIndexed { index, edit -> choices[edit.identity()] = selected[index] }
@@ -103,6 +107,12 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     internal val changeDetails = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true; rows = 3 }
     private val openButton = JButton("Open declaration")
     private val diffButton = JButton("Preview change")
+    internal val targetSelector = ComboBox<VersionTargetChoice>()
+    private val targetReason = JBLabel()
+    private var targetChoices = VersionTargetChoices(plan, mode)
+    private var configuringTargets = false
+    internal var targetChoicesRequested = false
+        private set
     internal val summary = JBLabel()
     var refreshRequested = false
         private set
@@ -119,6 +129,13 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     private val commitSelectors = mutableListOf<() -> Unit>()
     internal val refreshAction: Action = object : AbstractAction("Refresh") {
         override fun actionPerformed(event: ActionEvent) { refreshRequested = true; requestRecheck() }
+    }
+    internal val loadTargetsAction: Action = object : AbstractAction("Check other targets") {
+        override fun actionPerformed(event: ActionEvent) {
+            if (!previewState.canApply) return
+            targetChoicesRequested = true
+            requestRecheck()
+        }
     }
 
     init {
@@ -158,6 +175,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             val edit = table.selectedRows.singleOrNull()?.let { model.changes.getOrNull(table.convertRowIndexToModel(it)) }
             changeDetails.text = edit?.review?.description().orEmpty()
             changeDetails.caretPosition = 0
+            updateTargetDetails()
             updateSummary()
         }
         changeDetails.accessibleContext.accessibleName = "Selected update explanation"
@@ -175,6 +193,22 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         fun highlighted(): VersionEdit? = table.selectedRows.singleOrNull()?.let { model.changes.getOrNull(table.convertRowIndexToModel(it)) }
         openButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().openDeclaration(it) } }
         diffButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().previewEdit(it) } }
+        targetSelector.accessibleContext.accessibleName = "Checked target version"
+        targetSelector.addActionListener {
+            if (configuringTargets || !previewState.canApply) return@addActionListener
+            val row = table.selectedRows.singleOrNull()?.let(table::convertRowIndexToModel) ?: return@addActionListener
+            val choice = targetSelector.selectedItem as? VersionTargetChoice ?: return@addActionListener
+            if (!targetChoices.choose(row, choice)) return@addActionListener
+            previewState = previewState.prepared(previewState.mode, previewState.scope)
+            replacingRows = true
+            try { model.replaceTarget(row, choice.edit) } finally { replacingRows = false }
+            table.clearSelection()
+            table.convertRowIndexToView(row).takeIf { it >= 0 }?.let { table.setRowSelectionInterval(it, it) }
+            changeDetails.text = choice.edit.review?.description().orEmpty()
+            changeDetails.caretPosition = 0
+            updateTargetDetails()
+            updateSummary()
+        }
         filter.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(event: DocumentEvent) {
                 sorter.rowFilter = filter.text.takeIf { it.isNotBlank() }?.let {
@@ -191,6 +225,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     }
 
     fun configure(prepared: PreparedVersionPreview, currentFileAvailable: Boolean, platformAvailable: Boolean = false) {
+        targetChoices = VersionTargetChoices(plan, previewState.mode, prepared.targetPlans)
         configuring = true
         try {
             if (!currentFileAvailable) scopeSelector.removeItem(UpdateScope.CURRENT_FILE)
@@ -211,12 +246,13 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         coverageLabel.text = coverage?.let { "Recognized declarations: ${it.description}" }.orEmpty()
         coverageLabel.isVisible = coverage != null
         updatePlanDetails()
+        updateTargetDetails()
     }
 
     fun selectedPlan(): BulkUpdatePlan {
         if (table.isEditing) table.cellEditor.stopCellEditing()
         val preparedGeneration = previewState.generation
-        return plan.select(model.selectedIndices).guardedBy {
+        return targetChoices.plan(model.selectedIndices).guardedBy {
             previewState.authorizes(preparedGeneration, modeSelector.selectedItem as UpdateMode,
                 scopeSelector.selectedItem as UpdateScope)
         }
@@ -364,6 +400,25 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         setOKActionEnabled(selected.isNotEmpty() && previewState.canApply)
         openButton.isEnabled = table.selectedRows.size == 1 && previewState.canInspect
         diffButton.isEnabled = openButton.isEnabled
+        targetSelector.isEnabled = openButton.isEnabled && targetSelector.itemCount > 1 && previewState.canApply
+        loadTargetsAction.isEnabled = previewState.canApply && previewState.mode != UpdateMode.PATCH && !targetChoicesRequested
+    }
+
+    private fun updateTargetDetails() {
+        configuringTargets = true
+        try {
+            targetSelector.removeAllItems()
+            val row = table.selectedRows.singleOrNull()?.let(table::convertRowIndexToModel)
+            if (row != null && row in model.changes.indices) {
+                targetChoices.options(row).forEach(targetSelector::addItem)
+                targetSelector.selectedItem = targetChoices.selected(row)
+                targetReason.text = if (targetSelector.itemCount > 1)
+                    "Each target has its own native check. Compatibility is unverified."
+                else if (targetChoicesRequested || previewState.mode == UpdateMode.PATCH)
+                    "No other checked branch target for this declaration."
+                else "Use Check other targets for checked patch and minor alternatives."
+            } else targetReason.text = "Select one declaration to choose a target."
+        } finally { configuringTargets = false }
     }
 
     private fun updatePlanDetails() {
@@ -390,7 +445,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     override fun getPreferredFocusedComponent(): JComponent = filter
 
-    override fun createLeftSideActions(): Array<Action> = arrayOf(refreshAction)
+    override fun createLeftSideActions(): Array<Action> = arrayOf(refreshAction, loadTargetsAction)
 
     public override fun createCenterPanel(): JComponent {
         val controls = JPanel(FlowLayout(FlowLayout.LEADING)).apply {
@@ -415,8 +470,12 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             } })
             add(openButton); add(diffButton)
         }
+        val targetControls = JPanel(FlowLayout(FlowLayout.LEADING)).apply {
+            add(JBLabel("Target:").apply { labelFor = targetSelector }); add(targetSelector); add(targetReason)
+        }
         val selection = JPanel(BorderLayout(0, 4)).apply {
-            add(selectionButtons, BorderLayout.NORTH); add(JBScrollPane(changeDetails), BorderLayout.CENTER); add(summary, BorderLayout.SOUTH)
+            add(JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); add(selectionButtons); add(targetControls) }, BorderLayout.NORTH)
+            add(JBScrollPane(changeDetails), BorderLayout.CENTER); add(summary, BorderLayout.SOUTH)
         }
         val footer = JPanel(BorderLayout(0, 8)).apply {
             add(selection, BorderLayout.NORTH)
