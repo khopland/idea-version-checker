@@ -120,6 +120,14 @@ Missing outcomes stay pending.
 If any report has unknown coverage, the combined summary stays unknown.
 Dialogs and native build tools do not define these rules.
 
+## Native follow-up observations
+
+`UpdateSessionStore` retains bounded immutable per-attempt steps with explicit statuses. Native reloads, npm commands and version observations have separate kinds. A session/step token attributes asynchronous updates; evicted tokens cannot modify newer attempts. The modeless summary polls memory snapshots and stops its timer when disposed. Passive viewing never starts native work.
+
+`NativeFileChangeCapture` takes cancellable, bounded physical UTF-8 snapshots of supported npm outputs before explicit command approval and after inspection. The before snapshot is compared to the command-preview hash baseline. File creation/deletion is represented separately from empty text. File limits, byte/text budgets, read failures, symlinks, invalid text and unstable reads omit whole files with a reason. `UpdateSessionStore` evicts native text independently from typed outcomes and declaration snapshots.
+
+Native snapshots are observational: they cannot prove exclusive writer ownership, and concurrent external changes may be included. Unsaved editor overlap and unconfirmed process termination add explicit limitations. Inspection failure does not change a completed process into verified dependency evidence. Native diff requests are read-only and separate from declaration undo; snapshots contain no live documents, PSI or process handles.
+
 ## Maven update verification
 
 Maven prepared edits retain immutable consumer identities separately from physical XML ownership. A shared property or managed version can change several imported POM contexts; local overrides retain only their own child context. Quick fixes and bulk plans use the same ownership analysis. Selecting bulk edits preserves only those edits' consumers. Immediately before the authorized write, historical capture binds expected dependency versions to the current native-resolution generation and stores them with that update's captured file diff.
