@@ -4,6 +4,8 @@
 
 ### Added
 
+- Dependency Versions offers **Copy Markdown** and **Export Markdown…** for shareable summaries of displayed, filtered observations in their sort order. Summaries sanitize and escape details, redact external paths, retain original observation timing, and state coverage and verification limits without starting checks or renewing cached results.
+
 - Maven dependency quick fixes and selected bulk edits capture expected effective versions for **Verify Maven versions**, retaining each imported shared consumer POM and attributing local overrides to their child only. Confirmation requires a subsequent full import with unchanged saved inputs; parent/plugin versions, vulnerability checks and runtime compatibility remain outside verification.
 
 - Successful declaration updates offer a read-only historical diff of the actual edited files, including grouped edits and newly defined Maven properties. Snapshots are bounded in project memory; omitted or evicted content is reported explicitly and native lockfile writes remain separate.

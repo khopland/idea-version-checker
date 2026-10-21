@@ -6,6 +6,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileChooser.FileChooserFactory
 import com.intellij.openapi.fileChooser.FileSaverDescriptor
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.ui.Messages
 import kotlinx.coroutines.*
 import com.intellij.openapi.components.service
@@ -24,6 +25,7 @@ import io.github.khopland.versionchecker.core.VersionChangeKind
 import java.awt.BorderLayout
 import java.awt.GridLayout
 import java.awt.Dimension
+import java.awt.datatransfer.StringSelection
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.project.DumbAwareAction
@@ -102,6 +104,10 @@ internal class DependencyToolWindowPanel(private val project: Project,
     @Volatile private var disposed = false
     private var rows = emptyList<DependencyReviewRow>()
     private val expiryTimer = Timer(30_000) { requestUpdate() }
+    internal val copyMarkdownAction = object : DumbAwareAction(
+        "Copy Markdown", "Copy displayed cached observations as a Markdown review summary", AllIcons.Actions.Copy) {
+        override fun actionPerformed(event: AnActionEvent) = copyMarkdown()
+    }
 
     init {
         border = JBUI.Borders.empty(4, 6)
@@ -117,15 +123,9 @@ internal class DependencyToolWindowPanel(private val project: Project,
                 override fun update(event: AnActionEvent) { event.presentation.isEnabled = canOpenSelectedSource() }
                 override fun actionPerformed(event: AnActionEvent) = openSelectedSource()
             })
-            add(object : DumbAwareAction("Export JSON…", "Export filtered rows in their displayed sort order", AllIcons.Actions.Download) {
-                override fun actionPerformed(event: AnActionEvent) {
-                    // Accessibility actions can arrive in a write-unsafe invocation event.
-                    // Let the platform establish a safe modality before opening its chooser.
-                    ApplicationManager.getApplication().invokeLater({
-                        if (!disposed && !project.isDisposed) exportRows()
-                    }, ModalityState.nonModal(), { disposed || project.isDisposed })
-                }
-            })
+            add(copyMarkdownAction)
+            add(exportAction("Export JSON…", "json"))
+            add(exportAction("Export Markdown…", "md"))
             add(object : ToggleAction("Show dependency filters", "Show or hide build system, root, outcome and change filters", AllIcons.General.Filter), DumbAware {
                 override fun isSelected(event: AnActionEvent) = filterFields.isVisible
                 override fun setSelected(event: AnActionEvent, state: Boolean) = setFiltersVisible(state)
@@ -233,14 +233,31 @@ internal class DependencyToolWindowPanel(private val project: Project,
         }
     }
 
-    private fun exportRows() {
+    private fun exportAction(label: String, extension: String) = object : DumbAwareAction(
+        label, "Export filtered rows in their displayed sort order", AllIcons.Actions.Download) {
+        override fun actionPerformed(event: AnActionEvent) {
+            // Accessibility actions can arrive in a write-unsafe invocation event.
+            // Let the platform establish a safe modality before opening its chooser.
+            ApplicationManager.getApplication().invokeLater({
+                if (!disposed && !project.isDisposed) exportRows(extension)
+            }, ModalityState.nonModal(), { disposed || project.isDisposed })
+        }
+    }
+
+    private fun copyMarkdown() {
+        if (!disposed && !project.isDisposed) CopyPasteManager.getInstance().setContents(StringSelection(
+            DependencyReviewExport.markdown(visibleRows(), project.basePath, nowNanos = now())))
+    }
+
+    private fun exportRows(extension: String) {
         val target = FileChooserFactory.getInstance().createSaveFileDialog(
-            FileSaverDescriptor("Export Dependency Review", "Export the displayed cached observations", "json"), project)
-            .save(null as com.intellij.openapi.vfs.VirtualFile?, "dependency-review.json") ?: return
+            FileSaverDescriptor("Export Dependency Review", "Export the displayed cached observations", extension), project)
+            .save(null as com.intellij.openapi.vfs.VirtualFile?, "dependency-review.$extension") ?: return
         val displayed = visibleRows()
         scope.launch {
             try {
-                target.file.writeText(DependencyReviewExport.json(displayed, project.basePath))
+                target.file.writeText(if (extension == "md") DependencyReviewExport.markdown(displayed, project.basePath, nowNanos = now())
+                    else DependencyReviewExport.json(displayed, project.basePath, nowNanos = now()))
             } catch (failure: Exception) {
                 withContext(Dispatchers.EDT) {
                     if (!disposed && !project.isDisposed) Messages.showErrorDialog(project,

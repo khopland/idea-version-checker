@@ -115,8 +115,10 @@ Zero updates does not confirm complete coverage.
 Separate build contexts or update modes can describe the same physical declaration.
 The parser cannot count declarations that it does not recognize.
 
-JSON exports contain the displayed rows in their sort order.
+Use **Copy Markdown** to paste a review summary into an issue or pull request.
+**Export Markdown…** and **Export JSON…** save the displayed rows in their sort order.
 Exports use sanitized details and project-relative source paths. External paths are redacted.
+Copying or exporting preserves the original observation timing and does not refresh checks.
 See the [tool window guide](docs/user-guide.md#dependency-versions-tool-window) for details.
 
 ## Settings and repositories
