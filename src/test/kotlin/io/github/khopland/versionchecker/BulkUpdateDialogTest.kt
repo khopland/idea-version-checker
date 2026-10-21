@@ -12,6 +12,7 @@ import com.intellij.util.ui.UIUtil
 import io.github.khopland.versionchecker.core.UpdateScope
 import java.awt.Container
 import java.awt.event.ActionEvent
+import java.util.concurrent.TimeUnit
 import javax.swing.JButton
 
 class BulkUpdateDialogTest : BasePlatformTestCase() {
@@ -129,6 +130,125 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             assertEquals(0, callbacks)
             assertEquals("1.0", text(edit))
             assertFalse(dialog.isOKActionEnabled)
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+    }
+
+    fun testExpiryUsesTheLeaseDeadlineKeepsDetailsAndStopsItsTimerOnDispose() {
+        val edit = edit("expired-details")
+        val plan = BulkUpdatePlan(listOf(edit), emptyList())
+        var time = TimeUnit.SECONDS.toNanos(2)
+        val dialog = BulkUpdateDialog(project, UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT.label, "Test", plan) { time }
+        val checkedAt = TimeUnit.SECONDS.toNanos(1)
+        try {
+            dialog.configure(PreparedVersionPreview(plan, checkedAt, 1, 1,
+                expiresAtNanos = TimeUnit.SECONDS.toNanos(4)), true)
+            dialog.table.setRowSelectionInterval(0, 0)
+            val held = dialog.selectedPlan()
+            assertTrue(dialog.freshness.text.contains("cached results · expire in 2s"))
+            assertTrue(dialog.isOKActionEnabled)
+            assertTrue(dialog.freshnessTimer.isRunning)
+            var checks = 0
+            dialog.onRecheckRequested = { _, _, _, _ -> checks++ }
+            time = TimeUnit.SECONDS.toNanos(4)
+            // Exercise the actual timer callback without sleeping or querying a build tool.
+            dialog.freshnessTimer.actionListeners.forEach { it.actionPerformed(ActionEvent(dialog, 0, "tick")) }
+            assertTrue(dialog.freshness.text.contains("expired. Use Refresh to check again."))
+            assertFalse(dialog.isOKActionEnabled)
+            assertFalse(dialog.freshnessTimer.isRunning)
+            assertFalse(held.apply(project))
+            assertTrue(buttons(dialog.createCenterPanel()).single { it.text == "Open declaration" }.isEnabled)
+            assertTrue(buttons(dialog.createCenterPanel()).single { it.text == "Preview change" }.isEnabled)
+            assertEquals(0, checks)
+            assertEquals("1.0", text(edit))
+
+            dialog.refreshAction.actionPerformed(ActionEvent(dialog, 0, "Refresh"))
+            assertEquals(1, checks)
+            dialog.replacePrepared(PreparedVersionPreview(plan, time, 0, 1,
+                expiresAtNanos = TimeUnit.SECONDS.toNanos(10)), UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, "Test", true, false)
+            assertTrue(dialog.isOKActionEnabled)
+            assertTrue(dialog.freshnessTimer.isRunning)
+            assertTrue(dialog.freshness.text.contains("expire in 6s"))
+            assertFalse("Refreshing cannot revive a held selection", held.apply(project))
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+        assertFalse(dialog.freshnessTimer.isRunning)
+    }
+
+    fun testDeadlineRejectsDirectAndQueuedApplyEvenBeforeATimerTick() {
+        val seconds = TimeUnit.SECONDS
+        for (queued in listOf(false, true)) {
+            val edit = edit("deadline-before-tick-$queued")
+            val plan = BulkUpdatePlan(listOf(edit), emptyList())
+            var time = seconds.toNanos(2)
+            val dialog = BulkUpdateDialog(project, UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT.label, "Test", plan) { time }
+            var callbacks = 0
+            dialog.onApplyRequested = { _, _ -> callbacks++ }
+            try {
+                dialog.configure(PreparedVersionPreview(plan, seconds.toNanos(1), 0, 1,
+                    expiresAtNanos = seconds.toNanos(3)), true)
+                if (queued) dialog.doOKAction()
+                time = seconds.toNanos(3)
+                if (!queued) dialog.doOKAction()
+                UIUtil.dispatchAllInvocationEvents()
+                assertEquals(0, callbacks)
+                assertEquals("1.0", text(edit))
+                assertFalse(dialog.isOKActionEnabled)
+                assertTrue(dialog.freshness.text.contains("expired"))
+                assertFalse(dialog.isDisposed)
+            } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+        }
+    }
+
+    fun testUnknownDeadlineIsExplicitAndCannotBeInferredFromObservationAge() {
+        val edit = edit("unknown-deadline")
+        val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent = { false })
+        var time = TimeUnit.HOURS.toNanos(24)
+        val dialog = BulkUpdateDialog(project, UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT.label, "Test", plan) { time }
+        try {
+            dialog.configure(PreparedVersionPreview(plan, 1L, 1, 1), true)
+            assertTrue(dialog.freshness.text.contains("expiry unknown"))
+            time += TimeUnit.HOURS.toNanos(24)
+            dialog.refreshFreshness()
+            assertTrue(dialog.freshness.text.contains("expiry unknown"))
+            assertFalse("Unknown presentation timing cannot grant provider authorization", dialog.selectedPlan().apply(project))
+            assertEquals("1.0", text(edit))
+        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
+        assertFalse(dialog.freshnessTimer.isRunning)
+    }
+
+    fun testChoosingANarrowerTargetCannotOutliveTheEarliestLoadedDeadline() {
+        val edit = edit("choice-deadline")
+        val patch = object : VersionEdit by edit {
+            override val latest = "1.1"
+            override fun apply() {
+                FileDocumentManager.getInstance().getDocument(element!!.containingFile.virtualFile)!!.setText(latest)
+            }
+        }
+        val seconds = TimeUnit.SECONDS
+        var time = seconds.toNanos(2)
+        val primary = PreparedVersionPreview(BulkUpdatePlan(listOf(edit), emptyList()), seconds.toNanos(1), 0, 1,
+            expiresAtNanos = seconds.toNanos(10))
+        val prepared = primary.withTargetChoices(mapOf(UpdateMode.PATCH to
+            PreparedVersionPreview(BulkUpdatePlan(listOf(patch), emptyList()), seconds.toNanos(1), 0, 1,
+                expiresAtNanos = seconds.toNanos(4))))
+        val dialog = BulkUpdateDialog(project, UpdateMode.MAJOR, UpdateScope.WHOLE_PROJECT.label, "Test", prepared.plan) { time }
+        var callbacks = 0
+        dialog.onApplyRequested = { _, _ -> callbacks++ }
+        try {
+            dialog.configure(prepared, true)
+            dialog.table.setRowSelectionInterval(0, 0)
+            assertEquals(2, dialog.targetSelector.itemCount)
+            dialog.targetSelector.selectedIndex = 1
+            val held = dialog.selectedPlan()
+            assertEquals("1.1", held.changes.single().latest)
+            assertTrue(dialog.freshness.text.contains("expire in 2s"))
+            time = seconds.toNanos(4)
+            dialog.doOKAction()
+            UIUtil.dispatchAllInvocationEvents()
+            assertFalse(dialog.isOKActionEnabled)
+            assertFalse(held.apply(project))
+            assertEquals(0, callbacks)
+            assertEquals("1.0", text(edit))
+            assertEquals("1.1", dialog.selectedPlan().changes.single().latest)
         } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
 

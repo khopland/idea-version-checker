@@ -74,7 +74,8 @@ internal class VersionUpdateTableModel(changes: List<VersionEdit>, private val b
 
 /** Each checkbox selects one prepared, atomic declaration/property/catalog edit. */
 internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: String,
-                                buildSystem: String, private var plan: BulkUpdatePlan) : DialogWrapper(project) {
+                                buildSystem: String, private var plan: BulkUpdatePlan,
+                                private val now: () -> Long = System::nanoTime) : DialogWrapper(project) {
     companion object { const val RECHECK_EXIT_CODE = 3 }
     internal val modeSelector = ComboBox(UpdateMode.entries.toTypedArray())
     internal val scopeSelector = ComboBox(UpdateScope.entries.filter {
@@ -90,7 +91,10 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     internal val filter = JBTextField()
     private val sorter = TableRowSorter<VersionUpdateTableModel>(model)
     private val tableScroll = JBScrollPane(table)
-    private val freshness = JBLabel()
+    internal val freshness = JBLabel().apply { accessibleContext.accessibleName = "Dependency result freshness" }
+    private data class ResultTiming(val checkedAtNanos: Long, val expiresAtNanos: Long?, val cached: String)
+    private var resultTiming: ResultTiming? = null
+    internal val freshnessTimer = Timer(1_000) { refreshFreshness() }
     internal val coverageLabel = JBLabel().apply { isVisible = false }
     private var coverage: CoverageSummary? = null
     private val emptyMessage = JBLabel()
@@ -244,26 +248,54 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             if (!platformAvailable) scopeSelector.removeItem(UpdateScope.MAVEN_PLATFORM)
             previewState = previewState.configured(scopeSelector.selectedItem as UpdateScope)
         } finally { configuring = false }
-        val minutes = TimeUnit.NANOSECONDS.toMinutes((System.nanoTime() - prepared.checkedAtNanos).coerceAtLeast(0))
-        val age = if (minutes == 0L) "just now" else "$minutes min ago"
         val cached = when (prepared.reusedReports) {
             0 -> ""
             prepared.totalReports -> " · cached results"
             else -> " · some cached results"
         }
-        freshness.text = "Results checked $age$cached"
+        resultTiming = ResultTiming(prepared.checkedAtNanos, prepared.expiresAtNanos, cached)
+        if (!isDisposed) freshnessTimer.restart()
+        refreshFreshness()
         coverage = prepared.coverage
         coverageLabel.text = coverage?.let { "Recognized declarations: ${it.description}" }.orEmpty()
         coverageLabel.isVisible = coverage != null
         updatePlanDetails()
         updateTargetDetails()
+        updateSummary()
+    }
+
+    private fun resultsExpired(): Boolean = resultTiming?.expiresAtNanos?.let { now() >= it } == true
+
+    /** Presentation only: no result lookup, provider work, or lease renewal. */
+    internal fun refreshFreshness() {
+        if (isDisposed || !previewState.canInspect) return
+        val timing = resultTiming ?: return
+        val sampledAt = now()
+        val minutes = TimeUnit.NANOSECONDS.toMinutes((sampledAt - timing.checkedAtNanos).coerceAtLeast(0))
+        val age = if (minutes == 0L) "just now" else "$minutes min ago"
+        val expired = timing.expiresAtNanos?.let { sampledAt >= it } == true
+        val expiry = timing.expiresAtNanos?.let { deadline ->
+            if (expired) "expired. Use Refresh to check again." else {
+                // Round upward so a live lease is never described as having zero seconds left.
+                val seconds = (deadline - sampledAt - 1) / TimeUnit.SECONDS.toNanos(1) + 1
+                val remaining = if (seconds < 60) "${seconds}s" else "${seconds / 60}m ${seconds % 60}s"
+                "expire in $remaining"
+            }
+        } ?: "expiry unknown"
+        freshness.text = "Results checked $age${timing.cached} · $expiry"
+        if (expired) {
+            freshnessTimer.stop()
+            updateSummary()
+        }
     }
 
     fun selectedPlan(): BulkUpdatePlan {
         if (table.isEditing) table.cellEditor.stopCellEditing()
         val preparedGeneration = previewState.generation
+        val preparedDeadline = resultTiming?.expiresAtNanos
         return targetChoices.plan(model.selectedIndices).guardedBy {
-            previewState.authorizes(preparedGeneration, modeSelector.selectedItem as UpdateMode,
+            (preparedDeadline == null || now() < preparedDeadline) &&
+                previewState.authorizes(preparedGeneration, modeSelector.selectedItem as UpdateMode,
                 scopeSelector.selectedItem as UpdateScope)
         }
     }
@@ -300,6 +332,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     internal fun recheckFailed(message: String) {
         if (isDisposed) return
+        freshnessTimer.stop()
         previewState = previewState.failed(message)
         coverageLabel.isVisible = false
         freshness.text = "$message Use Refresh to retry."
@@ -307,7 +340,8 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     }
 
     public override fun doOKAction() {
-        if (!previewState.canApply) return
+        refreshFreshness()
+        if (!previewState.canApply || resultsExpired()) return
         if (modeSelector.selectedItem != previewState.mode || scopeSelector.selectedItem != previewState.scope) {
             requestRecheck()
             return
@@ -325,8 +359,9 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             // outside a write-safe transaction even on EDT; acquire one before applying.
             ApplicationManager.getApplication().invokeLater({
                 try {
+                    refreshFreshness()
                     if (!isDisposed && previewState.generation == preparedGeneration &&
-                        previewState.phase == VersionPreviewState.Phase.Applying) callback(selected, trace)
+                        previewState.phase == VersionPreviewState.Phase.Applying && !resultsExpired()) callback(selected, trace)
                 } finally {
                     previewState = previewState.applyFinished(preparedGeneration)
                     if (!isDisposed) updateSummary()
@@ -339,6 +374,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     private fun requestRecheck() {
         if (isDisposed) return
+        freshnessTimer.stop()
         recheckInteraction = CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
         previewState = previewState.recheck()
         val callback = onRecheckRequested
@@ -407,7 +443,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         summary.text = "${selected.size} selected · ${table.rowCount} of ${model.rowCount} visible" +
             if (hidden > 0) " · $hidden selected hidden by filter" else ""
         setOKButtonText("Update ${selected.size} selected declarations")
-        setOKActionEnabled(selected.isNotEmpty() && previewState.canApply)
+        setOKActionEnabled(selected.isNotEmpty() && previewState.canApply && !resultsExpired())
         openButton.isEnabled = table.selectedRows.size == 1 && previewState.canInspect
         diffButton.isEnabled = openButton.isEnabled
         targetSelector.isEnabled = openButton.isEnabled && targetSelector.itemCount > 1 && previewState.canApply
@@ -470,6 +506,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     }
 
     override fun dispose() {
+        freshnessTimer.stop()
         previewState = previewState.closed(isOK)
         super.dispose()
     }

@@ -41,6 +41,8 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         var failure: String? = null
         var failureCause: Exception? = null
         var version = "1.1"
+        var checkedAtNanos: Long? = null
+        var validUntilNanos: Long? = null
         var beforeCheck: suspend () -> Unit = {}
         val checked = CopyOnWriteArrayList<String>()
         var metadataRefreshes = 0
@@ -61,7 +63,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode): UpdateReport {
             checked += snapshot.sourceFile
             val result = UpdateReport(listOf(UpdateCandidate(snapshot.declarations.single(), version)), failure = failure,
-                failureCause = failureCause)
+                failureCause = failureCause, checkedAtNanos = checkedAtNanos, validUntilNanos = validUntilNanos)
             beforeCheck()
             return result
         }
@@ -442,6 +444,35 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertEquals("1.0", file.text)
         preview(UpdateMode.MINOR)
         assertEquals("Current-file refresh invalidates all modes", 4, adapter.checked.size)
+    }
+
+    fun testPreparedPreviewPreservesTheEarliestActualDeadlineAcrossReusedResults() {
+        val time = System.nanoTime()
+        val minutes = java.util.concurrent.TimeUnit.MINUTES
+        val first = TestAdapter("deadline-first", myFixture.addFileToProject("deadline/first.txt", "1.0")).apply {
+            checkedAtNanos = time - minutes.toNanos(1)
+            validUntilNanos = time + minutes.toNanos(1)
+        }
+        val second = TestAdapter("deadline-second", myFixture.addFileToProject("deadline/second.txt", "1.0")).apply {
+            checkedAtNanos = time - minutes.toNanos(9)
+            validUntilNanos = time + minutes.toNanos(2)
+        }
+        listOf(first, second).forEach { BuildSystemAdapter.EP.point.registerExtension(it, testRootDisposable) }
+        fun prepare() = PlatformTestUtil.waitForFuture(
+            ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { VersionPreviewPreparer(project).prepare(UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT,
+                    null, listOf(first, second), forceRefresh = false) }
+            }), 10_000)
+        val initial = prepare()
+        assertEquals(0, initial.reusedReports)
+        assertEquals(second.checkedAtNanos, initial.checkedAtNanos)
+        assertEquals("The oldest observation need not expire first", first.validUntilNanos, initial.expiresAtNanos)
+        val reused = prepare()
+        assertEquals(2, reused.reusedReports)
+        assertEquals(initial.checkedAtNanos, reused.checkedAtNanos)
+        assertEquals(initial.expiresAtNanos, reused.expiresAtNanos)
+        assertEquals(1, first.checked.size)
+        assertEquals(1, second.checked.size)
     }
 
     fun testPreviewModeAndRefreshControlsKeepOneWindowBeforeApplying() = withTracing {

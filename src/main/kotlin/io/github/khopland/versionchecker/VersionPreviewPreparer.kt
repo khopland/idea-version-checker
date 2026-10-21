@@ -11,8 +11,19 @@ internal data class PreparedVersionPreview @JvmOverloads constructor(
     val reusedReports: Int,
     val totalReports: Int,
     val coverage: CoverageSummary? = null,
-    val targetPlans: Map<UpdateMode, BulkUpdatePlan> = emptyMap()
-)
+    val targetPlans: Map<UpdateMode, BulkUpdatePlan> = emptyMap(),
+    /** Earliest actual result lease deadline; observation age cannot establish this value. */
+    val expiresAtNanos: Long? = null
+) {
+    fun withTargetChoices(choices: Map<UpdateMode, PreparedVersionPreview>): PreparedVersionPreview {
+        val loaded = choices.values + this
+        return copy(
+            checkedAtNanos = loaded.minOf { it.checkedAtNanos },
+            targetPlans = choices.mapValues { it.value.plan },
+            expiresAtNanos = loaded.takeIf { previews -> previews.all { it.expiresAtNanos != null } }
+                ?.minOf { requireNotNull(it.expiresAtNanos) })
+    }
+}
 
 /**
  * Collects provider plans and binds their preview to the observed results and settings.
@@ -32,9 +43,7 @@ internal class VersionPreviewPreparer(private val project: Project) {
             val narrower = UpdateMode.entries.filter { candidate ->
                 candidate.ordinal < mode.ordinal && adapters.all { candidate in it.capabilities.updateModes }
             }.associateWith { candidate -> prepare(candidate, updateScope, currentFile, adapters, false) }
-            return primary.copy(
-                checkedAtNanos = (narrower.values.map { it.checkedAtNanos } + primary.checkedAtNanos).min(),
-                targetPlans = narrower.mapValues { it.value.plan })
+            return primary.withTargetChoices(narrower)
         }
         check(adapters.isNotEmpty()) { "Open a supported build file to update its versions" }
         val service = project.service<VersionCheckService>()
@@ -70,6 +79,6 @@ internal class VersionPreviewPreparer(private val project: Project) {
                 results.all { (snapshot, result) -> service.isCachedResultCurrent(snapshot, mode, result) }
         }
         return PreparedVersionPreview(plan, results.minOf { it.second.checkedAtNanos }, reused, results.size,
-            coverage.summary())
+            coverage.summary(), expiresAtNanos = results.minOf { it.second.expiresAtNanos })
     }
 }
