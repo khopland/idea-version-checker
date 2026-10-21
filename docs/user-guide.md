@@ -187,8 +187,8 @@ Prepare a new update preview after further edits.
 
 Select **View update session** in an update notification.
 Alternatively, select **Tools → View Latest Version Update Session…**.
-The summary shows captured declaration diffs, reload results, npm lockfile results, and effective-version verification status.
-Opening the summary does not reload or verify the project.
+The summary stays open and refreshes follow-up steps as they run. Each attempt has its own provider, operation, status and timestamp, including cancellation, timeout and unknown outcomes.
+Opening the summary does not reload or verify the project. A completed command, an observed effective version and a test run are separate results; these follow-ups do not run tests.
 
 Maven sessions offer **Reload Maven**.
 They also offer **Verify Maven versions** when the session has verification evidence.
@@ -197,12 +197,16 @@ A reload request or successful npm command leaves verification unknown until eff
 The npm result identifies the selected workspace root. This root can differ from the workspace that the update changed.
 Cancellation keeps the applied declarations. It reports possible native writes and does not roll them back.
 
+After an explicitly approved npm synchronization, **Review npm lockfile diff** opens a separate read-only historical review of root `package-lock.json` and `npm-shrinkwrap.json` physical snapshots. Creation and deletion are labeled explicitly. The capture retains at most two files, 1 MiB of UTF-8 bytes per phase and 1,000,000 characters per attempt; oversized, unreadable, unstable or non-UTF-8 files are listed as omitted. All retained native snapshots share a 2,000,000-character project budget. Eviction keeps the step outcome and an unavailable-snapshot notice.
+
+The observed diff may include concurrent external edits; it never attributes all writes exclusively to npm. Overlapping unsaved lockfile edits are identified, and the physical snapshots exclude unsaved text. If process termination was not confirmed after cancellation or timeout, later writes may be missing. Inspect the current version-control diff before retrying. Declaration undo does not undo native lockfile writes, and a successful command does not confirm installed or effective dependency versions.
+
 Verification observations have timestamps and describe past results.
 Verify again after edits, undo, or import and configuration changes.
 Opening the summary changes verification status to unknown if captured declaration text changed or is unavailable.
 Summaries do not otherwise track later edits or undo.
 
-The project keeps up to eight summaries in memory.
+The project keeps up to eight summaries in memory and sixteen steps per summary. Late completions update only their original retained session and attempt.
 Declaration snapshots have separate size limits. Older reviews can expire.
 Closing the project clears the summaries.
 

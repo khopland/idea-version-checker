@@ -4,6 +4,7 @@ import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
@@ -62,9 +63,13 @@ class BuildReloadOutcomeTest : BasePlatformTestCase() {
             repeat(5) { assertNull(owner.outcome(adapter.id)) }
             assertEquals(0, adapter.saves.get())
             assertEquals(0, adapter.reloads.get())
-            owner.reload(adapter.id)
+            val sessions = project.service<UpdateSessionService>()
+            val token = sessions.start(null, null, setOf(adapter.id))!!
+            owner.reload(adapter.id, token)
             PlatformTestUtil.waitWithEventsDispatching("Saving entered", { adapter.saving.isCompleted }, 10)
             assertEquals(BuildReloadOutcome.Phase.SAVING, owner.outcome(adapter.id)?.phase)
+            assertEquals(UpdateStepStatus.PREPARING, sessions.snapshot(token)!!.steps.single().status)
+            val newer = sessions.start(null, null, setOf(adapter.id))!!
             repeat(5) { owner.outcome(adapter.id); owner.reload(adapter.id) }
             assertEquals("Duplicate clicks must not start more saves", 1, adapter.saves.get())
             assertEquals(0, adapter.reloads.get())
@@ -74,6 +79,16 @@ class BuildReloadOutcomeTest : BasePlatformTestCase() {
             }, 10)
             PlatformTestUtil.waitWithEventsDispatching("Terminal reload notification", { notifications.isNotEmpty() }, 10)
             val outcome = owner.outcome(adapter.id)!!
+            assertTrue(sessions.snapshot(newer)!!.steps.isEmpty())
+            val step = sessions.snapshot(token)!!.steps.single()
+            assertEquals(UpdateStepKind.NATIVE_RELOAD, step.kind)
+            assertEquals(when (expected) {
+                BuildReloadOutcome.Phase.REQUESTED -> UpdateStepStatus.REQUESTED
+                BuildReloadOutcome.Phase.UNAVAILABLE -> UpdateStepStatus.UNAVAILABLE
+                BuildReloadOutcome.Phase.CANCELLED -> UpdateStepStatus.CANCELLED
+                else -> UpdateStepStatus.UNKNOWN
+            }, step.status)
+            assertEquals(outcome.message, step.message)
             assertEquals(if (cancelSaving) 0 else 1, adapter.reloads.get())
             assertTrue(outcome.message.contains(adapter.displayName))
             assertTrue(outcome.message.contains("Dependency verification was not performed"))
@@ -119,4 +134,21 @@ class BuildReloadOutcomeTest : BasePlatformTestCase() {
             TrustedProjects.setProjectTrusted(project, wasTrusted)
         }
     }
+    fun testCancelledScopeRetiresTheOriginalStepWithoutStartingNativeWork() {
+        val scope = CoroutineScope(SupervisorJob().apply { cancel() } + Dispatchers.IO)
+        val owner = BuildReloadService(project, scope)
+        val adapter = Adapter()
+        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
+        try {
+            val sessions = project.service<UpdateSessionService>()
+            val token = sessions.start(null, null, setOf(adapter.id))!!
+            owner.reload(adapter.id, token)
+            PlatformTestUtil.waitWithEventsDispatching("Unstarted reload step should retire", {
+                sessions.snapshot(token)!!.steps.single().status == UpdateStepStatus.CANCELLED
+            }, 5_000)
+            assertEquals(0, adapter.saves.get())
+            assertEquals(0, adapter.reloads.get())
+        } finally { owner.dispose(); scope.cancel() }
+    }
+
 }

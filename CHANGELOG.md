@@ -5,6 +5,7 @@
 ### Added
 
 - Dependency Versions offers **Copy Markdown** and **Export Markdown…** for shareable summaries of displayed, filtered observations in their sort order. Summaries sanitize and escape details, redact external paths, retain original observation timing, and state coverage and verification limits without starting checks or renewing cached results.
+- Update sessions retain typed per-attempt follow-up states and refresh while open. Explicit npm lockfile sync offers a separate bounded read-only historical diff, with omitted-file, concurrent-edit and unknown-termination disclosures; native writes remain separate from declaration undo.
 
 - Maven dependency quick fixes and selected bulk edits capture expected effective versions for **Verify Maven versions**, retaining each imported shared consumer POM and attributing local overrides to their child only. Confirmation requires a subsequent full import with unchanged saved inputs; parent/plugin versions, vulnerability checks and runtime compatibility remain outside verification.
 - Optional schema-versioned `.version-checker.json` shares exact Maven/npm/Gradle dependency rules, expiring ignored releases, reasoned deprecations and allowed update levels. Workspace rules add restrictions without overriding shared policy; diagnostics and policy provenance stay visible, and unsaved/external changes retire prepared updates. Personal settings remain local and the plugin never creates or rewrites the policy file.

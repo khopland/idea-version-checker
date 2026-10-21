@@ -12,6 +12,7 @@ import com.intellij.openapi.util.Pair
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiManager
 import io.github.khopland.versionchecker.*
+import io.github.khopland.versionchecker.core.VersionVerificationOutcome
 import kotlinx.coroutines.*
 import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.dom.MavenDomProjectProcessorUtils
@@ -84,19 +85,36 @@ internal class MavenUpdateVerificationService(private val project: Project, priv
         }
     }
 
-    fun verify(changes: AppliedVersionChanges, publish: (String) -> Unit) {
-        scope.launch(Dispatchers.IO) {
-            val message = try {
-                withBackgroundProgress(project, "Verifying Maven effective versions", cancellable = true) { evaluate(changes) }
+    fun verify(changes: AppliedVersionChanges, publish: (VersionVerificationOutcome) -> Unit) {
+        val published = java.util.concurrent.atomic.AtomicBoolean(false)
+        val job = scope.launch(Dispatchers.IO) {
+            val outcome = try {
+                VersionVerificationOutcome(VersionVerificationOutcome.Status.OBSERVED,
+                    withBackgroundProgress(project, "Verifying Maven effective versions", cancellable = true) { evaluate(changes) })
             }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { "Unknown: Maven verification inputs could not be read. Reload and verify again." }
-            withContext(Dispatchers.EDT) {
-                if (!project.isDisposed) {
-                    publish(message)
-                    Messages.showInfoMessage(project, message, "Maven Effective Versions")
+            catch (_: CancellationException) {
+                VersionVerificationOutcome(VersionVerificationOutcome.Status.CANCELLED,
+                    "Unknown: Maven version observation was cancelled. No fresh dependency version evidence was confirmed.")
+            }
+            catch (_: com.intellij.openapi.progress.ProcessCanceledException) {
+                VersionVerificationOutcome(VersionVerificationOutcome.Status.CANCELLED,
+                    "Unknown: Maven version observation was cancelled. No fresh dependency version evidence was confirmed.")
+            }
+            catch (_: Exception) { VersionVerificationOutcome(VersionVerificationOutcome.Status.FAILED,
+                "Unknown: Maven verification inputs could not be read. Reload and verify again.") }
+            withContext(NonCancellable + Dispatchers.EDT) {
+                if (!disposed && !project.isDisposed) {
+                    published.set(true)
+                    publish(outcome)
+                    if (outcome.status != VersionVerificationOutcome.Status.CANCELLED)
+                        Messages.showInfoMessage(project, outcome.message, "Maven Effective Versions")
                 }
             }
+        }
+        job.invokeOnCompletion { cause ->
+            if (cause != null && !disposed && !project.isDisposed && published.compareAndSet(false, true))
+                publish(VersionVerificationOutcome(VersionVerificationOutcome.Status.CANCELLED,
+                    "Unknown: Maven version observation was cancelled before a result was reported."))
         }
     }
 

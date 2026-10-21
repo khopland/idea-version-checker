@@ -34,7 +34,7 @@ internal class MavenBuildSystemAdapter(
         project.service<MavenUpdateVerificationService>().reloadAndCapture()
         return true
     }
-    override fun verifyUpdatedVersions(project: Project, changes: AppliedVersionChanges, publish: (String) -> Unit) {
+    override fun verifyUpdatedVersions(project: Project, changes: AppliedVersionChanges, publish: (VersionVerificationOutcome) -> Unit) {
         project.service<MavenUpdateVerificationService>().verify(changes, publish)
     }
     override val id = "maven"
