@@ -58,6 +58,8 @@ The plugin applies the changes in one command that you can undo.
 A shared version changes only when its consumers agree.
 Conflicts and unsupported declarations appear under **Needs review**.
 If build inputs change or results expire, prepare a new preview.
+The preview shows the earliest result expiry and disables Apply when that deadline passes.
+Use **Refresh** to check again.
 
 ## Supported declarations
 
