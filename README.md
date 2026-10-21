@@ -67,13 +67,13 @@ Use **Refresh** to check again.
 | --- | --- |
 | Maven | Dependencies, dependency management, BOMs, and build plugins in imported POMs and active profiles. Supports literal versions and simple local properties. Parent-managed versions can offer local overrides or imported-parent updates. |
 | npm | `dependencies`, `devDependencies`, and `optionalDependencies`. Supports scoped packages, aliases, and npm workspaces. Exact versions and simple `^` or `~` selectors keep their operator. |
-| Gradle | Fixed stable library and BOM versions in supported Groovy and Kotlin dependency calls. Supports the default local `gradle/libs.versions.toml` catalog and simple `version.ref` entries. |
+| Gradle | Fixed stable library and BOM versions in supported Groovy and Kotlin dependency calls. Supports the default local `gradle/libs.versions.toml` catalog, literal named local TOML catalog registrations in root settings, and simple `version.ref` entries. |
 
 These declarations require manual review:
 
 - Maven expressions that use more than a simple property reference.
 - npm ranges and peer dependencies.
-- Gradle dynamic versions, script properties, plugin versions, and custom catalogs.
+- Gradle dynamic versions, script properties, plugin versions, and published or programmatically constructed catalogs.
 
 The npm adapter excludes pnpm, Yarn, and Bun projects.
 See the [user guide](docs/user-guide.md) for declaration limits and shared-version rules.
