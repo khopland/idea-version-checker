@@ -162,7 +162,8 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                     review.onRecheckRequested = { mode, updateScope, forceRefresh, trace ->
                                         selectedMode = mode
                                         selectedScope = updateScope
-                                        requests.request(PreviewRecheckRequest(mode, updateScope, forceRefresh, trace))
+                                        requests.request(PreviewRecheckRequest(mode, updateScope, forceRefresh, trace,
+                                            review.targetChoicesRequested))
                                     }
                                 }
                             }
@@ -223,7 +224,8 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
         val prepared = withBackgroundProgress(project,
             "Checking versions: ${request.updateScope.label} — ${request.mode.label}", cancellable = true) {
             saveBuildInputs(project, selection, adapters)
-            preparePreview(request.mode, request.updateScope, currentFile, adapters, request.forceRefresh)
+            VersionPreviewPreparer(project).prepare(request.mode, request.updateScope, currentFile, adapters,
+                request.forceRefresh, request.includeTargetChoices)
         }
         val current = currentFile != null && readAction {
             BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()

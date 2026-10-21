@@ -10,7 +10,8 @@ internal data class PreparedVersionPreview @JvmOverloads constructor(
     val checkedAtNanos: Long,
     val reusedReports: Int,
     val totalReports: Int,
-    val coverage: CoverageSummary? = null
+    val coverage: CoverageSummary? = null,
+    val targetPlans: Map<UpdateMode, BulkUpdatePlan> = emptyMap()
 )
 
 /**
@@ -23,8 +24,18 @@ internal class VersionPreviewPreparer(private val project: Project) {
         updateScope: UpdateScope,
         currentFile: VirtualFile?,
         adapters: List<BuildSystemAdapter>,
-        forceRefresh: Boolean
+        forceRefresh: Boolean,
+        includeTargetChoices: Boolean = false
     ): PreparedVersionPreview {
+        if (includeTargetChoices) {
+            val primary = prepare(mode, updateScope, currentFile, adapters, forceRefresh)
+            val narrower = UpdateMode.entries.filter { candidate ->
+                candidate.ordinal < mode.ordinal && adapters.all { candidate in it.capabilities.updateModes }
+            }.associateWith { candidate -> prepare(candidate, updateScope, currentFile, adapters, false) }
+            return primary.copy(
+                checkedAtNanos = (narrower.values.map { it.checkedAtNanos } + primary.checkedAtNanos).min(),
+                targetPlans = narrower.mapValues { it.value.plan })
+        }
         check(adapters.isNotEmpty()) { "Open a supported build file to update its versions" }
         val service = project.service<VersionCheckService>()
         val results = mutableListOf<Pair<BuildSnapshot, VersionResultCache.CachedResult>>()

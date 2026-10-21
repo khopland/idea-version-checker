@@ -20,7 +20,8 @@ internal data class PreviewRecheckRequest(
     val mode: UpdateMode,
     val updateScope: UpdateScope,
     val forceRefresh: Boolean,
-    val interaction: CheckPerformance.Interaction? = null
+    val interaction: CheckPerformance.Interaction? = null,
+    val includeTargetChoices: Boolean = false
 )
 
 internal data class PreviewRecheckResult(
