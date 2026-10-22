@@ -39,8 +39,12 @@ internal data class NpmPreparedUpdate(
                 "npm declaration no longer exists"
             }
             check(value.value == declaration.selector) { "npm selector changed during the check" }
+            val selected = NpmSelector.parse(declaration.artifact.name, replacement)
+                ?.takeIf { it.packageName == selector!!.packageName && it.baseline > selector.baseline }
+            val target = selected?.let { NpmTarget(declaration.id, NpmWorkspaces.resolve(project, file).root.path,
+                it.packageName, replacement.removePrefix(it.prefix), declaration.baseline, declaration.selector) }
             val edit = NpmVersionEdit(value, replacement,
-                "${declaration.id.file}: ${declaration.id.location} (${declaration.artifact.name})")
+                "${declaration.id.file}: ${declaration.id.location} (${declaration.artifact.name})", target)
             return NpmPreparedUpdate(declaration.id, setOf(declaration.id), replacement, emptyList(), edit,
                 listOf(NpmUpdateGuidance.message))
         }
