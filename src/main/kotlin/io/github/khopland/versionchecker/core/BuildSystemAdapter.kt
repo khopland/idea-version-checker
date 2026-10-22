@@ -18,7 +18,7 @@ internal interface BuildSystemAdapter {
     /** Await a provider reload on IO, or return null to use the synchronous request fallback. */
     suspend fun reloadProjectInBackground(project: Project): Boolean? = null
     fun verifyUpdatedVersions(project: Project, changes: io.github.khopland.versionchecker.AppliedVersionChanges,
-                              publish: (String) -> Unit) = Unit
+                              publish: (VersionVerificationOutcome) -> Unit) = Unit
     fun isOffline(project: Project): Boolean
     /** Background path discovery before save. Capture IDE state under short reads; external I/O outside them. */
     suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> = emptySet()
