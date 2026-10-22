@@ -25,6 +25,8 @@
 
 ### Changed
 
+- Update reviews display the earliest actual result lease deadline and disable Apply at expiry, preserving read-only details and selections for Refresh. The presentation timer performs no repository queries, stops on disposal, and rejects stale queued clicks without estimating deadlines from observation age.
+
 - Build reload follow-ups distinguish saving, requesting, requested, cancelled, unavailable and failed outcomes without claiming synchronization or dependency verification. npm lockfile follow-ups report timeout separately, bound post-cancellation inspection, and disclose unconfirmed process termination and potentially incomplete file observations.
 
 - Cached dependency review rows preserve original observation age and expiry from cache entries and progress. JSON export schema 2 records relative observation age and expiry status separately from file creation time, with explicit unknown timing and no edit authority or absolute monotonic timestamps.
