@@ -109,6 +109,21 @@ internal class DependencyToolWindowPanel(private val project: Project,
         override fun actionPerformed(event: AnActionEvent) = copyMarkdown()
     }
 
+    internal val supportReportAction = object : DumbAwareAction(
+        "Preview Support Report…", "Review a sanitized snapshot of settings and displayed cached observations", AllIcons.Actions.Preview) {
+        override fun actionPerformed(event: AnActionEvent) {
+            if (disposed || project.isDisposed) return
+            val snapshot = captureSupportReport()
+            // Establish safe modality before opening the preview or its Save As chooser.
+            ApplicationManager.getApplication().invokeLater({
+                if (!disposed && !project.isDisposed) scope.launch {
+                    val report = snapshot.json()
+                    project.service<BulkUpdateService>().showDialog { SupportDiagnosticReportDialog(project, report) }
+                }
+            }, ModalityState.nonModal(), { disposed || project.isDisposed })
+        }
+    }
+
     init {
         border = JBUI.Borders.empty(4, 6)
         val actions = DefaultActionGroup().apply {
@@ -126,6 +141,7 @@ internal class DependencyToolWindowPanel(private val project: Project,
             add(copyMarkdownAction)
             add(exportAction("Export JSON…", "json"))
             add(exportAction("Export Markdown…", "md"))
+            add(supportReportAction)
             add(object : ToggleAction("Show dependency filters", "Show or hide build system, root, outcome and change filters", AllIcons.General.Filter), DumbAware {
                 override fun isSelected(event: AnActionEvent) = filterFields.isVisible
                 override fun setSelected(event: AnActionEvent, state: Boolean) = setFiltersVisible(state)
@@ -232,6 +248,17 @@ internal class DependencyToolWindowPanel(private val project: Project,
             }
         }
     }
+
+    /** Capture only presentation data and allowlisted facts; never re-read providers for a report. */
+    internal fun captureSupportReport(): SupportDiagnosticReport = SupportDiagnosticReport(
+        displayed = visibleRows().toList(), totalCachedRows = rows.size,
+        filtersActive = search.text.isNotBlank() || provider.selectedIndex > 0 || buildRoot.selectedIndex > 0 ||
+            filter.selectedItem != DependencyReviewFilter.ALL || kind.selectedIndex > 0,
+        checksActive = activity(), basePath = project.basePath,
+        settings = runCatching { SupportReportSettings.capture(project.service<VersionCheckerSettings>().state) }.getOrNull(),
+        policy = SupportReportPolicy.capture(runCatching { projectPolicy(project) }.getOrNull()),
+        environment = runCatching { SupportReportEnvironment.capture() }.getOrNull(),
+        capturedAt = java.time.Instant.now(), nowNanos = now())
 
     private fun exportAction(label: String, extension: String) = object : DumbAwareAction(
         label, "Export filtered rows in their displayed sort order", AllIcons.Actions.Download) {
