@@ -32,7 +32,7 @@
 
 ### Changed
 
-- Remove obsolete plans, performance reports and superseded acceptance evidence. Keep current guides and the latest candidate acceptance record.
+- Remove obsolete plans, performance reports and dated acceptance evidence. Keep current guides and record candidate checks in the pull request or release draft.
 - Share dependency-review JSON row construction with support reports, removing redundant serialization and parsing while preserving sanitization, timing and output limits.
 
 - Update reviews display the earliest actual result lease deadline and disable Apply at expiry, preserving read-only details and selections for Refresh. The presentation timer performs no repository queries, stops on disposal, and rejects stale queued clicks without estimating deadlines from observation age.

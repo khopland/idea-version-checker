@@ -6,7 +6,7 @@ replace interactive acceptance. Use a fresh isolated IDE configuration, system,
 plugins and log directory per target. Extract the candidate into an empty plugin
 directory so an older JAR cannot remain beside it. Keep normal IDE profiles intact.
 
-See the [acceptance record index](acceptance/README.md) for earlier candidate results.
+Record results in the pull request or release draft.
 Results belong to their recorded ZIP, not future builds.
 
 ## Record the candidate
@@ -79,9 +79,9 @@ zero native checks. Measure the atomic write separately from background checking
 
 ## Evidence and release decision
 
-Store a dated record under `docs/acceptance/` with the candidate identity and a
-copy of the matrix populated for each IDE. Keep historical release records as
-historical evidence. Do not transfer acceptance from an earlier ZIP to a changed
+Record the candidate identity and populated matrix in the pull request or release
+draft. Keep supporting evidence in workflow artifacts or release attachments.
+Do not transfer acceptance from an earlier ZIP to a changed
 candidate or infer interactive success from unit/native integration tests.
 
 Retain sanitized logs/screenshots or byte comparisons supporting each pass. Record

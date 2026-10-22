@@ -4,7 +4,6 @@ The [Build workflow](../.github/workflows/build.yml) validates changes and prepa
 The [Release workflow](../.github/workflows/release.yml) validates a published tag and delivers its archive to JetBrains Marketplace.
 
 The project version comes from `gradle.properties`.
-[Acceptance records](acceptance/README.md) identify the tested archives and their remaining checks.
 Check [GitHub Releases](https://github.com/khopland/idea-version-checker/releases) for published releases and drafts.
 
 ## Supported IDEs

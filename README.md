@@ -168,7 +168,7 @@ Copy a demo to the Git-ignored `examples/` directory before you try updates:
 [npm](src/test/resources/npm-demo/README.md), or
 [Gradle](src/test/resources/gradle-demo/README.md).
 
-See the [documentation index](docs/README.md) for current guides and candidate acceptance records.
+See the [documentation index](docs/README.md) for current guides.
 
 Development references:
 

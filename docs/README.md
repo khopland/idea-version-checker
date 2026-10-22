@@ -12,10 +12,6 @@ Use these guides for the current project.
 | [Release procedure](releasing.md) | Prepare, publish, and recover a release. |
 | [Writing rules](writing.md) | Write comments, documentation, and user messages. |
 
-## Candidate acceptance
-
-The [acceptance records](acceptance/README.md) identify tested candidates and remaining checks.
-Each result applies only to its recorded source and plugin archive.
-Use the current acceptance procedure for each release candidate.
-
 Superseded reports, release reviews, and delivery plans remain available in Git history.
+Record candidate-specific results in the pull request or release draft.
+Use the [acceptance procedure](ide-acceptance.md) for each release candidate.
