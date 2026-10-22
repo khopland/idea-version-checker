@@ -168,6 +168,16 @@ internal object NpmRegistry {
         val value = JsonParser.parseString(text)
         return value.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString?.takeIf { it.isNotBlank() }
     }
+    /** One explicit selected-version lookup; this never enumerates or prepares candidate versions. */
+    suspend fun targetDetails(project: Project, directory: Path, target: NpmTarget): NpmTargetDetails {
+        check(NpmSelector.validName(target.packageName) && NpmVersion.parse(target.version) != null)
+        return loadTargetDetails(target) { view(resolve(project, directory), directory, it) }
+    }
+
+    internal suspend fun loadTargetDetails(target: NpmTarget, query: suspend (List<String>) -> String): NpmTargetDetails =
+        NpmTargetDetails.parse(query(listOf("${target.packageName}@${target.version}", "name", "version",
+            "engines", "peerDependencies", "repository", "homepage")), target)
+
     fun eligible(metadata: NpmPackageMetadata, baseline: NpmVersion, mode: UpdateMode): List<String> {
         return metadata.history.eligible(baseline, mode).map { it.text }.toList()
     }

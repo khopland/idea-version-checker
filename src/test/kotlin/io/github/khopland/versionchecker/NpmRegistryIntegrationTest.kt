@@ -42,6 +42,92 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Opt-in: real IntelliJ-selected Node/npm, with an authenticated local registry and no installs. */
 class NpmRegistryIntegrationTest : BasePlatformTestCase() {
+    fun testSelectedTargetDetailsUseActualAliasAndWorkspaceScopedNpmConfiguration() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
+        val node = PathEnvironmentVariableUtil.findInPath("node")!!.toPath().toRealPath()
+        val npm = PathEnvironmentVariableUtil.findInPath("npm")!!.toPath().toRealPath()
+        val directory = Files.createTempDirectory("version-checker-npm-details-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString(), node.parent.toString(), npm.parent.parent.toString())
+        val requests = CopyOnWriteArrayList<String>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { exchange ->
+            try {
+                requests += exchange.requestURI.path
+                if (exchange.requestURI.path != "/@details/actual" ||
+                    exchange.requestHeaders.getFirst("Authorization") != "Bearer fixture-token") exchange.sendResponseHeaders(403, -1)
+                else {
+                    val body = """{"name":"@details/actual","dist-tags":{"latest":"9.0.0"},"versions":{
+                        "1.0.0":{"name":"@details/actual","version":"1.0.0"},
+                        "2.0.0":{"name":"@details/actual","version":"2.0.0","engines":{"node":">=20"},
+                            "peerDependencies":{"react":"^18 || ^19"},"repository":{"url":"https://example.com/known/repo"}},
+                        "9.0.0":{"name":"@details/actual","version":"9.0.0","engines":{"node":">=99"}}
+                    }}""".toByteArray()
+                    exchange.responseHeaders.add("Content-Type", "application/json")
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.write(body)
+                }
+            } finally { exchange.close() }
+        }
+        server.start()
+        val interpreterManager = NodeJsInterpreterManager.getInstance(project)
+        val npmManager = NpmManager.getInstance(project)
+        val previousInterpreter = interpreterManager.interpreterRef
+        val previousNpm = npmManager.packageRef
+        var contentRootAdded = false
+        try {
+            interpreterManager.setInterpreterRef(NodeJsInterpreterRef.create(NodeJsLocalInterpreter(node.toString())))
+            npmManager.setPackageRef(NodePackageRef.create(NpmNodePackage(npm.parent.parent.toString())))
+            Files.writeString(directory.resolve("package.json"), """{"private":true,"workspaces":["packages/*"]}""")
+            Files.writeString(directory.resolve(".npmrc"), """
+                registry=http://127.0.0.1:9/
+                @details:registry=http://127.0.0.1:${server.address.port}/
+                //127.0.0.1:${server.address.port}/:_authToken=fixture-token
+                fetch-retries=0
+            """.trimIndent())
+            val member = Files.createDirectories(directory.resolve("packages/app"))
+            Files.writeString(member.resolve("package.json"), """{"name":"app","dependencies":{
+                "display-alias":"npm:@details/actual@^1.0.0","react":"~18.2.0"}}""")
+            // npm checks run at the real workspace root, never with this unrelated member configuration.
+            Files.writeString(member.resolve(".npmrc"), "registry=http://127.0.0.1:1/")
+            val virtualRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(false, true, true, virtualRoot)
+            ModuleRootModificationUtil.addContentRoot(myFixture.module, directory.toString())
+            contentRootAdded = true
+            IndexingTestUtil.waitUntilIndexesAreReady(project)
+            val file = virtualRoot.findFileByRelativePath("packages/app/package.json")!!
+            val adapter = NpmBuildSystemAdapter()
+            val snapshot = adapter.snapshot(project, file)!!
+            val declaration = snapshot.declarations.single { it.id.location == "dependencies/display-alias" }
+            val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking {
+                    val plan = adapter.prepareUpdates(project, mapOf(snapshot to UpdateReport(listOf(
+                        UpdateCandidate(declaration, "2.0.0", "npm:@details/actual@^2.0.0")))))
+                    NpmTargetDetailsLoader.load(project, plan.changes.single().npmTarget!!)
+                }
+            })
+            val details = PlatformTestUtil.waitForFuture(future, 30_000)
+            assertEquals(mapOf("node" to ">=20"), details.engines)
+            assertEquals(mapOf("react" to "^18 || ^19"), details.peers)
+            assertEquals("~18.2.0", details.declaredPeers["react"])
+            assertNull("An alias is not installed under its registry name", details.declaredPeers["@details/actual"])
+            assertEquals("https://example.com/known/repo", details.repository)
+            assertEquals(setOf("/@details/actual"), requests.toSet())
+            assertEquals("npm:@details/actual@^1.0.0", NpmManifest.values(PsiManager.getInstance(project).findFile(file)!!).getValue(declaration.id).value)
+            for (root in listOf(directory, member)) {
+                assertFalse(Files.exists(root.resolve("node_modules")))
+                assertFalse(Files.exists(root.resolve("package-lock.json")))
+            }
+        } finally {
+            if (contentRootAdded) ModuleRootModificationUtil.updateModel(myFixture.module) { model ->
+                model.contentEntries.filter { it.url == "file://$directory" }.forEach(model::removeContentEntry)
+            }
+            interpreterManager.setInterpreterRef(previousInterpreter)
+            npmManager.setPackageRef(previousNpm)
+            server.stop(0)
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testExplicitLockfileSyncUsesConfiguredRuntimeAndDisablesScriptsAndInstall() {
         if (!java.lang.Boolean.getBoolean("versionchecker.npmIntegration")) return
         val node = PathEnvironmentVariableUtil.findInPath("node")!!.toPath().toRealPath()

@@ -3,6 +3,12 @@ package io.github.khopland.versionchecker
 import io.github.khopland.versionchecker.core.DiagnosticSanitizer
 
 import com.intellij.openapi.project.Project
+import com.intellij.ide.BrowserUtil
+import com.intellij.openapi.application.EDT
+import io.github.khopland.versionchecker.npm.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.service
@@ -114,6 +120,29 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     internal val targetSelector = ComboBox<VersionTargetChoice>()
     private val targetReason = JBLabel()
     private var targetChoices = VersionTargetChoices(plan, mode)
+    internal val npmDetails = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true; rows = 6 }
+    private val npmDetailsPanel = JPanel(BorderLayout(0, 4))
+    private val npmRepository = JButton("Open repository")
+    private val npmHomepage = JButton("Open homepage")
+    private var npmLinks: NpmTargetDetails? = null
+    internal var npmDetailsLoader: suspend (NpmTarget) -> NpmTargetDetails = { NpmTargetDetailsLoader.load(project, it) }
+    private val npmRequests = NpmTargetDetailsRequests(CoroutineScope(SupervisorJob() + Dispatchers.EDT),
+        { npmDetailsLoader(it) }) { target, details ->
+        npmLinks = details
+        npmDetails.text = (details ?: NpmTargetDetails()).description(target) +
+            if (details == null) "\nDetails unavailable. Check saved npm inputs, runtime settings and registry access, then retry." else ""
+        npmDetails.caretPosition = 0
+        updateNpmDetailActions()
+    }
+    internal val loadNpmDetailsAction: Action = object : AbstractAction("Load npm target details") {
+        override fun actionPerformed(event: ActionEvent) {
+            if (!isEnabled || !previewState.canApply || isDisposed) return
+            npmLinks = null
+            npmDetails.text = "Loading published requirements for the selected target…"
+            npmRequests.request()
+            updateNpmDetailActions()
+        }
+    }
     private var configuringTargets = false
     private var targetPopupOpen = false
     private var targetPopupChoice: VersionTargetChoice? = null
@@ -210,6 +239,9 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         fun highlighted(): VersionEdit? = table.selectedRows.singleOrNull()?.let { model.changes.getOrNull(table.convertRowIndexToModel(it)) }
         openButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().openDeclaration(it) } }
         diffButton.addActionListener { highlighted()?.let { project.service<BulkUpdateService>().previewEdit(it) } }
+        npmDetails.accessibleContext.accessibleName = "Selected npm target requirements"
+        npmRepository.addActionListener { npmLinks?.repository?.let { BrowserUtil.browse(it) } }
+        npmHomepage.addActionListener { npmLinks?.homepage?.let { BrowserUtil.browse(it) } }
         targetSelector.accessibleContext.accessibleName = "Checked target version"
         targetSelector.addPopupMenuListener(targetPopupListener)
         targetSelector.addActionListener { if (!targetPopupOpen) commitTargetSelection() }
@@ -228,6 +260,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
                 sorter.rowFilter = filter.text.takeIf { it.isNotBlank() }?.let {
                     RowFilter.regexFilter("(?i)" + Pattern.quote(it), 1, 2, 3)
                 }
+                resetNpmDetails()
                 updateSummary()
             }
         })
@@ -353,6 +386,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             val selected = selectedPlan()
             val trace = applyInteraction
             val preparedGeneration = previewState.generation
+            resetNpmDetails(null)
             previewState = previewState.applying()
             updateSummary()
             // Production reviews are modeless. Accessibility button handlers can run
@@ -376,6 +410,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         if (isDisposed) return
         freshnessTimer.stop()
         recheckInteraction = CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
+        resetNpmDetails(null)
         previewState = previewState.recheck()
         val callback = onRecheckRequested
         if (callback == null) close(RECHECK_EXIT_CODE) else {
@@ -448,6 +483,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         diffButton.isEnabled = openButton.isEnabled
         targetSelector.isEnabled = openButton.isEnabled && targetSelector.itemCount > 1 && previewState.canApply
         loadTargetsAction.isEnabled = previewState.canApply && previewState.mode != UpdateMode.PATCH && !targetChoicesRequested
+        updateNpmDetailActions()
     }
 
     private fun updateTargetDetails() {
@@ -465,6 +501,29 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
                 else "Use Check other targets for checked patch and minor alternatives."
             } else targetReason.text = "Select one declaration to choose a target."
         } finally { configuringTargets = false }
+        resetNpmDetails()
+    }
+
+    private fun highlightedNpmTarget(): NpmTarget? = table.selectedRows.singleOrNull()?.let {
+        model.changes.getOrNull(table.convertRowIndexToModel(it))?.npmTarget
+    }
+
+    private fun resetNpmDetails(target: NpmTarget? = highlightedNpmTarget()) {
+        npmRequests.select(target)
+        npmLinks = null
+        npmDetailsPanel.isVisible = target != null
+        npmDetails.text = target?.let {
+            "Load published requirements and known repository/homepage links for this selected version.\n" +
+                NpmTargetDetails().description(it)
+        }.orEmpty()
+        npmDetails.caretPosition = 0
+        updateNpmDetailActions()
+    }
+
+    private fun updateNpmDetailActions() {
+        loadNpmDetailsAction.isEnabled = !isDisposed && previewState.canApply && npmRequests.target != null && !npmRequests.loading
+        npmRepository.isEnabled = loadNpmDetailsAction.isEnabled && npmLinks?.repository != null
+        npmHomepage.isEnabled = loadNpmDetailsAction.isEnabled && npmLinks?.homepage != null
     }
 
     private fun restoreTargetSelection() {
@@ -507,6 +566,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
 
     override fun dispose() {
         freshnessTimer.stop()
+        npmRequests.close()
         previewState = previewState.closed(isOK)
         super.dispose()
     }
@@ -541,9 +601,20 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         val targetControls = JPanel(FlowLayout(FlowLayout.LEADING)).apply {
             add(JBLabel("Target:").apply { labelFor = targetSelector }); add(targetSelector); add(targetReason)
         }
+        npmDetailsPanel.apply {
+            add(JPanel(FlowLayout(FlowLayout.LEADING)).apply {
+                add(JButton(loadNpmDetailsAction)); add(npmRepository); add(npmHomepage)
+            }, BorderLayout.NORTH)
+            add(JBScrollPane(npmDetails), BorderLayout.CENTER)
+            isVisible = false
+        }
         val selection = JPanel(BorderLayout(0, 4)).apply {
             add(JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS); add(selectionButtons); add(targetControls) }, BorderLayout.NORTH)
-            add(JBScrollPane(changeDetails), BorderLayout.CENTER); add(summary, BorderLayout.SOUTH)
+            add(JPanel(BorderLayout(0, 4)).apply {
+                add(JBScrollPane(changeDetails), BorderLayout.NORTH)
+                add(npmDetailsPanel, BorderLayout.CENTER)
+            }, BorderLayout.CENTER)
+            add(summary, BorderLayout.SOUTH)
         }
         val footer = JPanel(BorderLayout(0, 8)).apply {
             add(selection, BorderLayout.NORTH)
