@@ -3,14 +3,14 @@ package io.github.khopland.versionchecker
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import com.google.gson.JsonNull
-import com.google.gson.JsonPrimitive
 import io.github.khopland.versionchecker.core.DiagnosticSanitizer
 import java.nio.file.Path
 import java.time.Instant
 
 /** Explicit presentation export. It contains no cached inputs, native diagnostics or edit authority. */
 internal object DependencyReviewExport {
+    private val gson = GsonBuilder().serializeNulls().setPrettyPrinting().create()
+
     fun json(rows: List<DependencyReviewRow>, basePath: String?, generatedAt: Instant = Instant.now(),
              nowNanos: Long = System.nanoTime()): String {
         val document = JsonObject().apply {
@@ -20,34 +20,35 @@ internal object DependencyReviewExport {
             addProperty("observationTimingBasis", "monotonic-durations-at-export")
             addProperty("scope", "cached-observations")
             addProperty("requiresFreshReviewBeforeEditing", true)
-            add("results", JsonArray().apply {
-                rows.forEach { row -> add(JsonObject().apply {
-                    addProperty("buildSystem", safe(row.adapter))
-                    addProperty("buildRoot", sourcePath(row.root, basePath))
-                    addProperty("sourceFile", sourcePath(row.source.file, basePath))
-                    addProperty("sourceLocation", safe(row.source.location))
-                    row.origin?.let { origin ->
-                        addProperty("checkSourceFile", sourcePath(origin.checkSourceFile, basePath))
-                        origin.coverageDescription?.let { addProperty("coverageScope", safe(it)) }
-                    }
-                    addProperty("artifact", safe(row.artifact))
-                    addProperty("currentVersion", safe(row.current))
-                    row.available?.let { addProperty("availableVersion", safe(it)) }
-                    row.kind?.let { addProperty("changeKind", it.name.lowercase()) }
-                    addProperty("outcome", row.outcome.label)
-                    addProperty("detail", safe(row.detail))
-                    addProperty("mode", row.mode.name.lowercase())
-                    addProperty("checking", row.checking)
-                    addProperty("checkFailed", row.checkFailed)
-                    add("observationAgeMillis", DependencyReviewFreshness.elapsedMillis(row, nowNanos)
-                        ?.let(::JsonPrimitive) ?: JsonNull.INSTANCE)
-                    add("cacheExpiresInMillis", DependencyReviewFreshness.remainingMillis(row, nowNanos)
-                        ?.let(::JsonPrimitive) ?: JsonNull.INSTANCE)
-                    addProperty("cacheExpiryStatus", DependencyReviewFreshness.expiryStatus(row, nowNanos))
-                }) }
-            })
+            add("results", jsonResults(rows, basePath, nowNanos))
         }
-        return GsonBuilder().serializeNulls().setPrettyPrinting().create().toJson(document) + "\n"
+        return gson.toJson(document) + "\n"
+    }
+
+    /** Each caller owns its array, so support-report bounds cannot alter another export. */
+    fun jsonResults(rows: List<DependencyReviewRow>, basePath: String?, nowNanos: Long) = JsonArray().apply {
+        rows.forEach { row -> add(JsonObject().apply {
+            addProperty("buildSystem", safe(row.adapter))
+            addProperty("buildRoot", sourcePath(row.root, basePath))
+            addProperty("sourceFile", sourcePath(row.source.file, basePath))
+            addProperty("sourceLocation", safe(row.source.location))
+            row.origin?.let { origin ->
+                addProperty("checkSourceFile", sourcePath(origin.checkSourceFile, basePath))
+                origin.coverageDescription?.let { addProperty("coverageScope", safe(it)) }
+            }
+            addProperty("artifact", safe(row.artifact))
+            addProperty("currentVersion", safe(row.current))
+            row.available?.let { addProperty("availableVersion", safe(it)) }
+            row.kind?.let { addProperty("changeKind", it.name.lowercase()) }
+            addProperty("outcome", row.outcome.label)
+            addProperty("detail", safe(row.detail))
+            addProperty("mode", row.mode.name.lowercase())
+            addProperty("checking", row.checking)
+            addProperty("checkFailed", row.checkFailed)
+            addProperty("observationAgeMillis", DependencyReviewFreshness.elapsedMillis(row, nowNanos))
+            addProperty("cacheExpiresInMillis", DependencyReviewFreshness.remainingMillis(row, nowNanos))
+            addProperty("cacheExpiryStatus", DependencyReviewFreshness.expiryStatus(row, nowNanos))
+        }) }
     }
 
     /** A shareable summary of precisely the supplied displayed rows; it cannot authorize edits. */

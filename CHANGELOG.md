@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-22
+
 ### Added
 
 - Maven inspections identify unnecessary property and dependency version overrides when the parent provides the same or a newer stable version. Alt+Enter removes the override, preserves dependency configuration, shows version changes and XML previews, and rejects changed POMs.
@@ -29,6 +31,9 @@
 - Optional Maven **Minimum release age (hours)** suggests only versions published at least that long ago, for example to match a repository quarantine such as Sonatype Nexus Repository Firewall. Metadata older than the minimum age needs no extra request; otherwise candidate POM `Last-Modified` times are read newest first and cached. It defaults to off and applies to both the native helper and the Versions-goal fallback.
 
 ### Changed
+
+- Remove obsolete plans, performance reports and superseded acceptance evidence. Keep current guides and the latest candidate acceptance record.
+- Share dependency-review JSON row construction with support reports, removing redundant serialization and parsing while preserving sanitization, timing and output limits.
 
 - Update reviews display the earliest actual result lease deadline and disable Apply at expiry, preserving read-only details and selections for Refresh. The presentation timer performs no repository queries, stops on disposal, and rejects stale queued clicks without estimating deadlines from observation age.
 
