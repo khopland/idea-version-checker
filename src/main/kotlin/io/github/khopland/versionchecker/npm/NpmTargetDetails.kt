@@ -146,12 +146,17 @@ internal class NpmTargetDetailsRequests(
         loading = true
         job = scope.launch {
             val details = try { load(selected) } catch (cancelled: CancellationException) {
+                complete(selected, requestedGeneration, null)
                 throw cancelled
             } catch (_: Exception) { null }
-            if (!closed && generation == requestedGeneration && target == selected) {
-                loading = false
-                publish(selected, details)
-            }
+            complete(selected, requestedGeneration, details)
+        }
+    }
+
+    private fun complete(selected: NpmTarget, requestedGeneration: Long, details: NpmTargetDetails?) {
+        if (!closed && generation == requestedGeneration && target == selected) {
+            loading = false
+            publish(selected, details)
         }
     }
 

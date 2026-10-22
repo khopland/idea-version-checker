@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker
 
 import io.github.khopland.versionchecker.core.DeclarationId
 import io.github.khopland.versionchecker.npm.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -85,6 +86,22 @@ class NpmTargetDetailsTest {
             requests.close()
             pending[2].second.resume(NpmTargetDetails(engines = mapOf("node" to "CLOSED")))
             assertEquals(1, published.size)
+        } finally { requests.close() }
+    }
+
+    @Test fun independentlyCancelledLookupCanRetryWithoutPublishingForAnObsoleteSelection() {
+        var attempts = 0
+        val published = mutableListOf<NpmTargetDetails?>()
+        val requests = NpmTargetDetailsRequests(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            { if (++attempts == 1) throw CancellationException("native lookup cancelled") else NpmTargetDetails() },
+            { _, details -> published += details })
+        try {
+            requests.select(target)
+            requests.request()
+            assertEquals(listOf<NpmTargetDetails?>(null), published)
+            assertFalse("Independent cancellation must restore the Load action", requests.loading)
+            requests.request()
+            assertEquals(listOf(null, NpmTargetDetails()), published)
         } finally { requests.close() }
     }
 
