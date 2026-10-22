@@ -222,7 +222,41 @@ For a dependency controlled by a property in your Maven parent chain, **Alt+Ente
 
 The action's XML preview lists checked artifacts separately from unused managed entries whose metadata changes without a version check. It also works for a dependency inherited from the parent when the child has no dependency declaration; unused parent management catalogs do not expand editor checks. All actual used or resolved shared consumers must have an agreed candidate version; unused ordinary dependency-management entries need no extra query. BOM imports and plugin-management references remain subject to candidate agreement. An unchecked, ignored or conflicting active consumer, a separately overridden dependency version, a non-version property use, an ambiguous parent profile, or a `.mvn` property override requires manual review. Creation is also withheld when this POM has imported descendant modules, including ignored modules, because those modules would inherit the override. Properties inside an **imported BOM** have their own interpolation context and cannot be overridden this way; review an explicit `dependencyManagement` entry instead.
 
-Apply uses the IDE's undo command and rejects changed results, POMs, parent source files or Maven settings. Save and reload Maven, then inspect its effective dependency versions. A newer available version is not evidence that it fixes a vulnerability or remains compatible with Spring Boot's tested dependency set. Prefer a parent upgrade when appropriate. Use the separate **Verify Maven versions** follow-up to compare captured dependency targets with a subsequent import; automatic vulnerability checks and redundant-override cleanup are not provided.
+Apply uses the IDE's undo command and rejects changed results, POMs, parent source files or Maven settings. Save and reload Maven, then inspect its effective dependency versions. A newer available version is not evidence that it fixes a vulnerability or remains compatible with Spring Boot's tested dependency set. Prefer a parent upgrade when appropriate. Use the separate **Verify Maven versions** follow-up to compare captured dependency targets with a subsequent import; automatic vulnerability checks are not provided.
+
+## Remove unnecessary Maven overrides
+
+The **Unnecessary Maven property or dependency version override** inspection checks overrides against the current parent chain.
+It appears under **Settings → Editor → Inspections → Maven** and is enabled by default.
+It uses locally available parent POMs without requesting repository metadata.
+
+The inspection reports these cases:
+
+- A literal property has the same value as the nearest parent definition.
+- A version property has an older version than the parent and has recognized dependency or plugin version consumers.
+- An explicit dependency version matches the inherited version, or the parent provides a newer stable version.
+
+Use **Alt+Enter** on the highlighted property or version.
+For equal values, select **Remove redundant property override** or **Remove redundant dependency version override**.
+For newer parent versions, the action shows both versions.
+For example, **Remove dependency version override and use parent version 2.0 (was 1.0)** removes `<version>1.0</version>`.
+The dependency then inherits version `2.0`.
+Removing a version property can upgrade several consumers.
+Review the XML preview before applying the change.
+
+Dependencies controlled by parent management keep their declarations, scopes, and exclusions in the child POM.
+For a dependency declared directly in the parent, the fix removes the simple child override as a whole entry.
+For simple dependency-management overrides, the fix removes the whole entry to restore parent management.
+Whole-entry removal requires both declarations to contain only coordinates and a version.
+The fix supports undo and rejects changed child or parent POMs.
+Save and reload Maven after cleanup. Test the resulting dependency versions for compatibility.
+
+Profile overrides, imported BOMs, unresolved coordinates, composite expressions, and version ranges require manual review.
+Newer property values with non-version uses also require manual review.
+Customized inherited dependency entries, customized management entries, and Maven configuration property overrides require manual review.
+Ignored versions and shared dependency rules also apply to newer parent versions.
+Older parent versions do not produce a cleanup suggestion.
+These inspection results are separate from cached repository update results and bulk update previews.
 
 ## Maven repositories and settings.xml
 
@@ -379,6 +413,8 @@ The locally opt-in integration tests start IDEA's real Maven server with both an
 ./gradlew test -PmavenIntegration=true --tests '*MavenSettingsIntegrationTest'
 # Compare ordinary quick-fix/bulk verification targets with native effective POMs, and verify newly defined inherited properties.
 ./gradlew test -PmavenIntegration=true --tests '*MavenInheritedVersionFixTest'
+# Check override cleanup against native effective POMs.
+./gradlew test -PmavenIntegration=true --tests '*MavenOverrideInspectionTest'
 # Include the full 100-coordinate, 50/250 ms latency benchmark (slower; opt-in).
 ./gradlew test -PmavenIntegration=true -PmavenLatencyBenchmark=true \
   --tests '*MavenSettingsIntegrationTest.testBatchedMetadataSharesOneHundredArtifactsAcrossOneHundredModulesAndModes'

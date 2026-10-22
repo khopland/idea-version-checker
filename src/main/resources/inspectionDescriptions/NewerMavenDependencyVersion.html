@@ -24,7 +24,9 @@ Inherited dependencies are checked even without a child dependency declaration; 
 Imported BOM properties, profile ambiguity, non-version uses, Maven config overrides and imported descendant subtrees require manual review.
 An existing local property keeps its normal update action. The action uses the IDE's undo command and stale-input guards.
 Reload Maven to check the resulting effective dependency versions; availability of a newer version does not establish a security fix
-or compatibility with the parent's tested dependency set. Parent upgrades and removal of redundant overrides remain manual decisions.</p>
+or compatibility with the parent's tested dependency set. Parent upgrades remain manual decisions.
+The separate <b>Unnecessary Maven property or dependency version override</b> inspection offers override cleanup
+when the parent provides the same or a newer version.</p>
 <p>Build plugins in build/plugins and build/pluginManagement/plugins are supported.
 A <code>&lt;parent&gt;</code> version is updated in place when the parent is not a project in the workspace.
 Snapshots, version ranges, reporting plugins, build extensions and unmanaged transitive dependencies are outside this inspection's scope.</p>

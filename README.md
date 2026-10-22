@@ -78,6 +78,11 @@ These declarations require manual review:
 The npm adapter excludes pnpm, Yarn, and Bun projects.
 See the [user guide](docs/user-guide.md) for declaration limits and shared-version rules.
 
+Maven inspections also flag unnecessary property and dependency version overrides when the parent provides the same or a newer version.
+Use **Alt+Enter** to remove an override and inherit the parent value.
+For newer parent versions, the action shows the version change.
+See [Maven override cleanup](docs/user-guide.md#remove-unnecessary-maven-overrides) for supported declarations.
+
 ## After an update
 
 Maven and Gradle notifications offer **Save and reload … projects**.
