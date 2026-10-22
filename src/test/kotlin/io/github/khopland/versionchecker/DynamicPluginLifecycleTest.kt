@@ -19,9 +19,11 @@ import com.intellij.ui.UiInterceptors
 import io.github.khopland.versionchecker.core.BuildSystemAdapter
 import kotlinx.coroutines.*
 import java.lang.ref.WeakReference
+import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipFile
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
@@ -163,6 +165,7 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
                 shown = component
             }
         })
+        val previewFailure = AtomicReference<Throwable?>()
         val job = previewScope.launch(Dispatchers.IO) {
             suspendCancellableCoroutine<Boolean> { continuation ->
                 try {
@@ -170,11 +173,15 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
                     val result = show.invoke(previews, factory, continuation)
                     if (result !== COROUTINE_SUSPENDED) continuation.resume(result as Boolean)
                 } catch (failure: Throwable) {
-                    continuation.resumeWithException(failure)
+                    continuation.resumeWithException((failure as? InvocationTargetException)?.targetException ?: failure)
                 }
             }
         }
-        PlatformTestUtil.waitWithEventsDispatching("Preview shown", { shown != null }, 10)
+        job.invokeOnCompletion { failure -> previewFailure.set(failure) }
+        PlatformTestUtil.waitWithEventsDispatching("Preview shown", {
+            previewFailure.get()?.let { throw it }
+            shown != null
+        }, 10)
         val dialog = shown!!
         assertFalse(dialog.isDisposed)
         assertFalse(job.isCompleted)
@@ -196,9 +203,10 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         val planType = loader.loadClass("io.github.khopland.versionchecker.BulkUpdatePlan")
         val plan = planType.constructors.single { it.parameterCount == 6 }.newInstance(emptyList<Any>(), emptyList<String>(), { true }, emptyList<String>(), null, emptyList<Any>())
         val mode = loader.loadClass("io.github.khopland.versionchecker.UpdateMode").enumConstants.first()
-        val constructor = loader.loadClass("io.github.khopland.versionchecker.BulkUpdateDialog").declaredConstructors.single()
+        val constructor = loader.loadClass("io.github.khopland.versionchecker.BulkUpdateDialog").declaredConstructors
+            .single { !it.isSynthetic && it.parameterCount == 6 }
         constructor.isAccessible = true
-        return constructor.newInstance(project, mode, "Whole Project", "Test", plan) as DialogWrapper
+        return constructor.newInstance(project, mode, "Whole Project", "Test", plan, { System.nanoTime() }) as DialogWrapper
     }
 
     private fun unloadWithServices(plugin: PluginMainDescriptor): WeakReference<ClassLoader> {
