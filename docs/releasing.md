@@ -4,7 +4,6 @@ The [Build workflow](../.github/workflows/build.yml) validates changes and prepa
 The [Release workflow](../.github/workflows/release.yml) validates a published tag and delivers its archive to JetBrains Marketplace.
 
 The project version comes from `gradle.properties`.
-Dated [acceptance records](acceptance/README.md) describe their original archives, not the current release status.
 Check [GitHub Releases](https://github.com/khopland/idea-version-checker/releases) for published releases and drafts.
 
 ## Supported IDEs
@@ -14,7 +13,7 @@ Run Plugin Verifier against IDEA 2026.1.4 and 2026.2.3.
 The supported range is 2026.1.4 through 2026.2.x.
 
 Use the [packaged plugin acceptance procedure](ide-acceptance.md) with the selected archive on both targets.
-Earlier results, including IDEA 2025.3 results, do not establish acceptance for a new archive.
+Each new archive requires its own acceptance results.
 
 ## Configure publishing
 
@@ -59,10 +58,10 @@ Validation needs network access for toolchains and uncached artifacts.
 Reports are under `build/reports`. Archives are under `build/distributions`.
 
 For a finalized version, validate its tag and prerelease flag without uploading.
-Replace `1.3.0` with the version under review:
+Replace `1.4.0` with the version under review:
 
 ```sh
-python3 .github/scripts/release_metadata.py --tag 1.3.0 --prerelease false
+python3 .github/scripts/release_metadata.py --tag 1.4.0 --prerelease false
 ```
 
 Complete interactive acceptance on the selected archive before publication.
@@ -89,10 +88,10 @@ It attaches the selected ZIP and `SHA256SUMS` before Marketplace upload.
 It uploads that exact ZIP to the `default` channel.
 Marketplace approval can still be necessary before users receive the update.
 
-After publication, set the next development version, such as `1.3.1-SNAPSHOT`.
+After publication, set the next development version, such as `1.4.1-SNAPSHOT`.
 Development builds use the `Unreleased` change notes.
 
-Draft creation uses bare tags such as `1.3.0`. Release validation also accepts `v1.3.0`.
+Draft creation uses bare tags such as `1.4.0`. Release validation also accepts `v1.4.0`.
 The draft job preserves published releases, existing tags, and unrelated drafts.
 If a matching tag points to another commit, draft preparation skips that version.
 Use a new version to release newer code. Do not move an existing release tag.
@@ -102,7 +101,7 @@ Pushing a tag alone does not start Marketplace delivery.
 
 ## Publish a prerelease
 
-Use a semantic prerelease version, such as `1.3.0-rc.1`, and a matching dated changelog entry.
+Use a semantic prerelease version, such as `1.4.0-rc.1`, and a matching dated changelog entry.
 The draft is marked as a prerelease.
 GitHub's prerelease flag must agree with the version suffix.
 Publishing sends the archive to Marketplace's `eap` channel.

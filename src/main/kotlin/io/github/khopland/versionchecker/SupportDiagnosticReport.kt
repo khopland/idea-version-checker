@@ -4,7 +4,6 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonArray
 import com.google.gson.JsonNull
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.util.SystemInfoRt
 import io.github.khopland.versionchecker.core.DiagnosticSanitizer
@@ -68,12 +67,12 @@ internal data class SupportReportPolicy(
         addProperty("sharedSource", "project-root/$PROJECT_POLICY_FILE")
         addProperty("workspaceSource", "workspace-settings")
         addProperty("sharedStatus", status.takeIf { it in setOf("absent", "valid", "invalid", "unknown") } ?: "unknown")
-        add("sharedRuleCount", sharedRules?.let { com.google.gson.JsonPrimitive(it) } ?: JsonNull.INSTANCE)
-        add("activeSharedIgnoreCount", activeSharedIgnores?.let { com.google.gson.JsonPrimitive(it) } ?: JsonNull.INSTANCE)
-        add("sharedDeprecationCount", sharedDeprecations?.let { com.google.gson.JsonPrimitive(it) } ?: JsonNull.INSTANCE)
-        add("sharedUpdateRestrictionCount", sharedUpdateRestrictions?.let { com.google.gson.JsonPrimitive(it) } ?: JsonNull.INSTANCE)
-        add("workspaceIgnoreCount", localIgnores?.let { com.google.gson.JsonPrimitive(it) } ?: JsonNull.INSTANCE)
-        add("workspaceDeprecationCount", localDeprecations?.let { com.google.gson.JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+        addProperty("sharedRuleCount", sharedRules)
+        addProperty("activeSharedIgnoreCount", activeSharedIgnores)
+        addProperty("sharedDeprecationCount", sharedDeprecations)
+        addProperty("sharedUpdateRestrictionCount", sharedUpdateRestrictions)
+        addProperty("workspaceIgnoreCount", localIgnores)
+        addProperty("workspaceDeprecationCount", localDeprecations)
         addProperty("precedence", "Workspace rules add restrictions; shared rules remain applicable.")
         addProperty("content", "Rule identities, reasons, policy text and parser diagnostics are omitted.")
     }
@@ -107,16 +106,14 @@ internal data class SupportReportEnvironment(
 
     fun json() = JsonObject().apply {
         fun version(name: String, value: String?, pattern: Regex) {
-            add(name, value?.takeIf { it.length <= 80 && pattern.matches(it) }?.let { com.google.gson.JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+            addProperty(name, value?.takeIf { it.length <= 80 && pattern.matches(it) })
         }
         version("pluginVersion", pluginVersion, release)
         version("ideVersion", ideVersion, release)
         version("ideBuild", ideBuild, build)
         version("jvmVersion", jvmVersion, release)
-        add("osFamily", osFamily?.takeIf { it in setOf("macOS", "Windows", "Linux") }
-            ?.let { com.google.gson.JsonPrimitive(it) } ?: JsonNull.INSTANCE)
-        add("osVersion", osVersion?.takeIf { it.length <= 256 }?.let { numericPrefix.find(it)?.value }
-            ?.let { com.google.gson.JsonPrimitive(it) } ?: JsonNull.INSTANCE)
+        addProperty("osFamily", osFamily?.takeIf { it in setOf("macOS", "Windows", "Linux") })
+        addProperty("osVersion", osVersion?.takeIf { it.length <= 256 }?.let { numericPrefix.find(it)?.value })
         addProperty("unknownValues", "null means unavailable or outside the safe version format; runtime vendors, hostnames and usernames are omitted.")
     }
 }
@@ -154,8 +151,7 @@ internal data class SupportDiagnosticReport(
             source = row.source.copy(file = boundedPath(row.source.file), location = safe(row.source.location)),
             origin = row.origin?.let { it.copy(checkSourceFile = boundedPath(it.checkSourceFile), coverageDescription = it.coverageDescription?.let(::safe)) },
             detail = "<omitted: support reports exclude free-text diagnostics>") }
-        val results = JsonParser.parseString(DependencyReviewExport.json(bounded, basePath, capturedAt, nowNanos))
-            .asJsonObject.getAsJsonArray("results")
+        val results = DependencyReviewExport.jsonResults(bounded, basePath, nowNanos)
         // Apply the same control/length boundary to relative source paths produced by the shared exporter.
         results.forEach { entry ->
             val row = entry.asJsonObject

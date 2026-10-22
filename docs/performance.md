@@ -1,8 +1,6 @@
 # Performance checks
 
 Use this guide to capture current behavior and run performance fixtures.
-For past results, see the [October 2026 report](archive/performance-2026-10.md).
-Its test totals, IDE versions, and measurements describe earlier runs.
 
 ## Capture an IDE trace
 

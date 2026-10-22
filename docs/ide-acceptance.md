@@ -6,7 +6,7 @@ replace interactive acceptance. Use a fresh isolated IDE configuration, system,
 plugins and log directory per target. Extract the candidate into an empty plugin
 directory so an older JAR cannot remain beside it. Keep normal IDE profiles intact.
 
-See the [acceptance record index](acceptance/README.md) for earlier candidate results.
+Record results in the pull request or release draft.
 Results belong to their recorded ZIP, not future builds.
 
 ## Record the candidate
@@ -53,6 +53,7 @@ scaling. A missing runtime or unavailable license is a blocked result, not a pas
 | Keyboard-only discovery | Open Dependency Versions, focus search, change provider/root filters, select rows, open source/details and return focus. | Controls have useful names; focus remains visible; all operations work without a pointer. |
 | Narrow layout and scaling | Narrow tool window to about 400 logical pixels; test both scales/themes. | Search, filters, summary, details and essential actions remain reachable; long reasons wrap or scroll. |
 | Observation expiry | Check, export JSON, wait through the original cache deadline, then inspect/export again. | Age is original observation age; export does not renew it; expiry is explained; stale observations cannot authorize edits. |
+| Support report | Open **Preview Support Report…**, inspect the JSON, change filters or settings, then use **Save As…**. | Saved JSON matches the frozen preview. Bounds and redaction hold. Original observation timing remains. No checks or uploads start. |
 | Coverage and empty results | Break catalog TOML; include unsupported declarations; filter to updates only; then fix the catalog. | Incomplete coverage stays visible even with zero matching updates; source and next action are available; a fresh check clears the corrected error. |
 | Selection and rechecking | Select a subset; rapidly change mode/scope; cancel a check; allow older work to complete. | Selection matches exact targets; stale completions cannot enable Apply; cancelling does not start an unintended edit. |
 | Apply and undo | Apply Maven, npm workspace and shared Gradle catalog changes; save; undo once and save. | Only reviewed owners change; grouped undo restores exact declaration bytes; lockfiles remain separate. |
@@ -78,9 +79,9 @@ zero native checks. Measure the atomic write separately from background checking
 
 ## Evidence and release decision
 
-Store a dated record under `docs/acceptance/` with the candidate identity and a
-copy of the matrix populated for each IDE. Keep historical release records as
-historical evidence. Do not transfer acceptance from an earlier ZIP to a changed
+Record the candidate identity and populated matrix in the pull request or release
+draft. Keep supporting evidence in workflow artifacts or release attachments.
+Do not transfer acceptance from an earlier ZIP to a changed
 candidate or infer interactive success from unit/native integration tests.
 
 Retain sanitized logs/screenshots or byte comparisons supporting each pass. Record
