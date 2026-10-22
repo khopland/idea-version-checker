@@ -4,6 +4,8 @@
 
 ### Added
 
+- Maven inspections identify unnecessary property and dependency version overrides when the parent provides the same or a newer stable version. Alt+Enter removes the override, preserves dependency configuration, shows version changes and XML previews, and rejects changed POMs.
+
 - Dependency Versions offers a read-only support-report preview and explicit JSON Save As. The bounded snapshot includes safe version identifiers, allowlisted scalar settings, policy status/counts and displayed cached outcomes with original timing; logs, credentials, policy contents and machine identities are excluded, and reporting starts no checks or uploads.
 - Batch reviews can explicitly load the selected npm target's published engine/peer requirements and known repository/homepage links using the workspace's configured npm context. Aliases retain actual registry identity, stale requests are discarded, and unknown requirements never change edit eligibility or imply compatibility.
 

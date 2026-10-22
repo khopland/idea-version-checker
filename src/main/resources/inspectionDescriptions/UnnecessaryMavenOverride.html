@@ -1,0 +1,13 @@
+<html><body>
+<p>Reports local properties that match parent values and version overrides where the parent provides the same or a newer version.</p>
+<p>Use <b>Remove redundant property override</b> or <b>Remove redundant dependency version override</b>
+to use the inherited value. Dependencies controlled by parent management keep their declarations, scopes, and exclusions.
+For simple inherited dependency or dependency-management overrides, the fix removes the whole entry to restore the parent declaration.
+For newer parent versions, the action shows the old and new versions. Removing the override upgrades the affected consumers.
+The fix supports XML previews and undo. Changes to the child or parent POM invalidate the fix.</p>
+<p>Checks use imported projects and locally available parent POMs. They do not request repository metadata.
+Literal properties and fixed dependency versions with simple property references are supported.
+Newer property values require recognized version consumers. Ignored versions and shared dependency rules still apply.
+Other property uses, customized inherited declarations, and Maven configuration property overrides require manual review.
+Profile overrides, imported BOMs, unresolved coordinates, composite expressions, and older parent versions require manual review.</p>
+</body></html>
