@@ -35,7 +35,7 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR
         val options = holder.project.service<VersionCheckerSettings>().state
         val policy = projectPolicy(holder.project)
-        val preparedUpdates = GradlePreparedUpdate.prepare(holder.file, report)
+        val preparedUpdates = GradlePreparedUpdate.prepare(holder.file, report, adapter.declarations(holder.project, holder.file))
         return object : PsiElementVisitor() {
             override fun visitFile(file: PsiFile) {
                 for (prepared in preparedUpdates) {
