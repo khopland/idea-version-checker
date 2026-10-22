@@ -4,7 +4,7 @@ The [Build workflow](../.github/workflows/build.yml) validates changes and prepa
 The [Release workflow](../.github/workflows/release.yml) validates a published tag and delivers its archive to JetBrains Marketplace.
 
 The project version comes from `gradle.properties`.
-Dated [acceptance records](acceptance/README.md) describe their original archives, not the current release status.
+[Acceptance records](acceptance/README.md) identify the tested archives and their remaining checks.
 Check [GitHub Releases](https://github.com/khopland/idea-version-checker/releases) for published releases and drafts.
 
 ## Supported IDEs
@@ -14,7 +14,7 @@ Run Plugin Verifier against IDEA 2026.1.4 and 2026.2.3.
 The supported range is 2026.1.4 through 2026.2.x.
 
 Use the [packaged plugin acceptance procedure](ide-acceptance.md) with the selected archive on both targets.
-Earlier results, including IDEA 2025.3 results, do not establish acceptance for a new archive.
+Each new archive requires its own acceptance results.
 
 ## Configure publishing
 

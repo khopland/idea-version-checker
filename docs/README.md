@@ -1,7 +1,6 @@
 # Documentation
 
 Use these guides for the current project.
-Dated records describe only the source and plugin archive identified in each record.
 
 | Guide | Use |
 | --- | --- |
@@ -13,10 +12,10 @@ Dated records describe only the source and plugin archive identified in each rec
 | [Release procedure](releasing.md) | Prepare, publish, and recover a release. |
 | [Writing rules](writing.md) | Write comments, documentation, and user messages. |
 
-## Historical records
+## Candidate acceptance
 
-- [Acceptance records](acceptance/README.md): candidate checks, archive identities, and recorded blockers.
-- [Archived reports](archive/README.md): past performance results and delivery plans.
-
-Historical results do not establish acceptance for a new build.
+The [acceptance records](acceptance/README.md) identify tested candidates and remaining checks.
+Each result applies only to its recorded source and plugin archive.
 Use the current acceptance procedure for each release candidate.
+
+Superseded reports, release reviews, and delivery plans remain available in Git history.

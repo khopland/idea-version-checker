@@ -1,35 +1,11 @@
-# Feature continuation and acceptance — 22 October 2026
+# Candidate acceptance — 22 October 2026
 
-Draft: the separate support-diagnostics PR identity and final result are pending.
-
-This continues the [18 October record](../2026-10-18/README.md).
+This record describes automated validation and interactive checks on the candidates below.
 The [packaged plugin matrix](../../ide-acceptance.md) remains incomplete.
 Automated integration tests and interactive IDE checks are recorded separately.
 Each result applies only to its identified source and archive.
 
-## Feature delivery
-
-The 20 October plan identified seven work areas. These changes implement bounded slices of that plan.
-The original HTML remains a local planning artifact and is not changed by this record.
-
-| Plan area | Implementation | Boundary |
-| --- | --- | --- |
-| A. Current-build acceptance | This dated record, combined automated checks, and isolated IDE smoke checks. | The complete interactive matrix is pending. See the scenario table below. |
-| B. Resolved-version confirmation | [#61](https://github.com/khopland/idea-version-checker/pull/61), merged: capture effective-version targets for ordinary Maven dependency updates. | Verification observes imported dependency models after reload. It does not run builds or tests. Gradle and npm effective-version confirmation remain separate work. |
-| C. Target selection | [#62](https://github.com/khopland/idea-version-checker/pull/62), merged: choose independently checked patch, minor, or major branch targets per declaration. [#68](https://github.com/khopland/idea-version-checker/pull/68): explicitly load exact npm target requirements and known links. | The picker offers the highest eligible checked branch targets. It does not enumerate every historical release. npm compatibility remains unverified. |
-| D. Shared rules | [#63](https://github.com/khopland/idea-version-checker/pull/63), merged: versioned project policy with exact ignores, reasons, expiry, deprecations, and allowed update levels. | Personal UI preferences remain local. Invalid or changed policy cannot authorize stale edits. |
-| E. Gradle declarations | [#65](https://github.com/khopland/idea-version-checker/pull/65), merged: literal named local catalogs with physical ownership and native consumer checks. | Computed, published, external, or ambiguous registrations require review. Automatic Gradle plugin-version edits remain blocked on a separate native resolver. |
-| F. Native file review | [#66](https://github.com/khopland/idea-version-checker/pull/66), merged: live structured follow-up steps and captured npm lockfile diffs. | Captured changes are historical observations. Declaration Undo does not undo native writes. No build/test execution or Gradle lockfile synchronization is added. |
-| G. Platform cleanup | Source and native-resolution investigation only. | Safe removal requires a counterfactual effective model for every affected consumer. No automatic removal is implemented. |
-| Preview freshness | [#67](https://github.com/khopland/idea-version-checker/pull/67): authoritative result-expiry countdown and expired-click rejection. | Unknown deadlines remain unknown. Presentation does not query repositories or renew result leases. |
-| Shareable review | [#64](https://github.com/khopland/idea-version-checker/pull/64), merged: Markdown exports. | Exported observations do not authorize edits. |
-| Support diagnostics | [#69](https://github.com/khopland/idea-version-checker/pull/69): preview and explicitly save a bounded sanitized report of cached outcomes, timing, settings and policy provenance. | Package names and project-relative paths remain visible for review. No checks, cache renewal or upload. |
-
-After #62, #65 and #66 merged, #67 was rebased onto main.
-#68 is stacked on #67 so their shared dialog cleanup merges together. Review #67 before #68.
-The support-report continuation targets main independently.
-
-## Latest combined candidate
+## Combined candidate with support reporting
 
 | Item | Recorded identity |
 | --- | --- |
@@ -37,7 +13,7 @@ The support-report continuation targets main independently.
 | Main baseline | `2b82fdea93d5a76ed69c5e897d818e3bd93bfe28`; includes merged #62, #65 and #66 |
 | Archive | `version-checker-all-features-020f4cc.zip`, 2,723,927 bytes |
 | SHA-256 | `46e3f1bf0c9895d65169cf740a00bdc0d4e3b540db5ebd9f256af64d0913aec3` |
-| Pending PR heads included | #67 `9cd84dd7c724acb585982b2401177e64c8ccb4dc`; #68 `60d8570e76503ae798ddbf9c53d55410a9dd42f9`; #69 `053c93b50878052e12957ff33f89e5bb39e2c0d2` |
+| Included PR heads | #67 `9cd84dd7c724acb585982b2401177e64c8ccb4dc`; #68 `60d8570e76503ae798ddbf9c53d55410a9dd42f9`; #69 `053c93b50878052e12957ff33f89e5bb39e2c0d2` |
 
 This candidate includes the support report and the rebased #67 → #68 stack.
 A clean build with both build and Kotlin incremental caches disabled passed all **822 tests**
@@ -147,14 +123,6 @@ No expiry transition was observed.
 The POM retained the baseline SHA-256 recorded above. No native edit or export write was executed.
 The owned isolated test IDE was closed after collection.
 
-On IDEA 2026.1.4, the final archive loaded Version Checker 1.3.0 after reopening the Maven fixture.
-It displayed the same three updates, with three of three declarations checked.
-Filtering for gamma displayed one of three rows. Coverage retained three checked declarations.
-Selected-row details showed the POM source/root, current version, available version, age of 49 seconds, and expiry of nine minutes.
-No expiry transition was observed. The POM retained the same baseline SHA-256.
-The IDE used build `261.26222.65` and JBR `25.0.3+9-b329.124`.
-The owned isolated test IDE was closed after collection.
-
 | Required scenario | IDEA 2026.1.4 | IDEA 2026.2.3 |
 | --- | --- | --- |
 | Startup and optional integrations | Plugin startup observed on the final ZIP. Missing optional integrations not exercised. | Plugin startup observed on the final ZIP. Missing optional integrations not exercised. |
@@ -233,7 +201,6 @@ Copied configuration source: `build/acceptance-2026-10-17-review/profile-*/confi
 | `version-checker-combined-26a208b.zip` | Final combined archive. |
 | `profile-2026.1.4/log/idea.log` | Plugin startup and `PREVIEW_READY` observation. |
 | `profile-2026.2.3/log/idea.log` | Final-archive startup on IDEA 2026.2.3. |
-| `final-readonly-smoke.json` | Final-archive identity and read-only observations on both IDE versions. |
 | `maven/maven-small/pom.xml` | Unchanged Maven fixture after relocation. |
 | `gradle/gradle/libs.versions.toml`, `gradle/gradle/tools.versions.toml` | Catalog fixtures prepared for later interaction checks. Their presence is not a completed check. |
 | `fixture-baseline-after-isolation.json` | Baseline fixture hashes after relocation. |
@@ -244,6 +211,5 @@ The earlier core-feature test log is `/private/tmp/version-checker-next-cycle-fi
 The Maven 4 continuation log is `/private/tmp/version-checker-next-cycle-maven4.log`.
 The Gradle plugin investigation is `/private/tmp/version-checker-gradle-plugin-follow-up.md`.
 
-Continue with the latest archive and isolated profiles on both supported IDE versions.
-Complete the [required matrix](../../ide-acceptance.md#required-matrix) where the UI surface permits observation.
-Record inaccessible cases as blocked. Keep older archive results separate.
+Use the [required matrix](../../ide-acceptance.md#required-matrix) for each new candidate.
+Record inaccessible cases as blocked. Keep results for different archives separate.
