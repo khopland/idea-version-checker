@@ -10,6 +10,7 @@ They do not describe the current branch or certify a new archive.
 | 17 October 2026 | [Combined candidate smoke checks](2026-10-17/README.md) |
 | 17 October 2026 | [Interactive review checks](2026-10-17-review/README.md) |
 | 18 October 2026 | [Continuation and recorded blockers](2026-10-18/README.md) |
+| 22 October 2026 | [Feature continuation and acceptance limits](2026-10-22/README.md) |
 
 The records retain their original measurements, checksums, results, and limits.
 Some local logs and temporary IDE profiles are unavailable in a fresh checkout.
