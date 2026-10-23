@@ -70,8 +70,8 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
             mapOf(DependencyVersion("g", "a", "1.0") to "2.0"))
         val verification = project.getService(MavenUpdateVerificationService::class.java)
         val before = verification.generation()
-        MavenProjectsManager.getInstance(project).projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(
-            MavenProject(myFixture.file.virtualFile), org.jetbrains.idea.maven.project.MavenProjectChanges.ALL))
+        project.messageBus.syncPublisher(org.jetbrains.idea.maven.project.MavenImportListener.TOPIC)
+            .projectResolutionFinished(listOf(MavenProject(myFixture.file.virtualFile)))
         assertTrue(verification.generation() > before)
         assertTrue(plan.apply(project))
         assertEquals(verification.generation(), plan.appliedChanges!!.mavenVerificationTargets.single().afterGeneration)

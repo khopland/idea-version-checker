@@ -136,7 +136,7 @@ class VersionCheckStatusWidgetTest : BasePlatformTestCase() {
         val (widget, _) = widget()
         val service = project.service<VersionCheckService>()
         val snapshot = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(
-            java.util.concurrent.Callable { com.intellij.openapi.application.ReadAction.compute<BuildSnapshot, RuntimeException> {
+            java.util.concurrent.Callable { com.intellij.openapi.application.ReadAction.computeBlocking<BuildSnapshot, RuntimeException> {
                 adapter.snapshot(project, build)
             } }), 10_000)
         service.updates(adapter, snapshot)
@@ -187,7 +187,7 @@ class VersionCheckStatusWidgetTest : BasePlatformTestCase() {
         val (widget, _) = widget()
         val service = project.service<VersionCheckService>()
         val snapshot = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(
-            java.util.concurrent.Callable { com.intellij.openapi.application.ReadAction.compute<BuildSnapshot, RuntimeException> {
+            java.util.concurrent.Callable { com.intellij.openapi.application.ReadAction.computeBlocking<BuildSnapshot, RuntimeException> {
                 adapter.snapshot(project, build)
             } }), 10_000)
         service.updates(adapter, snapshot)

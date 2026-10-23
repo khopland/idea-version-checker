@@ -5,10 +5,10 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.platform.ide.progress.withBackgroundProgress
-import com.intellij.openapi.util.Pair
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiManager
 import io.github.khopland.versionchecker.*
@@ -36,24 +36,19 @@ internal class MavenUpdateVerificationService(private val project: Project, priv
     private var disposed = false
 
     init {
-        manager.addProjectsTreeListener(object : MavenProjectsTree.Listener {
-            // Both callbacks are implemented explicitly: Kotlin's synthesized delegation to
-            // the one-argument default method links to an API removed in IDEA 2026.2.
-            override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>) {
-                invalidateResolution(projectWithChanges.first.path)
-            }
-
-            override fun projectResolved(projectWithChanges: Pair<MavenProject, MavenProjectChanges>,
-                                         nativeMavenProject: org.jetbrains.idea.maven.server.NativeMavenProjectHolder?) {
-                invalidateResolution(projectWithChanges.first.path)
-            }
-        }, this)
+        // MavenImportListener is available in both supported IDE branches.
+        project.messageBus.connect(this).subscribe(MavenImportListener.TOPIC, object : MavenImportListener {
+            override fun importStarted() = invalidateResolutions()
+            override fun importFinished(importedProjects: Collection<MavenProject>, newModules: List<Module>) = invalidateResolutions()
+            override fun projectResolutionStarted(mavenProjects: Collection<MavenProject>) = invalidateResolutions()
+            override fun projectResolutionFinished(mavenProjects: Collection<MavenProject>) = invalidateResolutions()
+        })
     }
 
-    @Synchronized private fun invalidateResolution(path: String) {
+    @Synchronized private fun invalidateResolutions() {
         if (disposed || project.isDisposed) return
         generation++
-        resolutions.remove(path)
+        resolutions.clear()
     }
 
     @Synchronized fun generation(): Long = generation

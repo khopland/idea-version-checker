@@ -7,6 +7,10 @@
 - pnpm, Yarn Classic/modern Yarn and Bun adapters using their native read-only metadata commands.
 - pnpm YAML workspace discovery and manager-specific configuration validation; updates edit manifests only.
 
+### Fixed
+
+- Replace deprecated IntelliJ API calls and generated interface bridges. Remove redundant experimental write-intent wrappers from document saving.
+
 ## [1.4.0] - 2026-10-22
 
 ### Added

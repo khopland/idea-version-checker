@@ -28,6 +28,7 @@ import org.jetbrains.idea.maven.model.MavenParent
 import org.jetbrains.idea.maven.model.MavenArtifactInfo
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import org.jetbrains.idea.maven.project.MavenProject
+import org.jetbrains.idea.maven.project.MavenImportListener
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import java.nio.file.Files
 import java.nio.file.Path
@@ -572,8 +573,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val file = imported("verify-literal", dependency("<version>4.12</version>"))
         val verification = project.service<MavenUpdateVerificationService>()
         val pom = manager.findProject(file.virtualFile)!!
-        manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(pom,
-            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL))
+        resolutionFinished(pom)
         val fix = fixes(file).filterIsInstance<UpdateDependencyVersionFix>().single()
         val generation = verification.generation()
         apply(fix, declaration(file))
@@ -660,20 +660,17 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertTrue(evaluate(service, changes), evaluate(service, changes).contains("No resolution with captured reload inputs"))
         FileDocumentManager.getInstance().saveAllDocuments()
         val imported = manager.findProject(child.virtualFile)!!
-        reload(service) { manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
-            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL)) }
+        reload(service) { resolutionFinished(imported) }
         assertTrue(service.generation() > target.afterGeneration)
         assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Dependency absent"))
         val artifact = Files.write(directory.resolve("verified-junit.jar"), byteArrayOf())
         imported.addDependency(org.jetbrains.idea.maven.model.MavenArtifact("junit", "junit", "4.13.2", "4.13.2",
             "jar", null, "test", false, "jar", artifact.toFile(), directory.toFile(), true, false))
-        reload(service) { manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
-            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL)) }
+        reload(service) { resolutionFinished(imported) }
         assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
         // Physical XML encoding does not need to share the editor's normalized line separators.
         Files.writeString(child.virtualFile.toNioPath(), "\uFEFF" + child.text.replace("\n", "\r\n"))
-        reload(service) { manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
-            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL)) }
+        reload(service) { resolutionFinished(imported) }
         assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
         val parentPath = parent.virtualFile.toNioPath()
         val parentBytes = Files.readString(parentPath)
@@ -710,8 +707,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
                 imported.addDependency(org.jetbrains.idea.maven.model.MavenArtifact("junit", "junit", "4.13.2", "4.13.2",
                     "jar", null, "test", false, "jar", artifact.toFile(), directory.toFile(), true, false))
             }
-            manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
-                org.jetbrains.idea.maven.project.MavenProjectChanges.ALL))
+            resolutionFinished(imported)
         }
         val changes = AppliedVersionChanges(listOf(AppliedVersionFile(child.virtualFile.path, before, child.text)),
             mavenVerificationTargets = listOf(target))
@@ -720,10 +716,34 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertFalse(evaluate(service, changes).contains("Confirmed:"))
         reload(service) { }
         assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
-        // A late event from any other native task cannot inherit that successful request's evidence.
-        manager.projectsTree.fireProjectResolved(com.intellij.openapi.util.Pair.create(imported,
-            org.jetbrains.idea.maven.project.MavenProjectChanges.ALL))
+        // Starting another resolution must revoke evidence before the model can change.
+        project.messageBus.syncPublisher(MavenImportListener.TOPIC).projectResolutionStarted(listOf(imported))
         assertFalse(evaluate(service, changes).contains("Confirmed:"))
+        reload(service) { }
+        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
+        // A late event from any other native task cannot inherit that successful request's evidence.
+        resolutionFinished(imported)
+        assertFalse(evaluate(service, changes).contains("Confirmed:"))
+    }
+
+    fun testVerificationIgnoresNativeEventsAfterDisposal() {
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
+        val service = MavenUpdateVerificationService(project, scope)
+        try {
+            val events = project.messageBus.syncPublisher(MavenImportListener.TOPIC)
+            events.projectResolutionFinished(emptyList())
+            assertEquals(1L, service.generation())
+            com.intellij.openapi.util.Disposer.dispose(service)
+            events.projectResolutionFinished(emptyList())
+            assertEquals(1L, service.generation())
+        } finally {
+            com.intellij.openapi.util.Disposer.dispose(service)
+            scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+        }
+    }
+
+    private fun resolutionFinished(imported: MavenProject) {
+        project.messageBus.syncPublisher(MavenImportListener.TOPIC).projectResolutionFinished(listOf(imported))
     }
 
     private fun reload(service: MavenUpdateVerificationService, action: suspend () -> Unit) {
