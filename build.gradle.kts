@@ -11,7 +11,7 @@ plugins {
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
     implementation("org.tomlj:tomlj:2.2.0")
-    implementation("org.snakeyaml:snakeyaml-engine:2.10")
+    implementation("org.snakeyaml:snakeyaml-engine:3.2")
     compileOnly("org.checkerframework:checker-qual:4.3.1")
     testImplementation(libs.junit)
 
