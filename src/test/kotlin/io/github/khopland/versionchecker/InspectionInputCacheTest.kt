@@ -7,6 +7,7 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import java.util.concurrent.atomic.AtomicInteger
 
 class InspectionInputCacheTest : BasePlatformTestCase() {
@@ -61,12 +62,21 @@ class InspectionInputCacheTest : BasePlatformTestCase() {
     fun testExpiryReleasesCaptureWithoutPollingAndNextVisitorRecaptures() {
         val file = myFixture.addFileToProject("expiry.txt", "text").virtualFile
         val captures = AtomicInteger(); val notifications = AtomicInteger()
-        val provider = adapter { virtual -> captures.incrementAndGet(); { snapshot(virtual, "text") } }
+        // Keep each capture pending until its lookup has asserted the non-blocking result.
+        val releaseCapture = Channel<Unit>(Channel.UNLIMITED)
+        val provider = adapter { virtual ->
+            captures.incrementAndGet()
+            releaseCapture.receive()
+            val reader = { snapshot(virtual, "text") }
+            reader
+        }
         val cache = InspectionInputCache(project, scope, { notifications.incrementAndGet() }, lifetimeMillis = 100)
         assertNull(cache.snapshot(provider, file))
+        releaseCapture.trySend(Unit).getOrThrow()
         PlatformTestUtil.waitWithEventsDispatching("capture expired", { notifications.get() == 1 && cache.size() == 0 }, 5_000)
         assertEquals(1, captures.get())
         assertNull(cache.snapshot(provider, file))
+        releaseCapture.trySend(Unit).getOrThrow()
         PlatformTestUtil.waitWithEventsDispatching("new capture ready", { notifications.get() == 2 }, 5_000)
         assertEquals(2, captures.get()); cache.dispose()
     }
@@ -75,18 +85,22 @@ class InspectionInputCacheTest : BasePlatformTestCase() {
         val file = myFixture.addFileToProject("unavailable.txt", "text").virtualFile
         val captures = AtomicInteger(); val notifications = AtomicInteger()
         val available = java.util.concurrent.atomic.AtomicBoolean()
+        val releaseCapture = Channel<Unit>(Channel.UNLIMITED)
         val provider = adapter { virtual ->
             captures.incrementAndGet()
+            releaseCapture.receive()
             val reader = { if (available.get()) snapshot(virtual, "text") else null }
             reader
         }
         val cache = InspectionInputCache(project, scope, { notifications.incrementAndGet() }, lifetimeMillis = 100)
         assertNull(cache.snapshot(provider, file))
+        releaseCapture.trySend(Unit).getOrThrow()
         PlatformTestUtil.waitWithEventsDispatching("unavailable capture expired", { captures.get() == 1 && cache.size() == 0 }, 5_000)
         assertEquals(0, notifications.get())
         assertEquals(1, captures.get())
         available.set(true)
         assertNull(cache.snapshot(provider, file))
+        releaseCapture.trySend(Unit).getOrThrow()
         PlatformTestUtil.waitWithEventsDispatching("supported capture ready", { notifications.get() == 1 }, 5_000)
         assertNotNull(cache.snapshot(provider, file))
         cache.dispose()
