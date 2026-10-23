@@ -59,6 +59,128 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
         exchange.responseBody.write(bytes)
     }
 
+    fun testGoalProcessUsesImportVmOptionsAndExplicitProfilesWithoutSavingUnrelatedDocuments() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-process-runtime-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        val oldOptions = manager.importingSettings.vmOptionsForImporter
+        val oldProfiles = manager.explicitProfiles
+        try {
+            fun remote(name: String, version: String): Path {
+                val root = directory.resolve(name)
+                val metadata = Files.createDirectories(root.resolve("example/process/library")).resolve("maven-metadata.xml")
+                val bytes = "<metadata><versioning><versions><version>$version</version></versions></versioning></metadata>".toByteArray()
+                Files.write(metadata, bytes)
+                checksumAlgorithms.forEach { (suffix, algorithm) ->
+                    Files.writeString(metadata.resolveSibling("maven-metadata.xml$suffix"),
+                        java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance(algorithm).digest(bytes)))
+                }
+                return root
+            }
+            val selected = remote("selected repository", "2.0")
+            val excluded = remote("excluded repository", "9.0")
+            manager.importingSettings.vmOptionsForImporter = "-Dversionchecker.fixture.repository=${selected.toUri()}"
+            manager.setExplicitProfiles(MavenExplicitProfiles(listOf("selected"), listOf("excluded")))
+            val pom = directory.resolve("pom.xml")
+            Files.writeString(pom, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                <groupId>example.process</groupId><artifactId>app</artifactId><version>1</version>
+                <repositories><repository><id>central</id><url>https://repo.maven.apache.org/maven2</url>
+                <releases><enabled>false</enabled></releases></repository></repositories>
+                <profiles><profile><id>selected</id><repositories><repository><id>selected</id>
+                <url>${'$'}{versionchecker.fixture.repository}</url></repository></repositories></profile>
+                <profile><id>excluded</id><activation><property><name>versionchecker.fixture.repository</name></property></activation>
+                <repositories><repository><id>excluded</id><url>${excluded.toUri()}</url></repository></repositories></profile></profiles>
+                </project>""".trimIndent())
+            val imported = MavenProject(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!).apply {
+                updateMavenId(MavenId("example.process", "app", "1"))
+            }
+            val unrelated = myFixture.addFileToProject("unrelated-process-document.txt", "original")
+            val documents = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance()
+            val document = documents.getDocument(unrelated.virtualFile)!!
+            WriteCommandAction.runWriteCommandAction(project) { document.setText("unsaved unrelated edit") }
+            val repository = directory.resolve("local repository")
+            val key = MavenMetadataKey("example.process", "library")
+            val context = MavenResolutionContext("", repository,
+                mapOf("maven.repo.local" to directory.resolve("overridden repository").toString()), manager.explicitProfiles, true)
+            val result = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking { MavenNativeMetadata.load(manager, imported, context, listOf(key), 1).getValue(key).getOrThrow() }
+            }), 120_000)
+            assertEquals(listOf("2.0"), result.versions)
+            assertTrue("Goal execution must not save unrelated edits", documents.isDocumentUnsaved(document))
+            assertEquals("original", String(unrelated.virtualFile.contentsToByteArray()))
+        } finally {
+            manager.importingSettings.vmOptionsForImporter = oldOptions
+            manager.setExplicitProfiles(oldProfiles)
+            manager.embeddersManager.reset()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    fun testGoalProcessRejectsMavenConfigDisabledInIde() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-ignored-maven-config-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        val original = manager.generalSettings.isUseMavenConfig
+        try {
+            Files.writeString(Files.createDirectories(directory.resolve(".mvn")).resolve("maven.config"), "--offline")
+            val pom = directory.resolve("pom.xml")
+            Files.writeString(pom, """<project><modelVersion>4.0.0</modelVersion><groupId>example.process</groupId>
+                <artifactId>ignored-config</artifactId><version>1</version></project>""")
+            val imported = MavenProject(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!).apply {
+                updateMavenId(MavenId("example.process", "ignored-config", "1"))
+            }
+            manager.generalSettings.isUseMavenConfig = false
+            val result = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking {
+                    try {
+                        MavenGoalProcess.run(manager, imported, MavenExplicitProfiles.NONE, emptyMap(), "--version", directory.resolve("local"))
+                        null
+                    } catch (failure: MavenGoalConfigurationFailure) { failure }
+                }
+            }), 120_000)
+            assertNotNull("An ignored Maven config must not become active in the goal process", result)
+            assertTrue(result!!.recoveryMessage, result.recoveryMessage.contains("cannot ignore"))
+        } finally {
+            manager.generalSettings.isUseMavenConfig = original
+            manager.embeddersManager.reset()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    fun testSuccessfulCliShortcutCannotBeReportedAsNoUpdates() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-informational-goal-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        try {
+            Files.writeString(Files.createDirectories(directory.resolve(".mvn")).resolve("maven.config"), "--version")
+            val pom = directory.resolve("pom.xml")
+            Files.writeString(pom, """<project><modelVersion>4.0.0</modelVersion><groupId>example.process</groupId>
+                <artifactId>informational</artifactId><version>1</version></project>""")
+            val imported = MavenProject(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!).apply {
+                updateMavenId(MavenId("example.process", "informational", "1"))
+            }
+            val result = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking {
+                    try {
+                        MavenVersionLookup.checkAll(manager, imported, UpdateMode.MAJOR, setOf(MavenArtifactKind.DEPENDENCY),
+                            listOf(DependencyVersion("example.process", "library", "1.0")))
+                        null
+                    } catch (failure: MavenGoalConfigurationFailure) { failure }
+                }
+            }), 120_000)
+            assertNotNull("An informational exit must not be reported as no updates", result)
+        } finally {
+            manager.embeddersManager.reset()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testMetadataResponsesKeepTheSelectedModulesRepositories() {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
         val directory = Files.createTempDirectory("version-checker-module-repositories-").toRealPath()
@@ -96,7 +218,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 "<packaging>pom</packaging><modules><module>child</module></modules>$rootRepository")
             val child = imported(directory.resolve("child/pom.xml"), "child", childRepository)
             fun versions(imported: MavenProject): List<String> {
-                val context = MavenResolutionContext("", repository, emptyMap(), MavenExplicitProfiles.NONE, true, "")
+                val context = MavenResolutionContext("", repository, emptyMap(), MavenExplicitProfiles.NONE, true)
                 val key = MavenMetadataKey("example.scoped", "library")
                 return PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
                     runBlocking { MavenNativeMetadata.load(manager, imported, context, listOf(key), 1).getValue(key).getOrThrow().versions }

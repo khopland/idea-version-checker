@@ -142,6 +142,9 @@ intellijPlatformTesting {
                 includeTestsMatching("*MavenInheritedVersionFixTest.testNativeEffectivePomMatchesOrdinaryUpdateVerificationTargets")
                 includeTestsMatching("*MavenSettingsIntegrationTest.testMinimumReleaseAgeWithholdsRecentVersionsInNativeAndFallbackChecks")
                 includeTestsMatching("*MavenSettingsIntegrationTest.testMetadataResponsesKeepTheSelectedModulesRepositories")
+                includeTestsMatching("*MavenSettingsIntegrationTest.testGoalProcessUsesImportVmOptionsAndExplicitProfilesWithoutSavingUnrelatedDocuments")
+                includeTestsMatching("*MavenSettingsIntegrationTest.testGoalProcessRejectsMavenConfigDisabledInIde")
+                includeTestsMatching("*MavenSettingsIntegrationTest.testSuccessfulCliShortcutCannotBeReportedAsNoUpdates")
             }
             doFirst {
                 require(systemProperties["versionchecker.mavenHome"].toString().isNotBlank()) { "Set -Pmaven4Home to an extracted Maven 4 distribution" }

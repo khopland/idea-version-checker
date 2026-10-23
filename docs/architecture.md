@@ -142,12 +142,21 @@ Kotlin uses JVM default methods without compatibility bridges. This lets SDK int
 Settings sections use UI DSL `collapsibleGroup`. Project-policy reads use `ReadAction.computeBlocking` to preserve their synchronous lock behavior.
 Document saves run on EDT. The `Dispatchers.EDT` dispatcher acquires the write-intent lock; saving needs no additional `WriteIntentReadAction` wrapper.
 
-Two Maven integrations still require experimental SDK APIs:
+Maven metadata and Versions goals run in separate Java processes through Maven's Classworlds launcher.
+`MavenGoalProcess` selects IDEA's Maven distribution, including resolved wrapper distributions, and its import JDK and VM options.
+It passes the selected POM, profiles, user settings and local repository as arguments. Maven reads credentials, mirrors, proxies and transports itself.
+The runner limits concurrent goal processes to two. Each goal has a five-minute timeout and retains at most 1,048,576 diagnostic characters across both streams.
+Cancellation terminates the goal and its child processes before request-file cleanup. Goal execution does not save documents or open Run consoles.
+Category and batch progress remain available; embedded Maven artifact progress is no longer forwarded.
 
-- `RawProgressReporter` is a required argument of `MavenEmbedderWrapper.executeGoal`. `withMavenProgress` keeps its reporter alive and preserves cancellation throughout each native goal request.
-- `MavenSyncSpec.full` and suspending `MavenAsyncProjectsManager.updateAllMavenProjects` identify and await the full reload used for verification. A scheduled request or unrelated completion event cannot establish this evidence.
+Maven CLI always reads an existing `.mvn/maven.config`. If IDEA is configured to ignore that file, goal checks report the unsupported configuration.
+They do not silently activate settings which IDEA ignores. Native model capture and effective-version verification retain their existing IDE integration.
+The metadata protocol proves helper completion. If a Versions goal produces no report, the runner also requires Maven's success message.
+Quiet output, log redirection or informational CLI options can prevent that confirmation. Such checks report an unavailable result instead of claiming no updates.
 
-Keep these calls within the Maven integration. Verify the packaged plugin against both supported IDE branches when these calls change.
+Only the reload integration still requires experimental SDK APIs.
+`MavenSyncSpec.full` and suspending `MavenAsyncProjectsManager.updateAllMavenProjects` identify and await the full reload used for verification.
+A scheduled request or unrelated completion event cannot establish this evidence. Verify the packaged plugin against both supported IDE branches when these calls change.
 
 ## Verification
 
