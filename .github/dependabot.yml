@@ -6,6 +6,16 @@ updates:
       - "src/test/resources/**"
     schedule:
       interval: "weekly"
+  # Fixture versions are intentional inputs, including older versions.
+  # Ignore npm dependencies explicitly to suppress security-update PRs too.
+  - package-ecosystem: "npm"
+    directories:
+      - "/src/test/resources/**"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
