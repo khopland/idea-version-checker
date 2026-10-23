@@ -217,7 +217,7 @@ internal class ProjectPolicyStore(private val project: Project) {
 }
 
 /** Reads only IDE-visible state. Fresh physical input capture happens before acquiring write access. */
-internal fun projectPolicy(project: Project): ProjectPolicySnapshot = ReadAction.compute<ProjectPolicySnapshot, RuntimeException> {
+internal fun projectPolicy(project: Project): ProjectPolicySnapshot = ReadAction.computeBlocking<ProjectPolicySnapshot, RuntimeException> {
     project.service<ProjectPolicyStore>().current()
 }
 

@@ -134,6 +134,21 @@ Maven prepared edits retain immutable consumer identities separately from physic
 
 `MavenUpdateVerificationService` accepts model evidence only after completion of its explicit full-import request with identical saved input captures before and after import. Verification compares those inputs, the captured after-text and the current IDE documents/settings/profiles again. Existing models and late unrelated resolution events cannot authorize confirmation. Bounded diff/session storage and unavailable or omitted captures keep their existing fail-closed behavior. Plugin/parent versions and runtime compatibility are not inferred from imported dependencies.
 
+The service subscribes to `MavenImportListener.TOPIC`, available in both supported IDE branches. Import and resolution events invalidate captured evidence. Disposing the service disconnects its listener.
+
+## IntelliJ API dependencies
+
+Kotlin uses JVM default methods without compatibility bridges. This lets SDK interfaces supply their defaults without generated calls to deprecated or experimental methods.
+Settings sections use UI DSL `collapsibleGroup`. Project-policy reads use `ReadAction.computeBlocking` to preserve their synchronous lock behavior.
+Document saves run on EDT. The `Dispatchers.EDT` dispatcher acquires the write-intent lock; saving needs no additional `WriteIntentReadAction` wrapper.
+
+Two Maven integrations still require experimental SDK APIs:
+
+- `RawProgressReporter` is a required argument of `MavenEmbedderWrapper.executeGoal`. `withMavenProgress` keeps its reporter alive and preserves cancellation throughout each native goal request.
+- `MavenSyncSpec.full` and suspending `MavenAsyncProjectsManager.updateAllMavenProjects` identify and await the full reload used for verification. A scheduled request or unrelated completion event cannot establish this evidence.
+
+Keep these calls within the Maven integration. Verify the packaged plugin against both supported IDE branches when these calls change.
+
 ## Verification
 
 | Tests | Checks |

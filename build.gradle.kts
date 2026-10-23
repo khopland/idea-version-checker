@@ -30,6 +30,8 @@ dependencies {
 
 kotlin {
     jvmToolchain(21)
+    // Inherit SDK interface defaults instead of emitting compatibility bridges to legacy APIs.
+    compilerOptions.jvmDefault = org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode.NO_COMPATIBILITY
 }
 
 tasks.processResources {

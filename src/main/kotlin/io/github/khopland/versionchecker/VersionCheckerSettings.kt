@@ -10,8 +10,9 @@ import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.components.service
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
-import com.intellij.ui.HideableDecorator
 import com.intellij.ui.TitledSeparator
+import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -177,11 +178,10 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         persistentMaven?.isSelected = state.mavenPersistentMetadata
         releaseAge?.value = state.mavenMinimumReleaseAgeHours.coerceIn(0, MAX_RELEASE_AGE_HOURS)
     }
-    private fun collapsedSection(title: String, content: JComponent): JPanel = JPanel().also { panel ->
-        HideableDecorator(panel, title, false).apply {
-            setContentComponent(content)
-            setOn(false)
-        }
+    private fun collapsedSection(title: String, content: JComponent): JPanel = panel {
+        collapsibleGroup(title) {
+            row { cell(content).align(AlignX.FILL) }
+        }.expanded = false
     }
 
     private fun selected(kind: VersionChangeKind) = severities.getValue(kind).selectedItem as VersionSeverity
