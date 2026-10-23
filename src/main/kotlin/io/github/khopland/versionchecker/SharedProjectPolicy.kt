@@ -54,9 +54,9 @@ internal fun parseSharedProjectPolicy(text: String?): SharedProjectPolicy {
             val rule = value.objectValue(at)
             rule.onlyKeys(setOf("ecosystem", "package", "ignoredVersions", "deprecated", "allowedUpdates"), at)
             val ecosystem = rule.stringValue("ecosystem", at)
-            require(ecosystem in setOf("maven", "npm", "gradle")) { "$at.ecosystem must be maven, npm or gradle" }
+            require(ecosystem in setOf("maven", "npm", "pnpm", "yarn", "bun", "gradle")) { "$at.ecosystem must be maven, npm, pnpm, yarn, bun or gradle" }
             val name = rule.stringValue("package", at)
-            val validName = if (ecosystem == "npm") Regex("(?:@[A-Za-z0-9][A-Za-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*").matches(name)
+            val validName = if (ecosystem in setOf("npm", "pnpm", "yarn", "bun")) Regex("(?:@[A-Za-z0-9][A-Za-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*").matches(name)
                 else Regex("[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+").matches(name)
             require(validName) { "$at.package must be an exact $ecosystem package identity" }
             val ignored = rule["ignoredVersions"]?.let { ignored ->

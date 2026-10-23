@@ -1,8 +1,11 @@
 <idea-plugin>
     <extensions defaultExtensionNs="com.intellij">
-        <localInspection language="JSON" shortName="NewerNpmDependencyVersion" displayName="Newer npm dependency version available" groupName="npm" enabledByDefault="true" level="WARNING" implementationClass="io.github.khopland.versionchecker.npm.NewerNpmDependencyInspection" />
+        <localInspection language="JSON" shortName="NewerNpmDependencyVersion" displayName="Newer Node package dependency version available" groupName="Node.js" enabledByDefault="true" level="WARNING" implementationClass="io.github.khopland.versionchecker.npm.NewerNpmDependencyInspection" />
     </extensions>
     <extensions defaultExtensionNs="io.github.khopland.version-checker">
         <buildSystemAdapter implementation="io.github.khopland.versionchecker.npm.NpmBuildSystemAdapter" />
+        <buildSystemAdapter implementation="io.github.khopland.versionchecker.npm.PnpmBuildSystemAdapter" />
+        <buildSystemAdapter implementation="io.github.khopland.versionchecker.npm.YarnBuildSystemAdapter" />
+        <buildSystemAdapter implementation="io.github.khopland.versionchecker.npm.BunBuildSystemAdapter" />
     </extensions>
 </idea-plugin>

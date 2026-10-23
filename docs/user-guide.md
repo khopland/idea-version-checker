@@ -306,7 +306,7 @@ Reporting plugins, build extensions, plugin-contained dependencies, transitive-o
 
 Configure a **local Node.js interpreter and npm** in IntelliJ's JavaScript runtime settings, then open a project containing `package.json`. Checks start when IDEA inspects the manifest. The inspection is under **Settings → Editor → Inspections → npm → Newer npm dependency version available**. The same **Tools → Check Versions** and **Tools → Update Versions** actions work for npm, including Current File and Whole Project.
 
-Registry checks execute only read-only `npm view` commands through IntelliJ's configured runtime. npm evaluates project/user `.npmrc`, environment settings, scoped registries and authentication. Workspace members query from their workspace root so they use its registry configuration. Projects declaring pnpm, Yarn or Bun through `packageManager`, `devEngines.packageManager`, or their manager files are excluded. An explicit npm `packageManager` takes precedence over leftover lockfiles. `devEngines.packageManager` supports both an object and an array of objects; every entry must name npm. Empty, mixed-manager or malformed declarations are excluded. npm does not need to install dependencies to check versions.
+Registry checks execute only read-only `npm view` commands through IntelliJ's configured runtime. npm evaluates project/user `.npmrc`, environment settings, scoped registries and authentication. Workspace members query from their workspace root so they use its registry configuration. Projects declaring pnpm, Yarn or Bun use the matching adapter and installed CLI. Configure that manager in IntelliJ’s JavaScript runtime settings. An explicit npm `packageManager` takes precedence over leftover lockfiles. `devEngines.packageManager` supports both an object and an array of objects; every entry must name npm. Empty, mixed-manager or malformed declarations are excluded. npm does not need to install dependencies to check versions.
 
 Independent npm packages are checked concurrently, with at most four package queries active at once. Aliases and member manifests share raw metadata within one workspace and resolution configuration. Successful metadata is retained for up to ten minutes with bounded memory; manual refreshes, scheduled scans and bulk previews start a fresh generation. Selector edits reuse the raw response while prepared edits still require current manifest fingerprints. One `npm view` response supplies published stable versions and their deprecation notices; incompatible responses fall back to separate queries. Queries use npm's `--prefer-online` option to revalidate cached registry metadata, while npm retains control of authentication and offline settings.
 
@@ -329,6 +329,16 @@ The preview applies only `package.json` string edits in one undoable command, pr
 **Applying version edits changes declarations only.** The update notification offers **Preview npm lockfile sync** as a separate, explicit operation. Choose a supported `package.json`, review the workspace root and command, and confirm to run IntelliJ's configured npm with `--package-lock-only --ignore-scripts` and audit, funding and update notices disabled. The plugin checks project trust, saved inputs, workspace membership and existing lockfiles again before execution. Installed dependencies are not synchronized. Native lockfile writes are separate from declaration undo; inspect the resulting version control diff, including after cancellation or failure.
 
 A notification shows this reminder after successful bulk, local or workspace npm updates. Selective bulk updates show it only when npm declarations were selected. A stale quick fix that makes no edit does not show the reminder.
+
+## pnpm, Yarn and Bun projects
+
+Configure a local Node.js interpreter and the installed package manager in IntelliJ's JavaScript runtime settings. Explicit `packageManager` and `devEngines.packageManager` declarations select the adapter; conflicting or malformed declarations and ambiguous manager files are excluded. Yarn Classic and modern Yarn are supported. Checks do not download a missing package manager.
+
+Registry checks run `pnpm view`, Yarn Classic `yarn info`, modern `yarn npm info`, or `bun info` at the workspace root. Each CLI owns scoped registry and authentication settings. The same patch/minor/major checks, cached results, local/workspace quick fixes and batch previews apply to supported `package.json` declarations. Yarn's `npm:^1.2.3` protocol retains its prefix. Shared catalog references, peer compatibility and complex selectors require manual review.
+
+pnpm workspace membership comes from `pnpm-workspace.yaml`, including inclusion/exclusion patterns. Yarn and Bun use `package.json` workspaces. Unsaved or saved manager-configuration changes invalidate prepared updates. The checker conservatively leaves projects with resolution overrides or custom pnpm hooks for manual review. pnpm configuration that can bootstrap packages or runtimes is rejected before a CLI starts.
+
+Updates change manifest strings only, in one undoable command. Lockfiles and installed dependencies remain unchanged. After reviewing edits, run the matching package manager yourself; **Preview npm lockfile sync** remains available only for npm projects. Demos are in `src/test/resources/node-managers-demo/`.
 
 ## Gradle projects
 
@@ -364,7 +374,7 @@ The [Gradle demo](../src/test/resources/gradle-demo/README.md) includes Groovy a
 
 ## Other ecosystems
 
-The shared adapter model, coordinator, cache and edit bridge support Maven, npm and Gradle. pnpm and Bun still require their own discovery, repository and editing adapters.
+The shared adapter model, coordinator, cache and edit bridge support Maven, npm and Gradle. pnpm, Yarn and Bun use the shared manifest pipeline with manager-specific discovery and native registry commands.
 
 ## Development and verification
 

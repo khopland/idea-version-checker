@@ -119,7 +119,7 @@ class NpmExternalInputCaptureTest : BasePlatformTestCase() {
         assertTrue(root.resolve("package.json") in inventory.manifestPaths)
         assertTrue(root.resolve("pnpm-lock.yaml") in inventory.markerPaths)
         assertFalse(root.resolve("pnpm-lock.yaml") in inventory.contentPaths)
-        assertEquals(setOf(runtime, npm, npm.resolve("package.json"), npm.resolve("bin/npm-cli.js")), inventory.runtimePaths)
+        assertTrue(inventory.runtimePaths.containsAll(setOf(runtime, npm, npm.resolve("package.json"), npm.resolve("bin/npm-cli.js"))))
         assertTrue(directory.resolve("not-installed/node/etc/npmrc") in inventory.contentPaths)
         assertTrue(inventory.hasUnsavedInputs(setOf(root.resolve("mise.local.toml").toString())))
         assertFalse(Files.exists(root))

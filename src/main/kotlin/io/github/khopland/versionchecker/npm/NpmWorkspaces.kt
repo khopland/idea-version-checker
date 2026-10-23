@@ -13,45 +13,22 @@ import com.intellij.util.text.minimatch.MinimatchOptions
 import io.github.khopland.versionchecker.core.BuildSelection
 import io.github.khopland.versionchecker.core.UpdateScope
 
-internal data class NpmWorkspace(val root: VirtualFile, val names: Set<String>, val manifests: List<VirtualFile>)
+internal data class NpmWorkspace(val root: VirtualFile, val names: Set<String>, val manifests: List<VirtualFile>, val valid: Boolean = true)
 
 /** Workspace ownership and package-manager selection, shared by discovery and edit validation. */
 internal object NpmWorkspaces {
-    val otherManagerFiles = listOf("pnpm-lock.yaml", "pnpm-workspace.yaml", "yarn.lock", "bun.lock", "bun.lockb")
+    val otherManagerFiles = NodePackageManager.entries.filter { it != NodePackageManager.NPM }.flatMap { it.markers }.distinct()
 
-    fun supportsManifest(project: Project, file: VirtualFile): Boolean {
-        val psi = PsiManager.getInstance(project).findFile(file) ?: return false
-        val manifest = NpmManifest.root(psi) ?: return false
-        val workspaceRoot = resolve(project, file).root
-        val rootFile = workspaceRoot.findChild("package.json") ?: return false
-        // Opening only a member must not silently discard npm's real workspace root,
-        // overrides or registry. Its sibling inventory is unavailable outside project content.
-        if (!NpmManifest.supported(project, rootFile)) return false
-        val rootManifest = PsiManager.getInstance(project).findFile(rootFile)?.let(NpmManifest::root) ?: return false
-        var explicitNpm = false
-        for (root in listOfNotNull(rootManifest, manifest).distinct()) {
-            val manager = root.findProperty("packageManager")?.value
-            if (manager != null) {
-                if (manager !is JsonStringLiteral || !manager.value.startsWith("npm@")) return false
-                explicitNpm = true
-            }
-            val engines = root.findProperty("devEngines")?.value as? JsonObject
-            val engineManager = engines?.findProperty("packageManager")?.value
-            if (engineManager != null) {
-                val managers = when (engineManager) {
-                    is JsonObject -> listOf(engineManager)
-                    is JsonArray -> engineManager.valueList
-                    else -> return false
-                }
-                // Conflicting or malformed entries do not establish an npm-only project.
-                if (managers.isEmpty() || managers.any {
-                        ((it as? JsonObject)?.findProperty("name")?.value as? JsonStringLiteral)?.value != "npm"
-                    }) return false
-                explicitNpm = true
-            }
-        }
-        return explicitNpm || otherManagerFiles.none { workspaceRoot.findChild(it) != null || file.parent.findChild(it) != null }
+    fun manager(project: Project, file: VirtualFile): NodePackageManager? {
+        val workspace = resolve(project, file)
+        if (!workspace.valid || !NpmManifest.supported(project, file)) return null
+        val rootFile = workspace.root.findChild("package.json") ?: return null
+        if (!NpmManifest.supported(project, rootFile)) return null
+        return NodePackageManager.detect(project, file, workspace.root)
     }
+
+    fun supportsManifest(project: Project, file: VirtualFile, manager: NodePackageManager = NodePackageManager.NPM): Boolean =
+        manager(project, file) == manager
 
     /** Only declared members share a workspace context; nested independent projects stay separate. */
     fun resolve(project: Project, file: VirtualFile): NpmWorkspace =
@@ -74,10 +51,19 @@ internal object NpmWorkspaces {
     private fun workspaceOwner(project: Project, directory: VirtualFile): NpmWorkspace? {
         val rootFile = directory.findChild("package.json") ?: return null
         val owner = PsiManager.getInstance(project).findFile(rootFile)
-        val workspaceValue = owner?.let(NpmManifest::ownershipRoot)?.findProperty("workspaces")?.value
+        val workspaceValue = owner?.let { NpmManifest.ownershipRoot(it, currentDocument = true) }?.findProperty("workspaces")?.value
         val workspaces = (workspaceValue as? JsonArray) ?: ((workspaceValue as? JsonObject)?.findProperty("packages")?.value as? JsonArray)
-        val patterns = workspaces?.valueList?.mapNotNull { (it as? JsonStringLiteral)?.value }.orEmpty()
-        if (patterns.isEmpty()) return null
+        val pnpm = NodePackageManager.detect(project, rootFile, directory) == NodePackageManager.PNPM
+        val yaml = directory.findChild("pnpm-workspace.yaml")?.takeUnless { it.isDirectory }
+        val patterns = if (pnpm && yaml != null) PnpmWorkspace.patterns(yaml) else if (pnpm) emptyList()
+            else workspaces?.valueList?.mapNotNull { (it as? JsonStringLiteral)?.value }.orEmpty()
+        if (patterns == null) {
+            // Invalid ownership cannot turn descendants into independent npm projects.
+            val descendants = NpmManifest.files(project, BuildSelection(UpdateScope.WHOLE_PROJECT))
+                .filter { VfsUtilCore.isAncestor(directory, it, false) }
+            return NpmWorkspace(directory, emptySet(), (listOf(rootFile) + descendants).distinct(), valid = false)
+        }
+        if (patterns.isEmpty()) return if (pnpm && yaml != null) NpmWorkspace(directory, emptySet(), listOf(rootFile)) else null
         // npm uses minimatch: a globstar can match zero directory levels, unlike Java's glob matcher.
         val options = MinimatchOptions(nocomment = true, nonegate = true)
         fun matchers(pattern: String) = expandBraceAlternatives(pattern.removePrefix("./").trimEnd('/'))

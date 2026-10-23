@@ -11,6 +11,7 @@ plugins {
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
     implementation("org.tomlj:tomlj:2.2.0")
+    implementation("org.snakeyaml:snakeyaml-engine:2.10")
     compileOnly("org.checkerframework:checker-qual:4.3.1")
     testImplementation(libs.junit)
 
@@ -55,6 +56,7 @@ tasks.test {
     mapOf(
         "mavenIntegration" to "MavenSettingsIntegrationTest",
         "npmIntegration" to "NpmRegistryIntegrationTest",
+        "nodeIntegration" to "NodeRegistryIntegrationTest",
         "gradleIntegration" to "GradleRepositoryIntegrationTest",
         "npmHistoryBenchmark" to "NpmVersionHistoryBenchmarkTest",
         "mavenHistoryBenchmark" to "MavenVersionHistoryBenchmarkTest",
