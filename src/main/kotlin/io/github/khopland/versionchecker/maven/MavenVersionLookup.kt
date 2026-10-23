@@ -2,12 +2,10 @@ package io.github.khopland.versionchecker.maven
 
 import io.github.khopland.versionchecker.*
 
-import org.jetbrains.idea.maven.buildtool.MavenLogEventHandler
 import org.jetbrains.idea.maven.server.MavenEmbedderWrapper
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.project.MavenSettingsCache
-import org.jetbrains.idea.maven.server.MavenGoalExecutionRequest
 import org.jetbrains.idea.maven.server.MavenDistributionsCache
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
@@ -25,7 +23,7 @@ import java.nio.file.Path
 import java.util.Properties
 import kotlin.coroutines.cancellation.CancellationException
 
-/** Let the Maven server handle settings.xml, settings-security.xml, mirrors, proxies and transports. */
+/** Let Maven handle settings.xml, settings-security.xml, mirrors, proxies and transports. */
 internal object MavenVersionLookup {
     suspend fun check(manager: MavenProjectsManager, project: MavenProject,
                       mode: UpdateMode = UpdateMode.MAJOR,
@@ -36,7 +34,7 @@ internal object MavenVersionLookup {
                          kinds: Set<MavenArtifactKind>, coordinates: List<DependencyVersion>? = null): Map<DependencyVersion, String> =
         runScan(manager, project, mode, kinds, coordinates)
 
-    /** Keep one embedder per POM; failed categories cannot discard successful earlier categories. */
+    /** Keep one model session per POM; failed categories cannot discard successful earlier categories. */
     suspend fun checkAllIncrementally(manager: MavenProjectsManager, project: MavenProject, mode: UpdateMode,
                                      kinds: Set<MavenArtifactKind>, coordinates: List<DependencyVersion>,
                                      publish: suspend (MavenArtifactKind, Result<Map<DependencyVersion, String>>) -> Unit): Map<DependencyVersion, String> =
@@ -138,11 +136,10 @@ internal object MavenVersionLookup {
     }
 
     private suspend fun load(scan: Scan, repository: Path, keys: List<MavenMetadataKey>): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
-        // Only the scan's own embedder runs the helper, so no session identity is needed.
         val context = MavenResolutionContext("", repository, scan.inputs.properties, scan.profiles,
-            nativeSupported = false, sessionConfiguration = "")
+            nativeSupported = false)
         val threads = scan.manager.project.service<VersionCheckerSettings>().state.mavenMetadataThreads
-        return MavenNativeMetadata.load(scan.manager, scan.project, context, keys, threads, scan.embedder)
+        return MavenNativeMetadata.load(scan.manager, scan.project, context, keys, threads)
     }
 
     /** The Versions goals cannot see release dates, so re-select their answers when a minimum release age is set. */
@@ -198,8 +195,8 @@ internal object MavenVersionLookup {
                     settings.reloadAsync()
                     settings.getEffectiveUserLocalRepo()
                 }
-                val context = MavenResolutionContext("", repository, inputs.properties, profiles, false, "")
-                repositories.putAll(MavenNativeMetadata.repositoryIds(manager, project, context, embedder))
+                val context = MavenResolutionContext("", repository, inputs.properties, profiles, false)
+                repositories.putAll(MavenNativeMetadata.repositoryIds(manager, project, context))
                 return repositories.getValue(plugins)
             }
             val model = pom ?: CheckPerformance.measure(CheckPerformance.Stage.MAVEN_MODEL) {
@@ -248,7 +245,7 @@ internal object MavenVersionLookup {
         val output = directory.resolve("${id.groupId}~${id.artifactId}.txt")
         try {
             val properties = Properties().apply {
-                // executeGoal replaces the request properties, so preserve Maven config -D values.
+                // Pass the same Maven config properties as the native model capture.
                 putAll(scan.inputs.properties)
                 // Maven 4 also executes an aggregator's children. Give each project its own
                 // report so a child cannot replace (or delete) the selected POM's answer.
@@ -269,34 +266,28 @@ internal object MavenVersionLookup {
                 setProperty("displayManagedBy", "false")
                 if (goal == "display-dependency-updates") MavenDependencyFilters.apply(this, if (scan.filtered) scan.inputs[MavenArtifactKind.DEPENDENCY] else null, excluded)
             }
-            // Select this project; Maven 4 may additionally run its children.
-            val request = MavenGoalExecutionRequest(
-                project.file.toNioPath().toFile(), scan.profiles,
-                listOf("${id.groupId}:${id.artifactId}"), properties
-            )
             val stage = when (goal) {
                 "display-dependency-updates" -> CheckPerformance.Stage.MAVEN_DEPENDENCY_GOAL
                 "display-plugin-updates" -> CheckPerformance.Stage.MAVEN_PLUGIN_GOAL
                 else -> CheckPerformance.Stage.MAVEN_PARENT_GOAL
             }
-            val results = CheckPerformance.measure(stage) {
-                withMavenProgress { reporter ->
-                    scan.embedder.executeGoal(
-                        listOf(request),
-                        "org.codehaus.mojo:versions-maven-plugin:2.21.0:$goal",
-                        reporter, MavenLogEventHandler
-                    )
-                }
+            val result = CheckPerformance.measure(stage) {
+                MavenGoalProcess.run(scan.manager, project, scan.profiles,
+                    properties.stringPropertyNames().associateWith(properties::getProperty),
+                    "org.codehaus.mojo:versions-maven-plugin:2.21.0:$goal", checkNotNull(scan.localRepository))
             }
-            val details = results.flatMap { it.problems }.mapNotNull { it.description }.joinToString("\n")
+            val details = result.text
             val message = "Maven could not check ${project.path}" + details.takeIf { it.isNotBlank() }?.let { ":\n$it" }.orEmpty()
-            if (results.isEmpty() || results.any { !it.success }) {
+            if (result.exitCode != 0) {
                 VersionRetrievalFailure.from(details, message)?.let { throw it }
                 throw IOException(message)
             }
-            // IDEA can report the aborted goal as successful with only the sort failure as a problem.
+            // A goal can report a sort failure without a failing exit code.
             // Its missing output file must not be read as "no updates".
             VersionRetrievalFailure.from(details, message)?.let { throw it }
+            if (!Files.exists(output) && !details.contains("BUILD SUCCESS"))
+                throw MavenGoalConfigurationFailure("Maven did not confirm that the Versions goal completed. " +
+                    "Check .mvn/maven.config for quiet output, log redirection or informational options, then retry.")
             // The goal can remove its output file when a successful module has nothing to report.
             // Empty aggregators and up-to-date modules must not abort a reactor-wide update scan.
             val report = try { Files.readString(output) } catch (_: NoSuchFileException) { "" }

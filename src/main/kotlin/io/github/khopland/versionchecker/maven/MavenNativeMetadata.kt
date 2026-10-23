@@ -1,11 +1,8 @@
 package io.github.khopland.versionchecker.maven
 
 import io.github.khopland.versionchecker.CheckPerformance
-import org.jetbrains.idea.maven.buildtool.MavenLogEventHandler
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
-import org.jetbrains.idea.maven.server.MavenEmbedderWrapper
-import org.jetbrains.idea.maven.server.MavenGoalExecutionRequest
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.nio.file.Files
@@ -29,14 +26,8 @@ internal object MavenNativeMetadata {
     }
 
     suspend fun load(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
-                     keys: List<MavenMetadataKey>, threads: Int): Map<MavenMetadataKey, Result<MavenMetadataValue>> =
-        load(manager, project, context, keys, threads, null)
-
-    /** Runs on [embedder] when given, for example inside a Versions goal scan that already holds one. */
-    suspend fun load(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
-                     keys: List<MavenMetadataKey>, threads: Int,
-                     embedder: MavenEmbedderWrapper?): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
-        val response = request(manager, project, context, keys, threads, embedder)
+                     keys: List<MavenMetadataKey>, threads: Int): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
+        val response = request(manager, project, context, keys, threads)
         return keys.mapIndexed { index, key -> key to runCatching {
             response.getProperty("$index.error")?.let { throw IOException("${key.group}:${key.artifact}: $it") }
             if (key.release) MavenMetadataValue(published = response.getProperty("$index.published")?.toLongOrNull()
@@ -51,9 +42,8 @@ internal object MavenNativeMetadata {
     }
 
     /** IDEA's Maven 4 resolveRepositories API does not apply mirrors. Ask the actual goal session. */
-    suspend fun repositoryIds(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
-                              embedder: MavenEmbedderWrapper): Map<Boolean, Set<String>> {
-        val response = request(manager, project, context, emptyList(), 1, embedder)
+    suspend fun repositoryIds(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext): Map<Boolean, Set<String>> {
+        val response = request(manager, project, context, emptyList(), 1)
         return listOf(false, true).associateWith { plugins ->
             response.getProperty(if (plugins) "pluginRepositories" else "repositories")
                 ?.lineSequence()?.filter { it.isNotBlank() }?.toSet() ?: error("Missing effective Maven repositories")
@@ -61,8 +51,7 @@ internal object MavenNativeMetadata {
     }
 
     private suspend fun request(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
-                                keys: List<MavenMetadataKey>, threads: Int,
-                                embedder: MavenEmbedderWrapper?): Properties {
+                                keys: List<MavenMetadataKey>, threads: Int): Properties {
         require(keys.size <= 512)
         val version = install(context.repository)
         val input = Files.createTempFile("version-checker-metadata-request-", ".properties")
@@ -84,28 +73,21 @@ internal object MavenNativeMetadata {
                 setProperty("versionchecker.output", output.toString())
                 setProperty("versionchecker.threads", threads.coerceIn(1, 4).toString())
             }
-            val id = project.mavenId
-            suspend fun run(embedder: MavenEmbedderWrapper) {
-                val execution = MavenGoalExecutionRequest(project.file.toNioPath().toFile(), context.profiles,
-                    listOf("${id.groupId}:${id.artifactId}"), properties)
-                val stage = when {
-                    keys.any { it.version.isNotEmpty() && !it.release } -> CheckPerformance.Stage.MAVEN_PLUGIN_PREREQUISITES
-                    keys.any { it.release } -> CheckPerformance.Stage.MAVEN_RELEASE_DATES
-                    else -> CheckPerformance.Stage.MAVEN_METADATA_BATCH
-                }
-                val results = CheckPerformance.measure(stage, keys.size) {
-                    withMavenProgress { reporter -> embedder.executeGoal(listOf(execution),
-                        "io.github.khopland:version-checker-maven-helper:$version:lookup", reporter, MavenLogEventHandler) }
-                }
-                if (results.isEmpty() || results.any { !it.success }) throw IOException("Maven metadata batch failed:\n" +
-                    results.flatMap { it.problems }.mapNotNull { it.description }.joinToString("\n"))
+            val stage = when {
+                keys.any { it.version.isNotEmpty() && !it.release } -> CheckPerformance.Stage.MAVEN_PLUGIN_PREREQUISITES
+                keys.any { it.release } -> CheckPerformance.Stage.MAVEN_RELEASE_DATES
+                else -> CheckPerformance.Stage.MAVEN_METADATA_BATCH
             }
-            if (embedder != null) run(embedder)
-            else withMavenCheckSession(manager, project, context.sessionConfiguration) { run(it) }
+            val result = CheckPerformance.measure(stage, keys.size) {
+                MavenGoalProcess.run(manager, project, context.profiles,
+                    properties.stringPropertyNames().associateWith(properties::getProperty),
+                    "io.github.khopland:version-checker-maven-helper:$version:lookup", context.repository)
+            }
+            if (result.exitCode != 0) throw IOException("Maven metadata batch failed:\n${result.text}")
             val response = Properties().apply { Files.newInputStream(output).use { load(it) } }
-            check(response.getProperty("protocol") == "2" && response.getProperty("count") == keys.size.toString()) {
-                "Invalid Maven metadata response"
-            }
+            if (response.getProperty("protocol") != "2" || response.getProperty("count") != keys.size.toString())
+                throw MavenGoalConfigurationFailure("Maven did not produce a complete metadata helper response. " +
+                    "Check .mvn/maven.config for informational options and review Maven configuration, then retry.")
             return response
         } finally { Files.deleteIfExists(input); Files.deleteIfExists(output) }
     }

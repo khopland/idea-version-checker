@@ -21,7 +21,7 @@ internal object MavenRepositoryMetadata {
     private val remoteMetadata = Regex("""maven-metadata-(.+)\.xml""")
     private val zeroVersion = Regex("""0+(?:\.0+)*(?:[-_].*)?""")
 
-    /** IDEA's executeGoal does not pass -U to its execution request. Expire just the requested
+    /** Goal checks must bypass Maven's daily metadata cache. Expire just the requested
      * repositories' metadata update timestamps; Maven retains and refreshes the XML itself. */
     fun expireUpdates(repository: Path, dependencies: Collection<DependencyVersion>, repositoryIds: Set<String>) {
         val root = repository.toAbsolutePath().normalize()

@@ -13,7 +13,7 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import java.nio.file.Path
 
-/** One fresh embedder per scan, shared by its goals, without changing IDEA's import settings. */
+/** Share native model/settings reads within a scan without changing IDEA's import settings. */
 internal suspend fun <T> withMavenCheckSession(
     manager: MavenProjectsManager, project: MavenProject, configuration: String? = null,
     action: suspend (MavenEmbedderWrapper) -> T

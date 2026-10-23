@@ -6,7 +6,7 @@ import com.intellij.util.execution.ParametersListUtil
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** Preserve -D values when the Maven goal API replaces the request's user properties. */
+/** Capture config properties for matching model and goal inputs. */
 internal object MavenConfigProperties {
     fun read(directory: Path): Map<String, String> {
         val root = generateSequence(directory) { it.parent }.firstOrNull { Files.isDirectory(it.resolve(".mvn")) }

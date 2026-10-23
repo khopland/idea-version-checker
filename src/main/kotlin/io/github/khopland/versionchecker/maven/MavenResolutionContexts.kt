@@ -21,7 +21,7 @@ import kotlinx.coroutines.currentCoroutineContext
 
 internal data class MavenResolutionContext(val id: String, val repository: Path,
                                           val properties: Map<String, String>, val profiles: MavenExplicitProfiles,
-                                          val nativeSupported: Boolean, val sessionConfiguration: String)
+                                          val nativeSupported: Boolean)
 
 /** Model reuse is stricter than raw metadata sharing: every source/configuration change rebuilds it. */
 internal class MavenResolutionContexts {
@@ -101,7 +101,7 @@ internal class MavenResolutionContexts {
             val supported = !extensions && !buildExtensions && !customVersions && supportedRuntime &&
                 connector.jdk.versionString?.let { JavaVersion.tryParse(it)?.feature?.let { feature -> feature >= 17 } } == true &&
                 properties.keys.none { it == "maven.version.rules" || it == "maven.ext.class.path" }
-            MavenResolutionContext(sha256("$configDigest\n$repository\n$repositoryIdentity".toByteArray()), repository, properties, profiles, supported, configDigest)
+            MavenResolutionContext(sha256("$configDigest\n$repository\n$repositoryIdentity".toByteArray()), repository, properties, profiles, supported)
         }
         synchronized(this) {
             entries[key] = context

@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- Run Maven metadata and Versions goals in cancellable Java processes using IDEA's selected Maven and import JDK. Remove experimental progress APIs.
 - Replace deprecated IntelliJ API calls and generated interface bridges. Remove redundant experimental write-intent wrappers from document saving.
 
 ## [1.4.0] - 2026-10-22
