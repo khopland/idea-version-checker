@@ -4,6 +4,7 @@ import io.github.khopland.versionchecker.core.CapturedEditInputs
 
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.codeInspection.ProblemHighlightType
+import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
@@ -11,6 +12,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.psi.PsiManager
+import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.xml.XmlFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.ExtensionTestUtil
@@ -18,6 +20,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
 import io.github.khopland.versionchecker.maven.*
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import org.jetbrains.idea.maven.dom.MavenDomUtil
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.project.MavenProject
@@ -141,6 +144,33 @@ class MavenWarningRetentionTest : BasePlatformTestCase() {
         applyPartialFix(property, fix)
         assertEquals("2.0.10", property.value.trimmedText)
         assertTrue(file.text.contains("<artifactId>c</artifactId><version>1.0</version>"))
+    }
+
+    fun testCapturedVisitorSurvivesInputInvalidationAfterTheFirstRead() {
+        val file = imported("capture-expiry", "")
+        val service = project.service<VersionCheckService>()
+        val captures = AtomicInteger()
+        val reads = AtomicInteger()
+        val checkingAdapter = object : BuildSystemAdapter by adapter {
+            override suspend fun prepareInspectionSnapshot(project: Project, file: VirtualFile): () -> BuildSnapshot? {
+                // Keep recapture pending so an extra readiness read deterministically loses its visitor.
+                if (captures.incrementAndGet() > 1) awaitCancellation()
+                val capture = adapter.prepareInspectionSnapshot(project, file)
+                return {
+                    capture().also {
+                        // The cache validates the reader once before publishing it. Invalidate on its first use.
+                        if (it != null && reads.incrementAndGet() == 2) service.invalidateResults(id)
+                    }
+                }
+            }
+            override suspend fun check(project: Project, snapshot: BuildSnapshot, mode: UpdateMode) = UpdateReport()
+        }
+        ExtensionTestUtil.maskExtensions(BuildSystemAdapter.EP, listOf(checkingAdapter), testRootDisposable)
+
+        val holder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
+        val visitor = NewerMavenDependencyInspection().buildCapturedVisitor(holder, true)
+        assertEquals("The ready input capture must have been invalidated", 2, reads.get())
+        assertNotSame("Build the visitor from the captured inputs before they expire", PsiElementVisitor.EMPTY_VISITOR, visitor)
     }
 
     fun testInspectionSharesOneSnapshotForUpdatesRelocationsAndFixesButRevalidatesBeforeEditing() {
