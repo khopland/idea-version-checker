@@ -117,11 +117,15 @@ internal open class NpmBuildSystemAdapter(val manager: NodePackageManager = Node
     override suspend fun checkIncrementally(project: Project, snapshot: BuildSnapshot, mode: UpdateMode,
                                           publish: suspend (InspectionUpdate) -> Unit): UpdateReport {
         val directory = Path.of(snapshot.context.root)
+        val releaseAge = MinimumReleaseAge.of(project.service<VersionCheckerSettings>().state.minimumReleaseAgeHours)
         val context = capture(project, { listOfNotNull(findFile(project, snapshot.sourceFile)) }) { external ->
             val file = findFile(project, snapshot.sourceFile) ?: error("package.json is no longer available")
             val root = NpmWorkspaces.resolve(project, file).root
             check(root.path == snapshot.context.root) { "npm workspace changed during the check" }
-            NpmBuildInputs.resolutionContext(project, root, external).let { it.copy(configuration = "$id:${it.configuration}") }
+            NpmBuildInputs.resolutionContext(project, root, external).let {
+                // Metadata with release times is cached separately from metadata without them.
+                it.copy(configuration = "$id:${releaseAge != null}:${it.configuration}")
+            }
         }
         val metadata = project.service<NpmMetadataService>()
         val policy = readAction { projectDeprecations(project, id) }
@@ -134,7 +138,10 @@ internal open class NpmBuildSystemAdapter(val manager: NodePackageManager = Node
                             // The shared metadata worker owns a separate lease. Cancelling the
                             // initiating check must not stop runtime setup needed by another caller.
                             metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory, manager) }) {
-                                NpmRegistry.metadata(it.await(), directory, name)
+                                val runtime = it.await()
+                                val loaded = NpmRegistry.metadata(runtime, directory, name)
+                                if (releaseAge == null) loaded
+                                else loaded.copy(publishedAt = NpmRegistry.releaseTimes(runtime, directory, name))
                             }
                         }
                     }
@@ -143,6 +150,7 @@ internal open class NpmBuildSystemAdapter(val manager: NodePackageManager = Node
                 },
                 deprecated = { name, version -> NpmRegistry.deprecated(runtime.await(), directory, name, version) },
                 allowRegistryProtocol = manager == NodePackageManager.YARN,
+                releaseAge = releaseAge,
                 reviewReasons = snapshot.skippedDeclarations.filterKeys { id ->
                     snapshot.declarations.any { it.id == id && it.baseline.isNotEmpty() }
                 },

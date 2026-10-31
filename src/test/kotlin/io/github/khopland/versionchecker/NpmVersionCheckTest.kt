@@ -231,4 +231,38 @@ class NpmVersionCheckTest {
         assertEquals(CoverageSummary(skipped = 8), report.coverageSummary())
     }
 
+
+    @Test fun `minimum release age skips recent and undated versions`() = runBlocking {
+        val now = java.time.Instant.parse("2026-10-31T12:00:00Z").toEpochMilli()
+        val hour = 3_600_000L
+        val age = MinimumReleaseAge(24, now)
+        val metadata = NpmPackageMetadata(listOf("1.0.0", "1.1.0", "1.2.0", "1.3.0"), emptyMap(), publishedAt = mapOf(
+            "1.0.0" to now - 100 * hour, "1.1.0" to now - 48 * hour, "1.2.0" to now - 2 * hour))
+        val report = checkNpmVersions(listOf(declaration("alpha")), UpdateMode.MAJOR, emptyMap(), Semaphore(1),
+            metadata = { metadata }, deprecated = { _, _ -> null }, releaseAge = age)
+        // 1.3.0 has no release time and 1.2.0 is too new, so the newest settled version wins.
+        assertEquals("1.1.0", report.candidates.single().version)
+        val unrestricted = checkNpmVersions(listOf(declaration("alpha")), UpdateMode.MAJOR, emptyMap(), Semaphore(1),
+            metadata = { metadata }, deprecated = { _, _ -> null })
+        assertEquals("1.3.0", unrestricted.candidates.single().version)
+    }
+
+    @Test fun `minimum release age without registry times reports a failure instead of hiding updates`() = runBlocking {
+        val report = checkNpmVersions(listOf(declaration("alpha")), UpdateMode.MAJOR, emptyMap(), Semaphore(1),
+            metadata = { NpmPackageMetadata(listOf("1.0.0", "1.1.0"), emptyMap()) }, deprecated = { _, _ -> null },
+            releaseAge = MinimumReleaseAge(24))
+        assertTrue(report.candidates.isEmpty())
+        assertEquals(DeclarationOutcome.FAILED, report.coverage!!.values.single().outcome)
+        assertTrue(report.coverage!!.values.single().reason!!.contains("minimum release age"))
+    }
+
+    @Test fun `release times parse every manager's output shape`() {
+        val map = """{"created":"2020-01-01T00:00:00.000Z","modified":"2026-01-01T00:00:00.000Z",
+            "1.0.0":"2020-01-02T00:00:00.000Z","1.1.0":"2021-06-01T12:30:00.000Z","bad":"not a date"}"""
+        val expected = mapOf("1.0.0" to java.time.Instant.parse("2020-01-02T00:00:00Z").toEpochMilli(),
+            "1.1.0" to java.time.Instant.parse("2021-06-01T12:30:00Z").toEpochMilli())
+        assertEquals(expected, NpmRegistry.parseReleaseTimes(map))
+        assertEquals(expected, NpmRegistry.parseReleaseTimes("""{"time":$map}"""))
+        assertEquals(expected, NpmRegistry.parseReleaseTimes("""{"type":"inspect","data":$map}"""))
+    }
 }

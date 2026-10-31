@@ -19,7 +19,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             val selectors = components(panel as Container).filterIsInstance<JComboBox<*>>()
             assertEquals(5, selectors.size)
             assertFalse(configurable.isModified())
-            val releaseAge = components(panel).filterIsInstance<JSpinner>().single { it.name == "versionChecker.mavenMinimumReleaseAge" }
+            val releaseAge = components(panel).filterIsInstance<JSpinner>().single { it.name == "versionChecker.minimumReleaseAge" }
             assertEquals(0, releaseAge.value)
             releaseAge.value = 48
             selectors[0].selectedItem = VersionSeverity.DISABLED
@@ -34,7 +34,7 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             assertEquals(VersionSeverity.ERROR, state.majorSeverity)
             assertEquals("old:library = Use new:library", state.deprecatedDependencies)
             assertEquals("npm alpha = 1.2.3", state.ignoredVersions)
-            assertEquals(48, state.mavenMinimumReleaseAgeHours)
+            assertEquals(48, state.minimumReleaseAgeHours)
             assertFalse(configurable.isModified())
             selectors[2].selectedItem = VersionSeverity.INFORMATION
             configurable.reset()
@@ -51,7 +51,15 @@ class VersionCheckerSettingsTest : BasePlatformTestCase() {
             minorSeverity = VersionSeverity.INFORMATION, majorSeverity = VersionSeverity.ERROR,
             deprecatedSeverity = VersionSeverity.WARNING, deprecatedDependencies = "old:library = Retired",
             ignoredVersions = "maven g:a = 2.0",
-            mavenMinimumReleaseAgeHours = 72)
+            minimumReleaseAgeHours = 72)
         assertEquals(state, XmlSerializer.deserialize(XmlSerializer.serialize(state), VersionCheckerSettings.Options::class.java))
+    }
+
+    fun testMinimumReleaseAgeKeepsItsOriginalStoredName() {
+        val element = XmlSerializer.serialize(VersionCheckerSettings.Options(minimumReleaseAgeHours = 24))
+        assertTrue(com.intellij.openapi.util.JDOMUtil.write(element).contains("name=\"mavenMinimumReleaseAgeHours\" value=\"24\""))
+        val stored = com.intellij.openapi.util.JDOMUtil.load(
+            "<Options><option name=\"mavenMinimumReleaseAgeHours\" value=\"36\" /></Options>")
+        assertEquals(36, XmlSerializer.deserialize(stored, VersionCheckerSettings.Options::class.java).minimumReleaseAgeHours)
     }
 }

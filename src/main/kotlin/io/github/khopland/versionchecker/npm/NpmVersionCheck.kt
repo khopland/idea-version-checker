@@ -26,6 +26,7 @@ internal suspend fun checkNpmVersions(
     deprecated: suspend (String, String) -> String?,
     reviewReasons: Map<DeclarationId, String> = emptyMap(),
     allowRegistryProtocol: Boolean = false,
+    releaseAge: MinimumReleaseAge? = null,
     publish: suspend (InspectionUpdate) -> Unit = {}
 ): UpdateReport = coroutineScope {
     val packages = declarations.mapNotNull { declaration ->
@@ -43,7 +44,7 @@ internal suspend fun checkNpmVersions(
         async {
             val report = try {
                 slots.withPermit {
-                    checkNpmPackage(name, usages, mode, policy[name], metadata, deprecated)
+                    checkNpmPackage(name, usages, mode, policy[name], metadata, deprecated, releaseAge)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -73,7 +74,8 @@ private suspend fun checkNpmPackage(
     mode: UpdateMode,
     explicitDeprecation: String?,
     metadata: suspend (String) -> NpmPackageMetadata,
-    deprecated: suspend (String, String) -> String?
+    deprecated: suspend (String, String) -> String?,
+    releaseAge: MinimumReleaseAge?
 ): UpdateReport {
     fun deprecationNotice(declaration: VersionDeclaration, reason: String) = UpdateNotice(
         declaration,
@@ -89,6 +91,8 @@ private suspend fun checkNpmPackage(
 
     val versions = metadata(name)
     val history = versions.history
+    val published = if (releaseAge == null) null else versions.publishedAt?.takeIf { it.isNotEmpty() }
+        ?: throw NpmReleaseTimeFailure(name)
     val deprecations = mutableMapOf<String, String?>()
     suspend fun deprecationReason(version: String): String? {
         versions.deprecatedByVersion?.let { return it[version] }
@@ -105,6 +109,8 @@ private suspend fun checkNpmPackage(
         if (reason != null) notices += deprecationNotice(declaration, reason)
 
         for ((text, version) in history.eligible(baseline, mode)) {
+            // Unknown release times count as too new: a quarantined version must never be suggested.
+            if (published != null && published[text]?.let { releaseAge!!.oldEnough(it) } != true) continue
             if (deprecationReason(text) != null) continue
             candidates += UpdateCandidate(declaration, text, selector.replace(text), baseline.change(version))
             break
@@ -113,4 +119,10 @@ private suspend fun checkNpmPackage(
     return UpdateReport(candidates, notices, coverage = usages.associate {
         it.declaration.id to DeclarationCoverage(DeclarationOutcome.CHECKED)
     })
+}
+
+internal class NpmReleaseTimeFailure(name: String) : java.io.IOException("$name: the registry did not return release times"),
+    VersionCheckFailureAdvice {
+    override val recoveryMessage = "The registry did not return release times, so the minimum release age cannot be applied. " +
+        "Check the registry configuration, or set the minimum release age to 0."
 }

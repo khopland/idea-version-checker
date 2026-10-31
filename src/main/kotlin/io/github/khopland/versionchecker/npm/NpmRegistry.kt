@@ -24,10 +24,14 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.coroutines.resume
 
-/** A null deprecation map means the older versions-only query needs per-version lookups. */
+/**
+ * A null deprecation map means the older versions-only query needs per-version lookups.
+ * [publishedAt] holds epoch-millisecond release times and is loaded only when a minimum release age is set.
+ */
 internal data class NpmPackageMetadata(
     val versions: List<String>,
-    val deprecatedByVersion: Map<String, String>? = null
+    val deprecatedByVersion: Map<String, String>? = null,
+    val publishedAt: Map<String, Long>? = null
 ) {
     val history: NpmVersionHistory by lazy {
         CheckPerformance.measure(CheckPerformance.Stage.NPM_VERSION_INDEX, versions.size) { NpmVersionHistory(versions) }
@@ -228,6 +232,23 @@ internal object NpmRegistry {
             string("deprecated")?.takeIf { it.isNotBlank() }?.let { deprecations[version] = it }
         }
         return NpmPackageMetadata(versions.toList(), deprecations.toMap())
+    }
+
+    /** The registry's per-version publication times, from the package's `time` field. */
+    suspend fun releaseTimes(runtime: NpmRuntime, directory: Path, name: String): Map<String, Long> {
+        check(NpmSelector.validName(name)) { "Invalid npm package name" }
+        return parseReleaseTimes(view(runtime, directory, listOf(name, "time")))
+    }
+
+    internal fun parseReleaseTimes(json: String): Map<String, Long> {
+        val root = payload(json)
+        // npm, pnpm and Bun print the map; modern Yarn wraps the requested field.
+        val times = root.takeIf { it.isJsonObject }?.asJsonObject?.let { it.get("time")?.takeIf { time -> time.isJsonObject } ?: it }
+        check(times != null && times.isJsonObject) { "The registry did not return release times" }
+        return times.asJsonObject.entrySet().mapNotNull { (version, value) ->
+            if (version == "created" || version == "modified" || !value.isJsonPrimitive || !value.asJsonPrimitive.isString) return@mapNotNull null
+            runCatching { java.time.Instant.parse(value.asString).toEpochMilli() }.getOrNull()?.let { version to it }
+        }.toMap()
     }
 
     fun parseLegacyMetadata(json: String): NpmPackageMetadata {

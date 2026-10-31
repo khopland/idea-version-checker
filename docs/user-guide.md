@@ -40,7 +40,7 @@ The inspection appears under **Settings → Editor → Inspections → Maven →
 
 ## Severity and deprecated dependencies
 
-General controls and warning levels appear first. Expand **Dependency rules** to edit deprecation and ignore rules. The **Maven** section holds the minimum release age.
+General controls and warning levels appear first. **Minimum release age** sits under the enable checkbox. Expand **Dependency rules** to edit deprecation and ignore rules.
 
 The settings page has independent **Warning (yellow)**, **Error (red)**, **Information**, and **Disabled** selectors for patch, minor, major, other version changes, and deprecated/relocated artifacts. These settings apply to dependencies and build plugins. All version updates default to Warning, including major upgrades. Deprecated/relocated artifacts default to Error. Disabling a severity hides editor messages for that category while leaving bulk updates available.
 
@@ -262,11 +262,15 @@ Declaration results are cached for ten minutes and invalidated by POM saves, Mav
 
 ### Minimum release age
 
-Some repository managers hold new releases back for a while. A Sonatype Nexus Repository Firewall quarantine, for example, still lists a new version in `maven-metadata.xml` and serves its POM, but refuses its JAR. To suggest only versions you can download, set **Minimum release age (hours)** under **Settings → Tools → Version Checker → Maven** to the quarantine period, for example `24`. The default `0` suggests the newest version.
+Some repository managers hold new releases back for a while. A Sonatype Nexus Repository Firewall quarantine, for example, still lists a new version in `maven-metadata.xml` and serves its POM, but refuses its JAR. To suggest only versions you can download, set **Minimum release age (hours)** under **Settings → Tools → Version Checker** to the quarantine period, for example `24`. The default `0` suggests the newest version.
 
 The release time of a version is the `Last-Modified` time of its POM, which Maven keeps as the file time in the local repository. When an artifact's metadata `lastUpdated` timestamp is older than the minimum age, every listed version is old enough and nothing more is read. Otherwise the checker reads the POM of the newest candidate (a few kilobytes, or nothing when it is already in the local repository). If that version is too new, it tries the next older one. Results are cached with the version history. Changing the setting reselects versions from cached metadata.
 
-A repository that sends no `Last-Modified` header makes a version count as published when Maven first downloaded its POM, so the delay is never shortened. The setting matches a time-based quarantine only; versions blocked for other reasons, such as security or license policy, are still suggested. The Versions-goal fallback applies the same rule through the bundled helper. npm and Gradle checks do not use this setting.
+A repository that sends no `Last-Modified` header makes a version count as published when Maven first downloaded its POM, so the delay is never shortened. The setting matches a time-based quarantine only; versions blocked for other reasons, such as security or license policy, are still suggested. The Versions-goal fallback applies the same rule through the bundled helper.
+
+For npm, pnpm, Yarn and Bun, the release time is the registry's per-version `time` entry. The checker reads it with one extra read-only registry query per package, only while a minimum age is set. Versions without a release time count as too new. If the registry returns no release times at all, the package is reported as failed rather than up to date; check the registry configuration or set the age to 0.
+
+Gradle checks do not use this setting yet: Gradle's resolver does not expose per-version publication times.
 
 After a version edit, existing warnings for unchanged Maven coordinates stay visible in the same POM and other imported POMs while the new check runs. Their quick fixes remain available, so you can update additional dependencies without waiting. Warnings for edited or removed declarations disappear immediately; settings changes and explicit refreshes discard retained results.
 

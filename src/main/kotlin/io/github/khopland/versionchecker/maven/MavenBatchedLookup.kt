@@ -36,7 +36,7 @@ internal object MavenBatchedLookup {
         val context = service.contexts.get(manager, project, snapshot, generation)
         if (!context.nativeSupported) return@coroutineScope null
         val options = manager.project.service<VersionCheckerSettings>().state.copy()
-        val age = MavenReleaseAge.of(options.mavenMinimumReleaseAgeHours)
+        val age = MavenReleaseAge.of(options.minimumReleaseAgeHours)
         val keys = coordinates.groupBy { MavenMetadataKey(it.groupId, it.artifactId, it.artifactKind == MavenArtifactKind.PLUGIN) }
         // Publish dependencies before spending time on plugin candidate POMs; a small first batch
         // lets even a large POM display answers early.
