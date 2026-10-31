@@ -1,11 +1,9 @@
 package io.github.khopland.versionchecker.maven
 
-import com.intellij.openapi.components.service
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import io.github.khopland.versionchecker.CheckPerformance
-import io.github.khopland.versionchecker.VersionCheckerSettings
 import io.github.khopland.versionchecker.core.BuildFingerprint
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
@@ -73,9 +71,7 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
     private val readPass by lazy { MavenInputInventory.ReadPass(manager) }
     private val configuration by lazy {
         val policy = io.github.khopland.versionchecker.projectPolicy(manager.project).deprecationFingerprint
-        val fastScope = manager.project.service<VersionCheckerSettings>().state.mavenFastEditorChecks
-        val persistent = manager.project.service<VersionCheckerSettings>().state.mavenPersistentMetadata
-        "${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy:$fastScope:$persistent"
+        "${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy"
     }
     private val shared by lazy {
         CheckPerformance.measure(CheckPerformance.Stage.MAVEN_PROJECT_INPUTS, projects.size) {

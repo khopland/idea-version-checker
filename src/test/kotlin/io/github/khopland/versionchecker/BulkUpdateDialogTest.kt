@@ -100,7 +100,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             assertFalse(dialog.selectedPlan().apply(project))
             assertEquals("1.0", text(edit))
             dialog.replacePrepared(PreparedVersionPreview(BulkUpdatePlan(listOf(edit), emptyList()), System.nanoTime(), 0, 1),
-                UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, "Test", true, false)
+                UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, "Test", true)
             assertTrue(dialog.isOKActionEnabled)
         } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
@@ -164,7 +164,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             dialog.refreshAction.actionPerformed(ActionEvent(dialog, 0, "Refresh"))
             assertEquals(1, checks)
             dialog.replacePrepared(PreparedVersionPreview(plan, time, 0, 1,
-                expiresAtNanos = TimeUnit.SECONDS.toNanos(10)), UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, "Test", true, false)
+                expiresAtNanos = TimeUnit.SECONDS.toNanos(10)), UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, "Test", true)
             assertTrue(dialog.isOKActionEnabled)
             assertTrue(dialog.freshnessTimer.isRunning)
             assertTrue(dialog.freshness.text.contains("expire in 6s"))
@@ -264,7 +264,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             System.setErr(java.io.PrintStream(stderr))
             fun replace(rows: List<VersionEdit>) = dialog.replacePrepared(
                 PreparedVersionPreview(BulkUpdatePlan(rows, emptyList()), System.nanoTime(), 0, 1),
-                UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, "Test", true, false)
+                UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT, "Test", true)
             replace(edits)
             assertEquals(10_000, dialog.table.rowCount)
             assertTrue(dialog.summary.text.contains("100 selected · 10000 of 10000 visible"))
@@ -302,7 +302,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             val sorting = dialog.table.rowSorter.sortKeys.toList()
             fun replace(edits: List<VersionEdit>, scope: UpdateScope) = dialog.replacePrepared(
                 PreparedVersionPreview(BulkUpdatePlan(edits, emptyList()), System.nanoTime(), 0, 1),
-                UpdateMode.PATCH, scope, "Test", true, false)
+                UpdateMode.PATCH, scope, "Test", true)
             replace(listOf(beta, new), UpdateScope.CURRENT_FILE)
             assertEquals("retained", dialog.filter.text)
             assertEquals(sorting, dialog.table.rowSorter.sortKeys)
@@ -334,7 +334,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             dialog.doOKAction()
             assertFalse(dialog.isDisposed)
             dialog.replacePrepared(PreparedVersionPreview(BulkUpdatePlan(listOf(edit), emptyList()), System.nanoTime(), 0, 1),
-                UpdateMode.MINOR, UpdateScope.WHOLE_PROJECT, "Test", true, false)
+                UpdateMode.MINOR, UpdateScope.WHOLE_PROJECT, "Test", true)
             assertFalse(held.apply(project))
             assertTrue(dialog.selectedPlan().apply(project))
         } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
@@ -453,17 +453,6 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         assertTrue(dialog.isDisposed)
     }
 
-    fun testPlatformScopeIsOfferedOnlyWhenAvailableAndKeepsTheFullAuditChoices() {
-        val dialog = dialog(BulkUpdatePlan(emptyList(), emptyList()))
-        try {
-            assertEquals(listOf(UpdateScope.CURRENT_FILE, UpdateScope.WHOLE_PROJECT),
-                (0 until dialog.scopeSelector.itemCount).map(dialog.scopeSelector::getItemAt))
-            dialog.configure(PreparedVersionPreview(BulkUpdatePlan(emptyList(), emptyList()), System.nanoTime(), 0, 1), true, true)
-            assertEquals(UpdateScope.entries.toList(), (0 until dialog.scopeSelector.itemCount).map(dialog.scopeSelector::getItemAt))
-            assertEquals(UpdateScope.WHOLE_PROJECT, dialog.scopeSelector.selectedItem)
-        } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
-    }
-
     fun testChangingModeRequestsANewPreviewBeforeAnythingCanApply() {
         val edit = edit("alpha")
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
@@ -559,7 +548,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             assertTrue(labels(dialog.createCenterPanel()).any { it.startsWith("No automatic updates available") })
             dialog.replacePrepared(PreparedVersionPreview(empty, System.nanoTime(), 0, 1,
                 io.github.khopland.versionchecker.core.CoverageSummary(skipped = 8)), UpdateMode.PATCH,
-                UpdateScope.WHOLE_PROJECT, "Test", true, false)
+                UpdateScope.WHOLE_PROJECT, "Test", true)
             assertEquals("Recognized declarations: 0 checked · 8 skipped", dialog.coverageLabel.text)
             assertTrue(labels(dialog.createCenterPanel()).any { it.startsWith("No declarations were checked") })
             dialog.onRecheckRequested = { _, _, _, _ -> }

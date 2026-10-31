@@ -133,12 +133,11 @@ See the [tool window guide](docs/user-guide.md#dependency-versions-tool-window) 
 
 ## Settings and repositories
 
-Open **Settings → Tools → Version Checker** to configure checks, severity, dependency rules, and periodic checks.
-Periodic checks are off by default. The default interval is 30 minutes.
+Open **Settings → Tools → Version Checker** to configure checks, severity, and dependency rules.
 Version updates use Warning severity by default.
 Deprecated and relocated artifacts use Error severity by default.
 
-Use **Advanced Maven settings → Minimum release age (hours)** to exclude recent Maven releases.
+Use **Maven → Minimum release age (hours)** to exclude recent Maven releases.
 For example, use 24 hours to match a repository quarantine.
 See [minimum release age](docs/user-guide.md#minimum-release-age).
 

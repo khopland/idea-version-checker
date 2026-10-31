@@ -7,6 +7,16 @@
 - pnpm, Yarn Classic/modern Yarn and Bun adapters using their native read-only metadata commands.
 - pnpm YAML workspace discovery and manager-specific configuration validation; updates edit manifests only.
 
+### Changed
+
+- Maven checks are faster for everyone: each metadata goal resolves four repository files at once (Maven's default, was two), and the next batch's goal starts while the current batch is published.
+
+### Removed
+
+- Advanced Maven tuning settings: parallel metadata requests, parents/Spring Boot BOMs first, fast editor checks and persistent metadata across IDE sessions. Maven checks always cover every supported declaration and keep metadata in memory. **Minimum release age** moves to a **Maven** section.
+- **Tools → Update Versions → Maven Platform** and the preview's Maven Platform scope. Use **Current File** or **Whole Project**.
+- Periodic background refresh. Use **Refresh Current File** or **Refresh Whole Project** when needed.
+
 ### Fixed
 
 - Run Maven metadata and Versions goals in cancellable Java processes using IDEA's selected Maven and import JDK. Remove experimental progress APIs.

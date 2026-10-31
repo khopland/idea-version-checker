@@ -75,11 +75,11 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         }
     }
 
-    fun testUnloadCancelsScheduledAndInFlightChecksAndClosesAPreview() {
+    fun testUnloadCancelsInFlightChecksAndClosesAPreview() {
         awaitClassLoaderCollection(unloadWithActiveWorkAndPreview(packaged))
     }
 
-    fun testUnloadCancelsScheduledAndInFlightChecks() {
+    fun testUnloadCancelsInFlightChecks() {
         awaitClassLoaderCollection(unloadWithActiveWorkAndPreview(packaged, includePreview = false))
     }
 
@@ -93,13 +93,6 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
     private fun unloadWithActiveWorkAndPreview(plugin: PluginMainDescriptor, includePreview: Boolean = true): WeakReference<ClassLoader> {
         val loader = plugin.pluginClassLoader!!
         val previousLoader = WeakReference(loader)
-        val settings = service(plugin, "VersionCheckerSettings")
-        val options = settings.javaClass.getMethod("getState").invoke(settings)
-        options.javaClass.getMethod("setScheduledChecks", Boolean::class.javaPrimitiveType).invoke(options, true)
-        val scheduled = service(plugin, "ScheduledVersionChecks")
-        scheduled.javaClass.getMethod("configure").invoke(scheduled)
-        val timer = scheduled.javaClass.getDeclaredField("job").apply { isAccessible = true }.get(scheduled) as Job
-        assertTrue(timer.isActive)
 
         val started = CompletableDeferred<Unit>()
         val cancelled = CompletableDeferred<Unit>()
@@ -152,7 +145,7 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
 
         if (!includePreview) {
             assertTrue(DynamicPlugins.unloadPlugin(plugin, DynamicPlugins.UnloadPluginOptions(disable = false, save = false)))
-            PlatformTestUtil.waitWithEventsDispatching("Checks cancelled", { timer.isCompleted && cancelled.isCompleted }, 10)
+            PlatformTestUtil.waitWithEventsDispatching("Checks cancelled", { cancelled.isCompleted }, 10)
             return previousLoader
         }
 
@@ -187,11 +180,10 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         assertFalse(job.isCompleted)
         assertTrue(DynamicPlugins.unloadPlugin(plugin, DynamicPlugins.UnloadPluginOptions(disable = false, save = false)))
         PlatformTestUtil.waitWithEventsDispatching("Preview closed and checks cancelled", {
-            dialog.isDisposed && job.isCompleted && timer.isCompleted && cancelled.isCompleted
+            dialog.isDisposed && job.isCompleted && cancelled.isCompleted
         }, 10)
         assertEquals(DialogWrapper.CANCEL_EXIT_CODE, dialog.exitCode)
         assertTrue(job.isCancelled)
-        assertTrue(timer.isCancelled)
         assertFalse(project.isDisposed)
         // registerPossible retains its interceptor until test teardown; release its captured dialog.
         shown = null

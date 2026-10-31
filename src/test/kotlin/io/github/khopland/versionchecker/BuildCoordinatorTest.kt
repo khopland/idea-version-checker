@@ -110,39 +110,6 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertEquals(3, adapter.checked.size)
     }
 
-    fun testScheduledRefreshBypassesCacheButSkipsOfflineAndDisabledChecks() {
-        val file = myFixture.addFileToProject("build.txt", "1.0")
-        val adapter = TestAdapter("schedule-test", file)
-        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
-        val service = project.service<VersionCheckService>()
-        val snapshot = adapter.snapshot(project, file.virtualFile)!!
-        fun refresh() = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
-            runBlocking { service.refreshScheduled() }
-        }), 10_000)
-        refresh()
-        assertEquals("1.1", service.cached(snapshot)!!.candidates.single().version)
-        adapter.version = "1.2"
-        refresh()
-        assertEquals("1.2", service.cached(snapshot)!!.candidates.single().version)
-        WriteCommandAction.runWriteCommandAction(project) {
-            FileDocumentManager.getInstance().getDocument(file.virtualFile)!!.setText("unsaved version")
-        }
-        refresh()
-        assertEquals("Scheduled checks must skip unsaved build files", 2, adapter.checked.size)
-        FileDocumentManager.getInstance().saveAllDocuments()
-        adapter.offline = true
-        refresh()
-        assertEquals(2, adapter.checked.size)
-        adapter.offline = false
-        project.service<VersionCheckerSettings>().state.enabled = false
-        try {
-            refresh()
-            assertEquals(2, adapter.checked.size)
-        } finally {
-            project.service<VersionCheckerSettings>().state.enabled = true
-        }
-    }
-
     fun testCancelledRefreshDoesNotCacheAFailureAndCanBeRetried() {
         val file = myFixture.addFileToProject("build.txt", "1.0")
         val gate = CompletableDeferred<Unit>()
@@ -223,23 +190,6 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             gate.complete(Unit)
             project.service<VersionCheckerSettings>().state.enabled = true
         }
-    }
-
-    fun testScheduledRefreshDoesNotInvalidateAnActiveInspectionCheck() {
-        val file = myFixture.addFileToProject("build.txt", "1.0")
-        val gate = CompletableDeferred<Unit>()
-        val adapter = TestAdapter("busy-schedule-test", file).apply { beforeCheck = { gate.await() } }
-        BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
-        val service = project.service<VersionCheckService>()
-        val snapshot = adapter.snapshot(project, file.virtualFile)!!
-        service.updates(adapter, snapshot)
-        PlatformTestUtil.waitWithEventsDispatching("Inspection lookup starts", { adapter.checked.isNotEmpty() }, 10_000)
-        PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
-            runBlocking { service.refreshScheduled() }
-        }), 10_000)
-        gate.complete(Unit)
-        PlatformTestUtil.waitWithEventsDispatching("Inspection lookup published", { service.cached(snapshot) != null }, 10_000)
-        assertEquals(1, adapter.checked.size)
     }
 
     fun testCurrentFileRefreshRunsBetweenProjectModulesWithoutWaitingForTheWholeScan() {

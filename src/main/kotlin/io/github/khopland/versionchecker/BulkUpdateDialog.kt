@@ -84,9 +84,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
                                 private val now: () -> Long = System::nanoTime) : DialogWrapper(project) {
     companion object { const val RECHECK_EXIT_CODE = 3 }
     internal val modeSelector = ComboBox(UpdateMode.entries.toTypedArray())
-    internal val scopeSelector = ComboBox(UpdateScope.entries.filter {
-        it != UpdateScope.MAVEN_PLATFORM || scopeLabel == it.label
-    }.toTypedArray())
+    internal val scopeSelector = ComboBox(UpdateScope.entries.toTypedArray())
     internal val model = VersionUpdateTableModel(plan.changes, project.basePath)
     internal val table = object : JBTable(model) {
         override fun getToolTipText(event: MouseEvent): String? {
@@ -271,14 +269,11 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         updateSummary()
     }
 
-    fun configure(prepared: PreparedVersionPreview, currentFileAvailable: Boolean, platformAvailable: Boolean = false) {
+    fun configure(prepared: PreparedVersionPreview, currentFileAvailable: Boolean) {
         targetChoices = VersionTargetChoices(plan, previewState.mode, prepared.targetPlans)
         configuring = true
         try {
             if (!currentFileAvailable) scopeSelector.removeItem(UpdateScope.CURRENT_FILE)
-            if (platformAvailable && (0 until scopeSelector.itemCount).none { scopeSelector.getItemAt(it) == UpdateScope.MAVEN_PLATFORM })
-                scopeSelector.addItem(UpdateScope.MAVEN_PLATFORM)
-            if (!platformAvailable) scopeSelector.removeItem(UpdateScope.MAVEN_PLATFORM)
             previewState = previewState.configured(scopeSelector.selectedItem as UpdateScope)
         } finally { configuring = false }
         val cached = when (prepared.reusedReports) {
@@ -334,7 +329,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     }
 
     internal fun replacePrepared(prepared: PreparedVersionPreview, mode: UpdateMode, scope: UpdateScope,
-                                 buildSystems: String, currentFileAvailable: Boolean, platformAvailable: Boolean) {
+                                 buildSystems: String, currentFileAvailable: Boolean) {
         if (isDisposed) return
         val highlighted = table.selectedRows.map { model.changes[table.convertRowIndexToModel(it)].identity() }.toSet()
         val position = tableScroll.viewport.viewPosition
@@ -348,7 +343,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             // not inspect row mappings until JTable has notified its sorter of the new size.
             replacingRows = true
             try { model.replaceChanges(plan.changes) } finally { replacingRows = false }
-            configure(prepared, currentFileAvailable, platformAvailable)
+            configure(prepared, currentFileAvailable)
         } finally { configuring = false }
         title = "Review $buildSystems updates"
         refreshRequested = false

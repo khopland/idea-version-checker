@@ -152,9 +152,6 @@ internal open class NpmBuildSystemAdapter(val manager: NodePackageManager = Node
         return report.copy(validUntilNanos = expires.get().takeUnless { it == Long.MAX_VALUE })
     }
     override fun invalidateMetadata(project: Project) { project.service<NpmMetadataService>().invalidate() }
-    override fun hasUnsavedResolutionInputs(project: Project, snapshot: BuildSnapshot, unsavedPaths: Set<String>): Boolean =
-        super.hasUnsavedResolutionInputs(project, snapshot, unsavedPaths) ||
-            NpmBuildInputs.hasUnsavedResolutionInputs(project, snapshot.context.root, unsavedPaths)
 
     override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan =
         capture(project, { reports.keys.mapNotNull { findFile(project, it.sourceFile) } }) { external ->

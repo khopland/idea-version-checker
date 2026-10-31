@@ -66,7 +66,7 @@
                 <session implementation="org.apache.maven.execution.MavenSession" default-value="${session}"/>
                 <input implementation="java.io.File">${versionchecker.input}</input>
                 <output implementation="java.io.File">${versionchecker.output}</output>
-                <threads implementation="int" default-value="2">${versionchecker.threads}</threads>
+                <threads implementation="int" default-value="4">${versionchecker.threads}</threads>
             </configuration>
             <requirements>
                 <requirement>

@@ -69,19 +69,19 @@ class SupportDiagnosticReportPresentationTest : BasePlatformTestCase() {
             panel.table.rowSorter.sortKeys = listOf(RowSorter.SortKey(3, SortOrder.DESCENDING))
             panel.table.setRowSelectionInterval(0, 0)
             val beforeReads = reads.get()
-            options.state.mavenMetadataThreads = 3
+            options.state.mavenMinimumReleaseAgeHours = 3
             val snapshot = panel.captureSupportReport()
             val captured = snapshot.json()
             panel.clearFilters()
             panel.presentRows(listOf(row("new-result")))
-            options.state.mavenMetadataThreads = 1
+            options.state.mavenMinimumReleaseAgeHours = 1
             assertEquals(captured, snapshot.json())
             val document = JsonParser.parseString(captured).asJsonObject
             assertTrue(document["filtersActiveAtCapture"].asBoolean)
             assertEquals(3, document["totalCachedRowsAtCapture"].asInt)
             assertEquals(2, document["displayedRowsAtCapture"].asInt)
             assertEquals(listOf("beta", "alpha"), document.getAsJsonArray("results").map { it.asJsonObject["artifact"].asString })
-            assertEquals(3, document.getAsJsonObject("settings")["mavenMetadataThreads"].asInt)
+            assertEquals(3, document.getAsJsonObject("settings")["mavenMinimumReleaseAgeHours"].asInt)
             assertEquals(10_000L, document.getAsJsonArray("results")[0].asJsonObject["observationAgeMillis"].asLong)
             assertEquals(20_000L, document.getAsJsonArray("results")[0].asJsonObject["cacheExpiresInMillis"].asLong)
             assertEquals(beforeReads, reads.get())

@@ -209,7 +209,7 @@ class VersionTargetChoicesTest : BasePlatformTestCase() {
             dialog.targetSelector.selectedIndex = 1
             val held = dialog.selectedPlan()
             dialog.replacePrepared(PreparedVersionPreview(major, System.nanoTime(), 0, 1),
-                UpdateMode.MAJOR, UpdateScope.WHOLE_PROJECT, "Test", true, false)
+                UpdateMode.MAJOR, UpdateScope.WHOLE_PROJECT, "Test", true)
             assertFalse(held.apply(project))
             assertTrue(dialog.model.selectedIndices.isEmpty())
             dialog.table.setRowSelectionInterval(0, 0)

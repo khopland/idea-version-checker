@@ -12,35 +12,26 @@ import java.time.Instant
 
 /** Explicit allowlist: never serialize a settings component, policy snapshot or system properties. */
 internal data class SupportReportSettings(
-    val enabled: Boolean, val scheduled: Boolean, val intervalMinutes: Int,
+    val enabled: Boolean,
     val patch: VersionSeverity, val minor: VersionSeverity, val major: VersionSeverity,
     val other: VersionSeverity, val deprecated: VersionSeverity,
-    val platformFirst: Boolean, val metadataThreads: Int, val fastEditorChecks: Boolean,
-    val persistentMetadata: Boolean, val minimumReleaseAgeHours: Int
+    val minimumReleaseAgeHours: Int
 ) {
     companion object {
         fun capture(options: VersionCheckerSettings.Options) = SupportReportSettings(
-            options.enabled, options.scheduledChecks, options.checkIntervalMinutes.coerceIn(1, 1440),
+            options.enabled,
             options.patchSeverity, options.minorSeverity, options.majorSeverity, options.otherSeverity, options.deprecatedSeverity,
-            options.mavenPlatformFirst, options.mavenMetadataThreads.coerceIn(1, 4), options.mavenFastEditorChecks,
-            options.mavenPersistentMetadata, options.mavenMinimumReleaseAgeHours.coerceAtLeast(0))
+            options.mavenMinimumReleaseAgeHours.coerceAtLeast(0))
     }
 
     fun json() = JsonObject().apply {
         addProperty("source", "workspace-settings")
         addProperty("enabled", enabled)
-        addProperty("scheduledChecksConfigured", scheduled)
-        addProperty("scheduledChecksEffective", enabled && scheduled)
-        addProperty("checkIntervalMinutes", intervalMinutes)
         addProperty("patchSeverity", patch.name)
         addProperty("minorSeverity", minor.name)
         addProperty("majorSeverity", major.name)
         addProperty("otherSeverity", other.name)
         addProperty("deprecatedSeverity", deprecated.name)
-        addProperty("mavenPlatformFirst", platformFirst)
-        addProperty("mavenMetadataThreads", metadataThreads)
-        addProperty("mavenFastEditorChecks", fastEditorChecks)
-        addProperty("mavenPersistentMetadata", persistentMetadata)
         addProperty("mavenMinimumReleaseAgeHours", minimumReleaseAgeHours)
     }
 }

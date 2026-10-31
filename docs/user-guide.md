@@ -25,7 +25,7 @@ The parent choice is available only when the controlling declaration can be iden
 
 Requires IntelliJ IDEA **2026.1.4 through 2026.2.x**. Enable the bundled Java and Maven plugins for Maven projects, the bundled Gradle plugin for Gradle projects, or the JavaScript and TypeScript plugin for npm projects. The build targets 2026.1.4.
 
-The plugin supports dynamic loading and unloading, allowing IDEA to enable, disable or update it without a restart when the IDE permits it. Unloading cancels background checks and scheduled timers and closes pending update previews. Previews use non-modal windows; build-file changes still invalidate a preview before it can apply edits.
+The plugin supports dynamic loading and unloading, allowing IDEA to enable, disable or update it without a restart when the IDE permits it. Unloading cancels background checks and closes pending update previews. Previews use non-modal windows; build-file changes still invalidate a preview before it can apply edits.
 
 1. In IDEA, open **Settings → Plugins → Marketplace**, search for **Version Checker**, and install it. For a local build, run `./gradlew buildPlugin` using Java 21 or later; Gradle uses a Java 21 toolchain.
 2. If installing a local build, use **Settings → Plugins → gear → Install Plugin from Disk** and select the ZIP in `build/distributions/`.
@@ -34,13 +34,13 @@ The plugin supports dynamic loading and unloading, allowing IDEA to enable, disa
 
 Version checks show cancellable progress in IDEA's bottom status bar. A manual refresh bypasses the checker's cached results, queries repository metadata again, and refreshes the inspection highlighting when results arrive. Use this after publishing a new library version while the project is open. Right-click a supported build file in the editor and choose **Refresh Current File**, or find the refresh actions through **Find Action**.
 
-For periodic checks, enable **Refresh periodically** under **Settings → Tools → Version Checker**. The default interval is 30 minutes, configurable from 1 minute to 24 hours; scheduling is off by default. Checks run after each interval without saving files or changing versions. They skip offline build systems, affected unsaved build files, indexing, and checks already in progress. The timer stops when the project closes or checking is disabled, and resumes with the saved settings when the project opens again. Squiggles appear only for supported newer stable versions; republishing an existing version or a snapshot does not create a version-update warning.
+Squiggles appear only for supported newer stable versions; republishing an existing version or a snapshot does not create a version-update warning.
 
 The inspection appears under **Settings → Editor → Inspections → Maven → Newer Maven dependency or plugin version available**. You can disable the whole inspection there. Configure severity by update type under **Settings → Tools → Version Checker**. Editor diagnostics do not change Maven's build result.
 
 ## Severity and deprecated dependencies
 
-General controls and warning levels appear first. Expand **Dependency rules** to edit deprecation and ignore rules, or **Advanced Maven settings** for Maven tuning.
+General controls and warning levels appear first. Expand **Dependency rules** to edit deprecation and ignore rules. The **Maven** section holds the minimum release age.
 
 The settings page has independent **Warning (yellow)**, **Error (red)**, **Information**, and **Disabled** selectors for patch, minor, major, other version changes, and deprecated/relocated artifacts. These settings apply to dependencies and build plugins. All version updates default to Warning, including major upgrades. Deprecated/relocated artifacts default to Error. Disabling a severity hides editor messages for that category while leaving bulk updates available.
 
@@ -274,23 +274,19 @@ Declaration results are cached for ten minutes and invalidated by POM saves, Mav
 
 ### Minimum release age
 
-Some repository managers hold new releases back for a while. A Sonatype Nexus Repository Firewall quarantine, for example, still lists a new version in `maven-metadata.xml` and serves its POM, but refuses its JAR. To suggest only versions you can download, set **Minimum release age (hours)** under **Settings → Tools → Version Checker → Advanced Maven settings** to the quarantine period, for example `24`. The default `0` suggests the newest version.
+Some repository managers hold new releases back for a while. A Sonatype Nexus Repository Firewall quarantine, for example, still lists a new version in `maven-metadata.xml` and serves its POM, but refuses its JAR. To suggest only versions you can download, set **Minimum release age (hours)** under **Settings → Tools → Version Checker → Maven** to the quarantine period, for example `24`. The default `0` suggests the newest version.
 
 The release time of a version is the `Last-Modified` time of its POM, which Maven keeps as the file time in the local repository. When an artifact's metadata `lastUpdated` timestamp is older than the minimum age, every listed version is old enough and nothing more is read. Otherwise the checker reads the POM of the newest candidate (a few kilobytes, or nothing when it is already in the local repository). If that version is too new, it tries the next older one. Results are cached with the version history. Changing the setting reselects versions from cached metadata.
 
 A repository that sends no `Last-Modified` header makes a version count as published when Maven first downloaded its POM, so the delay is never shortened. The setting matches a time-based quarantine only; versions blocked for other reasons, such as security or license policy, are still suggested. The Versions-goal fallback applies the same rule through the bundled helper. npm and Gradle checks do not use this setting.
 
-Optional **Reuse Maven metadata across IDE sessions** under **Advanced Maven settings** stores successful histories and plugin prerequisites locally in IDEA's system directory. It defaults to off. Reopening a compatible context reuses only unexpired facts, with their original age and ten-minute deadline; expired or incompatible-clock records require a native lookup. Refresh bypasses and purges persisted facts. The store is bounded, contains no credentials, uses owner-only permissions where supported, and performs disk work off the UI thread. Corrupt or unavailable files fall back to native resolution.
-
 After a version edit, existing warnings for unchanged Maven coordinates stay visible in the same POM and other imported POMs while the new check runs. Their quick fixes remain available, so you can update additional dependencies without waiting. Warnings for edited or removed declarations disappear immediately; settings changes and explicit refreshes discard retained results.
 
 Manual refreshes start one metadata generation for the requested scan. Every helper cache miss forces metadata revalidation through a cloned Maven Resolver session, including under daily update policies. Editor checks, refreshes and previews share a short-lived embedder pool for compatible lookup phases; it is released on completion or cancellation after any shared workers finish. Shared histories prepare version ordering and branches once. Checks publish a small first batch and yield between completed goals to waiting selected-file or interactive checks. Failures retry independently while successful sibling histories remain reusable. The fallback continues to expire only selected remote metadata timestamps and uses a fresh per-POM session.
 
-Under **Settings → Tools → Version Checker → Advanced Maven settings**, parallel metadata requests default to **2** and can be set from **1–4**. Optional **parents and Spring Boot BOMs first** ordering publishes those answers before the remaining batches. Full declaration coverage remains the default. The optional **Skip unused managed dependencies in editor checks** setting omits unused local dependency-management entries, retaining used coordinates, imported BOMs, version-property declarations and local overrides of parent management. Unresolved consumer coordinates retain full coverage. Reduced checks display **partial** status and cannot satisfy a full update preview. Manual refreshes, scheduled audits and **Current File / Whole Project** previews check every supported declaration.
+Maven checks always cover every supported declaration. Each metadata goal resolves up to four repository files at once, matching Maven's own default, and the next batch's goal starts while the current batch is published.
 
-For a narrower platform review, open a Maven child or parent and choose **Tools → Update Versions → Maven Platform**. It follows imported parent chains to the owning POMs, checks external parent/BOM versions first, then direct explicit versions, inherited property overrides and overrides of parent management. Unused local management entries and versionless library uses are omitted. Preview rows show the actual owning file; reactor parent versions and Maven's repository-cache POMs are never update targets. This scope has separate cached results and all normal stale-input/shared-property guards. Switch to **Current File** or **Whole Project** in the preview for a full audit. Spring Boot's tested dependency set still needs review when updating a platform or overriding individual libraries.
-
-Full results from Refresh stay visible until they expire or are invalidated, including failed audits, even with fast editor checks enabled. Preview guards track global Maven settings, security files and their relocation targets, including unsaved changes; changing those inputs requires another audit before applying edits.
+Full results from Refresh stay visible until they expire or are invalidated, including failed audits. Preview guards track global Maven settings, security files and their relocation targets, including unsaved changes; changing those inputs requires another audit before applying edits.
 
 ## Maven scope
 
