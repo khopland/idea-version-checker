@@ -11,15 +11,17 @@
 
 - **Minimum release age** now also applies to npm, pnpm, Yarn and Bun, using the registry's per-version release times. It is a general setting under the enable checkbox; existing values are kept. Gradle checks do not use it yet.
 - One **Tools → Versions** menu with **Check for Updates** and **Review Updates…**, replacing the separate Check Versions and Update Versions menus (eight items). The editor context menu offers **Check This File for Updates** and **Review Updates…**. Reviews open for the current build file, or the whole project when no supported build file is selected, in **Major + minor + patch** mode; scope and mode can be changed in the preview.
+- Version hints use each inspection's severity from **Settings → Editor → Inspections**, so there is one place to change it. Version updates default to Warning; deprecated and relocated artifacts are struck through.
 - Maven checks are faster for everyone: each metadata goal resolves four repository files at once (Maven's default, was two), and the next batch's goal starts while the current batch is published.
 
 ### Removed
 
 - Dependency Versions **Copy Markdown**, **Export Markdown…**, **Export JSON…** and **Preview Support Report…**. The tool window shows cached results; use `idea.log` for bug reports.
 - **Load npm target details** in update reviews.
-- Advanced Maven tuning settings: parallel metadata requests, parents/Spring Boot BOMs first, fast editor checks and persistent metadata across IDE sessions. Maven checks always cover every supported declaration and keep metadata in memory. **Minimum release age** moves to a **Maven** section.
+- Advanced Maven tuning settings: parallel metadata requests, parents/Spring Boot BOMs first, fast editor checks and persistent metadata across IDE sessions. Maven checks always cover every supported declaration and keep metadata in memory.
 - **Tools → Update Versions → Maven Platform** and the preview's Maven Platform scope. Use **Current File** or **Whole Project**.
-- Periodic background refresh. Use **Refresh Current File** or **Refresh Whole Project** when needed.
+- Periodic background refresh. Use **Check This File for Updates** or **Check for Updates** when needed.
+- The five severity selectors (patch, minor, major, other, deprecated) under **Settings → Tools → Version Checker**. Saved choices are ignored.
 
 ### Fixed
 

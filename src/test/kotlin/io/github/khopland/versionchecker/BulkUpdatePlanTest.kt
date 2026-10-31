@@ -35,13 +35,6 @@ class BulkUpdatePlanTest : BasePlatformTestCase() {
     private fun dep(name: String, version: String): String =
         "<dependency><groupId>g</groupId><artifactId>$name</artifactId><version>$version</version></dependency>"
 
-    fun testDisablingEditorMessagesDoesNotDisableBulkUpdates() {
-        val plan = plan("<dependencies>" + dep("a", "1.0") + "</dependencies>",
-            mapOf(DependencyVersion("g", "a", "1.0") to "2.0"),
-            VersionCheckerSettings.Options(majorSeverity = VersionSeverity.DISABLED))
-        assertEquals(1, plan.changes.size)
-    }
-
     fun testDeduplicatesCompatibleSharedProperty() {
         val plan = plan("<properties><shared>1.0</shared></properties><dependencies>" +
             dep("a", "\${shared}") + dep("b", "\${shared}") + "</dependencies>",

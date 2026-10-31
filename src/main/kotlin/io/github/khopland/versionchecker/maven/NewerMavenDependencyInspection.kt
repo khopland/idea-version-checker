@@ -30,18 +30,15 @@ class NewerMavenDependencyInspection : LocalInspectionTool() {
                 val problems = propertyProblems[tag].orEmpty()
                 val propertyFixes = if (problems.isEmpty()) emptyArray() else analysis.propertyQuickFixes(tag)
                 for (problem in problems) {
-                    val highlight = problem.severity.highlight ?: continue
-                    holder.registerProblem(tag, problem.message, highlight, *(propertyFixes + ignoreFix(problem)))
+                    holder.registerProblem(tag, problem.message, problem.highlight, *(propertyFixes + ignoreFix(problem)))
                 }
                 for (problem in inheritedProblems[tag].orEmpty()) {
-                    val highlight = problem.severity.highlight ?: continue
-                    holder.registerProblem(tag, problem.message, highlight,
+                    holder.registerProblem(tag, problem.message, problem.highlight,
                         *(analysis.inheritedPropertyQuickFixes(problem) + ignoreFix(problem)))
                 }
                 val problem = analysis.problem(tag) ?: return
-                val highlight = problem.severity.highlight ?: return
                 val fixes = analysis.quickFixes(tag, problem)
-                holder.registerProblem(problem.anchor, problem.message, highlight, *(fixes + ignoreFix(problem)))
+                holder.registerProblem(problem.anchor, problem.message, problem.highlight, *(fixes + ignoreFix(problem)))
             }
         }
     }

@@ -33,7 +33,6 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
         val adapter = BuildSystemAdapter.find(manager.id) as? NpmBuildSystemAdapter ?: return PsiElementVisitor.EMPTY_VISITOR
         val snapshot = holder.project.service<VersionCheckService>().inspectionSnapshot(adapter, file) ?: return PsiElementVisitor.EMPTY_VISITOR
         val report = holder.project.service<VersionCheckService>().updates(adapter, snapshot) ?: return PsiElementVisitor.EMPTY_VISITOR
-        val options = holder.project.service<VersionCheckerSettings>().state
         val candidates = report.candidates.associateBy { it.declaration.id }
         val notices = report.notices.associateBy { it.declaration.id }
         val values = NpmManifest.values(holder.file).entries.associate { it.value to it.key }
@@ -50,7 +49,7 @@ class NewerNpmDependencyInspection : LocalInspectionTool() {
                 val notice = notices[id]
                 if (candidate == null && notice == null) return
                 val kind = if (notice != null) VersionChangeKind.DEPRECATED else candidate!!.kind
-                val highlight = kind.severity(options).highlight ?: return
+                val highlight = kind.highlightType()
                 val message = notice?.message ?: updateHint(candidate!!.declaration.artifact, candidate.kind, candidate.declaration.selector, candidate.replacementSelector)
                 val fixes = candidate?.let {
                     val key = it.declaration.artifact to it.version

@@ -126,7 +126,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
         val problems = inspect(file, mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2")).results
         val warning = problems.single { it.psiElement == property }
-        assertEquals(ProblemHighlightType.WARNING, warning.highlightType)
+        assertEquals(ProblemHighlightType.GENERIC_ERROR_OR_WARNING, warning.highlightType)
         apply(warning.fixes!!.filterIsInstance<UpdateDependencyVersionFix>().single() as LocalQuickFix, property)
         assertEquals("4.13.2", property.value.trimmedText)
         assertEquals("\${junit.version}", declaration(file).findFirstSubTag("version")!!.value.trimmedText)
@@ -1099,7 +1099,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
             manager.findProject(child.virtualFile)!!, emptyMap())
         val tag = declaration(child)
         val problem = DependencyProblem(DependencyVersion("junit", "junit", "4.12"), "4.13.2", tag,
-            null, io.github.khopland.versionchecker.core.VersionChangeKind.PATCH, VersionSeverity.WARNING)
+            null, io.github.khopland.versionchecker.core.VersionChangeKind.PATCH)
         val options = analysis.quickFixes(tag, problem)
         assertEquals(1, options.size)
         assertTrue(options.single() is OverrideDependencyVersionFix)

@@ -36,13 +36,13 @@ Version checks show cancellable progress in IDEA's bottom status bar. A manual r
 
 Squiggles appear only for supported newer stable versions; republishing an existing version or a snapshot does not create a version-update warning.
 
-The inspection appears under **Settings → Editor → Inspections → Maven → Newer Maven dependency or plugin version available**. You can disable the whole inspection there. Configure severity by update type under **Settings → Tools → Version Checker**. Editor diagnostics do not change Maven's build result.
+The inspection appears under **Settings → Editor → Inspections → Maven → Newer Maven dependency or plugin version available**. You can disable the whole inspection there. Change its severity on the same inspections page. Editor diagnostics do not change Maven's build result.
 
 ## Severity and deprecated dependencies
 
 General controls and warning levels appear first. **Minimum release age** sits under the enable checkbox. Expand **Dependency rules** to edit deprecation and ignore rules.
 
-The settings page has independent **Warning (yellow)**, **Error (red)**, **Information**, and **Disabled** selectors for patch, minor, major, other version changes, and deprecated/relocated artifacts. These settings apply to dependencies and build plugins. All version updates default to Warning, including major upgrades. Deprecated/relocated artifacts default to Error. Disabling a severity hides editor messages for that category while leaving bulk updates available.
+Each inspection has one severity, set under **Settings → Editor → Inspections**, and it applies to patch, minor, major and other version changes alike. The default is Warning. Deprecated and relocated artifacts are struck through. To hide editor messages, disable the inspection. Bulk updates stay available either way.
 
 Maven has no general deprecation flag for libraries or plugins. To explicitly mark one deprecated for your project, add a line in **Settings → Tools → Version Checker → Dependency rules → Mark dependencies as deprecated**:
 
@@ -84,13 +84,13 @@ Each rule matches one exact ecosystem and package: Maven/Gradle use `group:artif
 
 `ignoredVersions` contains exact published versions and an optional non-empty `reason`, shown with shared policy provenance. An optional `until` is an ISO-8601 timestamp with a UTC offset; the ignore ends at that instant. Omit `until` for an indefinite ignore. `deprecated` supplies a non-empty reason and requires manual replacement review. `allowedUpdates` accepts any subset of `patch`, `minor`, `major`, `other`; an empty array blocks every automatic version update for that package. Unknown/nonstandard version changes require `other`. The checker filters the versions available in the selected check mode; it does not query additional versions to find an allowed replacement when a suggested release is blocked.
 
-Workspace ignores and deprecations add restrictions. Removing a local rule cannot override a shared rule, and a shared deprecation reason takes precedence over a local reason for the same package. Warnings and dependency review details identify shared rule provenance. Presentation severity, enable/disable, performance and scheduling preferences stay local. **Ignore published version** also stays local; settings never create, migrate or rewrite the shared file.
+Workspace ignores and deprecations add restrictions. Removing a local rule cannot override a shared rule, and a shared deprecation reason takes precedence over a local reason for the same package. Warnings and dependency review details identify shared rule provenance. Enable/disable and release-age preferences stay local. **Ignore published version** also stays local; settings never create, migrate or rewrite the shared file.
 
 Unsaved shared-file edits take effect in the IDE and retire prepared updates. Changes to shared rules invalidate cached checks, and applying an update captures fresh physical policy input, including a file created or deleted outside the IDE. Policies with malformed JSON or unsupported schema/fields block edits; Settings → Tools → Version Checker and the version status/preview show the diagnostic. Fix the file and refresh checks to continue. A prepared selection also expires when one of its ignore timestamps passes. Parsed policy is reused by file/document stamps; fresh pre-write validation still rejects external writes with unchanged timestamps. Policies are limited to 1 MiB.
 
 ## IDEA highlighting and InlineProblems
 
-Messages use IDEA's standard inspection highlighting, hover tooltips, Problems view, and Alt+Enter quick fixes. Configure their severity under **Settings → Tools → Version Checker**. You can disable automatic checking altogether there, or disable the inspection under **Settings → Editor → Inspections → Maven**.
+Messages use IDEA's standard inspection highlighting, hover tooltips, Problems view, and Alt+Enter quick fixes. Configure their severity, or disable the inspection, under **Settings → Editor → Inspections → Maven**. You can disable automatic checking altogether under **Settings → Tools → Version Checker**.
 
 The **Versions** status-bar item explains the selected build file's check state: unchecked, queued, checking, checked, updates available, needs review, offline, save required, paused or failed. Click it for **Check This File for Updates**, **Review Updates…** and settings. Refresh saves documents before checking; disable the build system's offline setting first when required. “Checked” covers supported declarations only. Partial and retained hints cannot mark a file fully checked, and expired results return to unchecked. Displaying the status does not start repository queries. You can hide the item through IDEA's status-bar widget settings.
 
@@ -326,7 +326,7 @@ Updates change manifest strings only, in one undoable command. Lockfiles and ins
 
 ## Gradle projects
 
-Link/import the Gradle project in IntelliJ and enable the bundled Gradle plugin. The same **Tools → Versions → Check for Updates** and **Review Updates…** actions work for `build.gradle`, `build.gradle.kts`, the default local `gradle/libs.versions.toml` catalog, and named local TOML catalogs registered in root settings. The inspection is under **Settings → Editor → Inspections → Gradle → Newer Gradle dependency version available**, with the shared severity settings and Alt+Enter version fixes.
+Link/import the Gradle project in IntelliJ and enable the bundled Gradle plugin. The same **Tools → Versions → Check for Updates** and **Review Updates…** actions work for `build.gradle`, `build.gradle.kts`, the default local `gradle/libs.versions.toml` catalog, and named local TOML catalogs registered in root settings. The inspection is under **Settings → Editor → Inspections → Gradle → Newer Gradle dependency version available**, with its own inspection severity and Alt+Enter version fixes.
 
 Checks run a temporary metadata inspection task through IntelliJ's Gradle tooling integration, using the linked project's selected distribution/wrapper, Gradle JVM and Gradle user home. Gradle evaluates project/settings repositories, credentials, content filters and user init scripts. The checker adds no public repository. Gradle offline mode disables remote checks. Checks configure the build and can download Gradle/build plugins as part of configuration; the inspection task resolves dependency metadata without downloading library JARs or running application build tasks.
 
@@ -401,7 +401,7 @@ Dense Gradle application also checks 10,000 selected replacements in one file, i
 
 Parser and IntelliJ platform tests cover stable-version filtering, wrapped reports, current-POM/project scopes, plugin Maven prerequisites, Maven configuration properties, stale previews, shared properties, dependency/plugin selection, and POM quick fixes.
 
-The locally opt-in integration tests start IDEA's real Maven server with both an authenticated local Maven repository and the five-project demo reactor. They verify the repository profile, mirror, credentials, all three bulk-update modes for dependencies and plugins, current-POM isolation, nested modules, configurable inspection severity, and a property quick fix. The Versions goals and demo metadata may be downloaded from Maven Central during these tests:
+The locally opt-in integration tests start IDEA's real Maven server with both an authenticated local Maven repository and the five-project demo reactor. They verify the repository profile, mirror, credentials, all three bulk-update modes for dependencies and plugins, current-POM isolation, nested modules, inspection highlighting, and a property quick fix. The Versions goals and demo metadata may be downloaded from Maven Central during these tests:
 
 ```bash
 ./gradlew test -PmavenIntegration=true --tests '*MavenSettingsIntegrationTest'

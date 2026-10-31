@@ -37,7 +37,7 @@ class MavenPluginAnalysisTest : BasePlatformTestCase() {
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, MavenProject(file.virtualFile), updates)
         val problems = analysis.problems(file)
         assertEquals(2, problems.size)
-        assertTrue(problems.all { it.severity == VersionSeverity.WARNING && it.message.contains("Maven plugin") })
+        assertTrue(problems.all { it.highlight == com.intellij.codeInspection.ProblemHighlightType.GENERIC_ERROR_OR_WARNING && it.message.contains("Maven plugin") })
         val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
         assertEquals(2, plan.changes.size)
         assertTrue(plan.apply(project))

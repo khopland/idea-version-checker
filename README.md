@@ -129,9 +129,9 @@ See the [tool window guide](docs/user-guide.md#dependency-versions-tool-window) 
 
 ## Settings and repositories
 
-Open **Settings → Tools → Version Checker** to configure checks, severity, and dependency rules.
-Version updates use Warning severity by default.
-Deprecated and relocated artifacts use Error severity by default.
+Open **Settings → Tools → Version Checker** to configure checks and dependency rules.
+Version updates are shown as warnings, and deprecated or relocated artifacts are struck through.
+Change the severity of each inspection under **Settings → Editor → Inspections**.
 
 Use **Minimum release age (hours)** to exclude recent Maven, npm, pnpm, Yarn and Bun releases.
 For example, use 24 hours to match a repository quarantine.

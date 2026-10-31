@@ -34,7 +34,7 @@ class DependencyNoticeTest : BasePlatformTestCase() {
         val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!,
             MavenProject(file.virtualFile), emptyMap(), options)
         val notice = analysis.problems(file).single()
-        assertEquals(VersionSeverity.ERROR, notice.severity)
+        assertEquals(com.intellij.codeInspection.ProblemHighlightType.LIKE_DEPRECATED, notice.highlight)
         assertTrue(notice.message.contains("marked deprecated: Use new:library"))
         assertNull(notice.latest)
         assertNull(notice.target)

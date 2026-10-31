@@ -22,9 +22,9 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 internal data class DependencyProblem(
     val coordinate: DependencyVersion, val latest: String?, val anchor: XmlTag, val target: XmlTag?,
     val kind: VersionChangeKind,
-    val severity: VersionSeverity,
     val notice: String? = null
 ) {
+    val highlight get() = kind.highlightType()
     val message: String get() = notice ?: updateHint(
         ArtifactId(coordinate.groupId, coordinate.artifactId), kind, coordinate.version, latest.orEmpty()) + when (coordinate.artifactKind) {
             MavenArtifactKind.PLUGIN -> " (Maven plugin)"
@@ -234,7 +234,7 @@ internal class MavenDependencyAnalysis(
             else -> versionPropertyTarget(versionTag, rawVersion, current)
         }
         return DependencyProblem(coordinate, latest, versionTag ?: tag.findFirstSubTag("artifactId") ?: tag,
-            target, kind, kind.severity(options), notice)
+            target, kind, notice)
     }
 
     internal fun versionPropertyTarget(versionTag: XmlTag, raw: String?, current: String): XmlTag? =
