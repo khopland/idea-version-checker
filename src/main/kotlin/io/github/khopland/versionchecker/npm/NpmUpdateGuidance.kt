@@ -5,7 +5,7 @@ import io.github.khopland.versionchecker.notifyVersionUpdates
 import io.github.khopland.versionchecker.AppliedVersionChanges
 
 internal object NpmUpdateGuidance {
-    const val message = "npm updates edit package.json only. After applying, preview npm lockfile synchronization from this notification or run npm install " +
+    const val message = "npm updates edit package.json only. After applying, use Update npm lockfile… in this notification or run npm install " +
         "yourself to synchronize lockfiles and installed dependencies."
 
     fun message(manager: NodePackageManager): String = if (manager == NodePackageManager.NPM) message else

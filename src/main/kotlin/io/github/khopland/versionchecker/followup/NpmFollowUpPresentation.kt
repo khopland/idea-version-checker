@@ -3,7 +3,7 @@ package io.github.khopland.versionchecker.followup
 import io.github.khopland.versionchecker.core.DiagnosticSanitizer
 import java.nio.file.Path
 
-/** A chosen workspace may differ from the declarations in the originating update session. */
+/** A chosen workspace may differ from the declarations the update changed. */
 internal object NpmFollowUpPresentation {
     fun withWorkspace(message: String, workspaceRoot: Path?, projectRoot: String?): String {
         val label = if (workspaceRoot == null) "not selected" else runCatching {

@@ -16,7 +16,6 @@ internal interface VersionEdit {
     val location: String
     val review: VersionReviewItem? get() = null
     val buildSystemId: String? get() = null
-    val mavenVerificationTargets: List<MavenVerificationTarget> get() = emptyList()
     /** Informational registry identity captured by npm preparation; never parsed from labels. */
     val npmTarget: io.github.khopland.versionchecker.npm.NpmTarget? get() = null
     /** Null inherits the containing plan's guidance; combined plans assign it per edit. */

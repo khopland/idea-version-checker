@@ -29,25 +29,14 @@ internal fun notifyVersionUpdates(project: Project, followUp: List<String>, buil
         if (followUp.any { it.startsWith("npm updates") }) add("npm")
         if (followUp.any { it.startsWith("Reload the Gradle") }) add("gradle")
     }
-    val sessionToken = project.service<UpdateSessionService>().start(reviewToken, changedFiles, systems)
-    if (sessionToken != null) notification.addAction(NotificationAction.createSimple("View update session") {
-        if (!project.isDisposed) project.service<UpdateSessionService>().show(sessionToken)
-    })
-    if (reviewToken != null && changedFiles.mavenVerificationTargets.isNotEmpty()) {
-        notification.addAction(NotificationAction.createSimple("Verify Maven effective versions") {
-            MavenSessionFollowUp.verify(project, reviewToken, sessionToken)
+    // One next step per build system, always in the same place.
+    for ((id, label) in listOf("maven" to "Reload Maven projects", "gradle" to "Sync Gradle projects")) {
+        if (id in systems && BuildSystemAdapter.find(id) != null) notification.addAction(NotificationAction.createSimple(label) {
+            if (!project.isDisposed) project.service<BuildReloadService>().reload(id)
         })
     }
-    for ((id, label) in listOf("maven" to "Maven", "gradle" to "Gradle")) {
-        if (id in systems && BuildSystemAdapter.find(id) != null) {
-            notification.addAction(NotificationAction.createSimple("Save and reload $label projects") {
-                if (!project.isDisposed) project.service<BuildReloadService>().reload(id, sessionToken)
-            })
-        }
-    }
-    if ("npm" in systems && BuildSystemAdapter.find("npm") != null) notification.addAction(NotificationAction.createSimple("Preview npm lockfile sync") {
-        if (!project.isDisposed && BuildSystemAdapter.find("npm") != null)
-            project.service<UpdateFollowUpService>().previewNpmSync(sessionToken)
+    if ("npm" in systems && BuildSystemAdapter.find("npm") != null) notification.addAction(NotificationAction.createSimple("Update npm lockfile…") {
+        if (!project.isDisposed && BuildSystemAdapter.find("npm") != null) project.service<UpdateFollowUpService>().previewNpmSync()
     })
     project.service<BuildReloadService>().publish(notification)
 }

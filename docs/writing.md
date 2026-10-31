@@ -32,9 +32,8 @@ Do not change quoted diagnostics, acceptance evidence, or historical release not
 | Observation | A cached check result and its context, mode, and timing. |
 | Coverage | The reported check outcomes for recognized declarations. |
 | Update preview | A review of proposed declaration changes before application. |
-| Update session | A retained summary of declaration edits and subsequent actions. |
 | Result lease | A check that a cached result still authorizes an edit. |
 
-Use “check” for version queries and “verify” for comparisons with effective dependency versions.
+Use “check” for version queries.
 Use “reload” for a native build import request.
-A successful reload request does not confirm that import or verification succeeded.
+A successful reload request does not confirm that the import succeeded.
