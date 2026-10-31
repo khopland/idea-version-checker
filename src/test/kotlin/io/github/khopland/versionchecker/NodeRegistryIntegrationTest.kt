@@ -164,7 +164,7 @@ class NodeRegistryIntegrationTest : BasePlatformTestCase() {
             val visitor = NewerNpmDependencyInspection().buildVisitor(holder, true)
             PsiTreeUtil.collectElements(psi) { true }.forEach { it.accept(visitor) }
             assertEquals(2, holder.results.size)
-            assertTrue(holder.results.all { it.highlightType == ProblemHighlightType.GENERIC_ERROR && it.fixes?.size == 3 })
+            assertTrue(holder.results.all { it.highlightType == ProblemHighlightType.GENERIC_ERROR_OR_WARNING && it.fixes?.size == 3 })
             val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking { project.service<BulkUpdateService>().createPlan(UpdateMode.PATCH) }
             })

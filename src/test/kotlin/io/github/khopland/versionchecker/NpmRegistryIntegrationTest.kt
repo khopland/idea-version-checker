@@ -552,7 +552,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             val updated = adapter.snapshot(project, rootFile)!!
             service.updates(adapter, updated)
             PlatformTestUtil.waitWithEventsDispatching("npm updated diagnostics", { service.cached(updated) != null }, 120_000)
-            assertTrue(problems().all { it.highlightType == ProblemHighlightType.WARNING && "update:" in it.descriptionTemplate && " → " in it.descriptionTemplate })
+            assertTrue(problems().all { it.highlightType == ProblemHighlightType.GENERIC_ERROR_OR_WARNING && "update:" in it.descriptionTemplate && " → " in it.descriptionTemplate })
             // Registry failures must propagate, without publishing an empty successful plan or touching declarations.
             val beforeFailure = Files.readString(directory.resolve("package.json"))
             rejectAccess.set(true)

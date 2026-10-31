@@ -1330,9 +1330,9 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(visitor) }
             val problem = holder.results.single { it.psiElement is XmlTag && (it.psiElement as XmlTag).localName == "fixture.version" }
             val pluginProblem = holder.results.single { it.psiElement is XmlTag && (it.psiElement as XmlTag).localName == "fixture-plugin.version" }
-            assertEquals(ProblemHighlightType.WARNING, pluginProblem.highlightType)
+            assertEquals(ProblemHighlightType.GENERIC_ERROR_OR_WARNING, pluginProblem.highlightType)
             assertTrue(pluginProblem.descriptionTemplate.contains("1.0 → 2.0"))
-            assertEquals(ProblemHighlightType.WARNING, problem.highlightType)
+            assertEquals(ProblemHighlightType.GENERIC_ERROR_OR_WARNING, problem.highlightType)
             assertTrue(problem.descriptionTemplate.contains("1.0 → 2.0"))
             assertTrue(problem.fixes!!.filterIsInstance<UpdateDependencyVersionFix>().single().name.startsWith("Update fixture.version to 2.0 in pom.xml"))
 
