@@ -100,30 +100,18 @@ When a quick fix rejects changed files or settings, it leaves the files untouche
 
 If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) can render these standard inspection messages using its own display. No dependency on that plugin is required.
 
-## Cached observations and JSON exports
+## Cached observations
 
-**View → Tool Windows → Dependency Versions** presents cached results. Observation age and cache expiry describe the original cached observation, including failed or skipped checks; they do not prove unchanged build inputs or authorize edits. Reading or exporting results never renews their deadline. Pending rows without an observed result have unknown timing, and expired entries leave the cache.
-
-JSON exports use schema **2**.
-Each result includes observation age, remaining cache duration, and expiry status.
-Unknown timing is `null`. Zero remaining duration means expired.
-`generatedAt` gives the export creation time. It does not give the check time or release publication time.
-Exports omit absolute monotonic timestamps, snapshots, and edit leases.
-Refresh and review before you edit versions.
+**View → Tool Windows → Dependency Versions** presents cached results. Observation age and cache expiry describe the original cached observation, including failed or skipped checks; they do not prove unchanged build inputs or authorize edits. Reading results never renews their deadline. Pending rows without an observed result have unknown timing, and expired entries leave the cache.
+Check and review before you edit versions.
 
 ## Dependency Versions tool window
 
-Open **View → Tool Windows → Dependency Versions** to browse cached observations. The toolbar offers **Check for Updates**, **Review Updates…**, **Open Source**, **Copy Markdown**, **Export Markdown…** and **Export JSON…**. Opening the window, typing a search, changing filters, sorting, selecting a row, copying or exporting does not query repositories. Use Refresh for fresh checks and Review before applying changes.
+Open **View → Tool Windows → Dependency Versions** to browse cached observations. The toolbar offers **Check for Updates**, **Review Updates…**, and **Open Source**. Opening the window, typing a search, changing filters, sorting or selecting a row does not query repositories. Use Refresh for fresh checks and Review before applying changes.
 
 Search matches literal package names and source/build paths, ignoring case. Combine it with **Build system**, **Build root**, **Outcome** and **Change** filters; **Clear filters** restores all cached rows. No matches means the current filters hide the results. An empty cache can follow expiry, invalidation or a check that has not run; the window does not infer which occurred.
 
 The table initially shows package, current/available versions, change, outcome and observation age. Observation ages sort numerically; unknown timing stays explicit. Select a row for its physical source, originating check/module, declaration, build root, mode, observation age, cache expiry and diagnostic details. Selection and sorting survive refreshed observations when the same declaration remains visible in the same check context; shared catalog targets from other modules cannot silently replace a selection. Press **Ctrl+F** (or **⌘F**) to focus search, use the arrow keys to select rows, and press **Enter** to open the selected physical source file. Open Source is unavailable when the selection or file is unavailable.
-
-**Copy Markdown** puts a human-readable summary on the clipboard for an issue or pull request. **Export Markdown…** saves the same format to a file; **Export JSON…** saves structured data. All three use only the displayed filtered rows, in their displayed sort order, with sanitized details and project-relative source paths. External paths are redacted, and Markdown text is escaped. Reports include the originating check source, coverage scope, outcome, original observation age and cache expiry when known. Report creation time is separate from check time. Copying or exporting does not renew cached results or authorize edits; filtered reports can omit dependencies and do not establish complete coverage, successful resolution or compatibility.
-
-**Preview Support Report…** opens a read-only JSON support snapshot before **Save As…** writes it to a destination you choose. It includes safe plugin/IDE/JVM/OS version identifiers, allowlisted effective scalar settings with workspace provenance, policy status and rule counts, and the displayed cached rows in their sort order. Filters can omit observations. Settings and policy status describe report capture time; existing results may have been checked with earlier settings or inputs. Unknown values stay explicit.
-
-The support report excludes logs, free-text diagnostics, environment variables, usernames/hostnames, credentials, repository configuration, policy rule text/reasons and file contents. External paths and URL hosts are redacted; package names and project-relative source paths remain, so inspect the preview before sharing. Reports are limited to 256 KiB, 128 rows and 512 characters per text field, with omissions recorded. Previewing and saving make no repository queries, renew no cached results and upload nothing. Save As writes the exact frozen preview, including original observation age/expiry measured at capture; it never authorizes edits or establishes a complete diagnosis, audit or compatibility result.
 
 ## Bulk updates and submodules
 
@@ -313,10 +301,6 @@ Automatic updates cover `dependencies`, `devDependencies` and `optionalDependenc
 When a dependency can be updated in multiple manifests within one npm workspace, **Alt+Enter** offers **Update locally** for the selected declaration and **Update across workspace** for its supported declarations in the root and member packages. The workspace option includes aliases of the same registry package and preserves each selector's operator and dependency section. It leaves newer versions, peer declarations and unsupported selectors for review, and excludes independent projects and nested workspaces. npm packages keep their own dependency declarations; changing only the root declaration does not update a member's version. Current File bulk updates still edit only the selected manifest.
 
 Comparisons use the **declared version or range floor**, not the installed or locked version. Registry deprecation notices refer to that baseline, and the project deprecation field accepts npm names such as `@scope/package = Use another package`. Explicitly retired packages require replacement review. Complex ranges, tags, Git/file selectors, local workspace dependencies and peer compatibility are listed as needing review. Peer declarations, overrides, scripts and the package's own version are not updated.
-
-In a batch review, select an npm declaration and choose **Load npm target details** to read that exact prepared version's published `engines`, `peerDependencies`, repository and homepage. The lookup uses IntelliJ's configured npm at the actual workspace root, including its scoped registry and `.npmrc`; aliases query their actual registry package. Selecting rows or checked branch targets, filtering and exporting do not fetch these details. Changing the selection, target or scope, refreshing, or closing the review cancels the request and discards late results.
-
-The details show the declared dependency floor and peer declaration strings where known. Installed/locked peer versions and the runtime version remain unknown; the plugin does not evaluate arbitrary semver requirements or claim compatibility. Missing or malformed metadata and registry failures stay unknown and leave supported declaration edits available. Repository and homepage actions open only supplied HTTPS URLs without authority credentials or query/fragment secrets. The plugin does not infer release tags or changelog URLs. Save npm inputs before requesting details; a request whose inputs change must be retried.
 
 Root overrides that could conflict with an update put the affected dependency under **Needs review** and block its local, workspace and bulk edits. Review the dependency and override together before changing them. Safe root `$dependency` references follow their own declaration and remain unchanged; references to another dependency and overrides affecting workspace members require review.
 

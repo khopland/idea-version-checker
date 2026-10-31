@@ -106,7 +106,7 @@ Those changes must still invalidate edit authorization.
 Keep build-specific IntelliJ APIs in their provider packages.
 This keeps optional plugin dependencies separate.
 Add shared code to `core` only when its behavior is the same for all providers.
-Format UI labels for display and export. Use typed outcomes for filtering and timing.
+Format UI labels for display. Use typed outcomes for filtering and timing.
 
 ## Coverage
 

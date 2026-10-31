@@ -52,8 +52,7 @@ scaling. A missing runtime or unavailable license is a blocked result, not a pas
 | Startup and optional integrations | Load ZIP; open Maven, Gradle and npm fixtures. | Correct plugin version; no plugin errors; absent optional integrations do not break the shared UI. |
 | Keyboard-only discovery | Open Dependency Versions, focus search, change provider/root filters, select rows, open source/details and return focus. | Controls have useful names; focus remains visible; all operations work without a pointer. |
 | Narrow layout and scaling | Narrow tool window to about 400 logical pixels; test both scales/themes. | Search, filters, summary, details and essential actions remain reachable; long reasons wrap or scroll. |
-| Observation expiry | Check, export JSON, wait through the original cache deadline, then inspect/export again. | Age is original observation age; export does not renew it; expiry is explained; stale observations cannot authorize edits. |
-| Support report | Open **Preview Support Report…**, inspect the JSON, change filters or settings, then use **Save As…**. | Saved JSON matches the frozen preview. Bounds and redaction hold. Original observation timing remains. No checks or uploads start. |
+| Observation expiry | Check, wait through the original cache deadline, then inspect the row again. | Age is original observation age; viewing does not renew it; expiry is explained; stale observations cannot authorize edits. |
 | Coverage and empty results | Break catalog TOML; include unsupported declarations; filter to updates only; then fix the catalog. | Incomplete coverage stays visible even with zero matching updates; source and next action are available; a fresh check clears the corrected error. |
 | Selection and rechecking | Select a subset; rapidly change mode/scope; cancel a check; allow older work to complete. | Selection matches exact targets; stale completions cannot enable Apply; cancelling does not start an unintended edit. |
 | Apply and undo | Apply Maven, npm workspace and shared Gradle catalog changes; save; undo once and save. | Only reviewed owners change; grouped undo restores exact declaration bytes; lockfiles remain separate. |
@@ -74,7 +73,7 @@ the accessible name **Clear dependency filters** and the tooltip **Clear filters
 First collect at least three runs per fixture and cold/warm condition. Preserve
 individual values and describe the sampling method. Set regression budgets only
 after that baseline exists; a single run is a smoke result, not a percentile
-study. Filtering, selecting details and exporting cached observations must perform
+study. Filtering and selecting details of cached observations must perform
 zero native checks. Measure the atomic write separately from background checking.
 
 ## Evidence and release decision

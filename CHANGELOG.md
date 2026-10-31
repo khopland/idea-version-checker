@@ -14,6 +14,8 @@
 
 ### Removed
 
+- Dependency Versions **Copy Markdown**, **Export Markdown…**, **Export JSON…** and **Preview Support Report…**. The tool window shows cached results; use `idea.log` for bug reports.
+- **Load npm target details** in update reviews.
 - Advanced Maven tuning settings: parallel metadata requests, parents/Spring Boot BOMs first, fast editor checks and persistent metadata across IDE sessions. Maven checks always cover every supported declaration and keep metadata in memory. **Minimum release age** moves to a **Maven** section.
 - **Tools → Update Versions → Maven Platform** and the preview's Maven Platform scope. Use **Current File** or **Whole Project**.
 - Periodic background refresh. Use **Refresh Current File** or **Refresh Whole Project** when needed.

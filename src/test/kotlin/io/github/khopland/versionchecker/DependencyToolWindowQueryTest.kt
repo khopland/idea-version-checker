@@ -1,6 +1,5 @@
 package io.github.khopland.versionchecker
 
-import com.google.gson.JsonParser
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -66,32 +65,11 @@ class DependencyToolWindowQueryTest : BasePlatformTestCase() {
         assertTrue(panel.details.text.contains("New diagnostic"))
         assertEquals(listOf("g:beta", "g:alpha"), panel.visibleRows().map { it.artifact })
         assertEquals(SortOrder.DESCENDING, panel.table.rowSorter.sortKeys.single().sortOrder)
-        val exported = JsonParser.parseString(DependencyReviewExport.json(panel.visibleRows(), "/project"))
-            .asJsonObject.getAsJsonArray("results").map { it.asJsonObject.get("artifact").asString }
-        assertEquals(listOf("g:beta", "g:alpha"), exported)
         // Another context with the same package is never substituted for the selected row.
         panel.presentRows(listOf(alpha, changed.copy(root = "/other")))
         assertNull(panel.selectedRow())
         assertFalse(panel.canOpenSelectedSource())
         assertTrue(panel.details.text.startsWith("Select a dependency"))
-    }
-
-    fun testMarkdownClipboardActionUsesDisplayedFilteredOrderWithoutStartingChecks() = withPanel { panel, reads ->
-        val alpha = row("g:alpha")
-        val beta = row("g:beta")
-        panel.presentRows(listOf(alpha, beta, row("other:hidden", provider = "gradle")))
-        val originalReads = reads.get()
-        panel.provider.selectedItem = "maven"
-        panel.table.rowSorter.sortKeys = listOf(RowSorter.SortKey(3, SortOrder.DESCENDING))
-        panel.copyMarkdownAction.actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent.createFromDataContext(
-            "test", null, com.intellij.openapi.actionSystem.DataContext.EMPTY_CONTEXT))
-        val markdown = com.intellij.openapi.ide.CopyPasteManager.getInstance().getContents<String>(java.awt.datatransfer.DataFlavor.stringFlavor)!!
-        assertTrue(markdown.contains("## 1. g:beta"))
-        assertTrue(markdown.contains("## 2. g:alpha"))
-        assertTrue(markdown.indexOf("## 1. g:beta") < markdown.indexOf("## 2. g:alpha"))
-        assertTrue(markdown.contains("2 displayed cached observations"))
-        assertFalse(markdown.contains("other:hidden"))
-        assertEquals(originalReads, reads.get())
     }
 
     fun testFiltersAndDetailsArePassiveAccessibleAndClearable() = withPanel { panel, reads ->

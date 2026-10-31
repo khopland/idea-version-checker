@@ -51,3 +51,14 @@ internal data class NpmPreparedUpdate(
         }
     }
 }
+
+/** Provider-owned identity of one prepared target, including aliases' actual registry package. */
+internal data class NpmTarget(
+    val declaration: DeclarationId,
+    val workspaceRoot: String,
+    val packageName: String,
+    val version: String,
+    val baseline: String,
+    val selector: String,
+    val manager: NodePackageManager = NodePackageManager.NPM
+)
