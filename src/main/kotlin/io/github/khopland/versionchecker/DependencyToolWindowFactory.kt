@@ -127,10 +127,10 @@ internal class DependencyToolWindowPanel(private val project: Project,
     init {
         border = JBUI.Borders.empty(4, 6)
         val actions = DefaultActionGroup().apply {
-            add(object : DumbAwareAction("Refresh Whole Project", "Save build inputs and run fresh native checks", AllIcons.Actions.Refresh) {
+            add(object : DumbAwareAction("Check for Updates", "Save build inputs and check the whole project again", AllIcons.Actions.Refresh) {
                 override fun actionPerformed(event: AnActionEvent) { project.service<VersionCheckService>().refreshSelection(null) }
             })
-            add(object : DumbAwareAction("Review Updates…", "Prepare a validated review before applying changes", AllIcons.Actions.Preview) {
+            add(object : DumbAwareAction("Review Updates…", "Review and select dependency updates for the whole project", AllIcons.Actions.Preview) {
                 override fun actionPerformed(event: AnActionEvent) { project.service<BulkUpdateService>().preview(UpdateMode.MAJOR, UpdateScope.WHOLE_PROJECT) }
             })
             add(object : DumbAwareAction("Open Source", "Open the selected declaration's physical source file", AllIcons.Actions.EditSource) {
@@ -353,7 +353,7 @@ internal class DependencyToolWindowPanel(private val project: Project,
             else -> ""
         }) + when {
             rows.isEmpty() && checking && !paused -> "No cached results available yet."
-            rows.isEmpty() -> "No cached results available. Refresh Whole Project to check dependencies."
+            rows.isEmpty() -> "No cached results available. Check for Updates to check dependencies."
             model.rowCount == 0 -> "No matches in ${rows.size} cached observations. Clear filters to show all."
             else -> "${model.rowCount} of ${rows.size} cached observations · ${rows.count { it.checking }} from checks in progress"
         }

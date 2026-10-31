@@ -9,6 +9,7 @@
 
 ### Changed
 
+- One **Tools → Versions** menu with **Check for Updates** and **Review Updates…**, replacing the separate Check Versions and Update Versions menus (eight items). The editor context menu offers **Check This File for Updates** and **Review Updates…**. Reviews open for the current build file, or the whole project when no supported build file is selected, in **Major + minor + patch** mode; scope and mode can be changed in the preview.
 - Maven checks are faster for everyone: each metadata goal resolves four repository files at once (Maven's default, was two), and the next batch's goal starts while the current batch is published.
 
 ### Removed

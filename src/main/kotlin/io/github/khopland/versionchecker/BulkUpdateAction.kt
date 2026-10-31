@@ -11,27 +11,25 @@ internal fun currentBuildFile(event: AnActionEvent): VirtualFile? =
         ?: event.getData(CommonDataKeys.PSI_FILE)?.virtualFile
         ?: event.getData(CommonDataKeys.VIRTUAL_FILE)
 
-abstract class BulkUpdateAction(private val mode: UpdateMode,
-                                private val scope: UpdateScope = UpdateScope.WHOLE_PROJECT) : AnAction() {
+/** Opens the review for the current build file, or the whole project when no supported build file is selected. */
+class ReviewUpdatesAction : AnAction() {
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
     override fun update(event: AnActionEvent) {
         event.presentation.isEnabledAndVisible = event.project?.let { project ->
-            val adapters = BuildSystemAdapter.matching(project, BuildSelection(scope, currentBuildFile(event)?.path))
-            adapters.isNotEmpty() && adapters.all { mode in it.capabilities.updateModes && !it.isOffline(project) }
+            reviewScope(project, currentBuildFile(event)) != null
         } == true
     }
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
         val current = currentBuildFile(event)
+        val scope = reviewScope(project, current) ?: return
         CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)) {
-            project.service<BulkUpdateService>().preview(mode, scope, current)
+            project.service<BulkUpdateService>().preview(UpdateMode.MAJOR, scope, current)
         }
     }
+
+    private fun reviewScope(project: com.intellij.openapi.project.Project, current: VirtualFile?): UpdateScope? =
+        listOf(UpdateScope.CURRENT_FILE, UpdateScope.WHOLE_PROJECT).firstOrNull { scope ->
+            BuildSystemAdapter.matching(project, BuildSelection(scope, current?.path)).any { !it.isOffline(project) }
+        }
 }
-class PatchUpdateAction : BulkUpdateAction(UpdateMode.PATCH)
-class MinorUpdateAction : BulkUpdateAction(UpdateMode.MINOR)
-class MajorUpdateAction : BulkUpdateAction(UpdateMode.MAJOR)
-class CurrentFilePatchUpdateAction : BulkUpdateAction(UpdateMode.PATCH, UpdateScope.CURRENT_FILE)
-class CurrentFileMinorUpdateAction : BulkUpdateAction(UpdateMode.MINOR, UpdateScope.CURRENT_FILE)
-class CurrentFileMajorUpdateAction : BulkUpdateAction(UpdateMode.MAJOR, UpdateScope.CURRENT_FILE)
-class ReviewCurrentFileUpdatesAction : BulkUpdateAction(UpdateMode.PATCH, UpdateScope.CURRENT_FILE)

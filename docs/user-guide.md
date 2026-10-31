@@ -30,9 +30,9 @@ The plugin supports dynamic loading and unloading, allowing IDEA to enable, disa
 1. In IDEA, open **Settings → Plugins → Marketplace**, search for **Version Checker**, and install it. For a local build, run `./gradlew buildPlugin` using Java 21 or later; Gradle uses a Java 21 toolchain.
 2. If installing a local build, use **Settings → Plugins → gear → Install Plugin from Disk** and select the ZIP in `build/distributions/`.
 3. Open and import a Maven project. Checks start in the background when IDEA inspects an imported POM.
-4. Use **Tools → Check Versions → Refresh Current File** to refresh the POM in the editor, or **Refresh Whole Project** for all imported modules.
+4. Right-click the POM and choose **Check This File for Updates**, or use **Tools → Versions → Check for Updates** for all imported modules.
 
-Version checks show cancellable progress in IDEA's bottom status bar. A manual refresh bypasses the checker's cached results, queries repository metadata again, and refreshes the inspection highlighting when results arrive. Use this after publishing a new library version while the project is open. Right-click a supported build file in the editor and choose **Refresh Current File**, or find the refresh actions through **Find Action**.
+Version checks show cancellable progress in IDEA's bottom status bar. A manual refresh bypasses the checker's cached results, queries repository metadata again, and refreshes the inspection highlighting when results arrive. Use this after publishing a new library version while the project is open. Right-click a supported build file in the editor and choose **Check This File for Updates**, or find the refresh actions through **Find Action**.
 
 Squiggles appear only for supported newer stable versions; republishing an existing version or a snapshot does not create a version-update warning.
 
@@ -92,7 +92,7 @@ Unsaved shared-file edits take effect in the IDE and retire prepared updates. Ch
 
 Messages use IDEA's standard inspection highlighting, hover tooltips, Problems view, and Alt+Enter quick fixes. Configure their severity under **Settings → Tools → Version Checker**. You can disable automatic checking altogether there, or disable the inspection under **Settings → Editor → Inspections → Maven**.
 
-The **Versions** status-bar item explains the selected build file's check state: unchecked, queued, checking, checked, updates available, needs review, offline, save required, paused or failed. Click it for **Refresh Current File**, **Review Dependency Updates…** and settings. Refresh saves documents before checking; disable the build system's offline setting first when required. “Checked” covers supported declarations only. Partial and retained hints cannot mark a file fully checked, and expired results return to unchecked. Displaying the status does not start repository queries. You can hide the item through IDEA's status-bar widget settings.
+The **Versions** status-bar item explains the selected build file's check state: unchecked, queued, checking, checked, updates available, needs review, offline, save required, paused or failed. Click it for **Check This File for Updates**, **Review Updates…** and settings. Refresh saves documents before checking; disable the build system's offline setting first when required. “Checked” covers supported declarations only. Partial and retained hints cannot mark a file fully checked, and expired results return to unchecked. Displaying the status does not start repository queries. You can hide the item through IDEA's status-bar widget settings.
 
 Project refresh failures produce one summary with **Show Details** and **Retry Failed Checks**. Retry saves documents, refreshes metadata once per affected build system, and checks only the failed files; successful files keep their cached results. If discovery itself failed, retry rediscovers that build system. Automatic failures share one notification per build system. Cancelled work does not produce a failure notification. Recovery notifications expire after a minute or on plugin/project disposal.
 
@@ -113,7 +113,7 @@ Refresh and review before you edit versions.
 
 ## Dependency Versions tool window
 
-Open **View → Tool Windows → Dependency Versions** to browse cached observations. The toolbar offers **Refresh Whole Project**, **Review Updates…**, **Open Source**, **Copy Markdown**, **Export Markdown…** and **Export JSON…**. Opening the window, typing a search, changing filters, sorting, selecting a row, copying or exporting does not query repositories. Use Refresh for fresh checks and Review before applying changes.
+Open **View → Tool Windows → Dependency Versions** to browse cached observations. The toolbar offers **Check for Updates**, **Review Updates…**, **Open Source**, **Copy Markdown**, **Export Markdown…** and **Export JSON…**. Opening the window, typing a search, changing filters, sorting, selecting a row, copying or exporting does not query repositories. Use Refresh for fresh checks and Review before applying changes.
 
 Search matches literal package names and source/build paths, ignoring case. Combine it with **Build system**, **Build root**, **Outcome** and **Change** filters; **Clear filters** restores all cached rows. No matches means the current filters hide the results. An empty cache can follow expiry, invalidation or a check that has not run; the window does not infer which occurred.
 
@@ -127,7 +127,7 @@ The support report excludes logs, free-text diagnostics, environment variables, 
 
 ## Bulk updates and submodules
 
-Right-click a supported build file in the editor and choose **Review Dependency Updates…** to start with patch updates for that file. You can change scope and update mode inside the preview. **Tools → Update Versions → Current File / Whole Project** also opens the preview. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven, npm and Gradle are implemented adapters; a mixed project gets one combined preview. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
+Right-click a supported build file in the editor and choose **Review Updates…** to review that file. The review starts in **Major + minor + patch** mode. You can change scope and update mode inside the preview. **Tools → Versions → Review Updates…** also opens the preview. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven, npm and Gradle are implemented adapters; a mixed project gets one combined preview. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:
 
 - **Patch only:** keep the current major and minor version numbers.
 - **Minor + patch:** keep the current major version number.
@@ -300,7 +300,7 @@ Reporting plugins, build extensions, plugin-contained dependencies, transitive-o
 
 ## npm projects
 
-Configure a **local Node.js interpreter and npm** in IntelliJ's JavaScript runtime settings, then open a project containing `package.json`. Checks start when IDEA inspects the manifest. The inspection is under **Settings → Editor → Inspections → npm → Newer npm dependency version available**. The same **Tools → Check Versions** and **Tools → Update Versions** actions work for npm, including Current File and Whole Project.
+Configure a **local Node.js interpreter and npm** in IntelliJ's JavaScript runtime settings, then open a project containing `package.json`. Checks start when IDEA inspects the manifest. The inspection is under **Settings → Editor → Inspections → npm → Newer npm dependency version available**. The same **Tools → Versions → Check for Updates** and **Review Updates…** actions work for npm, including Current File and Whole Project.
 
 Registry checks execute only read-only `npm view` commands through IntelliJ's configured runtime. npm evaluates project/user `.npmrc`, environment settings, scoped registries and authentication. Workspace members query from their workspace root so they use its registry configuration. Projects declaring pnpm, Yarn or Bun use the matching adapter and installed CLI. Configure that manager in IntelliJ’s JavaScript runtime settings. An explicit npm `packageManager` takes precedence over leftover lockfiles. `devEngines.packageManager` supports both an object and an array of objects; every entry must name npm. Empty, mixed-manager or malformed declarations are excluded. npm does not need to install dependencies to check versions.
 
@@ -338,7 +338,7 @@ Updates change manifest strings only, in one undoable command. Lockfiles and ins
 
 ## Gradle projects
 
-Link/import the Gradle project in IntelliJ and enable the bundled Gradle plugin. The same **Tools → Check Versions** and **Tools → Update Versions** actions work for `build.gradle`, `build.gradle.kts`, the default local `gradle/libs.versions.toml` catalog, and named local TOML catalogs registered in root settings. The inspection is under **Settings → Editor → Inspections → Gradle → Newer Gradle dependency version available**, with the shared severity settings and Alt+Enter version fixes.
+Link/import the Gradle project in IntelliJ and enable the bundled Gradle plugin. The same **Tools → Versions → Check for Updates** and **Review Updates…** actions work for `build.gradle`, `build.gradle.kts`, the default local `gradle/libs.versions.toml` catalog, and named local TOML catalogs registered in root settings. The inspection is under **Settings → Editor → Inspections → Gradle → Newer Gradle dependency version available**, with the shared severity settings and Alt+Enter version fixes.
 
 Checks run a temporary metadata inspection task through IntelliJ's Gradle tooling integration, using the linked project's selected distribution/wrapper, Gradle JVM and Gradle user home. Gradle evaluates project/settings repositories, credentials, content filters and user init scripts. The checker adds no public repository. Gradle offline mode disables remote checks. Checks configure the build and can download Gradle/build plugins as part of configuration; the inspection task resolves dependency metadata without downloading library JARs or running application build tasks.
 
