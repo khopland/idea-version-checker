@@ -25,7 +25,8 @@ internal fun notifyVersionUpdates(project: Project, followUp: List<String>, buil
     if (reviewToken != null) notification.addAction(NotificationAction.createSimple("Review changed files") {
         if (!project.isDisposed) project.service<AppliedVersionChangesService>().show(reviewToken)
     })
-    val systems = buildSystems + buildSet {
+    // A wrapper update is followed by the same reload as its build system.
+    val systems = buildSystems.map { it.removeSuffix("-wrapper") }.toSet() + buildSet {
         if (followUp.any { it.startsWith("npm updates") }) add("npm")
         if (followUp.any { it.startsWith("Reload the Gradle") }) add("gradle")
     }
