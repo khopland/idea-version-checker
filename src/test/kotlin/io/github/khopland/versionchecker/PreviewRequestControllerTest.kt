@@ -12,8 +12,7 @@ class PreviewRequestControllerTest : BasePlatformTestCase() {
     private val delivered = mutableListOf<PreviewRecheckRequest>()
     private val failures = mutableListOf<String>()
     private val first = PreviewRecheckRequest(UpdateMode.entries.first(), UpdateScope.WHOLE_PROJECT, false)
-    private val second = PreviewRecheckRequest(UpdateMode.entries.last(), UpdateScope.CURRENT_FILE, true,
-        CheckPerformance.Interaction(42, System.nanoTime()))
+    private val second = PreviewRecheckRequest(UpdateMode.entries.last(), UpdateScope.CURRENT_FILE, true)
     private val prepared = PreviewRecheckResult(
         PreparedVersionPreview(BulkUpdatePlan(emptyList(), emptyList()), 1L, 0, 1), emptyList(), true)
 
@@ -26,12 +25,10 @@ class PreviewRequestControllerTest : BasePlatformTestCase() {
     private fun controller(load: suspend (PreviewRecheckRequest) -> PreviewRecheckResult): PreviewRequestController =
         PreviewRequestController(scope, { true }, { request ->
             assertFalse(ApplicationManager.getApplication().isDispatchThread)
-            assertEquals(request.interaction, CheckPerformance.current())
             load(request)
         },
             { request, result ->
                 assertTrue(ApplicationManager.getApplication().isDispatchThread)
-                assertEquals(request.interaction, CheckPerformance.current())
                 assertSame(prepared, result)
                 delivered += request
             }, { message ->

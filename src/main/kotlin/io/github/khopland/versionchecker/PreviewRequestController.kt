@@ -20,7 +20,6 @@ internal data class PreviewRecheckRequest(
     val mode: UpdateMode,
     val updateScope: UpdateScope,
     val forceRefresh: Boolean,
-    val interaction: CheckPerformance.Interaction? = null,
     val includeTargetChoices: Boolean = false
 )
 
@@ -48,7 +47,7 @@ internal class PreviewRequestController(
         if (disposed || !isAvailable()) return null
         val version = ++serial
         request?.cancel()
-        return scope.launch(Dispatchers.IO + CheckPerformance.context(input.interaction)) {
+        return scope.launch(Dispatchers.IO) {
             try {
                 val result = load(input)
                 withContext(Dispatchers.EDT) {

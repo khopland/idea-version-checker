@@ -4,7 +4,6 @@ import io.github.khopland.versionchecker.core.sha256
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.EnvironmentUtil
-import io.github.khopland.versionchecker.CheckPerformance
 import io.github.khopland.versionchecker.core.BuildFingerprint
 import io.github.khopland.versionchecker.core.BuildSnapshot
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
@@ -70,12 +69,12 @@ internal class MavenResolutionContexts {
         val context = withMavenCheckSession(manager, project, if (extensions) null else configDigest) { embedder ->
             suspend fun repository(): Path {
                 val settings = MavenSettingsCache(manager.project)
-                CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SETTINGS) { settings.reloadAsync() }
+                settings.reloadAsync()
                 return settings.getEffectiveUserLocalRepo().toAbsolutePath().normalize()
             }
             val repository = if (extensions) repository() else
                 currentCoroutineContext()[MavenScanSession]?.repository { repository() } ?: repository()
-            val model = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_MODEL) {
+            val model = run {
                 JDOMUtil.load(embedder.evaluateEffectivePom(project.file.toNioPath().toFile(), profiles.enabledProfiles, profiles.disabledProfiles)
                     ?: error("Maven could not determine effective repositories"))
             }

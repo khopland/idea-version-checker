@@ -45,7 +45,8 @@ class MavenGoalProcessTest {
         val child = directory.resolve("child.pid")
         val job = launch { MavenGoalProcess.execute(fixture("tree", parent.toString(), child.toString())) }
         try {
-            withTimeout(15_000) { while (!Files.exists(parent)) delay(10) }
+            // The parent writes its pid only after the child has written its own.
+            withTimeout(30_000) { while (!Files.exists(parent) || !Files.exists(child)) delay(10) }
             val parentHandle = ProcessHandle.of(Files.readString(parent).toLong()).orElseThrow()
             val childHandle = ProcessHandle.of(Files.readString(child).toLong()).orElseThrow()
             withTimeout(5_000) { job.cancelAndJoin() }

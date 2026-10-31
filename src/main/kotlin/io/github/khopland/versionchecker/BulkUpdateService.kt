@@ -67,8 +67,6 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                 dialog.show()
                 if (dialog is BulkUpdateDialog && dialog.isShowing) {
                     dialog.contentPanel.paintImmediately(dialog.contentPanel.visibleRect)
-                    CheckPerformance.record(CheckPerformance.Stage.PREVIEW_READY, CheckPerformance.current()?.started ?: System.nanoTime(),
-                        dialog.model.rowCount)
                 }
             } catch (failure: Throwable) {
                 if (continuation.isActive) continuation.resumeWithException(failure)
@@ -87,27 +85,23 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
             scope.launch(Dispatchers.EDT) { activeDialogs.lastOrNull()?.takeUnless { it.isDisposed }?.toFront() }
             return
         }
-        val interaction = CheckPerformance.current() ?: CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
-        scope.launch(Dispatchers.IO + CheckPerformance.context(interaction)) {
+        scope.launch(Dispatchers.IO) {
             var buildSystems = "Dependency"
             var selectedMode = mode
             var selectedScope = updateScope
             try {
                 var refreshRequired = forceRefresh
-                var nextInteraction = interaction
                 while (isActive && !disposed) {
-                    val recheck = CheckPerformance.traced(nextInteraction) {
+                    val recheck = run {
                         var matching = readAction { BuildSystemAdapter.matching(project, BuildSelection(selectedScope, currentFile?.path)) }
-                        if (matching.isEmpty()) return@traced false
+                        if (matching.isEmpty()) return@run false
                         buildSystems = matching.joinToString { it.displayName }
                         val currentAvailable = currentFile != null && readAction {
                             BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
                         }
                         val prepared = withBackgroundProgress(project, "Checking versions: ${selectedScope.label} — ${selectedMode.label}", cancellable = true) {
                             saveBuildInputs(project, BuildSelection(selectedScope, currentFile?.path), matching)
-                            CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PREPARATION) {
-                                preparePreview(selectedMode, selectedScope, currentFile, matching, refreshRequired)
-                            }
+                            preparePreview(selectedMode, selectedScope, currentFile, matching, refreshRequired)
                         }
                         var recheck = false
                         withContext(Dispatchers.EDT) {
@@ -128,13 +122,13 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                         },
                                         onFailure = review::recheckFailed)
                                     Disposer.register(review.disposable, requests)
-                                    review.onApplyRequested = apply@{ plan, trace ->
+                                    review.onApplyRequested = apply@{ plan ->
                                         var changed = false
                                         try {
                                             if (disposed || project.isDisposed || plan.changes.isEmpty()) return@apply
                                             if (!FileModificationService.getInstance().preparePsiElementsForWrite(plan.changes.mapNotNull { it.element })) return@apply
                                             if (disposed || review.isDisposed) return@apply
-                                            if (!plan.apply(project, trace)) {
+                                            if (!plan.apply(project)) {
                                                 review.refreshAction.actionPerformed(java.awt.event.ActionEvent(review, 0, "Refresh"))
                                                 return@apply
                                             }
@@ -156,10 +150,10 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                                 else "Could not apply updates. Review the build files before retrying.")
                                         }
                                     }
-                                    review.onRecheckRequested = { mode, updateScope, forceRefresh, trace ->
+                                    review.onRecheckRequested = { mode, updateScope, forceRefresh ->
                                         selectedMode = mode
                                         selectedScope = updateScope
-                                        requests.request(PreviewRecheckRequest(mode, updateScope, forceRefresh, trace,
+                                        requests.request(PreviewRecheckRequest(mode, updateScope, forceRefresh,
                                             review.targetChoicesRequested))
                                     }
                                 }
@@ -169,7 +163,6 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                 selectedMode = shown.modeSelector.selectedItem as UpdateMode
                                 selectedScope = shown.scopeSelector.selectedItem as UpdateScope
                                 refreshRequired = shown.refreshRequested
-                                nextInteraction = shown.recheckInteraction
                                 recheck = true
                             } else if (accepted && !appliedInDialog) {
                                 val plan = shown.selectedPlan()
@@ -178,11 +171,10 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                 if (!FileModificationService.getInstance().preparePsiElementsForWrite(targets)) return@withContext
                                 currentCoroutineContext().ensureActive()
                                 if (disposed) return@withContext
-                                if (!plan.apply(project, shown.applyInteraction)) {
+                                if (!plan.apply(project)) {
                                     showDialog { BulkUpdateMessageDialog(project, "Version Checker", "Build files, settings or version results changed after the preview. Review refreshed results before applying.") }
                                     recheck = !disposed
                                     refreshRequired = true
-                                    nextInteraction = if (recheck) CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED) else null
                                     return@withContext
                                 }
                                 notifyVersionUpdates(project, plan.followUp, buildSystems = plan.changes.mapNotNull { it.buildSystemId }.toSet(),

@@ -49,7 +49,7 @@ internal class GradleBuildSystemAdapter(
         inputs.prepareEditValidation(project, snapshots)
 
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? {
-        return CheckPerformance.measure(CheckPerformance.Stage.GRADLE_SNAPSHOT) { snapshot(project, file, mutableMapOf(), mutableMapOf()) }
+        return snapshot(project, file, mutableMapOf(), mutableMapOf())
     }
     override fun inspectionSnapshot(project: Project, file: VirtualFile): BuildSnapshot? =
         snapshot(project, file, mutableMapOf(), mutableMapOf(), allowUnsaved = true)

@@ -16,12 +16,6 @@ import java.util.concurrent.TimeUnit
 import javax.swing.JButton
 
 class BulkUpdateDialogTest : BasePlatformTestCase() {
-    private fun withTracing(block: () -> Unit) {
-        val logger = Logger.getInstance(CheckPerformance::class.java)
-        val level = if (logger.isDebugEnabled) LogLevel.DEBUG else LogLevel.INFO
-        logger.setLevel(LogLevel.DEBUG)
-        try { block() } finally { logger.setLevel(level) }
-    }
     private fun edit(name: String): VersionEdit {
         val file = myFixture.addFileToProject("selection/$name.txt", "1.0")
         val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
@@ -59,10 +53,10 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         val edit = edit("accessible-apply")
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
         var callbacks = 0
-        dialog.onApplyRequested = { plan, trace ->
+        dialog.onApplyRequested = { plan ->
             assertTrue(TransactionGuard.getInstance().isWritingAllowed)
             callbacks++
-            assertTrue(plan.apply(project, trace))
+            assertTrue(plan.apply(project))
         }
         try {
             ApplicationManager.getApplication().invokeLater({
@@ -92,7 +86,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
     fun testApplyCallbackFailureStaysDisabledAfterQueuedApplyFinishes() {
         val edit = edit("failed-apply-callback")
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
-        dialog.onApplyRequested = { _, _ -> dialog.recheckFailed("Write preparation failed.") }
+        dialog.onApplyRequested = { _ -> dialog.recheckFailed("Write preparation failed.") }
         try {
             dialog.doOKAction()
             UIUtil.dispatchAllInvocationEvents()
@@ -109,7 +103,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         val edit = edit("closed-before-apply")
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
         var callbacks = 0
-        dialog.onApplyRequested = { _, _ -> callbacks++ }
+        dialog.onApplyRequested = { _ -> callbacks++ }
         dialog.doOKAction()
         dialog.close(DialogWrapper.CANCEL_EXIT_CODE)
         UIUtil.dispatchAllInvocationEvents()
@@ -121,8 +115,8 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         val edit = edit("rechecked-before-apply")
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
         var callbacks = 0
-        dialog.onApplyRequested = { _, _ -> callbacks++ }
-        dialog.onRecheckRequested = { _, _, _, _ -> }
+        dialog.onApplyRequested = { _ -> callbacks++ }
+        dialog.onRecheckRequested = { _, _, _ -> }
         try {
             dialog.doOKAction()
             dialog.refreshAction.actionPerformed(ActionEvent(dialog, 0, "Refresh"))
@@ -148,7 +142,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             assertTrue(dialog.isOKActionEnabled)
             assertTrue(dialog.freshnessTimer.isRunning)
             var checks = 0
-            dialog.onRecheckRequested = { _, _, _, _ -> checks++ }
+            dialog.onRecheckRequested = { _, _, _ -> checks++ }
             time = TimeUnit.SECONDS.toNanos(4)
             // Exercise the actual timer callback without sleeping or querying a build tool.
             dialog.freshnessTimer.actionListeners.forEach { it.actionPerformed(ActionEvent(dialog, 0, "tick")) }
@@ -181,7 +175,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             var time = seconds.toNanos(2)
             val dialog = BulkUpdateDialog(project, UpdateMode.PATCH, UpdateScope.WHOLE_PROJECT.label, "Test", plan) { time }
             var callbacks = 0
-            dialog.onApplyRequested = { _, _ -> callbacks++ }
+            dialog.onApplyRequested = { _ -> callbacks++ }
             try {
                 dialog.configure(PreparedVersionPreview(plan, seconds.toNanos(1), 0, 1,
                     expiresAtNanos = seconds.toNanos(3)), true)
@@ -232,7 +226,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
                 expiresAtNanos = seconds.toNanos(4))))
         val dialog = BulkUpdateDialog(project, UpdateMode.MAJOR, UpdateScope.WHOLE_PROJECT.label, "Test", prepared.plan) { time }
         var callbacks = 0
-        dialog.onApplyRequested = { _, _ -> callbacks++ }
+        dialog.onApplyRequested = { _ -> callbacks++ }
         try {
             dialog.configure(prepared, true)
             dialog.table.setRowSelectionInterval(0, 0)
@@ -322,7 +316,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
         try {
             var requested: UpdateMode? = null
-            dialog.onRecheckRequested = { mode, _, _, _ -> requested = mode }
+            dialog.onRecheckRequested = { mode, _, _ -> requested = mode }
             val held = dialog.selectedPlan()
             dialog.modeSelector.selectedItem = UpdateMode.MINOR
             UIUtil.dispatchAllInvocationEvents()
@@ -344,7 +338,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         val dialog = dialog(BulkUpdatePlan(listOf(edit("failed-refresh")), emptyList()))
         try {
             val requests = mutableListOf<Triple<UpdateMode, UpdateScope, Boolean>>()
-            dialog.onRecheckRequested = { mode, scope, refresh, _ -> requests += Triple(mode, scope, refresh) }
+            dialog.onRecheckRequested = { mode, scope, refresh -> requests += Triple(mode, scope, refresh) }
             dialog.filter.text = "failed"
             dialog.modeSelector.selectedItem = UpdateMode.MINOR
             UIUtil.dispatchAllInvocationEvents()
@@ -485,44 +479,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
         assertEquals("1.0", edit.element!!.text)
     }
 
-    fun testRefreshAndModeChangesStartIndependentPreviewInteractions() = withTracing {
-        val initial = CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)!!
-        CheckPerformance.locally(initial) {
-            val refresh = dialog(BulkUpdatePlan(emptyList(), emptyList()))
-            refresh.refreshAction.actionPerformed(ActionEvent(refresh, ActionEvent.ACTION_PERFORMED, "Refresh"))
-            val refreshTrace = refresh.recheckInteraction!!
-            assertTrue(refreshTrace.id != initial.id)
-            assertTrue(refreshTrace.started >= initial.started)
-
-            val mode = dialog(BulkUpdatePlan(emptyList(), emptyList()))
-            mode.modeSelector.selectedItem = UpdateMode.MINOR
-            UIUtil.dispatchAllInvocationEvents()
-            assertTrue(mode.isDisposed)
-            assertTrue(mode.recheckInteraction!!.id != refreshTrace.id)
-            assertNull(mode.applyInteraction)
-            assertSame(initial, CheckPerformance.current())
-        }
-    }
-
-    fun testBulkApplyKeepsItsInvocationOriginThroughWritePreparation() = withTracing {
-        val edit = edit("apply-trace")
-        val dialog = dialog(BulkUpdatePlan(listOf(edit), emptyList()))
-        dialog.doOKAction()
-        assertTrue(dialog.isOK)
-        val interaction = dialog.applyInteraction!!
-        assertNull(dialog.recheckInteraction)
-        var observed: CheckPerformance.Interaction? = null
-        val selected = dialog.selectedPlan().guardedBy {
-            observed = CheckPerformance.current()
-            true
-        }
-        assertTrue(selected.apply(project, interaction))
-        assertSame(interaction, observed)
-        assertEquals("2.0", text(edit))
-        assertNull(CheckPerformance.current())
-    }
-
-    fun testEmptyApplyAndRevertedModeDoNotStartAnInteraction() = withTracing {
+    fun testEmptyApplyAndRevertedModeKeepTheDialogOpen() {
         val dialog = dialog(BulkUpdatePlan(emptyList(), emptyList()))
         try {
             dialog.modeSelector.selectedItem = UpdateMode.MINOR
@@ -530,8 +487,6 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
             UIUtil.dispatchAllInvocationEvents()
             dialog.doOKAction()
             assertFalse(dialog.isDisposed)
-            assertNull(dialog.recheckInteraction)
-            assertNull(dialog.applyInteraction)
         } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
     fun testEmptyReviewDistinguishesCompletedChecksFromUnsupportedDeclarations() {
@@ -551,7 +506,7 @@ class BulkUpdateDialogTest : BasePlatformTestCase() {
                 UpdateScope.WHOLE_PROJECT, "Test", true)
             assertEquals("Recognized declarations: 0 checked · 8 skipped", dialog.coverageLabel.text)
             assertTrue(labels(dialog.createCenterPanel()).any { it.startsWith("No declarations were checked") })
-            dialog.onRecheckRequested = { _, _, _, _ -> }
+            dialog.onRecheckRequested = { _, _, _ -> }
             dialog.refreshAction.actionPerformed(ActionEvent(dialog, 0, "Refresh"))
             assertFalse("Previous coverage must not masquerade as completion of a pending refresh", dialog.coverageLabel.isVisible)
         } finally { dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }

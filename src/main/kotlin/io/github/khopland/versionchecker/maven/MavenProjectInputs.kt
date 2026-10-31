@@ -3,7 +3,6 @@ package io.github.khopland.versionchecker.maven
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.LocalFileSystem
-import io.github.khopland.versionchecker.CheckPerformance
 import io.github.khopland.versionchecker.core.BuildFingerprint
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
@@ -74,15 +73,13 @@ internal class MavenProjectInputs(private val manager: MavenProjectsManager, pri
         "${manager.generalSettings.hashCode()}:${manager.explicitProfiles.hashCode()}:$policy"
     }
     private val shared by lazy {
-        CheckPerformance.measure(CheckPerformance.Stage.MAVEN_PROJECT_INPUTS, projects.size) {
-            val documents = FileDocumentManager.getInstance()
-            // Include unselected modules: shared-property ownership depends on their saved/unsaved POMs.
-            val files = projects.associate { pom ->
-                pom.path to "${pom.file.modificationStamp}:${documents.getCachedDocument(pom.file)?.takeIf { documents.isDocumentUnsaved(it) }?.modificationStamp}"
-            }.toMutableMap()
-            (external?.inventory?.sharedPaths ?: readPass.sharedPaths).forEach { files[it.toString()] = diskFingerprint(it) }
-            BuildFingerprint(files, "${manager.modificationTracker.modificationCount}:$configuration")
-        }
+        val documents = FileDocumentManager.getInstance()
+        // Include unselected modules: shared-property ownership depends on their saved/unsaved POMs.
+        val files = projects.associate { pom ->
+            pom.path to "${pom.file.modificationStamp}:${documents.getCachedDocument(pom.file)?.takeIf { documents.isDocumentUnsaved(it) }?.modificationStamp}"
+        }.toMutableMap()
+        (external?.inventory?.sharedPaths ?: readPass.sharedPaths).forEach { files[it.toString()] = diskFingerprint(it) }
+        BuildFingerprint(files, "${manager.modificationTracker.modificationCount}:$configuration")
     }
 
     fun find(path: String): MavenProject? = byPath[path]

@@ -72,7 +72,8 @@ class NodeRegistryIntegrationTest : BasePlatformTestCase() {
         }.toString().toByteArray()
         server.createContext("/") { exchange ->
             try {
-                requests += exchange.requestURI.path
+                // npm sometimes probes the registry root; only package requests are counted.
+                if (exchange.requestURI.path != "/") requests += exchange.requestURI.path
                 if (denied.get() || exchange.requestHeaders.getFirst("Authorization") != "Bearer fixture-token") {
                     exchange.sendResponseHeaders(401, -1)
                 } else if (exchange.requestURI.path == "/@fixture/alpha") {

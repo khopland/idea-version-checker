@@ -112,17 +112,52 @@ jobs:
       - name: Test release automation
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 
-      - name: Test performance trace reporting
+      - name: Test acceptance fixture generators
         run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
+      # Maven integration runs in its own job below, in parallel.
       - name: Run unit and native repository integration tests
-        run: ./gradlew check -PmavenIntegration=true -PnpmIntegration=true -PnodeIntegration=true -PgradleIntegration=true --console=plain
+        run: ./gradlew check -PnpmIntegration=true -PnodeIntegration=true -PgradleIntegration=true --console=plain
 
       - name: Collect test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: tests-result
+          path: |
+            build/reports/tests
+            build/test-results/test
+          if-no-files-found: ignore
+
+  # The Maven goal-process tests are the slowest; running them beside the Test job halves wall time.
+  maven:
+    name: Maven integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch Sources
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 21
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+      - name: Run Maven integration tests
+        run: >-
+          ./gradlew test -PmavenIntegration=true --console=plain
+          --tests '*MavenSettingsIntegrationTest' --tests '*MavenInheritedVersionFixTest' --tests '*MavenOverrideInspectionTest'
+      - name: Collect Maven test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: maven-tests-result
           path: |
             build/reports/tests
             build/test-results/test
@@ -219,7 +254,7 @@ jobs:
   releaseDraft:
     name: Release draft
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [ build, test, maven4, verify ]
+    needs: [ build, test, maven, maven4, verify ]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

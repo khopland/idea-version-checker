@@ -1,6 +1,5 @@
 package io.github.khopland.versionchecker.maven
 
-import io.github.khopland.versionchecker.CheckPerformance
 import org.jetbrains.idea.maven.project.MavenEmbeddersManager
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
@@ -21,11 +20,9 @@ internal suspend fun <T> withMavenCheckSession(
     currentCoroutineContext()[MavenScanSession]?.let { session ->
         if (configuration != null) return session.use(manager, project, configuration, action)
     }
-    val embedders = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SESSION_POOL) { MavenEmbeddersManager(manager.project) }
+    val embedders = MavenEmbeddersManager(manager.project)
     try {
-        val embedder = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SESSION) {
-            embedders.getEmbedder(project, MavenEmbeddersManager.FOR_DEPENDENCIES_RESOLVE)
-        }
+        val embedder = embedders.getEmbedder(project, MavenEmbeddersManager.FOR_DEPENDENCIES_RESOLVE)
         try {
             return action(embedder)
         } finally {
@@ -59,14 +56,12 @@ internal class MavenScanSession : AbstractCoroutineContextElement(Key) {
             return mutex.withLock {
                 if (this.configuration != configuration) {
                     pool?.reset()
-                    pool = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SESSION_POOL) { MavenEmbeddersManager(manager.project) }
+                    pool = MavenEmbeddersManager(manager.project)
                     this.configuration = configuration
                     repository = null
                 }
                 val pool = pool!!
-                val embedder = CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SESSION) {
-                    pool.getEmbedder(project, MavenEmbeddersManager.FOR_DEPENDENCIES_RESOLVE)
-                }
+                val embedder = pool.getEmbedder(project, MavenEmbeddersManager.FOR_DEPENDENCIES_RESOLVE)
                 try { action(embedder) } finally { pool.release(embedder) }
             }
         } finally { release() }

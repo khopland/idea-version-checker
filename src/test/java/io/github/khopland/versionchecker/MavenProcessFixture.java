@@ -37,7 +37,11 @@ public final class MavenProcessFixture {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try { Thread.sleep(60_000); } catch (InterruptedException ignored) { }
         }));
-        Files.writeString(Path.of(marker), Long.toString(ProcessHandle.current().pid()));
+        // Write then rename, so a reader never sees an empty or partial pid.
+        Path target = Path.of(marker);
+        Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
+        Files.writeString(temporary, Long.toString(ProcessHandle.current().pid()));
+        Files.move(temporary, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         Thread.sleep(60_000);
     }
 }

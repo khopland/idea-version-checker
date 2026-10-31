@@ -19,6 +19,7 @@
 
 ### Removed
 
+- The `#io.github.khopland.versionchecker.CheckPerformance` debug trace category, its summary script and the opt-in benchmark tests.
 - **View Latest Update Session…**, the update session summary and the npm lockfile diff it held. Results of follow-up actions are shown in notifications.
 - **Verify Maven effective versions**. Reload Maven and check the Maven tool window or run the build instead.
 - The **Dependency Versions** tool window, including its **Copy Markdown**, **Export Markdown…**, **Export JSON…** and **Preview Support Report…** actions. Highlights in build files and **Review Updates…** show the same results; use `idea.log` for bug reports.

@@ -15,7 +15,6 @@ import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import io.github.khopland.versionchecker.UpdateMode
-import io.github.khopland.versionchecker.CheckPerformance
 import io.github.khopland.versionchecker.core.VersionCheckFailureAdvice
 import kotlinx.coroutines.*
 import java.io.IOException
@@ -34,7 +33,7 @@ internal data class NpmPackageMetadata(
     val publishedAt: Map<String, Long>? = null
 ) {
     val history: NpmVersionHistory by lazy {
-        CheckPerformance.measure(CheckPerformance.Stage.NPM_VERSION_INDEX, versions.size) { NpmVersionHistory(versions) }
+        NpmVersionHistory(versions)
     }
 }
 
@@ -46,7 +45,7 @@ internal data class NpmRuntime(val interpreter: NodeJsLocalInterpreter, val npm:
 internal object NpmRegistry {
     private const val MAX_STDOUT_CHARS = 16 * 1024 * 1024
     suspend fun resolve(project: Project, directory: Path, manager: NodePackageManager = NodePackageManager.NPM): NpmRuntime = withContext(Dispatchers.IO) {
-        CheckPerformance.measure(CheckPerformance.Stage.NPM_RUNTIME_RESOLUTION) {
+        run {
             val (interpreter, configured) = readAction {
                 val interpreter = NodeJsInterpreterManager.getInstance(project).interpreter
                     ?: throw NpmRuntimeFailure("Configure a local Node.js interpreter and ${manager.title} in IntelliJ's JavaScript runtime settings, then retry.")
@@ -294,11 +293,11 @@ internal object NpmRegistry {
         return metadata.history.eligible(baseline, mode).map { it.text }.toList()
     }
     private suspend fun view(runtime: NpmRuntime, directory: Path, parameters: List<String>): String =
-        CheckPerformance.measure(CheckPerformance.Stage.NPM_VIEW) { runView(runtime, directory, parameters) }
+        runView(runtime, directory, parameters)
 
     private suspend fun runView(runtime: NpmRuntime, directory: Path, parameters: List<String>): String = withContext(Dispatchers.IO) {
         val output = withTimeoutOrNull(60_000) {
-            execute(CheckPerformance.measure(CheckPerformance.Stage.NPM_COMMAND_SETUP) {
+            execute(run {
                 command(runtime, directory, parameters)
             })
         } ?: throw NpmViewFailure("ETIMEDOUT", "${runtime.manager.title} registry query timed out for ${parameters.first()}", runtime.manager)

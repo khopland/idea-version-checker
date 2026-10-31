@@ -60,7 +60,7 @@ internal class MavenBuildSystemAdapter(
     override fun invalidateMetadata(project: Project) { project.service<MavenMetadataService>().invalidate() }
 
     override fun snapshot(project: Project, file: VirtualFile): BuildSnapshot? =
-        CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
+        run {
             val manager = MavenProjectsManager.getInstance(project)
             inspectionSnapshot(project, file, MavenProjectInputs(manager))
         }
@@ -74,9 +74,9 @@ internal class MavenBuildSystemAdapter(
         }
 
     private fun inspectionSnapshot(project: Project, file: VirtualFile, inputs: MavenProjectInputs): BuildSnapshot? {
-        return CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
+        return run {
             val manager = MavenProjectsManager.getInstance(project)
-            val mavenProject = manager.findProject(file)?.takeUnless { manager.isIgnored(it) } ?: return@measure null
+            val mavenProject = manager.findProject(file)?.takeUnless { manager.isIgnored(it) } ?: return@run null
             captureSnapshot(project, mavenProject, inputs)
         }
     }
@@ -160,9 +160,7 @@ internal class MavenBuildSystemAdapter(
         MavenProjectInputs.capture(MavenProjectsManager.getInstance(project), readSavedFingerprint) { inputs ->
         val manager = MavenProjectsManager.getInstance(project)
         selectedProjects(manager, selection).mapNotNull { mavenProject ->
-            CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
-                captureSnapshot(project, mavenProject, inputs)
-            }
+            captureSnapshot(project, mavenProject, inputs)
         }
     }
 

@@ -3,6 +3,23 @@
 Version Checker shares the check and edit workflow across Maven, npm, pnpm, Yarn, Bun, and Gradle adapters.
 Each adapter owns repository resolution, declaration parsing, and build-specific IntelliJ APIs.
 
+## Code map
+
+| Package | What lives there |
+| --- | --- |
+| `versionchecker` (root) | Shared workflow and UI: actions, the check service and executor, the review dialog, bulk update plans, settings, notifications and the status widget. |
+| `core` | Build-system-neutral models and contracts: `BuildSystemAdapter`, snapshots and reports, the result cache, coverage, edit guards and the minimum release age. |
+| `maven` | Maven adapter, POM analysis and quick fixes, the metadata helper process (`MavenGoalProcess`, `MavenNativeMetadata`) and the Maven wrapper adapter. |
+| `gradle` | Gradle adapter, build-script and catalog parsing, the init-script lookup (`GradleVersionLookup` + `resources/gradle/version-checker.gradle`) and the Gradle wrapper adapter. |
+| `npm` | npm, pnpm, Yarn and Bun adapters, manifest and workspace parsing, and registry queries through the package manager CLI. |
+| `followup` | What happens after an update: reload Maven or Gradle, and the npm lockfile command. |
+
+Where to start reading:
+
+- **A hint in the editor:** `New*DependencyInspection` → `VersionCheckService.updates` → `CheckExecutor` → the adapter's `check`.
+- **Review Updates…:** `ReviewUpdatesAction` → `BulkUpdateService.preview` → `VersionPreviewPreparer` → the adapter's `prepareUpdates` → `BulkUpdateDialog` → `BulkUpdatePlan.apply`.
+- **After applying:** `notifyVersionUpdates` → `followup/BuildReloadService` or `followup/UpdateFollowUpService`.
+
 ## Responsibilities
 
 | Component | Responsibility |
@@ -19,7 +36,7 @@ Each adapter owns repository resolution, declaration parsing, and build-specific
 | `core/DeclarationCoverageAccumulator` | Combine coverage by provider and physical declaration across check contexts. |
 | `core/FileDigestCache` | Reuse hashes for saved files and unsaved documents when their stamps match. |
 | `gradle/GradleBuildInputs` | Track build ownership and inputs. Capture external inputs and validate edit inputs. |
-| `DependencyReviewRows` / `DependencyReviewOutcome` | Convert cached observations to display data. Keep typed outcomes separate from UI labels. |
+| `WrapperBuildSystemAdapter` | Shared base for the Maven and Gradle wrapper adapters: parse `distributionUrl`, check, edit and inspect. |
 | `BulkUpdatePlan` | Combine plans, select edits, validate inputs, and apply one command that the user can undo. |
 | `followup/` | Reload builds and synchronize npm lockfiles after explicit user actions. |
 

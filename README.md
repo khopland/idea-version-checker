@@ -162,7 +162,6 @@ See the [documentation index](docs/README.md) for current guides.
 Development references:
 
 - [Architecture](docs/architecture.md)
-- [Performance measurements](docs/performance.md)
 - [Release instructions](docs/releasing.md)
 - [Packaged IDE acceptance matrix](docs/ide-acceptance.md)
 - [Writing rules](docs/writing.md)

@@ -3,7 +3,6 @@ package io.github.khopland.versionchecker.maven
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.progress.ProcessCanceledException
-import io.github.khopland.versionchecker.CheckPerformance
 import kotlinx.coroutines.*
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -14,7 +13,7 @@ internal data class MavenMetadataKey(val group: String, val artifact: String, va
 /** Times are epoch milliseconds: [lastUpdated] is the newest repository update, [published] the POM's Last-Modified. */
 internal data class MavenMetadataValue(val versions: List<String> = emptyList(), val requiredMaven: String = "",
                                        val lastUpdated: Long? = null, val published: Long? = null) {
-    val versionIndex by lazy { CheckPerformance.measure(CheckPerformance.Stage.MAVEN_VERSION_INDEX, versions.size) { MavenVersionIndex(versions) } }
+    val versionIndex by lazy { MavenVersionIndex(versions) }
 }
 internal data class MavenMetadataLease(val value: MavenMetadataValue, val expiresAt: Long, val checkedAtNanos: Long = System.nanoTime())
 
@@ -62,9 +61,8 @@ internal class MavenMetadataCache(
                 entry.callers++
                 entry
             }
-            CheckPerformance.record(CheckPerformance.Stage.MAVEN_METADATA_REUSED, System.nanoTime(), selected.size - missing.size)
             if (missing.isNotEmpty()) {
-                batch.job = workers.launch(CheckPerformance.context(), start = CoroutineStart.LAZY) {
+                batch.job = workers.launch(start = CoroutineStart.LAZY) {
                     try {
                         val results = load(missing.keys.map { it.artifact })
                         currentCoroutineContext().ensureActive()
@@ -119,7 +117,7 @@ internal class MavenMetadataCache(
         }
         try {
             selected.values.map { it.batch }.distinct().forEach { it.job.start() }
-            return CheckPerformance.measure(CheckPerformance.Stage.MAVEN_METADATA_WAIT, selected.size) { selected.mapValues { (_, entry) ->
+            return run { selected.mapValues { (_, entry) ->
                 try { Result.success(entry.result.await()) }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (cancelled: ProcessCanceledException) { throw cancelled }

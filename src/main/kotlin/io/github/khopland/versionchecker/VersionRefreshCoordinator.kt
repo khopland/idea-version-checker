@@ -27,11 +27,9 @@ internal class VersionRefreshCoordinator(
     private val isAvailable: () -> Boolean
 ) {
     private val refreshMutex = Mutex()
-    private val manualRefreshes = AtomicInteger()
     private val log = Logger.getInstance(VersionRefreshCoordinator::class.java)
     @Volatile private var selectedPaths = emptySet<String>()
 
-    val hasManualRefreshes: Boolean get() = manualRefreshes.get() > 0
     fun select(paths: Set<String>) { selectedPaths = paths }
 
     fun start(adapters: List<BuildSystemAdapter>, request: VersionRefreshRequest.UserRequested): Job {
@@ -42,17 +40,13 @@ internal class VersionRefreshCoordinator(
             if (files == null) invalidate(adapter.id, request.selection.currentFile)
             else files.forEach { invalidateSource(adapter.id, it); statusChanged(it) }
         }
-        manualRefreshes.incrementAndGet()
         statusChanged(null)
         val job = scope.launch(Dispatchers.IO) {
             if (request is VersionRefreshRequest.Manual && request.currentFile == null)
                 refreshMutex.withLock { refreshNow(adapters, request) }
             else refreshNow(adapters, request)
         }
-        job.invokeOnCompletion {
-            manualRefreshes.decrementAndGet()
-            statusChanged(null)
-        }
+        job.invokeOnCompletion { statusChanged(null) }
         return job
     }
 

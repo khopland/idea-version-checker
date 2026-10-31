@@ -132,16 +132,12 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     internal val summary = JBLabel()
     var refreshRequested = false
         private set
-    internal var recheckInteraction: CheckPerformance.Interaction? = null
-        private set
-    internal var applyInteraction: CheckPerformance.Interaction? = null
-        private set
     private var configuring = true
     private var replacingRows = false
     private var previewState = VersionPreviewState(mode, UpdateScope.entries.first { it.label == scopeLabel })
     internal val checking get() = previewState.checking
-    internal var onRecheckRequested: ((UpdateMode, UpdateScope, Boolean, CheckPerformance.Interaction?) -> Unit)? = null
-    internal var onApplyRequested: ((BulkUpdatePlan, CheckPerformance.Interaction?) -> Unit)? = null
+    internal var onRecheckRequested: ((UpdateMode, UpdateScope, Boolean) -> Unit)? = null
+    internal var onApplyRequested: ((BulkUpdatePlan) -> Unit)? = null
     private val commitSelectors = mutableListOf<() -> Unit>()
     internal val refreshAction: Action = object : AbstractAction("Refresh") {
         override fun actionPerformed(event: ActionEvent) { refreshRequested = true; requestRecheck() }
@@ -323,7 +319,6 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         tableScroll.viewport.viewPosition = position
         updatePlanDetails()
         updateSummary()
-        CheckPerformance.record(CheckPerformance.Stage.PREVIEW_READY, recheckInteraction?.started ?: System.nanoTime(), model.rowCount)
     }
 
     internal fun recheckFailed(message: String) {
@@ -344,10 +339,8 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
         }
         if (model.selectedIndices.isEmpty()) return
         if (table.isEditing && !table.cellEditor.stopCellEditing()) return
-        applyInteraction = CheckPerformance.start(CheckPerformance.Stage.BULK_APPLY_INVOKED)
         onApplyRequested?.let { callback ->
             val selected = selectedPlan()
-            val trace = applyInteraction
             val preparedGeneration = previewState.generation
             previewState = previewState.applying()
             updateSummary()
@@ -357,7 +350,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
                 try {
                     refreshFreshness()
                     if (!isDisposed && previewState.generation == preparedGeneration &&
-                        previewState.phase == VersionPreviewState.Phase.Applying && !resultsExpired()) callback(selected, trace)
+                        previewState.phase == VersionPreviewState.Phase.Applying && !resultsExpired()) callback(selected)
                 } finally {
                     previewState = previewState.applyFinished(preparedGeneration)
                     if (!isDisposed) updateSummary()
@@ -371,7 +364,6 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
     private fun requestRecheck() {
         if (isDisposed) return
         freshnessTimer.stop()
-        recheckInteraction = CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)
         previewState = previewState.recheck()
         val callback = onRecheckRequested
         if (callback == null) close(RECHECK_EXIT_CODE) else {
@@ -379,7 +371,7 @@ internal class BulkUpdateDialog(project: Project, mode: UpdateMode, scopeLabel: 
             freshness.text = "Checking ${(scopeSelector.selectedItem as UpdateScope).label} · ${(modeSelector.selectedItem as UpdateMode).label}…"
             coverageLabel.isVisible = false
             updateSummary()
-            callback(modeSelector.selectedItem as UpdateMode, scopeSelector.selectedItem as UpdateScope, refreshRequested, recheckInteraction)
+            callback(modeSelector.selectedItem as UpdateMode, scopeSelector.selectedItem as UpdateScope, refreshRequested)
             refreshRequested = false
         }
     }

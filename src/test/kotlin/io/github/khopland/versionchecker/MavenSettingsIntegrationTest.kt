@@ -323,13 +323,12 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val fullBefore = requests.size
             val fullStarted = System.nanoTime()
             val service = project.service<VersionCheckService>()
-            val trace = CheckPerformance.start(CheckPerformance.Stage.INTERACTION_STARTED)
-            val fullReport = background { CheckPerformance.traced(trace) { service.checkNow(adapter, full, UpdateMode.MAJOR) } }
+            val fullReport = background { service.checkNow(adapter, full, UpdateMode.MAJOR) }
             assertTrue(fullReport.successful)
             assertEquals(1001, fullReport.candidates.size)
             assertTrue(fullReport.candidates.all { it.version == "2.0" })
             assertEquals(1001, requests.size - fullBefore)
-            println("version-check benchmark=maven-management path=full supported=1001 checked=1001 httpRequests=1001 elapsedNs=${System.nanoTime() - fullStarted} interaction=${trace?.id} originNs=${trace?.started}")
+            println("version-check benchmark=maven-management path=full supported=1001 checked=1001 httpRequests=1001 elapsedNs=${System.nanoTime() - fullStarted}")
             val auditedEditor = adapter.snapshot(project, platform.file)!!
             assertNull(auditedEditor.coverageDescription)
             assertEquals(CheckPhase.CHECKED, service.status(adapter, auditedEditor).phase)
@@ -728,7 +727,8 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val snapshot = adapter.snapshot(project, childFile)!!
             assertEquals(listOf(allCoordinates.first()), snapshot.declarations.map { it.coordinate() })
             val samples = mutableMapOf<String, MutableList<Long>>()
-            repeat(5) {
+            // One pass checks behaviour; repeated samples only matter when benchmarking.
+            repeat(if (java.lang.Boolean.getBoolean("versionchecker.mavenLatencyBenchmark")) 5 else 1) {
                 for (filtered in listOf(false, true)) {
                     // Force the same freshness boundary for both paths, including inherited entries
                     // that the child snapshot does not own. Retain native artifacts and metadata.
