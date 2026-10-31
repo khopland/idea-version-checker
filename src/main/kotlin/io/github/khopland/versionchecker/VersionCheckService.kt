@@ -69,8 +69,6 @@ class VersionCheckService(private val project: Project, private val scope: Corou
         val selectedPaths = FileEditorManager.getInstance(project).selectedFiles.map { it.path }.toSet()
         executor.select(selectedPaths)
         refreshes.select(selectedPaths)
-        if (CheckPerformance.enabled()) project.service<DiagnosticVisibilityTrace>().activated(selectedPaths)
-        else project.getServiceIfCreated(DiagnosticVisibilityTrace::class.java)?.activated(emptySet())
     }
 
     override fun dispose() { disposed = true; inspectionInputs.dispose(); executor.dispose() }
@@ -82,9 +80,6 @@ class VersionCheckService(private val project: Project, private val scope: Corou
 
     internal fun queuedChecks(adapterId: String) = executor.queuedChecks(adapterId)
 
-    /** Passive presentation state, including refresh discovery before executor work is queued. */
-    internal val hasActiveChecks: Boolean
-        get() = !disposed && (refreshes.hasManualRefreshes || executor.isBusy)
 
     internal fun observations() = executor.observations()
 

@@ -71,7 +71,7 @@ internal class VersionPreviewPreparer(private val project: Project) {
                     }
                 }
             }
-            CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PLAN, reports.size) { adapter.prepareUpdates(project, reports) }
+            adapter.prepareUpdates(project, reports)
         }
         val plan = BulkUpdatePlan.combine(plans).withProjectPolicy(project, policy).guardedBy {
             project.service<VersionCheckerSettings>().state.enabled &&

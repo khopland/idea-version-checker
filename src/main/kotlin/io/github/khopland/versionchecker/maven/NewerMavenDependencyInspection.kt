@@ -122,20 +122,18 @@ class UpdateDependencyVersionFix @JvmOverloads constructor(target: XmlTag, priva
     override fun getName(): String = actionNameProvider?.invoke() ?: actionName ?: "Update ${pointer.element?.localName ?: "version"} to $latest"
     override fun startInWriteAction() = false
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = pointer.element
-    override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
-        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
-            val interaction = CheckPerformance.current()
-            val tag = pointer.element
-            if (tag == null || !isCurrent() || tag.value.trimmedText != expected) {
-                notifyStaleVersionFix(project, "maven", descriptor)
-                return@locally
-            }
-            if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(tag))) return@locally
-            val plan = BulkUpdatePlan(listOf(preparedEdit), emptyList(), isCurrent, prepareValidation = prepareValidation)
-            if (!plan.apply(project, interaction))
-                notifyStaleVersionFix(project, "maven", descriptor)
-            else notifyVersionUpdates(project, emptyList(), setOf("maven"), changedFiles = plan.appliedChanges)
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
+        val tag = pointer.element
+        if (tag == null || !isCurrent() || tag.value.trimmedText != expected) {
+            notifyStaleVersionFix(project, "maven", descriptor)
+            return
         }
+        if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(tag))) return
+        val plan = BulkUpdatePlan(listOf(preparedEdit), emptyList(), isCurrent, prepareValidation = prepareValidation)
+        if (!plan.apply(project))
+            notifyStaleVersionFix(project, "maven", descriptor)
+        else notifyVersionUpdates(project, emptyList(), setOf("maven"), changedFiles = plan.appliedChanges)
+    }
 }
 
 class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: String,
@@ -148,36 +146,34 @@ class OverrideDependencyVersionFix(dependency: XmlTag, private val latest: Strin
     override fun getName() = "Override version locally with $latest"
     override fun startInWriteAction() = false
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = pointer.element
-    override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
-        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
-            val interaction = CheckPerformance.current()
-            val dependency = pointer.element
-            if (dependency == null || !isCurrent() || dependency.text != expected) {
-                notifyStaleVersionFix(project, "maven", descriptor)
-                return@locally
-            }
-            if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(dependency))) return@locally
-            val edit = object : VersionEdit {
-                override val element get() = pointer.element
-                override val expected = this@OverrideDependencyVersionFix.expected
-                override val latest = this@OverrideDependencyVersionFix.latest
-                override val location = dependency.containingFile.name
-                override val buildSystemId = "maven"
-                override fun isValid() = element?.let { it.text == expected &&
-                    (it.findFirstSubTag("version") != null || it.findFirstSubTag("artifactId") != null) } == true
-                override fun apply() {
-                    val tag = element!!
-                    val version = tag.findFirstSubTag("version")
-                    if (version != null) version.value.setText(latest)
-                    else {
-                        tag.addAfter(tag.createChildTag("version", tag.namespace, latest, false), tag.findFirstSubTag("artifactId"))
-                        CodeStyleManager.getInstance(project).reformat(tag)
-                    }
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
+        val dependency = pointer.element
+        if (dependency == null || !isCurrent() || dependency.text != expected) {
+            notifyStaleVersionFix(project, "maven", descriptor)
+            return
+        }
+        if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(dependency))) return
+        val edit = object : VersionEdit {
+            override val element get() = pointer.element
+            override val expected = this@OverrideDependencyVersionFix.expected
+            override val latest = this@OverrideDependencyVersionFix.latest
+            override val location = dependency.containingFile.name
+            override val buildSystemId = "maven"
+            override fun isValid() = element?.let { it.text == expected &&
+                (it.findFirstSubTag("version") != null || it.findFirstSubTag("artifactId") != null) } == true
+            override fun apply() {
+                val tag = element!!
+                val version = tag.findFirstSubTag("version")
+                if (version != null) version.value.setText(latest)
+                else {
+                    tag.addAfter(tag.createChildTag("version", tag.namespace, latest, false), tag.findFirstSubTag("artifactId"))
+                    CodeStyleManager.getInstance(project).reformat(tag)
                 }
             }
-            val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
-            if (!plan.apply(project, interaction))
-                notifyStaleVersionFix(project, "maven", descriptor)
-            else notifyVersionUpdates(project, emptyList(), setOf("maven"), changedFiles = plan.appliedChanges)
         }
+        val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
+        if (!plan.apply(project))
+            notifyStaleVersionFix(project, "maven", descriptor)
+        else notifyVersionUpdates(project, emptyList(), setOf("maven"), changedFiles = plan.appliedChanges)
+    }
 }

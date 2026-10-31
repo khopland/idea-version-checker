@@ -4,7 +4,6 @@ import com.google.gson.Gson
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
 import com.intellij.openapi.project.Project
-import io.github.khopland.versionchecker.CheckPerformance
 import io.github.khopland.versionchecker.UpdateMode
 import io.github.khopland.versionchecker.core.BuildSnapshot
 import kotlinx.coroutines.Dispatchers
@@ -63,13 +62,12 @@ internal object GradleVersionLookup {
         }.toMap()
         val requests = requestsBySnapshot.values.flatten()
         if (requests.isEmpty()) return@withContext snapshots.associateWith { emptyMap() }
-        val setupStarted = System.nanoTime()
         val directory = Files.createTempDirectory("gradle-version-checker-")
         val task = "versionChecker" + directory.fileName.toString().filter(Char::isLetterOrDigit)
         val configurationFile = directory.resolve("configuration.json")
         val output = directory.resolve("result.json")
         val init = directory.resolve("check.gradle")
-        val timings = if (CheckPerformance.enabled() || observeWork != null) directory.resolve("timings.json") else null
+        val timings = if (observeWork != null) directory.resolve("timings.json") else null
         try {
             Files.writeString(configurationFile, configuration(requests, output, first.sourceFile, mode, task, timings, indexed))
             Files.writeString(init, script())
@@ -79,42 +77,21 @@ internal object GradleVersionLookup {
             val id = ExternalSystemTaskId.create(GradleConstants.SYSTEM_ID, ExternalSystemTaskType.EXECUTE_TASK, project)
             val manager = GradleTaskManager()
             val context = currentCoroutineContext()
-            val interaction = CheckPerformance.current()
             val listener = object : ExternalSystemTaskNotificationListener {
                 override fun onStart(workingDir: String, id: ExternalSystemTaskId) {
                     if (!context.isActive) manager.cancelTask(id, this)
                 }
             }
             val handle = context[Job]?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { if (it != null) manager.cancelTask(id, listener) }
-            val nativeStarted = System.nanoTime()
             try {
                 context.ensureActive()
                 // Invoke IntelliJ's native task manager without creating a run configuration or console.
-                CheckPerformance.record(CheckPerformance.Stage.GRADLE_SETUP, setupStarted)
-                CheckPerformance.measure(CheckPerformance.Stage.GRADLE_NATIVE, requests.size) {
-                    manager.executeTasks(first.context.root, id, settings, listener)
-                }
+                manager.executeTasks(first.context.root, id, settings, listener)
             } finally {
                 handle?.dispose()
-                val finished = System.nanoTime()
-                if (timings != null && Files.exists(timings)) {
-                    val measured = try { gson.fromJson(Files.readString(timings), Timings::class.java) }
-                        catch (_: java.io.IOException) { null }
-                        catch (_: com.google.gson.JsonParseException) { null }
-                    // Durations are measured in the Gradle JVM. Place them at the end of the host
-                    // invocation; JVM nanoTime origins and buffered console delivery are not comparable.
-                    if (measured != null && measured.configurationNs >= 0 && measured.queryNs >= 0 &&
-                        measured.configurationNs <= finished - nativeStarted - measured.queryNs) {
-                        observeWork?.invoke(measured)
-                        val queryStarted = finished - measured.queryNs
-                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_QUERY, queryStarted, finished, requests.size, interaction)
-                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_CONFIGURATION,
-                            queryStarted - measured.configurationNs, queryStarted, interaction = interaction)
-                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_OWNER_PROJECTS, finished, finished, measured.ownerProjects, interaction)
-                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_OWNER_CONFIGURATIONS, finished, finished, measured.ownerConfigurations, interaction)
-                        CheckPerformance.interval(CheckPerformance.Stage.GRADLE_SEMANTIC_PROBES, finished, finished, measured.semanticProbes, interaction)
-                    }
-                }
+                // Test hook: how much work the init script did, for indexing regressions.
+                if (timings != null && Files.exists(timings))
+                    runCatching { gson.fromJson(Files.readString(timings), Timings::class.java) }.getOrNull()?.let { observeWork?.invoke(it) }
             }
             check(Files.exists(output)) { "Gradle did not produce a version report" }
             val results = parseResponse(Files.readString(output), requests.map { it.id })

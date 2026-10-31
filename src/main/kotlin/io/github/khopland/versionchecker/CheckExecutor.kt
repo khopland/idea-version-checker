@@ -121,10 +121,7 @@ internal class CheckExecutor(
     }
 
     internal suspend fun checkNow(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode,
-                                  reuseCached: Boolean = false): UpdateReport = CheckPerformance.traced(
-        CheckPerformance.current() ?: CheckPerformance.start(CheckPerformance.Stage.INTERACTION_STARTED)) {
-        checkNowTraced(adapter, snapshot, mode, reuseCached)
-    }
+                                  reuseCached: Boolean = false): UpdateReport = checkNowTraced(adapter, snapshot, mode, reuseCached)
 
     private suspend fun checkNowTraced(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode,
                                   reuseCached: Boolean = false): UpdateReport {
@@ -143,7 +140,6 @@ internal class CheckExecutor(
             return queue(adapter.id).withSlot(snapshot.sourceFile, interactive = true) {
                 statusChecks.remove(waiting)
                 statusChanged(snapshot.sourceFile)
-                CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
                 check(!disposed && !project.isDisposed) { "Version checks are no longer available." }
                 check(project.service<VersionCheckerSettings>().state.enabled) { "Version checks are disabled." }
                 check(!adapter.isOffline(project)) { "${adapter.displayName} is offline" }
@@ -156,7 +152,6 @@ internal class CheckExecutor(
                     check(adapter.isCurrentInBackground(project, snapshot)) { "Build files or settings changed during the check. Run it again." }
                     check(cache.revision(snapshot.context) == revision) { "Version checks were refreshed during this check. Run it again." }
                     check(cache.put(snapshot, revision, result, mode)) { "Repository results expired during this check. Run it again." }
-                    CheckPerformance.record(CheckPerformance.Stage.RESULT_ACCEPTED, System.nanoTime(), result.candidates.size + result.notices.size)
                     if (mode == UpdateMode.MAJOR && !project.isDisposed) project.service<FileProblemRefresh>().request(snapshot.sourceFile)
                     if (!result.successful) throw result.failureCause ?: IllegalStateException(result.failure.orEmpty())
                     result
@@ -171,34 +166,25 @@ internal class CheckExecutor(
     private suspend fun <T> runCheck(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, mode: UpdateMode,
                                     revision: VersionResultCache.Revision, finish: suspend (UpdateReport) -> T): T {
         val owner = Any()
-        val started = System.nanoTime()
-        val first = AtomicBoolean()
         statusChecks[owner] = StatusCheck(snapshot.context,
             ScanToken(snapshot.sourceFile, snapshot.fingerprint, snapshot.declarations, revision), running = true)
         statusChanged(snapshot.sourceFile)
         try {
-            val report = CheckPerformance.measure(CheckPerformance.Stage.CHECK) {
+            val report = run {
                 if (mode != UpdateMode.MAJOR || !adapter.capabilities.incrementalInspections)
-                    return@measure adapter.check(project, snapshot, mode)
+                    return@run adapter.check(project, snapshot, mode)
                 adapter.checkIncrementally(project, snapshot, mode) { update ->
                     val valid = adapter.isCurrentInBackground(project, snapshot) && readAction {
                         !disposed && !project.isDisposed && project.service<VersionCheckerSettings>().state.enabled &&
                             !adapter.isOffline(project)
                     }
                     if (valid && cache.putProgress(adapter, snapshot, revision, owner, update)) {
-                        val useful = update.report.candidates.size + update.report.notices.size
-                        if (useful > 0 && first.compareAndSet(false, true))
-                            CheckPerformance.record(CheckPerformance.Stage.FIRST_INSPECTION_RESULT, started, useful)
                         project.service<FileProblemRefresh>().request(snapshot.sourceFile)
                         statusChanged(snapshot.sourceFile)
                     }
                 }
             }
-            val completed = finish(report)
-            val useful = report.candidates.size + report.notices.size
-            if (useful > 0 && cache.get(snapshot, mode) === report && first.compareAndSet(false, true))
-                CheckPerformance.record(CheckPerformance.Stage.FIRST_INSPECTION_RESULT, started, useful)
-            return completed
+            return finish(report)
         } finally {
             statusChecks.remove(owner)
             statusChanged(snapshot.sourceFile)
@@ -237,10 +223,7 @@ internal class CheckExecutor(
 
     private suspend fun scan(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false,
                              interactive: Boolean = false, failures: VersionCheckFailures? = null): Boolean {
-        val interaction = if (CheckPerformance.enabled()) kotlinx.coroutines.withContext(Dispatchers.EDT) {
-            project.service<DiagnosticVisibilityTrace>().interaction(snapshot.sourceFile)
-        } ?: CheckPerformance.current() ?: CheckPerformance.start(CheckPerformance.Stage.INTERACTION_STARTED) else null
-        return CheckPerformance.traced(interaction) { scanTraced(adapter, snapshot, token, showProgress, interactive, failures) }
+        return scanTraced(adapter, snapshot, token, showProgress, interactive, failures)
     }
 
     private suspend fun scanTraced(adapter: BuildSystemAdapter, snapshot: BuildSnapshot, token: ScanToken, showProgress: Boolean = false,
@@ -249,7 +232,6 @@ internal class CheckExecutor(
         val queued = System.nanoTime()
         try {
             queue(adapter.id).withSlot(snapshot.sourceFile, interactive) {
-                CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, queued)
                 if (disposed || project.isDisposed || !project.service<VersionCheckerSettings>().state.enabled || adapter.isOffline(project) ||
                     cache.revision(snapshot.context) != token.revision || cache.get(snapshot) != null) return@withSlot
                 if (!adapter.isCurrentInBackground(project, snapshot) ||
@@ -258,7 +240,6 @@ internal class CheckExecutor(
                     if (!disposed && !project.isDisposed && project.service<VersionCheckerSettings>().state.enabled &&
                         adapter.isCurrentInBackground(project, snapshot) && cache.put(snapshot, token.revision, report)) {
                         published = true
-                        CheckPerformance.record(CheckPerformance.Stage.RESULT_ACCEPTED, System.nanoTime(), report.candidates.size + report.notices.size)
                         if (!report.successful) recordFailure(adapter, snapshot, report.failure.orEmpty(), report.failureCause, failures)
                         else project.getServiceIfCreated(VersionCheckFeedback::class.java)
                             ?.checked(VersionCheckTarget(adapter.id, snapshot.sourceFile))

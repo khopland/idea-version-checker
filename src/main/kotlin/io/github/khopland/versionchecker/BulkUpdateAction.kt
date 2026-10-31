@@ -23,9 +23,7 @@ class ReviewUpdatesAction : AnAction() {
         val project = event.project ?: return
         val current = currentBuildFile(event)
         val scope = reviewScope(project, current) ?: return
-        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.PREVIEW_INVOKED)) {
-            project.service<BulkUpdateService>().preview(UpdateMode.MAJOR, scope, current)
-        }
+        project.service<BulkUpdateService>().preview(UpdateMode.MAJOR, scope, current)
     }
 
     private fun reviewScope(project: com.intellij.openapi.project.Project, current: VirtualFile?): UpdateScope? =

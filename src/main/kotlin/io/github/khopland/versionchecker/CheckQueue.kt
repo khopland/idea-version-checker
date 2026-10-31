@@ -70,10 +70,7 @@ internal class CheckQueue(private val isSelected: (String) -> Boolean = { false 
             handoff()
             request.ready
         }
-        val started = System.nanoTime()
-        try {
-            ready.await()
-            currentCoroutineContext().ensureActive()
-        } finally { CheckPerformance.record(CheckPerformance.Stage.CHECK_QUEUE, started) }
+        ready.await()
+        currentCoroutineContext().ensureActive()
     }
 }

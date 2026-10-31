@@ -27,12 +27,6 @@ import java.awt.event.ActionEvent
 
 /** Exercise the real coordinator with a provider having no Maven or XML dependencies. */
 class BuildCoordinatorTest : BasePlatformTestCase() {
-    private fun withTracing(block: () -> Unit) {
-        val logger = Logger.getInstance(CheckPerformance::class.java)
-        val level = if (logger.isDebugEnabled) LogLevel.DEBUG else LogLevel.INFO
-        logger.setLevel(LogLevel.DEBUG)
-        try { block() } finally { logger.setLevel(level) }
-    }
     private inner class TestAdapter(override val id: String, private val file: PsiFile) : BuildSystemAdapter {
         override val displayName = id
         override val capabilities = AdapterCapabilities()
@@ -423,16 +417,13 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
         assertEquals(1, second.checked.size)
     }
 
-    fun testPreviewModeAndRefreshControlsKeepOneWindowBeforeApplying() = withTracing {
+    fun testPreviewModeAndRefreshControlsKeepOneWindowBeforeApplying() {
         val file = myFixture.addFileToProject("preview-controls/build.txt", "1.0")
-        val checks = CopyOnWriteArrayList<CheckPerformance.Interaction>()
-        val preparations = CopyOnWriteArrayList<CheckPerformance.Interaction>()
-        val native = TestAdapter("preview-controls-test", file).apply {
-            beforeCheck = { checks += CheckPerformance.current()!! }
-        }
+        val preparations = java.util.concurrent.atomic.AtomicInteger()
+        val native = TestAdapter("preview-controls-test", file)
         val adapter = object : BuildSystemAdapter by native {
             override suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan {
-                preparations += CheckPerformance.current()!!
+                preparations.incrementAndGet()
                 return native.prepareUpdates(project, reports)
             }
         }
@@ -443,7 +434,6 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             object : UiInterceptors.UiInterceptor<DialogWrapper>(DialogWrapper::class.java) {
                 override fun doIntercept(component: DialogWrapper) {
                     shown++
-                    assertSame(preparations.last(), CheckPerformance.current())
                     review = component as BulkUpdateDialog
                 }
             })
@@ -454,7 +444,7 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             dialog.filter.text = "build.txt"
             dialog.modeSelector.selectedItem = UpdateMode.MINOR
             PlatformTestUtil.waitWithEventsDispatching("Minor results replace the existing model", {
-                preparations.size == 2 && !dialog.checking
+                preparations.get() == 2 && !dialog.checking
             }, 10_000)
             assertSame(dialog, review)
             assertFalse(dialog.isDisposed)
@@ -462,19 +452,16 @@ class BuildCoordinatorTest : BasePlatformTestCase() {
             assertEquals(0, native.metadataRefreshes)
             dialog.refreshAction.actionPerformed(ActionEvent(dialog, ActionEvent.ACTION_PERFORMED, "Refresh"))
             PlatformTestUtil.waitWithEventsDispatching("Fresh results replace the existing model", {
-                preparations.size == 3 && !dialog.checking
+                preparations.get() == 3 && !dialog.checking
             }, 10_000)
             assertEquals(1, native.metadataRefreshes)
             assertEquals(UpdateMode.MINOR, dialog.modeSelector.selectedItem)
             assertEquals("1.0", file.text)
-            val beforeApply = checks.toList()
             dialog.performOKAction()
             val document = FileDocumentManager.getInstance().getDocument(file.virtualFile)!!
             PlatformTestUtil.waitWithEventsDispatching("Refreshed preview applied", { document.text == "1.1" }, 10_000)
             assertEquals(1, shown)
-            assertEquals("Each request keeps its own check/preparation trace", beforeApply, preparations)
-            assertEquals(3, preparations.map { it.id }.distinct().size)
-            assertTrue(preparations.zipWithNext().all { (before, after) -> after.started > before.started })
+            assertEquals(3, preparations.get())
         } finally { if (!dialog.isDisposed) dialog.close(DialogWrapper.CANCEL_EXIT_CODE) }
     }
 

@@ -34,12 +34,10 @@ internal class DocumentVersionChange(
                             private val edits: List<DocumentVersionChange>) {
         fun apply() {
             // Preserve caret/range markers on unchanged text and defer expensive editor maintenance.
-            CheckPerformance.measure(CheckPerformance.Stage.DOCUMENT_REPLACEMENTS, edits.size) {
-                DocumentUtil.executeInBulk(document) {
-                    for (edit in edits) document.replaceString(edit.range.startOffset, edit.range.endOffset, edit.replacement)
-                }
+            DocumentUtil.executeInBulk(document) {
+                for (edit in edits) document.replaceString(edit.range.startOffset, edit.range.endOffset, edit.replacement)
             }
-            CheckPerformance.measure(CheckPerformance.Stage.DOCUMENT_COMMIT) { manager.commitDocument(document) }
+            manager.commitDocument(document)
         }
     }
 

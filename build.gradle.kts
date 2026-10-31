@@ -46,20 +46,12 @@ tasks.test {
     val pluginArchive = tasks.named<Zip>("buildPlugin")
     dependsOn(pluginArchive)
     systemProperty("versionchecker.pluginArchive", pluginArchive.get().archiveFile.get().asFile.absolutePath)
-    if (providers.gradleProperty("performanceTrace").orElse("false").get() == "true") {
-        systemProperty("idea.log.debug.categories", "#io.github.khopland.versionchecker.CheckPerformance")
-    }
-    // Keep opt-in suites and benchmarks in one place so local and CI selection agree.
+    // Keep opt-in integration suites in one place so local and CI selection agree.
     mapOf(
         "mavenIntegration" to "MavenSettingsIntegrationTest",
         "npmIntegration" to "NpmRegistryIntegrationTest",
         "nodeIntegration" to "NodeRegistryIntegrationTest",
-        "gradleIntegration" to "GradleRepositoryIntegrationTest",
-        "npmHistoryBenchmark" to "NpmVersionHistoryBenchmarkTest",
-        "mavenHistoryBenchmark" to "MavenVersionHistoryBenchmarkTest",
-        "npmInspectionBenchmark" to "NpmInspectionBenchmarkTest",
-        "gradlePreparationBenchmark" to "GradlePreparationBenchmarkTest",
-        "mavenPreparationBenchmark" to "MavenPreparationBenchmarkTest"
+        "gradleIntegration" to "GradleRepositoryIntegrationTest"
     ).forEach { (option, testClass) ->
         val enabled = providers.gradleProperty(option).orElse("false").get()
         systemProperty("versionchecker.$option", enabled)

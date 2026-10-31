@@ -1,6 +1,5 @@
 package io.github.khopland.versionchecker.maven
 
-import io.github.khopland.versionchecker.CheckPerformance
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import java.io.ByteArrayInputStream
@@ -73,12 +72,7 @@ internal object MavenNativeMetadata {
                 setProperty("versionchecker.output", output.toString())
                 setProperty("versionchecker.threads", threads.coerceIn(1, 4).toString())
             }
-            val stage = when {
-                keys.any { it.version.isNotEmpty() && !it.release } -> CheckPerformance.Stage.MAVEN_PLUGIN_PREREQUISITES
-                keys.any { it.release } -> CheckPerformance.Stage.MAVEN_RELEASE_DATES
-                else -> CheckPerformance.Stage.MAVEN_METADATA_BATCH
-            }
-            val result = CheckPerformance.measure(stage, keys.size) {
+            val result = run {
                 MavenGoalProcess.run(manager, project, context.profiles,
                     properties.stringPropertyNames().associateWith(properties::getProperty),
                     "io.github.khopland:version-checker-maven-helper:$version:lookup", context.repository)

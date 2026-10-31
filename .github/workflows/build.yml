@@ -112,7 +112,7 @@ jobs:
       - name: Test release automation
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 
-      - name: Test performance trace reporting
+      - name: Test acceptance fixture generators
         run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
       # Maven integration runs in its own job below, in parallel.

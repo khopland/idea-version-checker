@@ -47,7 +47,6 @@ internal class FileProblemRefreshQueue(
     }
 
     private fun schedule(active: Boolean): Job {
-        val queued = System.nanoTime()
         return scope.launch {
             delay((if (active) activeWindowMillis else windowMillis).milliseconds)
             val batch = synchronized(lock) {
@@ -58,9 +57,7 @@ internal class FileProblemRefreshQueue(
                 }
             }
             if (batch.isEmpty()) return@launch
-            try {
-                CheckPerformance.measure(CheckPerformance.Stage.HIGHLIGHT_RESTART, batch.size) { refresh(batch) }
-            } finally { CheckPerformance.record(CheckPerformance.Stage.HIGHLIGHT_QUEUE, queued, batch.size) }
+            refresh(batch)
         }
     }
 }
@@ -68,7 +65,6 @@ internal class FileProblemRefreshQueue(
 /** Repository results affect their source files; settings changes still refresh the whole project. */
 @Service(Service.Level.PROJECT)
 internal class FileProblemRefresh(private val project: Project, private val scope: CoroutineScope) {
-    private val traces = mutableMapOf<String, Pair<CheckPerformance.Interaction, Long>>() // EDT only.
     private val queue = FileProblemRefreshQueue(scope) { paths ->
         val sources = withContext(Dispatchers.Default) {
             readAction {
@@ -88,11 +84,7 @@ internal class FileProblemRefresh(private val project: Project, private val scop
                 val daemon = DaemonCodeAnalyzer.getInstance(project)
                 for ((path, source) in sources) {
                     if (source.isValid) {
-                        val trace = traces.remove(path)
-                        CheckPerformance.locally(trace?.first) {
-                            trace?.let { CheckPerformance.record(CheckPerformance.Stage.HIGHLIGHT_QUEUE, it.second) }
-                            CheckPerformance.measure(CheckPerformance.Stage.HIGHLIGHT_RESTART) { daemon.restart(source, this@FileProblemRefresh) }
-                        }
+                        daemon.restart(source, this@FileProblemRefresh)
                     }
                 }
             }
@@ -100,10 +92,9 @@ internal class FileProblemRefresh(private val project: Project, private val scop
     }
 
     fun request(path: String) {
-        scope.launch(Dispatchers.EDT + CheckPerformance.context()) {
+        scope.launch(Dispatchers.EDT) {
             if (!project.isDisposed) {
                 val active = FileEditorManager.getInstance(project).selectedFiles.any { it.path == path }
-                CheckPerformance.current()?.let { traces.putIfAbsent(path, it to System.nanoTime()) }
                 queue.request(path, active)
             }
         }

@@ -112,7 +112,8 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
         server.createContext("/") { exchange ->
             try {
                 val path = exchange.requestURI.path
-                requests += path
+                // npm sometimes probes the registry root; only package requests are counted.
+                if (path != "/") requests += path
                 if (path == "/@early/slow") { slowStarted.countDown(); releaseSlow.await(30, TimeUnit.SECONDS) }
                 if (exchange.requestHeaders.getFirst("Authorization") != "Bearer fixture-token") exchange.sendResponseHeaders(401, -1)
                 else if (path in setOf("/@early/fast", "/@early/slow")) {
@@ -295,7 +296,8 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
         val publishedMetadata = AtomicReference(metadata)
         server.createContext("/") { exchange ->
             try {
-                requests += exchange.requestURI.path
+                // npm sometimes probes the registry root; only package requests are counted.
+                if (exchange.requestURI.path != "/") requests += exchange.requestURI.path
                 if (blockResponse.get()) {
                     queryStarted.countDown()
                     releaseResponse.await(15, TimeUnit.SECONDS)
@@ -372,39 +374,20 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                 assertFalse("Manifest hashes must observe refreshed saved bytes despite a cached document",
                     originalDigest == hashes.digest(externalFile))
             } finally { externalRoot.toFile().deleteRecursively() }
-            // Compare the old and combined native queries against exactly the same authenticated
-            // fixture. Aliases share each package response; later deprecated candidates are skipped.
+            // One combined npm response covers versions and baseline; aliases share it and later
+            // deprecated candidates are skipped.
             val benchmarkSnapshot = adapter.snapshot(project, rootFile)!!
-            val samples = mutableMapOf<String, MutableList<Long>>()
-            repeat(5) {
-                for (combined in listOf(false, true)) {
-                    val before = requests.size
-                    val benchmark = ApplicationManager.getApplication().executeOnPooledThread(Callable {
-                        runBlocking {
-                            val started = System.nanoTime()
-                            val report = checkNpmVersions(benchmarkSnapshot.declarations, UpdateMode.PATCH, emptyMap(), Semaphore(4),
-                                metadata = { name ->
-                                    if (combined) NpmRegistry.metadata(project, directory, name)
-                                    else {
-                                        val output = CapturingProcessHandler(NpmRegistry.command(project, directory, listOf(name, "versions"))).runProcess(60_000)
-                                        check(output.exitCode == 0 && !output.isTimeout)
-                                        NpmRegistry.parseLegacyMetadata(output.stdout)
-                                    }
-                                }, deprecated = { name, version -> NpmRegistry.deprecated(project, directory, name, version) })
-                            report to (System.nanoTime() - started)
-                        }
-                    })
-                    val (report, nanos) = PlatformTestUtil.waitForFuture(benchmark, 120_000)
-                    assertEquals(listOf("1.2.8", "1.2.8"), report.candidates.map { it.version })
-                    assertEquals(2, report.notices.size)
-                    assertEquals("One response replaces versions, baseline and two candidate-deprecation queries",
-                        if (combined) 1 else 4, requests.size - before)
-                    val label = if (combined) "combined" else "legacy"
-                    samples.getOrPut(label) { mutableListOf() } += nanos
-                    println("version-check benchmark=npm path=$label elapsedNs=$nanos httpRequests=${requests.size - before}")
+            val before = requests.size
+            val report = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                runBlocking {
+                    checkNpmVersions(benchmarkSnapshot.declarations, UpdateMode.PATCH, emptyMap(), Semaphore(4),
+                        metadata = { name -> NpmRegistry.metadata(project, directory, name) },
+                        deprecated = { name, version -> NpmRegistry.deprecated(project, directory, name, version) })
                 }
-            }
-            for ((label, nanos) in samples) println("version-check benchmark=npm path=$label samples=${nanos.size} medianNs=${nanos.sorted()[nanos.size / 2]} p95Ns=${nanos.max()}")
+            }), 120_000)
+            assertEquals(listOf("1.2.8", "1.2.8"), report.candidates.map { it.version })
+            assertEquals(2, report.notices.size)
+            assertEquals("One response replaces versions, baseline and candidate-deprecation queries: ${requests.drop(before)}", 1, requests.size - before)
             // Exercise real npm's single-object normalization, omitted deprecation fields and
             // the no-stable-release range error without changing the workspace declarations.
             val scenarios = listOf(
@@ -421,7 +404,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
                     runBlocking { NpmRegistry.metadata(project, directory, "@fixture/alpha") }
                 })
                 val result = PlatformTestUtil.waitForFuture(query, 120_000)
-                assertEquals(if (scenario == "prerelease-only") 2 else 1, requests.size - before)
+                assertEquals("$scenario: ${requests.drop(before)}", if (scenario == "prerelease-only") 2 else 1, requests.size - before)
                 when (scenario) {
                     "single" -> { assertEquals(listOf("1.2.3"), result.versions); assertTrue(result.deprecatedByVersion!!.isEmpty()) }
                     "later-deprecated" -> assertEquals(mapOf("1.2.9" to "Broken release"), result.deprecatedByVersion)

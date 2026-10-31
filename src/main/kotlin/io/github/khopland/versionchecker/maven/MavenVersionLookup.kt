@@ -198,7 +198,7 @@ internal object MavenVersionLookup {
                 repositories.putAll(MavenNativeMetadata.repositoryIds(manager, project, context))
                 return repositories.getValue(plugins)
             }
-            val model = pom ?: CheckPerformance.measure(CheckPerformance.Stage.MAVEN_MODEL) {
+            val model = pom ?: run {
                 val text = embedder.evaluateEffectivePom(project.file.toNioPath().toFile(), profiles.enabledProfiles, profiles.disabledProfiles)
                     ?: error("Maven could not determine effective repositories for ${project.path}")
                 JDOMUtil.load(text)
@@ -213,20 +213,18 @@ internal object MavenVersionLookup {
     private suspend fun expireMetadata(scan: Scan) {
         // One settings reload and one lazy effective model serve all categories and fallback paths.
         val settings = MavenSettingsCache(scan.manager.project)
-        CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SETTINGS) { settings.reloadAsync() }
+        settings.reloadAsync()
         val repository = settings.getEffectiveUserLocalRepo()
         scan.localRepository = repository.toAbsolutePath().normalize()
         for (kind in scan.inputs.kinds) {
             val dependencies = scan.inputs[kind]
             val ids = scan.repositories(plugins = kind == MavenArtifactKind.PLUGIN)
-            CheckPerformance.measure(CheckPerformance.Stage.MAVEN_METADATA_EXPIRATION, dependencies.size) {
-                MavenRepositoryMetadata.expireUpdates(repository, dependencies, ids)
-            }
+            MavenRepositoryMetadata.expireUpdates(repository, dependencies, ids)
         }
     }
 
     private suspend fun declared(manager: MavenProjectsManager, project: MavenProject) =
-        CheckPerformance.measure(CheckPerformance.Stage.MAVEN_DECLARATIONS) {
+        run {
             readAction {
                 val file = PsiManager.getInstance(manager.project).findFile(project.file) ?: return@readAction emptyList()
                 val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return@readAction emptyList()
@@ -265,12 +263,7 @@ internal object MavenVersionLookup {
                 setProperty("displayManagedBy", "false")
                 if (goal == "display-dependency-updates") MavenDependencyFilters.apply(this, if (scan.filtered) scan.inputs[MavenArtifactKind.DEPENDENCY] else null, excluded)
             }
-            val stage = when (goal) {
-                "display-dependency-updates" -> CheckPerformance.Stage.MAVEN_DEPENDENCY_GOAL
-                "display-plugin-updates" -> CheckPerformance.Stage.MAVEN_PLUGIN_GOAL
-                else -> CheckPerformance.Stage.MAVEN_PARENT_GOAL
-            }
-            val result = CheckPerformance.measure(stage) {
+            val result = run {
                 MavenGoalProcess.run(scan.manager, project, scan.profiles,
                     properties.stringPropertyNames().associateWith(properties::getProperty),
                     "org.codehaus.mojo:versions-maven-plugin:2.21.0:$goal", checkNotNull(scan.localRepository))

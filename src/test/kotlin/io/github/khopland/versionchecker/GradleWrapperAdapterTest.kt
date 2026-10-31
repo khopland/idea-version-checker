@@ -27,6 +27,12 @@ class GradleWrapperAdapterTest : BasePlatformTestCase() {
     )
     private val adapter = GradleWrapperAdapter { releases }
 
+    override fun setUp() {
+        super.setUp()
+        // Earlier tests may leave a minimum release age, which would withhold the newest fixture release.
+        project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+    }
+
     override fun tearDown() {
         try {
             val settings = GradleSettings.getInstance(project)
@@ -85,18 +91,22 @@ class GradleWrapperAdapterTest : BasePlatformTestCase() {
 
     fun testInspectionOffersTheUpdate() {
         val file = wrapper("inspect", "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.10-bin.zip\n")
-        val registered = BuildSystemAdapter.EP.point
-        registered.extensionList.filterIsInstance<GradleWrapperAdapter>().forEach { registered.unregisterExtension(it.javaClass) }
-        registered.registerExtension(adapter, testRootDisposable)
+        // Replace the registered wrapper adapter with the fake-release one for this test only.
+        com.intellij.testFramework.ExtensionTestUtil.maskExtensions(BuildSystemAdapter.EP,
+            BuildSystemAdapter.EP.extensionList.filterNot { it is GradleWrapperAdapter } + adapter, testRootDisposable)
         val service = project.service<VersionCheckService>()
         val snapshot = runReadAction { adapter.snapshot(project, file.virtualFile)!! }
         service.updates(adapter, snapshot)
         PlatformTestUtil.waitWithEventsDispatching("Wrapper report cached", { service.cached(snapshot) != null }, 10)
-        myFixture.configureFromExistingVirtualFile(file.virtualFile)
-        myFixture.enableInspections(io.github.khopland.versionchecker.gradle.GradleWrapperVersionInspection())
-        val highlight = myFixture.doHighlighting().single { it.description?.contains("9.1.0") == true }
-        assertTrue(highlight.description, highlight.description.contains("8.10 → 9.1.0"))
-        myFixture.editor.caretModel.moveToOffset(highlight.startOffset + 1)
-        assertNotNull(myFixture.getAvailableIntention("Update wrapper to 9.1.0"))
+        // Inspection inputs are captured in the background; the first visitor call only starts that capture.
+        PlatformTestUtil.waitWithEventsDispatching("Inspection inputs captured", {
+            runReadAction { service.inspectionSnapshot(adapter, file.virtualFile) } != null
+        }, 10)
+        // Run the visitor directly, like the other inspection tests, so daemon state from earlier tests cannot interfere.
+        val holder = com.intellij.codeInspection.ProblemsHolder(com.intellij.codeInspection.InspectionManager.getInstance(project), file, true)
+        runReadAction { file.accept(io.github.khopland.versionchecker.gradle.GradleWrapperVersionInspection().buildVisitor(holder, true)) }
+        val problem = holder.results.single()
+        assertTrue(problem.descriptionTemplate, problem.descriptionTemplate.contains("8.10 → 9.1.0"))
+        assertEquals(listOf("Update wrapper to 9.1.0"), problem.fixes.orEmpty().map { it.name })
     }
 }

@@ -50,7 +50,7 @@ internal open class NpmBuildSystemAdapter(val manager: NodePackageManager = Node
 
     private fun snapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>,
                          external: NpmBuildInputs.External? = null): BuildSnapshot? {
-        return CheckPerformance.measure(CheckPerformance.Stage.NPM_SNAPSHOT) { captureSnapshot(project, file, fingerprints, external) }
+        return captureSnapshot(project, file, fingerprints, external)
     }
 
     private fun captureSnapshot(project: Project, file: VirtualFile, fingerprints: MutableMap<VirtualFile, BuildFingerprint>,
@@ -133,7 +133,7 @@ internal open class NpmBuildSystemAdapter(val manager: NodePackageManager = Node
         val report = metadata.runtimes.withSession(context, { NpmRegistry.resolve(project, directory, manager) }) { runtime ->
             checkNpmVersions(snapshot.declarations, mode, policy, registrySlots,
                 metadata = { name ->
-                    val lease = CheckPerformance.measure(CheckPerformance.Stage.NPM_METADATA_WAIT) {
+                    val lease = run {
                         metadata.cache.getFresh(context, name) {
                             // The shared metadata worker owns a separate lease. Cancelling the
                             // initiating check must not stop runtime setup needed by another caller.

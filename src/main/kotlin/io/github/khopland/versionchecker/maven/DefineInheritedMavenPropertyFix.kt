@@ -52,28 +52,27 @@ internal class DefineInheritedMavenPropertyFix(
         return properties
     }
 
-    override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
-        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
-            val root = pointer.element
-            if (root == null || !isCurrent() || root.text != expected) {
-                notifyStaleVersionFix(project, "maven", descriptor)
-                return@locally
-            }
-            if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(root))) return@locally
-            val edit = object : VersionEdit {
-                override val element get() = pointer.element
-                override val expected = this@DefineInheritedMavenPropertyFix.expected
-                override val latest = this@DefineInheritedMavenPropertyFix.latest
-                override val location = root.containingFile.name
-                override val buildSystemId = "maven"
-                override fun isValid() = element?.let { it.text == expected &&
-                    it.findFirstSubTag("properties")?.findFirstSubTag(property) == null } == true
-                override fun apply() {
-                    CodeStyleManager.getInstance(project).reformat(insert(element!!))
-                }
-            }
-            val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
-            if (!plan.apply(project, CheckPerformance.current())) notifyStaleVersionFix(project, "maven", descriptor)
-            else notifyVersionUpdates(project, emptyList(), setOf("maven"), changedFiles = plan.appliedChanges)
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
+        val root = pointer.element
+        if (root == null || !isCurrent() || root.text != expected) {
+            notifyStaleVersionFix(project, "maven", descriptor)
+            return
         }
+        if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOf(root))) return
+        val edit = object : VersionEdit {
+            override val element get() = pointer.element
+            override val expected = this@DefineInheritedMavenPropertyFix.expected
+            override val latest = this@DefineInheritedMavenPropertyFix.latest
+            override val location = root.containingFile.name
+            override val buildSystemId = "maven"
+            override fun isValid() = element?.let { it.text == expected &&
+                it.findFirstSubTag("properties")?.findFirstSubTag(property) == null } == true
+            override fun apply() {
+                CodeStyleManager.getInstance(project).reformat(insert(element!!))
+            }
+        }
+        val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
+        if (!plan.apply(project)) notifyStaleVersionFix(project, "maven", descriptor)
+        else notifyVersionUpdates(project, emptyList(), setOf("maven"), changedFiles = plan.appliedChanges)
+    }
 }

@@ -71,17 +71,15 @@ internal class UpdateGradleVersionFix(private val edit: GradleVersionEdit, priva
     override fun getName() = "Update declared version to ${edit.latest}"
     override fun startInWriteAction() = false
     override fun getElementToMakeWritable(currentFile: PsiFile): PsiElement? = edit.element
-    override fun applyFix(project: Project, descriptor: ProblemDescriptor) =
-        CheckPerformance.locally(CheckPerformance.start(CheckPerformance.Stage.FIX_INVOKED)) {
-            val interaction = CheckPerformance.current()
-            if (!isCurrent() || !edit.isValid()) {
-                notifyStaleVersionFix(project, "gradle", descriptor)
-                return@locally
-            }
-            if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOfNotNull(edit.element))) return@locally
-            val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
-            if (!plan.apply(project, interaction))
-                notifyStaleVersionFix(project, "gradle", descriptor)
-            else notifyVersionUpdates(project, emptyList(), setOf("gradle"), changedFiles = plan.appliedChanges)
+    override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
+        if (!isCurrent() || !edit.isValid()) {
+            notifyStaleVersionFix(project, "gradle", descriptor)
+            return
         }
+        if (!FileModificationService.getInstance().preparePsiElementsForWrite(listOfNotNull(edit.element))) return
+        val plan = BulkUpdatePlan(listOf(edit), emptyList(), isCurrent, prepareValidation = prepareValidation)
+        if (!plan.apply(project))
+            notifyStaleVersionFix(project, "gradle", descriptor)
+        else notifyVersionUpdates(project, emptyList(), setOf("gradle"), changedFiles = plan.appliedChanges)
+    }
 }

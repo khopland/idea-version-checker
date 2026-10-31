@@ -1,7 +1,6 @@
 package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.components.service
-import io.github.khopland.versionchecker.CheckPerformance
 import io.github.khopland.versionchecker.CheckQueue
 import io.github.khopland.versionchecker.UpdateMode
 import io.github.khopland.versionchecker.VersionCheckerSettings
@@ -50,8 +49,6 @@ internal object MavenBatchedLookup {
         var expires: Long? = null
         var checkedAt: Long? = null
         val session = currentCoroutineContext()[MavenScanSession]
-        CheckPerformance.record(CheckPerformance.Stage.MAVEN_QUERY_COORDINATES, System.nanoTime(), keys.size)
-        CheckPerformance.record(CheckPerformance.Stage.MAVEN_QUERY_CONTEXTS, System.nanoTime())
         suspend fun load(requests: List<MavenMetadataKey>) = service.cache.getMany(context.id, requests, generation, onWorkerCreated = { job ->
             session?.retain()
             job.invokeOnCompletion { session?.release() }

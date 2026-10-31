@@ -17,7 +17,6 @@ internal data class NpmWorkspace(val root: VirtualFile, val names: Set<String>, 
 
 /** Workspace ownership and package-manager selection, shared by discovery and edit validation. */
 internal object NpmWorkspaces {
-    val otherManagerFiles = NodePackageManager.entries.filter { it != NodePackageManager.NPM }.flatMap { it.markers }.distinct()
 
     fun manager(project: Project, file: VirtualFile): NodePackageManager? {
         val workspace = resolve(project, file)
