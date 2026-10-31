@@ -101,6 +101,21 @@ Update Gradle dependency locks through your normal build process.
 **Review changed files** opens a read-only before/after comparison of the edited build files.
 Lockfile changes are separate from declaration undo; review them in version control.
 
+## Cached results
+
+The **Dependency Versions** tool window can search, filter, and sort cached observations.
+Opening the window or changing filters does not start a native check.
+Cached results can expire or refer to earlier build inputs.
+Refresh and review before you edit versions.
+
+The Maven and Gradle actions save the build files and ask the IDE to reload; check the build tool window for the result.
+**Update npm lockfile…** asks you to pick a `package.json`, shows the command (`npm install --package-lock-only --ignore-scripts`) and runs it after you confirm.
+For pnpm, Yarn and Bun, run the matching package manager yourself after reviewing manifest edits.
+Update Gradle dependency locks through your normal build process.
+
+**Review changed files** opens a read-only before/after comparison of the edited build files.
+Lockfile changes are separate from declaration undo; review them in version control.
+
 ## Settings and repositories
 
 Open **Settings → Tools → Version Checker** to configure checks and dependency rules.
