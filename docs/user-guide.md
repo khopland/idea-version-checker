@@ -100,19 +100,6 @@ When a quick fix rejects changed files or settings, it leaves the files untouche
 
 If installed, [InlineProblems](https://github.com/0verEngineer/InlineProblems) can render these standard inspection messages using its own display. No dependency on that plugin is required.
 
-## Cached observations
-
-**View → Tool Windows → Dependency Versions** presents cached results. Observation age and cache expiry describe the original cached observation, including failed or skipped checks; they do not prove unchanged build inputs or authorize edits. Reading results never renews their deadline. Pending rows without an observed result have unknown timing, and expired entries leave the cache.
-Check and review before you edit versions.
-
-## Dependency Versions tool window
-
-Open **View → Tool Windows → Dependency Versions** to browse cached observations. The toolbar offers **Check for Updates**, **Review Updates…**, and **Open Source**. Opening the window, typing a search, changing filters, sorting or selecting a row does not query repositories. Use Refresh for fresh checks and Review before applying changes.
-
-Search matches literal package names and source/build paths, ignoring case. Combine it with **Build system**, **Build root**, **Outcome** and **Change** filters; **Clear filters** restores all cached rows. No matches means the current filters hide the results. An empty cache can follow expiry, invalidation or a check that has not run; the window does not infer which occurred.
-
-The table initially shows package, current/available versions, change, outcome and observation age. Observation ages sort numerically; unknown timing stays explicit. Select a row for its physical source, originating check/module, declaration, build root, mode, observation age, cache expiry and diagnostic details. Selection and sorting survive refreshed observations when the same declaration remains visible in the same check context; shared catalog targets from other modules cannot silently replace a selection. Press **Ctrl+F** (or **⌘F**) to focus search, use the arrow keys to select rows, and press **Enter** to open the selected physical source file. Open Source is unavailable when the selection or file is unavailable.
-
 ## Bulk updates and submodules
 
 Right-click a supported build file in the editor and choose **Review Updates…** to review that file. The review starts in **Major + minor + patch** mode. You can change scope and update mode inside the preview. **Tools → Versions → Review Updates…** also opens the preview. Shared actions select the adapters for the current file or whole project. Each action checks dependencies and build plugins together and shows one combined preview. Maven, npm and Gradle are implemented adapters; a mixed project gets one combined preview. Current File checks and edits only the imported POM in the editor. Whole Project includes all imported, non-ignored Maven modules, including nested submodules. Both offer:

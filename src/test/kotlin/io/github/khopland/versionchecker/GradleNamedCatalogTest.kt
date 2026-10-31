@@ -100,8 +100,6 @@ class GradleNamedCatalogTest : BasePlatformTestCase() {
         assertNotNull(diagnostic.notice)
         assertNull(diagnostic.edit)
         assertTrue(diagnostic.target!!.range.startOffset > 0)
-        val rows = DependencyReviewRows.from(listOf(VersionResultCache.Observation(snapshot, checked, UpdateMode.MAJOR, false)))
-        assertEquals(settings.virtualFile.path, rows.single().source.file)
         val catalog = adapter.snapshot(project, valid.virtualFile)!!
         val plan = background { adapter.prepareUpdates(project, mapOf(catalog to report(catalog))) }
         assertTrue(plan.changes.isEmpty())
