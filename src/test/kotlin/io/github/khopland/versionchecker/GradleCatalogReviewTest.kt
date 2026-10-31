@@ -43,13 +43,6 @@ class GradleCatalogReviewTest : BasePlatformTestCase() {
         val report = background { adapter.check(project, snapshot, UpdateMode.MAJOR) }
         assertEquals(CoverageSummary(skipped = 1), report.coverageSummary(snapshot))
         assertTrue(report.candidates.isEmpty())
-        val rows = DependencyReviewRows.from(listOf(VersionResultCache.Observation(snapshot, report, UpdateMode.MAJOR, false)))
-        val row = rows.single()
-        assertEquals(rows, DependencyReviewRows.filter(rows, DependencyReviewFilter.REVIEW))
-        assertEquals(DependencyReviewOutcome.SKIPPED, row.outcome)
-        assertEquals(file.virtualFile.path, row.source.file)
-        assertTrue(row.detail.contains("coverage is unavailable"))
-        assertNull(row.available)
         val plan = background { adapter.prepareUpdates(project, mapOf(snapshot to report)) }
         assertTrue(plan.changes.isEmpty())
         val review = plan.reviewItems.single()

@@ -22,8 +22,6 @@
     <extensions defaultExtensionNs="com.intellij">
         <errorHandler implementation="com.intellij.diagnostic.JetBrainsMarketplaceErrorReportSubmitter" />
         <notificationGroup id="Version Checker" displayType="BALLOON" />
-        <iconMapper mappingFile="VersionCheckerIconMappings.json" />
-        <toolWindow id="Dependency Versions" icon="/icons/dependencyVersions.svg" anchor="right" factoryClass="io.github.khopland.versionchecker.DependencyToolWindowFactory" />
         <statusBarWidgetFactory id="VersionChecker.Status" implementation="io.github.khopland.versionchecker.VersionCheckStatusWidgetFactory" />
         <projectConfigurable parentId="tools" id="version.checker" displayName="Version Checker" instance="io.github.khopland.versionchecker.VersionCheckerConfigurable" />
     </extensions>

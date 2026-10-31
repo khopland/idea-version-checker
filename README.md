@@ -38,7 +38,6 @@ IDEA starts background checks when it inspects supported build files.
 | Check the project again | Select **Tools → Versions → Check for Updates**. |
 | Select several updates | Right-click a build file. Select **Review Updates…**. |
 | Review project updates | Select **Tools → Versions → Review Updates…**. |
-| Examine cached results | Open **View → Tool Windows → Dependency Versions**. |
 | Examine check status | Click **Versions** in the status bar. |
 
 Refresh and review actions save the relevant build inputs before a check.
@@ -101,20 +100,6 @@ Update Gradle dependency locks through your normal build process.
 
 **Review changed files** opens a read-only before/after comparison of the edited build files.
 Lockfile changes are separate from declaration undo; review them in version control.
-
-## Cached results
-
-The **Dependency Versions** tool window can search, filter, and sort cached observations.
-Opening the window or changing filters does not start a native check.
-Cached results can expire or refer to earlier build inputs.
-Refresh and review before you edit versions.
-
-The coverage summary stays visible when filters hide incomplete results.
-Zero updates does not confirm complete coverage.
-Separate build contexts or update modes can describe the same physical declaration.
-The parser cannot count declarations that it does not recognize.
-
-See the [tool window guide](docs/user-guide.md#dependency-versions-tool-window) for details.
 
 ## Settings and repositories
 

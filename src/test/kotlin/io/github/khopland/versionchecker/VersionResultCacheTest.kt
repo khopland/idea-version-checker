@@ -24,7 +24,6 @@ class VersionResultCacheTest {
             assertEquals(lease.expiresAtNanos, observation.expiresAtNanos)
             assertNull(observation.report.lease)
             assertNull(observation.report.checkedAtNanos)
-            assertEquals(100L, DependencyReviewRows.from(listOf(observation)).single().checkedAtNanos)
         }
         assertTrue("Presentation must not replace edit authorization", lease.isCurrent())
         time = lease.expiresAtNanos

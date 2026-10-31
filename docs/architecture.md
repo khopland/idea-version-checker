@@ -72,7 +72,6 @@ It cannot clear a newer check or failure.
 Result leases and provider input validation authorize edits.
 Dialog state cannot extend result expiry.
 Inspection hints and retained warnings cannot authorize a preview or edit.
-Reading the dependency tool window must not start native checks.
 
 ## Refresh policy
 

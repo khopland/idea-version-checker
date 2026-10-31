@@ -19,7 +19,7 @@
 
 - **View Latest Update Session…**, the update session summary and the npm lockfile diff it held. Results of follow-up actions are shown in notifications.
 - **Verify Maven effective versions**. Reload Maven and check the Maven tool window or run the build instead.
-- Dependency Versions **Copy Markdown**, **Export Markdown…**, **Export JSON…** and **Preview Support Report…**. The tool window shows cached results; use `idea.log` for bug reports.
+- The **Dependency Versions** tool window, including its **Copy Markdown**, **Export Markdown…**, **Export JSON…** and **Preview Support Report…** actions. Highlights in build files and **Review Updates…** show the same results; use `idea.log` for bug reports.
 - **Load npm target details** in update reviews.
 - Advanced Maven tuning settings: parallel metadata requests, parents/Spring Boot BOMs first, fast editor checks and persistent metadata across IDE sessions. Maven checks always cover every supported declaration and keep metadata in memory.
 - **Tools → Update Versions → Maven Platform** and the preview's Maven Platform scope. Use **Current File** or **Whole Project**.
