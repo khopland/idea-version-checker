@@ -534,13 +534,7 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             assertEquals(2, problems().size)
             assertTrue(problems().all { it.fixes?.size == 3 && it.fixes!!.last() is IgnorePublishedVersionFix })
             assertTrue(problems().all { "locally" in it.fixes!![0].name && "across workspace" in it.fixes!![1].name })
-            assertTrue(problems().all { it.highlightType == ProblemHighlightType.GENERIC_ERROR && "deprecated" in it.descriptionTemplate })
-            val options = project.service<VersionCheckerSettings>().state
-            options.deprecatedSeverity = VersionSeverity.DISABLED
-            assertTrue(problems().isEmpty())
-            options.deprecatedSeverity = VersionSeverity.WARNING
-            assertTrue(problems().all { it.highlightType == ProblemHighlightType.WARNING })
-            options.deprecatedSeverity = VersionSeverity.ERROR
+            assertTrue(problems().all { it.highlightType == ProblemHighlightType.LIKE_DEPRECATED && "deprecated" in it.descriptionTemplate })
             // Apply actual whole-project results; npm must never write the lockfile or install packages.
             val future = ApplicationManager.getApplication().executeOnPooledThread(Callable {
                 runBlocking { project.service<BulkUpdateService>().createPlan(UpdateMode.PATCH) }

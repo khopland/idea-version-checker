@@ -4,19 +4,9 @@ import io.github.khopland.versionchecker.core.VersionChangeKind
 
 import com.intellij.codeInspection.ProblemHighlightType
 
-enum class VersionSeverity(val label: String, val highlight: ProblemHighlightType?) {
-    WARNING("Warning (yellow)", ProblemHighlightType.WARNING),
-    ERROR("Error (red)", ProblemHighlightType.GENERIC_ERROR),
-    INFORMATION("Information", ProblemHighlightType.INFORMATION),
-    DISABLED("Disabled", null);
-
-    override fun toString(): String = label
-}
-
-internal fun VersionChangeKind.severity(options: VersionCheckerSettings.Options): VersionSeverity = when (this) {
-    VersionChangeKind.PATCH -> options.patchSeverity
-    VersionChangeKind.MINOR -> options.minorSeverity
-    VersionChangeKind.MAJOR -> options.majorSeverity
-    VersionChangeKind.OTHER -> options.otherSeverity
-    VersionChangeKind.DEPRECATED -> options.deprecatedSeverity
-}
+/**
+ * Severity comes from the inspection profile (Settings → Editor → Inspections), so users have one place to
+ * change or disable it. Deprecated and relocated artifacts are struck through at that same severity.
+ */
+internal fun VersionChangeKind.highlightType(): ProblemHighlightType =
+    if (this == VersionChangeKind.DEPRECATED) ProblemHighlightType.LIKE_DEPRECATED else ProblemHighlightType.GENERIC_ERROR_OR_WARNING

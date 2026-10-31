@@ -15,16 +15,11 @@ class VersionSeverityTest {
         assertEquals(VersionChangeKind.OTHER, MavenVersionSemantics.between("RELEASE_1", "RELEASE_2"))
     }
 
-    @Test fun `updates default to warnings and explicit notices to errors`() {
-        val options = VersionCheckerSettings.Options()
+    @Test fun `updates use the inspection severity and deprecations are struck through`() {
         VersionChangeKind.entries.filter { it != VersionChangeKind.DEPRECATED }.forEach {
-            assertEquals(VersionSeverity.WARNING, it.severity(options))
+            assertEquals(com.intellij.codeInspection.ProblemHighlightType.GENERIC_ERROR_OR_WARNING, it.highlightType())
         }
-        assertEquals(VersionSeverity.ERROR, VersionChangeKind.DEPRECATED.severity(options))
-        options.majorSeverity = VersionSeverity.INFORMATION
-        options.patchSeverity = VersionSeverity.DISABLED
-        assertEquals(VersionSeverity.INFORMATION, VersionChangeKind.MAJOR.severity(options))
-        assertNull(VersionChangeKind.PATCH.severity(options).highlight)
+        assertEquals(com.intellij.codeInspection.ProblemHighlightType.LIKE_DEPRECATED, VersionChangeKind.DEPRECATED.highlightType())
     }
 
     @Test fun `deprecation policy only accepts explicit coordinates`() {

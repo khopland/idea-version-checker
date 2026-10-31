@@ -1340,24 +1340,11 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             PlatformTestUtil.waitWithEventsDispatching("Editor-open version check", {
                 service.updates(mavenProject)[DependencyVersion(group, "fixture", "1.0")] == "2.0"
             }, 120_000)
-            val options = project.service<VersionCheckerSettings>().state
-            options.majorSeverity = VersionSeverity.ERROR
-            val errorHolder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-            val errorVisitor = NewerMavenDependencyInspection().buildCapturedVisitor(errorHolder, true)
-            PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(errorVisitor) }
-            assertEquals(4, errorHolder.results.size)
-            assertTrue(errorHolder.results.all { it.highlightType == ProblemHighlightType.GENERIC_ERROR })
-            options.majorSeverity = VersionSeverity.DISABLED
-            val disabledHolder = ProblemsHolder(InspectionManager.getInstance(project), file, true)
-            val disabledVisitor = NewerMavenDependencyInspection().buildCapturedVisitor(disabledHolder, true)
-            PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(disabledVisitor) }
-            assertTrue(disabledHolder.results.isEmpty())
-            options.majorSeverity = VersionSeverity.WARNING
             val standard = ProblemsHolder(InspectionManager.getInstance(project), file, true)
             val standardVisitor = NewerMavenDependencyInspection().buildCapturedVisitor(standard, true)
             PsiTreeUtil.findChildrenOfType(file, XmlTag::class.java).forEach { it.accept(standardVisitor) }
             assertEquals(4, standard.results.size)
-            assertTrue(standard.results.all { it.highlightType == ProblemHighlightType.WARNING })
+            assertTrue(standard.results.all { it.highlightType == ProblemHighlightType.GENERIC_ERROR_OR_WARNING })
 
             // Use the refreshed descriptor after editor setup has changed the POM's modification stamp.
             val currentProblem = standard.results.single { it.psiElement is XmlTag && (it.psiElement as XmlTag).localName == "fixture.version" }

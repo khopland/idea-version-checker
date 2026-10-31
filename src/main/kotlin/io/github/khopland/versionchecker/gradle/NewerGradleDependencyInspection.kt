@@ -48,7 +48,7 @@ class NewerGradleDependencyInspection : LocalInspectionTool() {
                         NoticeKind.MANUAL_REVIEW -> VersionChangeKind.OTHER
                         else -> candidate?.kind ?: VersionChangeKind.OTHER
                     }
-                    val highlight = kind.severity(options).highlight ?: continue
+                    val highlight = kind.highlightType()
                     val safe = prepared.edit != null
                     val lease = report.lease?.forDeclarations(prepared.affectedDeclarations)
                     val updateFixes = prepared.edit?.let { edit -> arrayOf<LocalQuickFix>(UpdateGradleVersionFix(edit, {
