@@ -181,5 +181,5 @@ Run the default suite and build checks:
 ```
 
 Select native repository integration tests explicitly.
-See the [verification guide](user-guide.md#development-and-verification).
+See [development](development.md) for the test commands.
 Use the [writing rules](writing.md) for comments, documentation, and user messages.

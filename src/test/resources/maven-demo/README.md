@@ -21,9 +21,9 @@ A standalone Maven project with intentionally old dependency and build-plugin ve
 
 In `nested/managed-dependencies/pom.xml`, try both inherited-version choices separately. The local choice adds `<version>` immediately after `<artifactId>` in that child dependency. The parent choice updates the root declaration/property and leaves the child version omitted. Use Undo between trials. The parent option shows the POM it edits; other consumers of the managed version or shared property also inherit the update.
 
-Hover over a highlighted dependency to read its standard IDEA inspection message, or use the Problems view. These messages are also available to the InlineProblems plugin. The plugin's settings are under **Settings → Tools → Version Checker**. Try changing major updates to Error or disabling patch messages; bulk updates remain available.
+Hover over a highlighted dependency to read its standard IDEA inspection message, or use the Problems view. These messages are also available to the InlineProblems plugin. The plugin's settings are under **Settings → Tools → Version Checker**. To change the warning level, use **Settings → Editor → Inspections → Maven**; bulk updates remain available when the inspection is off.
 
-To test a red deprecation notice, add `org.slf4j:slf4j-api = Demo policy: migrate to a maintained version` to the explicitly deprecated dependencies field. This is a demo policy you supply, not a claim that SLF4J itself is deprecated. The dependency then displays a deprecation notice and is skipped for manual review during bulk updates. Remove the rule to resume the normal update demo.
+To test a deprecation notice (shown struck through), add `org.slf4j:slf4j-api = Demo policy: migrate to a maintained version` to the explicitly deprecated dependencies field. This is a demo policy you supply, not a claim that SLF4J itself is deprecated. The dependency then displays a deprecation notice and is skipped for manual review during bulk updates. Remove the rule to resume the normal update demo.
 
 Choose **Tools → Versions → Review Updates…**, pick **Current File** or **Whole Project**, and inspect the combined dependency/plugin preview before applying:
 

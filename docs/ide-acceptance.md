@@ -57,20 +57,9 @@ scaling. A missing runtime or unavailable license is a blocked result, not a pas
 | Maven inherited property | Update a parent-managed dependency through a new child property; reload. | Exact controlling property is created; after reload the Maven tool window shows the new effective version. |
 | Reload failure | Request reload with a deliberately broken/disconnected build. | The reload notification reports the request or failure and points to the build tool window. No success claim follows a request alone. |
 | npm synchronization | Preview command, cancel before start; run a failing command; cancel during execution; run a successful disposable case. | Each outcome is reported with changed/unknown lockfiles and partial-write risk; declaration undo never claims to undo native writes. |
-| Interaction cost | Use small and large fixtures, cold and warm checks, delayed registry and cancellation. | Record first visible result, review-ready time, table/filter response and typing latency; record fixture/archive/runtime with each value. |
-
-At high zoom, use the **Show dependency filters** toolbar toggle to hide or
-restore the four selector rows while keeping search visible. Verify that selected
-filters survive this change and that it performs no queries. The clear icon has
-the accessible name **Clear dependency filters** and the tooltip **Clear filters**.
-
-## Measurement policy
-
-First collect at least three runs per fixture and cold/warm condition. Preserve
-individual values and describe the sampling method. Set regression budgets only
-after that baseline exists; a single run is a smoke result, not a percentile
-study. Filtering and selecting details of cached observations must perform
-zero native checks. Measure the atomic write separately from background checking.
+| Gradle plugins | Check a build with `plugins {}` versions and a catalog `[plugins]` entry sharing a `version.ref` with a library; apply. | Plugin hints name `plugin:<id>`; the shared version changes once only when the library and plugin agree. |
+| Wrappers | Check `.mvn/wrapper/maven-wrapper.properties` behind a mirror and an official `gradle-wrapper.properties`; apply; reload. | Only the version in each URL changes; a mirrored Gradle URL or `distributionSha256Sum` shows a manual-review hint. |
+| Minimum release age | Set 24 hours against a repository with a release from the last hour. | The recent release is withheld for Maven, npm and the wrappers; the next older release is offered. |
 
 ## Evidence and release decision
 

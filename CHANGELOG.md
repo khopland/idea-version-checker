@@ -4,36 +4,31 @@
 
 ### Added
 
-- Maven and Gradle wrapper versions. The Maven wrapper distribution (`org.apache.maven:apache-maven`) resolves through the project's Maven repositories and mirrors with the minimum release age; the Gradle wrapper is checked against `services.gradle.org` when it uses the official distribution URL. Wrappers with `distributionSha256Sum` or a mirrored Gradle URL need manual review.
-- Gradle plugin versions in `plugins {}` blocks and the version catalog `[plugins]` table are checked and can be updated, resolved through the build's `pluginManagement` repositories. A catalog version shared by libraries and plugins is updated when they all agree.
-- pnpm, Yarn Classic/modern Yarn and Bun adapters using their native read-only metadata commands.
-- pnpm YAML workspace discovery and manager-specific configuration validation; updates edit manifests only.
+- Gradle plugin versions in `plugins {}` blocks and in the catalog `[plugins]` table. They resolve through the build's `pluginManagement` repositories. A catalog version shared by libraries and plugins changes when they all agree.
+- Maven wrapper and Gradle wrapper versions. The Maven wrapper resolves through your Maven repositories and mirrors. The Gradle wrapper is checked against `services.gradle.org` for the official download URL.
+- pnpm, Yarn (Classic and modern) and Bun support, using each manager's own read-only registry command. pnpm workspaces come from `pnpm-workspace.yaml`.
 
 ### Changed
 
-- After applying updates, one **Versions updated** notification offers one next step per build system: **Reload Maven projects**, **Sync Gradle projects** or **Update npm lockfile…**, plus **Review changed files**.
-- **Minimum release age** now also applies to npm, pnpm, Yarn and Bun, using the registry's per-version release times. It is a general setting under the enable checkbox; existing values are kept. Gradle checks do not use it yet.
-- One **Tools → Versions** menu with **Check for Updates** and **Review Updates…**, replacing the separate Check Versions and Update Versions menus (eight items). The editor context menu offers **Check This File for Updates** and **Review Updates…**. Reviews open for the current build file, or the whole project when no supported build file is selected, in **Major + minor + patch** mode; scope and mode can be changed in the preview.
-- Version hints use each inspection's severity from **Settings → Editor → Inspections**, so there is one place to change it. Version updates default to Warning; deprecated and relocated artifacts are struck through.
-- Maven checks are faster for everyone: each metadata goal resolves four repository files at once (Maven's default, was two), and the next batch's goal starts while the current batch is published.
+- **Minimum release age** now also applies to npm, pnpm, Yarn, Bun and the wrappers. Your saved value is kept.
+- One **Tools → Versions** menu with **Check for Updates** and **Review Updates…** replaces the eight items in the Check Versions and Update Versions menus. The editor menu offers **Check This File for Updates** and **Review Updates…**.
+- After an update, one **Versions updated** notification offers **Reload Maven projects**, **Sync Gradle projects** or **Update npm lockfile…**, and **Review changed files**.
+- The warning level comes from each inspection under **Settings → Editor → Inspections**. Deprecated and relocated packages are struck through.
+- Maven checks are faster: each metadata request reads four repository files at a time, and the next batch starts while the current one is shown.
 
 ### Removed
 
-- The `#io.github.khopland.versionchecker.CheckPerformance` debug trace category, its summary script and the opt-in benchmark tests.
-- **View Latest Update Session…**, the update session summary and the npm lockfile diff it held. Results of follow-up actions are shown in notifications.
-- **Verify Maven effective versions**. Reload Maven and check the Maven tool window or run the build instead.
-- The **Dependency Versions** tool window, including its **Copy Markdown**, **Export Markdown…**, **Export JSON…** and **Preview Support Report…** actions. Highlights in build files and **Review Updates…** show the same results; use `idea.log` for bug reports.
-- Dependency Versions **Copy Markdown**, **Export Markdown…**, **Export JSON…** and **Preview Support Report…**. The tool window shows cached results; use `idea.log` for bug reports.
+- The **Dependency Versions** tool window, with its Markdown and JSON exports and the support report. Hints, the status bar and **Review Updates…** show the same results.
+- **View Latest Update Session…** and **Verify Maven effective versions**.
+- The five severity settings. Saved choices are ignored.
+- The **Maven Platform** scope, periodic background refresh and the advanced Maven tuning settings.
 - **Load npm target details** in update reviews.
-- Advanced Maven tuning settings: parallel metadata requests, parents/Spring Boot BOMs first, fast editor checks and persistent metadata across IDE sessions. Maven checks always cover every supported declaration and keep metadata in memory.
-- **Tools → Update Versions → Maven Platform** and the preview's Maven Platform scope. Use **Current File** or **Whole Project**.
-- Periodic background refresh. Use **Check This File for Updates** or **Check for Updates** when needed.
-- The five severity selectors (patch, minor, major, other, deprecated) under **Settings → Tools → Version Checker**. Saved choices are ignored.
+- The `CheckPerformance` debug trace category.
 
 ### Fixed
 
-- Run Maven metadata and Versions goals in cancellable Java processes using IDEA's selected Maven and import JDK. Remove experimental progress APIs.
-- Replace deprecated IntelliJ API calls and generated interface bridges. Remove redundant experimental write-intent wrappers from document saving.
+- Maven metadata and Versions goals run in cancellable Java processes with IDEA's selected Maven and import JDK.
+- Deprecated IntelliJ API calls are replaced.
 
 ## [1.4.0] - 2026-10-22
 
