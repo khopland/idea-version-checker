@@ -2,16 +2,18 @@
     <id>io.github.khopland.version-checker</id>
     <name>Version Checker</name>
     <vendor>khopland</vendor>
-    <description>
-        Shows newer stable Maven dependency and build-plugin versions in pom.xml, npm, pnpm, Yarn and Bun dependency versions in package.json and Gradle library versions in build scripts and local catalogs
-        through IntelliJ IDEA's standard inspections. Maven checks use IDEA's Maven configuration;
-        Node package checks use the configured local runtime and matching manager’s registry configuration;
-        Gradle checks use its linked project tooling, wrapper/JVM and Gradle repositories.
-        Includes version update quick fixes and bulk previews for patch, minor or major versions
-        in the current build file or across the project. Node package updates edit manifests only;
-        use the matching manager to synchronize lockfiles and installed dependencies afterward.
-        Gradle updates edit declarations only; reload the project and synchronize dependency locks afterward.
-    </description>
+    <description><![CDATA[
+        <p>Shows newer stable dependency versions in your build files, and updates them with Alt+Enter or in one reviewed batch.</p>
+        <ul>
+          <li><b>Maven:</b> dependencies, BOMs, build plugins, version properties and the Maven wrapper.</li>
+          <li><b>Gradle:</b> libraries, BOMs and plugins in build scripts and version catalogs, and the Gradle wrapper.</li>
+          <li><b>npm, pnpm, Yarn and Bun:</b> dependencies in <code>package.json</code>, including workspaces and aliases.</li>
+        </ul>
+        <p>Checks use your existing build configuration: Maven settings and mirrors, <code>.npmrc</code> and Gradle repositories.
+        A minimum release age can hold back new releases, for example to match a repository quarantine.</p>
+        <p>Use <b>Tools | Versions | Review Updates…</b> to choose patch, minor or major updates for a file or the whole project.
+        All changes apply as one undoable edit. The plugin edits declarations only; it does not change lockfiles or installed packages.</p>
+    ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
     <depends optional="true" config-file="version-checker-npm.xml">JavaScript</depends>

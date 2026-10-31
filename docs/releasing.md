@@ -77,8 +77,8 @@ Record its commit, SHA-256, runtime, fixture, results, and remaining blockers.
 6. Review the matching GitHub draft, its target commit, release notes, and tested ZIP.
 7. Publish the draft as a regular release through GitHub's UI or an authenticated human account.
 
-Build CI runs packaging, tests, Maven 4 regressions, and compatibility verification independently.
-Draft preparation waits for all four jobs.
+Build CI runs packaging, tests, Maven integration, Maven 4 regressions and compatibility verification as separate jobs.
+Draft preparation waits for all five jobs.
 It creates or updates only the matching draft and attaches the tested ZIP.
 
 The Release workflow checks out the published tag.
