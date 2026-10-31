@@ -58,12 +58,12 @@ class MavenUpdateScopeTest : BasePlatformTestCase() {
                 .add(CommonDataKeys.EDITOR, myFixture.editor).add(CommonDataKeys.VIRTUAL_FILE, root.file).build()
             val event = AnActionEvent.createFromDataContext("test", null, context)
             assertEquals(child.file, currentBuildFile(event))
-            CurrentFilePatchUpdateAction().update(event)
-            assertTrue(event.presentation.isEnabledAndVisible)
+            fun currentFileSupported() = BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, child.file.path)).isNotEmpty()
+            assertTrue(currentFileSupported())
             manager.projectsTree.setIgnoredState(listOf(child), true)
-            CurrentFilePatchUpdateAction().update(event)
-            assertFalse(event.presentation.isEnabledAndVisible)
-            PatchUpdateAction().update(event)
+            assertFalse(currentFileSupported())
+            // Review falls back to the whole project, which still contains the imported parent.
+            ReviewUpdatesAction().update(event)
             assertTrue(event.presentation.isEnabledAndVisible)
         } finally {
             manager.projectsTree.setIgnoredState(manager.projects, true)

@@ -45,18 +45,18 @@ internal data class VersionCheckStatus(
     }
 
     val tooltip: String get() = (when (phase) {
-        CheckPhase.UNCHECKED -> "This file has no current complete result. Refresh Current File to check."
+        CheckPhase.UNCHECKED -> "This file has no current complete result. Choose Check This File for Updates."
         CheckPhase.QUEUED -> "This file is waiting for another native version check to finish."
         CheckPhase.CHECKING -> "Checking this file. Early hints may appear before every declaration is checked."
         CheckPhase.CHECKED -> (if (coverage == null) "Checked the supported declarations in this file." else "Version check finished.") +
             " $updates updates and $notices notices. Click to review or refresh."
-        CheckPhase.FAILED -> recoveryMessage?.let { "$it Refresh Current File to retry." }
-            ?: "The check did not finish successfully. Check repository authentication and configuration, then Refresh Current File to retry."
-        CheckPhase.PARTIAL -> "$coverageDescription Refresh Current File or Review Dependency Updates for a full audit."
-        CheckPhase.SAVE_REQUIRED -> "Native checking requires saved build files. Refresh Current File saves documents and checks again."
-        CheckPhase.OFFLINE -> "Disable the build system’s Work offline setting, then Refresh Current File."
+        CheckPhase.FAILED -> recoveryMessage?.let { "$it Choose Check This File for Updates to retry." }
+            ?: "The check did not finish successfully. Check repository authentication and configuration, then choose Check This File for Updates to retry."
+        CheckPhase.PARTIAL -> "$coverageDescription Choose Check This File for Updates or Review Updates… for a full audit."
+        CheckPhase.SAVE_REQUIRED -> "Native checking requires saved build files. Check This File for Updates saves documents and checks again."
+        CheckPhase.OFFLINE -> "Disable the build system’s Work offline setting, then choose Check This File for Updates."
         CheckPhase.PAUSED -> "Version checks are disabled in Settings → Tools → Version Checker."
         CheckPhase.INDEXING -> "Waiting for IDEA indexing to finish."
-        CheckPhase.UNAVAILABLE -> "Build information is unavailable. Import or reload the project, then Refresh Current File."
+        CheckPhase.UNAVAILABLE -> "Build information is unavailable. Import or reload the project, then choose Check This File for Updates."
     }) + (coverage?.let { " Recognized declarations: ${it.description}." } ?: "")
 }

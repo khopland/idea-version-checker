@@ -7,9 +7,6 @@ import io.github.khopland.versionchecker.core.*
 open class RefreshVersionsAction(private val scope: UpdateScope = UpdateScope.WHOLE_PROJECT) : AnAction() {
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
     override fun update(event: AnActionEvent) {
-        if (scope == UpdateScope.CURRENT_FILE) {
-            event.presentation.text = if (event.place == ActionPlaces.EDITOR_POPUP) "Refresh Dependency Versions" else "Refresh Current File"
-        }
         event.presentation.isEnabledAndVisible = event.project?.let { project ->
             project.service<VersionCheckerSettings>().state.enabled &&
                 BuildSystemAdapter.matching(project, BuildSelection(scope, currentBuildFile(event)?.path)).isNotEmpty()

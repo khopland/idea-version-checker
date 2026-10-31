@@ -125,7 +125,7 @@ class DependencyReviewPresentationTest : BasePlatformTestCase() {
         var active = true
         panel(activity = { active }) { panel, reads ->
             assertTrue(panel.summaryText().startsWith("Checking dependencies."))
-            assertFalse(panel.summaryText().contains("Refresh Whole Project"))
+            assertFalse(panel.summaryText().contains("Check for Updates"))
             active = false
             val before = reads.get()
             panel.presentRows(emptyList())

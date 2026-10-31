@@ -28,31 +28,17 @@
         <projectConfigurable parentId="tools" id="version.checker" displayName="Version Checker" instance="io.github.khopland.versionchecker.VersionCheckerConfigurable" />
     </extensions>
     <actions>
-        <action id="VersionChecker.ReviewCurrentFile" class="io.github.khopland.versionchecker.ReviewCurrentFileUpdatesAction" text="Review Dependency Updates…" description="Review and select dependency version changes in this build file">
-            <add-to-group group-id="EditorPopupMenu" anchor="last" />
-        </action>
-        <action id="VersionChecker.UpdateSession" class="io.github.khopland.versionchecker.ShowUpdateSessionAction" text="View Latest Version Update Session…" description="Review declaration changes, follow-up outcomes and verification status">
+        <group id="VersionChecker.Menu" text="Versions" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last" />
-        </action>
-        <group id="VersionChecker.Updates" text="Update Versions" popup="true">
-            <add-to-group group-id="ToolsMenu" anchor="last" />
-            <group id="VersionChecker.Updates.CurrentFile" text="Current File" popup="true">
-                <action id="VersionChecker.CurrentFile.Patch" class="io.github.khopland.versionchecker.CurrentFilePatchUpdateAction" text="Patch Only…" />
-                <action id="VersionChecker.CurrentFile.Minor" class="io.github.khopland.versionchecker.CurrentFileMinorUpdateAction" text="Minor + Patch…" />
-                <action id="VersionChecker.CurrentFile.Major" class="io.github.khopland.versionchecker.CurrentFileMajorUpdateAction" text="Major + Minor + Patch…" />
-            </group>
-            <group id="VersionChecker.Updates.Project" text="Whole Project" popup="true">
-                <action id="VersionChecker.Patch" class="io.github.khopland.versionchecker.PatchUpdateAction" text="Patch Only…" />
-                <action id="VersionChecker.Minor" class="io.github.khopland.versionchecker.MinorUpdateAction" text="Minor + Patch…" />
-                <action id="VersionChecker.Major" class="io.github.khopland.versionchecker.MajorUpdateAction" text="Major + Minor + Patch…" />
-            </group>
+            <action id="VersionChecker.Refresh" class="io.github.khopland.versionchecker.RefreshVersionsAction" text="Check for Updates" description="Check every supported build file in the project for newer versions" />
+            <action id="VersionChecker.Review" class="io.github.khopland.versionchecker.ReviewUpdatesAction" text="Review Updates…" description="Review and select dependency updates for this build file, or for the project" />
+            <action id="VersionChecker.UpdateSession" class="io.github.khopland.versionchecker.ShowUpdateSessionAction" text="View Latest Update Session…" description="Review declaration changes, follow-up outcomes and verification status" />
         </group>
-        <group id="VersionChecker.Check" text="Check Versions" popup="true">
-            <add-to-group group-id="ToolsMenu" anchor="last" />
-            <action id="VersionChecker.RefreshCurrentFile" class="io.github.khopland.versionchecker.CurrentFileRefreshVersionsAction" text="Refresh Current File" description="Query fresh dependency and build-plugin versions for the current build file">
-                <add-to-group group-id="EditorPopupMenu" anchor="last" />
-            </action>
-            <action id="VersionChecker.Refresh" class="io.github.khopland.versionchecker.RefreshVersionsAction" text="Refresh Whole Project" description="Query fresh dependency and build-plugin versions for all supported build files in the project" />
+        <group id="VersionChecker.EditorMenu">
+            <add-to-group group-id="EditorPopupMenu" anchor="last" />
+            <separator />
+            <action id="VersionChecker.RefreshCurrentFile" class="io.github.khopland.versionchecker.CurrentFileRefreshVersionsAction" text="Check This File for Updates" description="Check this build file for newer versions" />
+            <reference ref="VersionChecker.Review" />
         </group>
     </actions>
 </idea-plugin>

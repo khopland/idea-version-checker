@@ -79,7 +79,7 @@ internal class VersionCheckStatusWidget(project: Project, parentScope: Coroutine
         val actions = DefaultActionGroup().apply {
             val manager = ActionManager.getInstance()
             add(manager.getAction("VersionChecker.RefreshCurrentFile"))
-            add(manager.getAction("VersionChecker.ReviewCurrentFile"))
+            add(manager.getAction("VersionChecker.Review"))
             addSeparator()
             add(object : AnAction("Version Checker Settings…") {
                 override fun actionPerformed(event: AnActionEvent) {

@@ -5,7 +5,7 @@ Apply these rules to documentation, comments, and user messages.
 The rules below are a project guide. They do not replace the standard or its dictionary.
 
 - Use short sentences. Give one instruction per sentence.
-- Use the imperative for instructions: “Select Refresh Whole Project.”
+- Use the imperative for instructions: “Select Check for Updates.”
 - Use active voice. Identify the component that does the action.
 - Use the same term for the same item.
 - Use approved words with their approved meanings and parts of speech.

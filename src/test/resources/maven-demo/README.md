@@ -6,7 +6,7 @@ A standalone Maven project with intentionally old dependency and build-plugin ve
 
 1. Install the plugin ZIP from `../../build/distributions/` using **Settings → Plugins → gear → Install Plugin from Disk**, then restart if prompted. Alternatively, open this project in the development IDE launched with `./gradlew runIde` from the plugin repository.
 2. Open this directory's **root `pom.xml` as a project**. Reload all Maven projects and wait for dependency import to finish. Use Java 21 or newer as the project SDK and Maven runner JDK.
-3. Open a POM and choose **Tools → Check Versions → Refresh Current File**, or **Whole Project** to check all imported modules. Keep Maven online. Checks run in the background, so messages can take a little time to appear on the first run.
+3. Open a POM and choose **Check This File for Updates**, or **Tools → Versions → Check for Updates** to check all imported modules. Keep Maven online. Checks run in the background, so messages can take a little time to appear on the first run.
 
 ## Things to try
 
@@ -25,7 +25,7 @@ Hover over a highlighted dependency to read its standard IDEA inspection message
 
 To test a red deprecation notice, add `org.slf4j:slf4j-api = Demo policy: migrate to a maintained version` to the explicitly deprecated dependencies field. This is a demo policy you supply, not a claim that SLF4J itself is deprecated. The dependency then displays a deprecation notice and is skipped for manual review during bulk updates. Remove the rule to resume the normal update demo.
 
-Choose **Tools → Update Versions**, then **Current File** or **Whole Project**, and inspect the combined dependency/plugin preview before applying:
+Choose **Tools → Versions → Review Updates…**, pick **Current File** or **Whole Project**, and inspect the combined dependency/plugin preview before applying:
 
 - **Patch Only** keeps the current major and minor numbers. Guava stays within `32.1.x`; SLF4J stays within `1.7.x`; Jackson stays within `2.15.x`.
 - **Minor + Patch** keeps the major number. Guava stays within `32.x`; SLF4J stays within `1.x`; Jackson stays within `2.x`.

@@ -34,10 +34,10 @@ IDEA starts background checks when it inspects supported build files.
 | Task | Action |
 | --- | --- |
 | Update one version | Use **Alt+Enter** on a highlighted declaration. |
-| Check a file again | Select **Tools → Check Versions → Refresh Current File**. |
-| Check the project again | Select **Tools → Check Versions → Refresh Whole Project**. |
-| Select several updates | Right-click a build file. Select **Review Dependency Updates…**. |
-| Review project updates | Select **Tools → Update Versions → Whole Project**. |
+| Check a file again | Right-click the build file. Select **Check This File for Updates**. |
+| Check the project again | Select **Tools → Versions → Check for Updates**. |
+| Select several updates | Right-click a build file. Select **Review Updates…**. |
+| Review project updates | Select **Tools → Versions → Review Updates…**. |
 | Examine cached results | Open **View → Tool Windows → Dependency Versions**. |
 | Examine check status | Click **Versions** in the status bar. |
 
