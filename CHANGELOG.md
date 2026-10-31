@@ -4,6 +4,7 @@
 
 ### Added
 
+- Gradle plugin versions in `plugins {}` blocks and the version catalog `[plugins]` table are checked and can be updated, resolved through the build's `pluginManagement` repositories. A catalog version shared by libraries and plugins is updated when they all agree.
 - pnpm, Yarn Classic/modern Yarn and Bun adapters using their native read-only metadata commands.
 - pnpm YAML workspace discovery and manager-specific configuration validation; updates edit manifests only.
 

@@ -24,7 +24,8 @@ import kotlinx.coroutines.isActive
 
 internal object GradleVersionLookup {
     private val gson = Gson()
-    internal data class Request(val id: String, val group: String, val name: String, val current: String, val source: String? = null)
+    internal data class Request(val id: String, val group: String, val name: String, val current: String, val source: String? = null,
+                                val plugin: Boolean = false)
     internal data class Result(val versions: List<String> = emptyList(), val reason: String? = null)
     internal data class Checked(val results: Map<String, Result>, val checkedAtNanos: Long) {
         val expiresAtNanos: Long get() = checkedAtNanos + TimeUnit.MINUTES.toNanos(10)
@@ -55,7 +56,9 @@ internal object GradleVersionLookup {
         }
         val requestsBySnapshot = snapshots.mapIndexed { index, snapshot -> snapshot to
             snapshot.declarations.filter { it.baseline.isNotEmpty() }.map {
-                Request("$index:${it.id.location}", it.artifact.namespace, it.artifact.name, it.baseline, snapshot.sourceFile)
+                if (GradleDeclarations.isPlugin(it)) Request("$index:${it.id.location}", it.artifact.name,
+                    "${it.artifact.name}.gradle.plugin", it.baseline, snapshot.sourceFile, plugin = true)
+                else Request("$index:${it.id.location}", it.artifact.namespace, it.artifact.name, it.baseline, snapshot.sourceFile)
             }
         }.toMap()
         val requests = requestsBySnapshot.values.flatten()
