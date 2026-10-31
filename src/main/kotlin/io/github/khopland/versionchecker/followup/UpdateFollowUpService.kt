@@ -16,9 +16,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.platform.ide.progress.withBackgroundProgress
-import io.github.khopland.versionchecker.UpdateSessionService
-import io.github.khopland.versionchecker.UpdateStepKind
-import io.github.khopland.versionchecker.UpdateStepStatus
 import io.github.khopland.versionchecker.npm.NpmBuildInputs
 import io.github.khopland.versionchecker.npm.NpmRegistry
 import io.github.khopland.versionchecker.npm.NpmWorkspaces
@@ -32,35 +29,18 @@ internal class UpdateFollowUpService(private val project: Project, private val s
     override fun dispose() { disposed = true }
     private val active = AtomicBoolean(false)
 
-    fun previewNpmSync(sessionToken: Long? = null) {
+    fun previewNpmSync() {
         if (disposed || project.isDisposed || !active.compareAndSet(false, true)) return
-        val sessions = project.service<UpdateSessionService>()
-        val step = sessions.beginStep(sessionToken, "npm", UpdateStepKind.NPM_LOCKFILE_SYNC,
-            "Preparing npm lockfile synchronization; command not yet started.")
         val commandRequested = AtomicBoolean(false)
         var workspaceRoot: Path? = null
-        fun reportMessage(message: String, warning: Boolean, status: UpdateStepStatus = UpdateStepStatus.UNKNOWN, changes: NativeFileChanges? = null) {
-            val attributed = NpmFollowUpPresentation.withWorkspace(message, workspaceRoot, project.basePath)
-            if (!disposed && !project.isDisposed)
-                sessions.recordStep(step, status, attributed, changes)
-            result(attributed, warning)
-        }
-        fun report(outcome: NpmFollowUpOutcome, changes: NativeFileChanges? = null) {
-            val status = when (outcome.phase) {
-                NpmFollowUpOutcome.Phase.NOT_STARTED -> UpdateStepStatus.UNAVAILABLE
-                NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START, NpmFollowUpOutcome.Phase.CANCELLED -> UpdateStepStatus.CANCELLED
-                NpmFollowUpOutcome.Phase.COMPLETED -> UpdateStepStatus.COMPLETED
-                NpmFollowUpOutcome.Phase.TIMED_OUT -> UpdateStepStatus.TIMED_OUT
-                NpmFollowUpOutcome.Phase.FAILED -> if (outcome.exitCode == null) UpdateStepStatus.UNKNOWN else UpdateStepStatus.FAILED
-            }
-            val observed = changes?.copy(processTerminationKnown = outcome.phase == NpmFollowUpOutcome.Phase.COMPLETED || outcome.exitCode != null)
-            reportMessage(outcome.message, outcome.warning, status, observed)
-        }
+        fun reportMessage(message: String, warning: Boolean) =
+            result(NpmFollowUpPresentation.withWorkspace(message, workspaceRoot, project.basePath), warning)
+        fun report(outcome: NpmFollowUpOutcome) = reportMessage(outcome.message, outcome.warning)
         val job = scope.launch(Dispatchers.EDT) {
             var terminalReported = false
             try {
                 if (!TrustedProjects.isProjectTrusted(project)) {
-                    reportMessage("Trust the project before running npm lockfile synchronization. No command was started; dependency verification was not performed.", true, UpdateStepStatus.UNAVAILABLE)
+                    reportMessage("Trust the project before running npm lockfile synchronization. No command was started.", true)
                     return@launch
                 }
                 val selected = FileChooser.chooseFile(
@@ -78,8 +58,6 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                 }
                 val directory = Path.of(workspace.root.path)
                 workspaceRoot = directory
-                sessions.recordStep(step, UpdateStepStatus.PREPARING,
-                    NpmFollowUpPresentation.withWorkspace("Preparing npm lockfile command; command not yet started.", directory, project.basePath))
                 val inputs = (workspace.manifests.map { Path.of(it.path) } +
                     listOf(directory.resolve(".npmrc"), directory.resolve("package.json")) +
                     NpmLockfileSync.outputNames.map(directory::resolve)).distinct()
@@ -91,21 +69,16 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                     val command = NpmRegistry.lockfileCommand(project, directory)
                     val outputs = withContext(Dispatchers.IO) {
                         val context = currentCoroutineContext()
-                        val paths = NpmLockfileSync.outputNames.map(directory::resolve)
-                        val hashes = NpmLockfileSync.capture(paths) { context.ensureActive() }
-                        hashes to NativeFileChangeCapture.before(paths, expectedHashes = hashes.files,
-                            checkCancellation = { context.ensureActive() })
+                        NpmLockfileSync.capture(NpmLockfileSync.outputNames.map(directory::resolve)) { context.ensureActive() }
                     }
                     Triple(before, command, outputs)
                 }
-                val (before, command, capturedOutputs) = prepared
-                val (outputs, nativeBefore) = capturedOutputs
-                var nativeChanges: NativeFileChanges? = null
+                val (before, command, outputs) = prepared
                 val preview = "Working directory: $directory\n\n${command.commandLineString}\n\n" +
                     "Uses IntelliJ's configured Node.js and npm. npm configuration and registry access still apply. " +
                     "Synchronizes the root lockfile, including workspace dependencies. Lifecycle scripts are disabled. " +
                     "Installed dependencies are not synchronized. Lockfile writes are separate from declaration undo. " +
-                    "A separate historical lockfile diff will capture supported UTF-8 outputs within size limits. Concurrent external edits may be included. Review the resulting version control diff."
+                    "Review the resulting version control diff."
                 if (Messages.showOkCancelDialog(project, preview, "Preview npm lockfile synchronization",
                         "Synchronize lockfile", "Cancel", Messages.getQuestionIcon()) != Messages.OK) {
                     report(NpmFollowUpOutcome(NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
@@ -133,10 +106,6 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                     NpmFollowUpExecution.run(
                         execute = {
                             commandRequested.set(true)
-                            sessions.recordStep(step, UpdateStepStatus.RUNNING,
-                                NpmFollowUpPresentation.withWorkspace(
-                                    "npm lockfile synchronization command start requested. Completion and lockfile changes have not yet been observed. " +
-                                        "Lockfile writes may occur. Dependency verification was not performed.", directory, project.basePath))
                             NpmRegistry.execute(command).exitCode
                         },
                         inspect = {
@@ -144,45 +113,28 @@ internal class UpdateFollowUpService(private val project: Project, private val s
                                 val context = currentCoroutineContext()
                                 context.ensureActive()
                                 LocalFileSystem.getInstance().refreshNioFiles(inputs, true, false, null)
-                                val changed = outputs.changed {
+                                outputs.changed {
                                     context.ensureActive()
                                     check(!disposed && !project.isDisposed) { "Project was disposed during output inspection" }
                                 }
-                                nativeChanges = nativeBefore.finish { context.ensureActive() }.copy(
-                                    editorChangesObserved = readAction {
-                                        val documents = FileDocumentManager.getInstance()
-                                        NpmLockfileSync.outputNames.map(directory::resolve).any { path ->
-                                            LocalFileSystem.getInstance().findFileByNioFile(path)?.let(documents::getCachedDocument)
-                                                ?.let(documents::isDocumentUnsaved) == true
-                                        }
-                                    })
-                                changed
                             }
                         },
                         isAlive = { !disposed && !project.isDisposed },
-                        publish = { outcome -> report(outcome, nativeChanges ?: NativeFileChanges(captureUnavailable = true)); terminalReported = true },
+                        publish = { outcome -> report(outcome); terminalReported = true },
                     )
                 }
             } catch (_: CancellationException) {
                 if (!terminalReported) report(NpmFollowUpOutcome(if (commandRequested.get()) NpmFollowUpOutcome.Phase.CANCELLED
-                    else NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START),
-                    if (commandRequested.get()) NativeFileChanges(captureUnavailable = true) else null)
+                    else NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
             } catch (_: ProcessCanceledException) {
                 if (!terminalReported) report(NpmFollowUpOutcome(if (commandRequested.get()) NpmFollowUpOutcome.Phase.CANCELLED
-                    else NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START),
-                    if (commandRequested.get()) NativeFileChanges(captureUnavailable = true) else null)
+                    else NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START))
             } catch (_: Exception) {
                 if (!terminalReported) report(NpmFollowUpOutcome(if (commandRequested.get()) NpmFollowUpOutcome.Phase.FAILED
-                    else NpmFollowUpOutcome.Phase.NOT_STARTED),
-                    if (commandRequested.get()) NativeFileChanges(captureUnavailable = true) else null)
+                    else NpmFollowUpOutcome.Phase.NOT_STARTED))
             }
         }
-        job.invokeOnCompletion {
-            active.set(false)
-            sessions.retirePendingStep(step, NpmFollowUpPresentation.withWorkspace(
-                NpmFollowUpOutcome(if (commandRequested.get()) NpmFollowUpOutcome.Phase.CANCELLED
-                    else NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START).message, workspaceRoot, project.basePath))
-        }
+        job.invokeOnCompletion { active.set(false) }
     }
 
     private fun requireNoUnsavedFiles(paths: Collection<Path>) {

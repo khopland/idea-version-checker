@@ -145,64 +145,9 @@ After a successful declaration edit, **Versions updated → Review changed files
 
 Snapshots remain only in bounded project memory and may be unavailable after eviction or project closure. Large updates can omit files; the review reports omissions rather than presenting its subset as complete. The review action never applies or restores content. Use normal IDE undo to revert declaration edits and version control to inspect subsequent native changes.
 
-Maven and Gradle notifications offer **Save and reload … projects**. Reload follow-ups distinguish saving files, requesting reload, a request accepted by the provider, cancellation, and unavailable or failed requests. A requested reload does not establish that IDE synchronization succeeded. Check the native build tool window for its result and run the relevant build or tests.
+The same notification offers one next step per build system that changed: **Reload Maven projects**, **Sync Gradle projects** or **Update npm lockfile…**. The Maven and Gradle actions save build files and ask the IDE to reload. A requested reload does not mean synchronization succeeded; check the build tool window and run the relevant build or tests.
 
-npm lockfile synchronization reports completion, cancellation, timeout or failure separately. Its output lists lockfiles changed at inspection time. Cancellation or timeout does not confirm process termination, and writes may continue after inspection. Inspect the lockfile diff before retrying. If inspection fails, the notification says that the changes could not be inspected.
-
-## Maven effective-version verification
-
-Maven dependency quick fixes and selected bulk updates capture targets for **Verify Maven effective versions**.
-Supported edits include literal versions, local properties, managed versions, local overrides, and inherited-property definitions.
-Shared edits retain a separate expected dependency version for each recognized imported consumer POM.
-A local override is attributed to its child POM.
-
-After applying an update, select **Save and reload Maven projects**.
-Wait for Maven resolution. Then select **Verify Maven effective versions** in the update notification.
-Verification compares expected dependency versions with a subsequently resolved native Maven model.
-It reports confirmed, mismatch, and unknown results separately from declaration edits and reload requests.
-It does not run builds or tests, check vulnerabilities, or confirm runtime compatibility.
-
-Plugin and parent POM versions are outside dependency verification.
-Absent dependencies, failed resolution, omitted snapshots, and expired session evidence stay unknown.
-Existing models, edited XML, requested reloads, and effective-POM previews alone cannot confirm an update.
-Verification waits for the full native Maven import request to complete.
-Physical input content must be identical before and after that request.
-Unrelated resolution events invalidate the evidence.
-
-These changes also invalidate the evidence:
-
-- Changed or undone declaration snapshots.
-- Changed parent, configuration, or settings files, including changes without a VFS event.
-- Changed Maven settings or profiles.
-
-Prepare a new update preview after further edits.
-
-## Update sessions
-
-Select **View update session** in an update notification.
-Alternatively, select **Tools → View Latest Version Update Session…**.
-The summary stays open and refreshes follow-up steps as they run. Each attempt has its own provider, operation, status and timestamp, including cancellation, timeout and unknown outcomes.
-Opening the summary does not reload or verify the project. A completed command, an observed effective version and a test run are separate results; these follow-ups do not run tests.
-
-Maven sessions offer **Reload Maven**.
-They also offer **Verify Maven versions** when the session has verification evidence.
-Each notification keeps its original session, even after another update.
-A reload request or successful npm command leaves verification unknown until effective versions are explicitly confirmed.
-The npm result identifies the selected workspace root. This root can differ from the workspace that the update changed.
-Cancellation keeps the applied declarations. It reports possible native writes and does not roll them back.
-
-After an explicitly approved npm synchronization, **Review npm lockfile diff** opens a separate read-only historical review of root `package-lock.json` and `npm-shrinkwrap.json` physical snapshots. Creation and deletion are labeled explicitly. The capture retains at most two files, 1 MiB of UTF-8 bytes per phase and 1,000,000 characters per attempt; oversized, unreadable, unstable or non-UTF-8 files are listed as omitted. All retained native snapshots share a 2,000,000-character project budget. Eviction keeps the step outcome and an unavailable-snapshot notice.
-
-The observed diff may include concurrent external edits; it never attributes all writes exclusively to npm. Overlapping unsaved lockfile edits are identified, and the physical snapshots exclude unsaved text. If process termination was not confirmed after cancellation or timeout, later writes may be missing. Inspect the current version-control diff before retrying. Declaration undo does not undo native lockfile writes, and a successful command does not confirm installed or effective dependency versions.
-
-Verification observations have timestamps and describe past results.
-Verify again after edits, undo, or import and configuration changes.
-Opening the summary changes verification status to unknown if captured declaration text changed or is unavailable.
-Summaries do not otherwise track later edits or undo.
-
-The project keeps up to eight summaries in memory and sixteen steps per summary. Late completions update only their original retained session and attempt.
-Declaration snapshots have separate size limits. Older reviews can expire.
-Closing the project clears the summaries.
+**Update npm lockfile…** asks for a supported `package.json`, shows the workspace root and command, and checks saved inputs again before it starts. It reports completion, cancellation, timeout or failure, and lists the lockfiles that changed. Cancellation or timeout does not confirm the process stopped, so writes may continue. Review the lockfile diff in version control before retrying.
 
 ## Override an inherited Maven version property
 
@@ -310,7 +255,7 @@ Root overrides that could conflict with an update put the affected dependency un
 
 The preview applies only `package.json` string edits in one undoable command, preserving declaration categories. Changes to manifests, workspace membership, npm configuration, package-manager selection, runtime selection or deprecation policy invalidate a prepared preview. Workspace discovery and manifest hashes stay warm while ordinary source files are edited. Manifest content changes rebuild workspace ownership and hashes; manifest/directory structure changes and project-root changes rebuild discovery. Saved bytes and unsaved manifest text are tracked separately, and unchanged files retain their cached hashes. Fingerprints cover the relevant workspace and configuration; edits to an independent npm project do not invalidate its siblings. Generated/vendor directories such as `node_modules`, `dist`, `build`, `vendor` and `.yarn` are excluded below the selected IDE content root. The root itself and its enclosing directories can have those names. Declared workspace members imported as separate content roots still share their npm root and overrides; off-project manifests are not scanned. If only a member is imported and its actual npm workspace root is outside project content, import the workspace root before checking; the checker withholds results rather than discarding the parent overrides or registry context.
 
-**Applying version edits changes declarations only.** The update notification offers **Preview npm lockfile sync** as a separate, explicit operation. Choose a supported `package.json`, review the workspace root and command, and confirm to run IntelliJ's configured npm with `--package-lock-only --ignore-scripts` and audit, funding and update notices disabled. The plugin checks project trust, saved inputs, workspace membership and existing lockfiles again before execution. Installed dependencies are not synchronized. Native lockfile writes are separate from declaration undo; inspect the resulting version control diff, including after cancellation or failure.
+**Applying version edits changes declarations only.** The update notification offers **Update npm lockfile…** as a separate, explicit operation. Choose a supported `package.json`, review the workspace root and command, and confirm to run IntelliJ's configured npm with `--package-lock-only --ignore-scripts` and audit, funding and update notices disabled. The plugin checks project trust, saved inputs, workspace membership and existing lockfiles again before execution. Installed dependencies are not synchronized. Native lockfile writes are separate from declaration undo; inspect the resulting version control diff, including after cancellation or failure.
 
 A notification shows this reminder after successful bulk, local or workspace npm updates. Selective bulk updates show it only when npm declarations were selected. A stale quick fix that makes no edit does not show the reminder.
 
@@ -322,7 +267,7 @@ Registry checks run `pnpm view`, Yarn Classic `yarn info`, modern `yarn npm info
 
 pnpm workspace membership comes from `pnpm-workspace.yaml`, including inclusion/exclusion patterns. Yarn and Bun use `package.json` workspaces. Unsaved or saved manager-configuration changes invalidate prepared updates. The checker conservatively leaves projects with resolution overrides or custom pnpm hooks for manual review. pnpm configuration that can bootstrap packages or runtimes is rejected before a CLI starts.
 
-Updates change manifest strings only, in one undoable command. Lockfiles and installed dependencies remain unchanged. After reviewing edits, run the matching package manager yourself; **Preview npm lockfile sync** remains available only for npm projects. Demos are in `src/test/resources/node-managers-demo/`.
+Updates change manifest strings only, in one undoable command. Lockfiles and installed dependencies remain unchanged. After reviewing edits, run the matching package manager yourself; **Update npm lockfile…** is offered only for npm projects. Demos are in `src/test/resources/node-managers-demo/`.
 
 ## Gradle projects
 
@@ -405,7 +350,7 @@ The locally opt-in integration tests start IDEA's real Maven server with both an
 
 ```bash
 ./gradlew test -PmavenIntegration=true --tests '*MavenSettingsIntegrationTest'
-# Compare ordinary quick-fix/bulk verification targets with native effective POMs, and verify newly defined inherited properties.
+# Check native effective POMs after quick-fix and bulk updates, including newly defined inherited properties.
 ./gradlew test -PmavenIntegration=true --tests '*MavenInheritedVersionFixTest'
 # Check override cleanup against native effective POMs.
 ./gradlew test -PmavenIntegration=true --tests '*MavenOverrideInspectionTest'

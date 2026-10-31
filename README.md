@@ -86,32 +86,21 @@ See [Maven override cleanup](docs/user-guide.md#remove-unnecessary-maven-overrid
 
 ## After an update
 
-Maven and Gradle notifications offer **Save and reload … projects**.
-Check the native build tool window for the reload result.
+Every update shows one **Versions updated** notification with one next step per build system:
+
+| Build system | Action |
+| --- | --- |
+| Maven | **Reload Maven projects** |
+| Gradle | **Sync Gradle projects** |
+| npm | **Update npm lockfile…** |
+
+The Maven and Gradle actions save the build files and ask the IDE to reload; check the build tool window for the result.
+**Update npm lockfile…** asks you to pick a `package.json`, shows the command (`npm install --package-lock-only --ignore-scripts`) and runs it after you confirm.
+For pnpm, Yarn and Bun, run the matching package manager yourself after reviewing manifest edits.
 Update Gradle dependency locks through your normal build process.
 
-For pnpm, Yarn and Bun, run the matching package manager yourself after reviewing manifest edits.
-
-npm notifications offer **Preview npm lockfile sync**.
-Select a supported `package.json`. Confirm the workspace root and command.
-The command uses `npm install --package-lock-only --ignore-scripts`.
-It disables audit, funding, and update notices.
-The plugin checks saved inputs again before it starts the command.
-
-Examine the version control diff after lockfile changes, cancellation, or failure.
-Lockfile changes are separate from declaration undo.
-Use your normal build process to update installed dependencies and run tests.
-
-Maven dependency quick fixes and selected bulk updates capture expected versions for **Verify Maven effective versions**.
-Supported edits include literal versions, shared properties and managed versions, local overrides, and inherited-property definitions.
-Shared edits retain each recognized consumer POM; local overrides belong to their child.
-Save and reload Maven, wait for import completion, then verify against the resolved dependency model.
-See [Maven verification](docs/user-guide.md#maven-effective-version-verification) for its limits.
-
-Use **View update session** in the notification to examine declaration changes and subsequent action results.
-You can also select **Tools → View Latest Version Update Session…**.
-Opening a summary does not reload or verify the project.
-See [update sessions](docs/user-guide.md#update-sessions) for retention and validity rules.
+**Review changed files** opens a read-only before/after comparison of the edited build files.
+Lockfile changes are separate from declaration undo; review them in version control.
 
 ## Cached results
 

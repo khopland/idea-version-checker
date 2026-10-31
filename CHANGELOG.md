@@ -9,6 +9,7 @@
 
 ### Changed
 
+- After applying updates, one **Versions updated** notification offers one next step per build system: **Reload Maven projects**, **Sync Gradle projects** or **Update npm lockfile…**, plus **Review changed files**.
 - **Minimum release age** now also applies to npm, pnpm, Yarn and Bun, using the registry's per-version release times. It is a general setting under the enable checkbox; existing values are kept. Gradle checks do not use it yet.
 - One **Tools → Versions** menu with **Check for Updates** and **Review Updates…**, replacing the separate Check Versions and Update Versions menus (eight items). The editor context menu offers **Check This File for Updates** and **Review Updates…**. Reviews open for the current build file, or the whole project when no supported build file is selected, in **Major + minor + patch** mode; scope and mode can be changed in the preview.
 - Version hints use each inspection's severity from **Settings → Editor → Inspections**, so there is one place to change it. Version updates default to Warning; deprecated and relocated artifacts are struck through.
@@ -16,6 +17,8 @@
 
 ### Removed
 
+- **View Latest Update Session…**, the update session summary and the npm lockfile diff it held. Results of follow-up actions are shown in notifications.
+- **Verify Maven effective versions**. Reload Maven and check the Maven tool window or run the build instead.
 - Dependency Versions **Copy Markdown**, **Export Markdown…**, **Export JSON…** and **Preview Support Report…**. The tool window shows cached results; use `idea.log` for bug reports.
 - **Load npm target details** in update reviews.
 - Advanced Maven tuning settings: parallel metadata requests, parents/Spring Boot BOMs first, fast editor checks and persistent metadata across IDE sessions. Maven checks always cover every supported declaration and keep metadata in memory.

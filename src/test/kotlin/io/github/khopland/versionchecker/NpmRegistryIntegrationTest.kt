@@ -61,16 +61,9 @@ class NpmRegistryIntegrationTest : BasePlatformTestCase() {
             assertTrue(command.parametersList.list.contains("install"))
             assertTrue(command.parametersList.list.containsAll(io.github.khopland.versionchecker.followup.NpmLockfileSync.arguments))
             command.addParameters("--offline", "--cache", directory.resolve("cache").toString())
-            val nativeCapture = io.github.khopland.versionchecker.followup.NativeFileChangeCapture.before(
-                io.github.khopland.versionchecker.followup.NpmLockfileSync.outputNames.map(directory::resolve))
             val output = runBlocking { withTimeout(30_000) { NpmRegistry.execute(command) } }
             assertEquals(0, output.exitCode)
             assertTrue(Files.exists(directory.resolve("package-lock.json")))
-            val nativeChanges = nativeCapture.finish()
-            assertEquals(1, nativeChanges.files.size)
-            assertNull(nativeChanges.files.single().before)
-            assertEquals(Files.readString(directory.resolve("package-lock.json")), nativeChanges.files.single().after)
-            assertTrue(nativeChanges.omitted.isEmpty())
             assertFalse(Files.exists(directory.resolve("script-ran")))
             assertFalse(Files.exists(directory.resolve("node_modules")))
         } finally { directory.toFile().deleteRecursively() }

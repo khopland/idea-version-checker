@@ -6,11 +6,6 @@ import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.components.service
-import io.github.khopland.versionchecker.UpdateSessionService
-import io.github.khopland.versionchecker.UpdateStepKind
-import io.github.khopland.versionchecker.UpdateStepStatus
-import io.github.khopland.versionchecker.UpdateStepToken
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -32,12 +27,6 @@ import java.util.concurrent.ConcurrentHashMap
 internal class BuildReloadService(private val project: Project, private val scope: CoroutineScope) : Disposable {
     private val active = ConcurrentHashMap.newKeySet<String>()
     private val notifications = linkedSetOf<Notification>()
-    private val outcomes = linkedMapOf<String, BuildReloadOutcome>()
-
-    /** Reading an outcome never saves files, discovers projects or requests a native reload. */
-    internal fun outcome(adapterId: String): BuildReloadOutcome? = synchronized(outcomes) {
-        if (disposed || project.isDisposed) null else outcomes[adapterId]
-    }
     @Volatile private var disposed = false
 
     fun publish(notification: Notification) {
@@ -52,15 +41,12 @@ internal class BuildReloadService(private val project: Project, private val scop
 
     override fun dispose() {
         disposed = true
-        synchronized(outcomes) { outcomes.clear() }
         val retained = synchronized(notifications) { notifications.toList().also { notifications.clear() } }
         retained.forEach(Notification::expire)
     }
 
-    fun reload(adapterId: String, sessionToken: Long? = null) {
+    fun reload(adapterId: String) {
         if (disposed || project.isDisposed || !active.add(adapterId)) return
-        val sessions = project.service<UpdateSessionService>()
-        val step = sessions.beginStep(sessionToken, adapterId, UpdateStepKind.NATIVE_RELOAD, "Preparing native reload.")
         var provider = adapterId
         var requestAttempted = false
         val job = scope.launch(Dispatchers.IO) {
@@ -68,15 +54,13 @@ internal class BuildReloadService(private val project: Project, private val scop
                 check(TrustedProjects.isProjectTrusted(project)) { "Project is not trusted" }
                 val adapter = BuildSystemAdapter.find(adapterId)
                 if (adapter == null) {
-                    record(step, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.UNAVAILABLE, provider))
+                    record(BuildReloadOutcome(BuildReloadOutcome.Phase.UNAVAILABLE, provider))
                     return@launch
                 }
                 provider = adapter.displayName
-                record(step, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.SAVING, provider))
                 withBackgroundProgress(project, "Saving $provider build files", cancellable = true) {
                     saveBuildInputs(project, BuildSelection(UpdateScope.WHOLE_PROJECT), listOf(adapter))
                 }
-                record(step, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.REQUESTING, provider))
                 withBackgroundProgress(project, "Requesting $provider reload", cancellable = true) {
                     if (disposed || project.isDisposed) return@withBackgroundProgress
                     check(TrustedProjects.isProjectTrusted(project)) { "Project trust changed" }
@@ -86,7 +70,7 @@ internal class BuildReloadService(private val project: Project, private val scop
                     if (backgroundResult != null) {
                         val phase = if (backgroundResult) BuildReloadOutcome.Phase.COMPLETED
                             else BuildReloadOutcome.Phase.UNAVAILABLE
-                        record(step, adapterId, BuildReloadOutcome(phase, provider, requestAttempted))
+                        record(BuildReloadOutcome(phase, provider, requestAttempted))
                         return@withBackgroundProgress
                     }
                     requestAttempted = false
@@ -96,47 +80,27 @@ internal class BuildReloadService(private val project: Project, private val scop
                         requestAttempted = true
                         val phase = if (adapter.reloadProject(project)) BuildReloadOutcome.Phase.REQUESTED
                             else BuildReloadOutcome.Phase.UNAVAILABLE
-                        record(step, adapterId, BuildReloadOutcome(phase, provider, requestAttempted))
+                        record(BuildReloadOutcome(phase, provider, requestAttempted))
                     }
                 }
             } catch (_: CancellationException) {
                 withContext(NonCancellable) {
-                    record(step, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
+                    record(BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
                 }
             } catch (_: ProcessCanceledException) {
                 withContext(NonCancellable) {
-                    record(step, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
+                    record(BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted))
                 }
             } catch (_: Exception) {
-                record(step, adapterId, BuildReloadOutcome(BuildReloadOutcome.Phase.FAILED, provider, requestAttempted))
+                record(BuildReloadOutcome(BuildReloadOutcome.Phase.FAILED, provider, requestAttempted))
             }
         }
         // Also release the action if its scope was already cancelled before the coroutine started.
-        job.invokeOnCompletion {
-            active.remove(adapterId)
-            sessions.retirePendingStep(step,
-                BuildReloadOutcome(BuildReloadOutcome.Phase.CANCELLED, provider, requestAttempted).message)
-        }
+        job.invokeOnCompletion { active.remove(adapterId) }
     }
 
-    private fun record(step: UpdateStepToken?, adapterId: String, outcome: BuildReloadOutcome) {
+    private fun record(outcome: BuildReloadOutcome) {
         if (disposed || project.isDisposed) return
-        val status = when (outcome.phase) {
-            BuildReloadOutcome.Phase.SAVING -> UpdateStepStatus.PREPARING
-            BuildReloadOutcome.Phase.REQUESTING -> UpdateStepStatus.RUNNING
-            BuildReloadOutcome.Phase.REQUESTED -> UpdateStepStatus.REQUESTED
-            BuildReloadOutcome.Phase.COMPLETED -> UpdateStepStatus.COMPLETED
-            BuildReloadOutcome.Phase.CANCELLED -> UpdateStepStatus.CANCELLED
-            BuildReloadOutcome.Phase.UNAVAILABLE -> UpdateStepStatus.UNAVAILABLE
-            BuildReloadOutcome.Phase.FAILED -> if (outcome.requestAttempted) UpdateStepStatus.UNKNOWN else UpdateStepStatus.FAILED
-        }
-        project.service<UpdateSessionService>().recordStep(step, status, outcome.message)
-        synchronized(outcomes) {
-            if (disposed || project.isDisposed) return
-            while (outcomes.size >= 32 && adapterId !in outcomes) outcomes.remove(outcomes.keys.first())
-            outcomes[adapterId] = outcome
-        }
-        if (outcome.phase in setOf(BuildReloadOutcome.Phase.SAVING, BuildReloadOutcome.Phase.REQUESTING)) return
         publish(NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
             .createNotification("Build reload", outcome.message,
                 if (outcome.warning) NotificationType.WARNING else NotificationType.INFORMATION))

@@ -7,14 +7,10 @@ import com.intellij.psi.xml.XmlTag
 
 internal data class MavenVersionEdit(
     val pointer: SmartPsiElementPointer<XmlTag>, override val expected: String,
-    override val latest: String, override val location: String,
-    private val verificationConsumers: List<MavenVerificationConsumer> = emptyList()
+    override val latest: String, override val location: String
 ) : VersionEdit {
     override val buildSystemId = "maven"
     override val element: XmlTag? get() = pointer.element
-    override val mavenVerificationTargets get() = element?.let {
-        captureMavenVerificationTargets(it.project, verificationConsumers, latest)
-    }.orEmpty()
     override fun isValid() = element?.value?.trimmedText == expected
     override fun preview(): VersionEditPreview? = element?.let {
         VersionEditPreview.capture(this, it.value.textRange, com.intellij.openapi.util.text.StringUtil.escapeXmlEntities(latest))
@@ -55,9 +51,7 @@ internal object MavenBulkUpdatePlan {
                 blockers += files.values.first().bulkPropertyScopeBlockers(target, files, replacement)
             val prepared = MavenPreparedUpdate.prepare(target, group.map { (problem, _) ->
                 MavenPreparedUpdate.Consumer(problem.coordinate, problem.latest, problem.notice)
-            }, blockers, verificationConsumers = group.flatMap { (problem, analysis) ->
-                analysis.verificationConsumers(target, problem.coordinate)
-            }.distinct())
+            }, blockers)
             skipped += prepared.blockingReasons
             review += prepared.blockingReasons.map { VersionReviewItem(it, VersionReviewSource.capture(target), target.localName, target.value.trimmedText, prepared.replacement, prepared.affectedCoordinates.map { "${it.groupId}:${it.artifactId}" }, "Maven") }
             prepared.edit?.let { edit ->

@@ -22,7 +22,6 @@ internal class DefineInheritedMavenPropertyFix(
     private val consumers: List<String>,
     private val uncheckedManagement: List<String>,
     private val isCurrent: () -> Boolean,
-    private val verificationCoordinates: List<DependencyVersion> = emptyList(),
 ) : LocalQuickFix {
     private val pointer = SmartPointerManager.createPointer(root)
     private val expected = root.text
@@ -67,8 +66,6 @@ internal class DefineInheritedMavenPropertyFix(
                 override val latest = this@DefineInheritedMavenPropertyFix.latest
                 override val location = root.containingFile.name
                 override val buildSystemId = "maven"
-                override val mavenVerificationTargets get() = captureMavenVerificationTargets(project,
-                    verificationCoordinates.map { MavenVerificationConsumer(root.containingFile.virtualFile.path, it) }, latest)
                 override fun isValid() = element?.let { it.text == expected &&
                     it.findFirstSubTag("properties")?.findFirstSubTag(property) == null } == true
                 override fun apply() {

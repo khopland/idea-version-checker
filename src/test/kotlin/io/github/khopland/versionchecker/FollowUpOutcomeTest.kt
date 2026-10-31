@@ -8,11 +8,10 @@ import org.junit.Test
 import java.nio.file.Path
 
 class FollowUpOutcomeTest {
-    @Test fun `completed native import remains distinct from effective version verification`() {
+    @Test fun `completed reload points to the build tool window`() {
         val outcome = BuildReloadOutcome(BuildReloadOutcome.Phase.COMPLETED, "Maven", requestAttempted = true)
-        assertTrue(outcome.message.contains("native import completed"))
-        assertTrue(outcome.message.contains("expected dependency versions have not been compared"))
-        assertTrue(outcome.message.contains("Dependency verification was not performed"))
+        assertTrue(outcome.message.contains("reload completed"))
+        assertTrue(outcome.message.contains("build tool window"))
         assertFalse(outcome.message.contains("completion was not observed"))
         assertFalse(outcome.warning)
     }
@@ -34,11 +33,10 @@ class FollowUpOutcomeTest {
             .contains("work?space"))
     }
 
-    @Test fun `npm terminal outcomes distinguish execution and preserve verification limits`() {
+    @Test fun `npm terminal outcomes distinguish execution`() {
         val lock = Path.of("package-lock.json")
         for (phase in NpmFollowUpOutcome.Phase.entries) {
             val outcome = NpmFollowUpOutcome(phase, listOf(lock), exitCode = if (phase == NpmFollowUpOutcome.Phase.COMPLETED) 0 else 1)
-            assertTrue(outcome.message.contains("Dependency verification was not performed"))
             if (phase in setOf(NpmFollowUpOutcome.Phase.NOT_STARTED, NpmFollowUpOutcome.Phase.CANCELLED_BEFORE_START)) {
                 assertFalse(outcome.message.contains("Changed lockfiles"))
             } else {

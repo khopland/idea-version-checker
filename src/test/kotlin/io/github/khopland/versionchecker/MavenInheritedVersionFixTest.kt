@@ -563,63 +563,38 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertEquals(before, parent.text)
     }
 
-    private fun latestChanges(): AppliedVersionChanges {
-        val sessions = project.service<UpdateSessionService>()
-        val session = sessions.snapshot(requireNotNull(sessions.latest()))!!
-        return project.service<AppliedVersionChangesService>().captured(requireNotNull(session.diffToken))!!
-    }
-
-    fun testLiteralQuickFixCapturesExpectedVersionAtApplyGeneration() {
+    fun testLiteralQuickFixUpdatesTheDeclaration() {
         val file = imported("verify-literal", dependency("<version>4.12</version>"))
-        val verification = project.service<MavenUpdateVerificationService>()
-        val pom = manager.findProject(file.virtualFile)!!
-        resolutionFinished(pom)
-        val fix = fixes(file).filterIsInstance<UpdateDependencyVersionFix>().single()
-        val generation = verification.generation()
-        apply(fix, declaration(file))
-        val changes = latestChanges()
-        assertEquals(listOf(MavenVerificationTarget(file.virtualFile.path, "junit", "junit", "DEPENDENCY",
-            "4.13.2", generation)), changes.mavenVerificationTargets)
-        assertEquals(file.virtualFile.path, changes.files.single().path)
-        assertTrue(MavenSessionFollowUp.availability(setOf("maven"), true, changes).verify)
-        assertFalse(evaluate(verification, changes).contains("Confirmed:"))
+        apply(fixes(file).filterIsInstance<UpdateDependencyVersionFix>().single(), declaration(file))
+        assertEquals("4.13.2", declaration(file).findFirstSubTag("version")!!.value.trimmedText)
     }
 
-    fun testLocalOverrideVerificationBelongsToChildAndKeepsEarlierSession() {
+    fun testLocalOverrideEditsOnlyTheChild() {
         val parent = imported("verify-override-parent", management("4.12"))
         val child = imported("verify-override-child", dependency(), "verify-override-parent")
         val sibling = imported("verify-override-sibling", dependency(), "verify-override-parent")
         val parentBefore = parent.text
         apply(fixes(child).filterIsInstance<OverrideDependencyVersionFix>().single(), declaration(child))
-        val first = latestChanges()
-        assertEquals(listOf(child.virtualFile.path), first.mavenVerificationTargets.map { it.pomPath })
+        assertEquals("4.13.2", declaration(child).findFirstSubTag("version")!!.value.trimmedText)
         assertEquals(parentBefore, parent.text)
         assertNull(declaration(sibling).findFirstSubTag("version"))
-        val sessions = project.service<UpdateSessionService>()
-        val firstToken = sessions.latest()!!
-        apply(fixes(sibling).filterIsInstance<OverrideDependencyVersionFix>().single(), declaration(sibling))
-        val second = latestChanges()
-        assertEquals(listOf(sibling.virtualFile.path), second.mavenVerificationTargets.map { it.pomPath })
-        assertFalse(firstToken == sessions.latest())
-        assertSame(first, project.service<AppliedVersionChangesService>().captured(sessions.snapshot(firstToken)!!.diffToken!!))
     }
 
-    fun testSharedManagedQuickFixVerifiesEveryOwningContextAndExcludesLocalVersion() {
+    fun testSharedManagedQuickFixEditsTheParentAndLeavesLocalVersion() {
         val parent = imported("verify-shared-parent", management("4.12"))
         val child = imported("verify-shared-child", dependency(), "verify-shared-parent")
         val sibling = imported("verify-shared-sibling", dependency(), "verify-shared-parent")
         val local = imported("verify-shared-local", dependency("<version>4.12</version>"), "verify-shared-parent")
+        val childBefore = child.text
+        val siblingBefore = sibling.text
         apply(fixes(child).filterIsInstance<UpdateDependencyVersionFix>().single(), declaration(child))
-        val changes = latestChanges()
-        assertEquals(listOf(parent.virtualFile.path), changes.files.map { it.path })
-        assertEquals(setOf(parent.virtualFile.path, child.virtualFile.path, sibling.virtualFile.path),
-            changes.mavenVerificationTargets.map { it.pomPath }.toSet())
-        assertTrue(changes.mavenVerificationTargets.all { it.expectedVersion == "4.13.2" && it.kind == "DEPENDENCY" })
+        assertTrue(parent.text.contains("<version>4.13.2</version>"))
+        assertEquals(childBefore, child.text)
+        assertEquals(siblingBefore, sibling.text)
         assertEquals("4.12", declaration(local).findFirstSubTag("version")!!.value.trimmedText)
-        assertFalse(changes.mavenVerificationTargets.any { it.pomPath == local.virtualFile.path })
     }
 
-    fun testSharedPropertyQuickFixCapturesEachArtifactOnce() {
+    fun testSharedPropertyQuickFixUpdatesTheProperty() {
         val file = imported("verify-shared-property", """<properties><shared>4.12</shared></properties>
             <dependencies><dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>${'$'}{shared}</version></dependency>
             <dependency><groupId>g</groupId><artifactId>other</artifactId><version>${'$'}{shared}</version></dependency></dependencies>""")
@@ -628,13 +603,10 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
                 DependencyVersion("g", "other", "4.12") to "4.13.2"))
         val property = file.rootTag!!.findFirstSubTag("properties")!!.subTags.single()
         apply(analysis.propertyQuickFixes(property).single(), property)
-        val targets = latestChanges().mavenVerificationTargets
-        assertEquals(setOf("junit:junit", "g:other"), targets.map { "${it.groupId}:${it.artifactId}" }.toSet())
-        assertEquals(2, targets.size)
-        assertTrue(targets.all { it.pomPath == file.virtualFile.path && it.expectedVersion == "4.13.2" })
+        assertEquals("4.13.2", file.rootTag!!.findFirstSubTag("properties")!!.subTags.single().value.trimmedText)
     }
 
-    fun testBulkSharedPropertyRetainsDistinctImportedConsumerPoms() {
+    fun testBulkSharedPropertyEditsOnlyTheParent() {
         val parent = imported("verify-bulk-parent", "<properties><shared>4.12</shared></properties>" + management("${'$'}{shared}"))
         val child = imported("verify-bulk-child", dependency(), "verify-bulk-parent")
         val sibling = imported("verify-bulk-sibling", dependency(), "verify-bulk-parent")
@@ -646,116 +618,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertTrue(plan.apply(project))
         val changes = plan.appliedChanges!!
         assertEquals(listOf(parent.virtualFile.path), changes.files.map { it.path })
-        assertEquals(files.map { it.virtualFile.path }.toSet(), changes.mavenVerificationTargets.map { it.pomPath }.toSet())
-        assertEquals(3, changes.mavenVerificationTargets.size)
     }
-
-    fun testEffectiveVerificationRequiresSubsequentNativeResolveAndRejectsFurtherEdits() {
-        val parent = imported("verify-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
-        val child = imported("verify-child", dependency(), "verify-parent")
-        val service = project.getService(MavenUpdateVerificationService::class.java)
-        apply(fixes(child).filterIsInstance<OverrideDependencyVersionFix>().single(), declaration(child))
-        val changes = latestChanges()
-        val target = changes.mavenVerificationTargets.single()
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("No resolution with captured reload inputs"))
-        FileDocumentManager.getInstance().saveAllDocuments()
-        val imported = manager.findProject(child.virtualFile)!!
-        reload(service) { resolutionFinished(imported) }
-        assertTrue(service.generation() > target.afterGeneration)
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Dependency absent"))
-        val artifact = Files.write(directory.resolve("verified-junit.jar"), byteArrayOf())
-        imported.addDependency(org.jetbrains.idea.maven.model.MavenArtifact("junit", "junit", "4.13.2", "4.13.2",
-            "jar", null, "test", false, "jar", artifact.toFile(), directory.toFile(), true, false))
-        reload(service) { resolutionFinished(imported) }
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
-        // Physical XML encoding does not need to share the editor's normalized line separators.
-        Files.writeString(child.virtualFile.toNioPath(), "\uFEFF" + child.text.replace("\n", "\r\n"))
-        reload(service) { resolutionFinished(imported) }
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
-        val parentPath = parent.virtualFile.toNioPath()
-        val parentBytes = Files.readString(parentPath)
-        val time = Files.getLastModifiedTime(parentPath)
-        Files.writeString(parentPath, parentBytes.replace("4.12", "4.11"))
-        Files.setLastModifiedTime(parentPath, time)
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Build files changed"))
-        Files.writeString(parentPath, parentBytes)
-        Files.setLastModifiedTime(parentPath, time)
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
-        manager.generalSettings.isWorkOffline = !manager.generalSettings.isWorkOffline
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Build files changed"))
-        manager.generalSettings.isWorkOffline = !manager.generalSettings.isWorkOffline
-        WriteCommandAction.runWriteCommandAction(project) {
-            declaration(child).findFirstSubTag("version")!!.value.setText("4.14")
-        }
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Build files changed"))
-    }
-
-    fun testLateNativeEventDuringReloadCannotConfirmInputsChangedDuringThatRequest() {
-        imported("late-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
-        val child = imported("late-child", dependency(), "late-parent")
-        FileDocumentManager.getInstance().saveAllDocuments()
-        val service = project.getService(MavenUpdateVerificationService::class.java)
-        val target = MavenVerificationTarget(child.virtualFile.path, "junit", "junit", "DEPENDENCY", "4.13.2", service.generation())
-        val before = child.text
-        val fix = fixes(child).filterIsInstance<DefineInheritedMavenPropertyFix>().single()
-        val imported = manager.findProject(child.virtualFile)!!
-        reload(service) {
-            com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
-                apply(fix, declaration(child))
-                FileDocumentManager.getInstance().saveAllDocuments()
-                val artifact = Files.write(directory.resolve("late-junit.jar"), byteArrayOf())
-                imported.addDependency(org.jetbrains.idea.maven.model.MavenArtifact("junit", "junit", "4.13.2", "4.13.2",
-                    "jar", null, "test", false, "jar", artifact.toFile(), directory.toFile(), true, false))
-            }
-            resolutionFinished(imported)
-        }
-        val changes = AppliedVersionChanges(listOf(AppliedVersionFile(child.virtualFile.path, before, child.text)),
-            mavenVerificationTargets = listOf(target))
-        assertTrue(service.generation() > target.afterGeneration)
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Unknown:"))
-        assertFalse(evaluate(service, changes).contains("Confirmed:"))
-        reload(service) { }
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
-        // Starting another resolution must revoke evidence before the model can change.
-        project.messageBus.syncPublisher(MavenImportListener.TOPIC).projectResolutionStarted(listOf(imported))
-        assertFalse(evaluate(service, changes).contains("Confirmed:"))
-        reload(service) { }
-        assertTrue(evaluate(service, changes), evaluate(service, changes).contains("Confirmed:"))
-        // A late event from any other native task cannot inherit that successful request's evidence.
-        resolutionFinished(imported)
-        assertFalse(evaluate(service, changes).contains("Confirmed:"))
-    }
-
-    fun testVerificationIgnoresNativeEventsAfterDisposal() {
-        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
-        val service = MavenUpdateVerificationService(project, scope)
-        try {
-            val events = project.messageBus.syncPublisher(MavenImportListener.TOPIC)
-            events.projectResolutionFinished(emptyList())
-            assertEquals(1L, service.generation())
-            com.intellij.openapi.util.Disposer.dispose(service)
-            events.projectResolutionFinished(emptyList())
-            assertEquals(1L, service.generation())
-        } finally {
-            com.intellij.openapi.util.Disposer.dispose(service)
-            scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
-        }
-    }
-
-    private fun resolutionFinished(imported: MavenProject) {
-        project.messageBus.syncPublisher(MavenImportListener.TOPIC).projectResolutionFinished(listOf(imported))
-    }
-
-    private fun reload(service: MavenUpdateVerificationService, action: suspend () -> Unit) {
-        com.intellij.testFramework.PlatformTestUtil.waitForPromise(org.jetbrains.concurrency.runAsync {
-            kotlinx.coroutines.runBlocking { service.reloadAndCapture(action) }
-        })
-    }
-
-    private fun evaluate(service: MavenUpdateVerificationService, changes: AppliedVersionChanges): String =
-        com.intellij.testFramework.PlatformTestUtil.waitForPromise(org.jetbrains.concurrency.runAsync {
-            kotlinx.coroutines.runBlocking { service.evaluate(changes) }
-        })!!
 
     fun testCreatingInheritedPropertyCanBeUndone() {
         imported("undo-define-parent", "<properties><junit.version>4.12</junit.version></properties>" + management("\${junit.version}"))
@@ -771,7 +634,7 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
         assertEquals(before, child.text)
     }
 
-    fun testNativeEffectivePomMatchesOrdinaryUpdateVerificationTargets() {
+    fun testNativeEffectivePomSeesEveryKindOfUpdate() {
         if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
         imported("native-verify-parent", "<packaging>pom</packaging>" + management("4.12"))
         for (kind in listOf("literal", "property", "override", "bulk")) {
@@ -786,17 +649,15 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
                 parent.addSubTag(parent.createChildTag("relativePath", parent.namespace, "../native-verify-parent/pom.xml", false), false)
             }
             val pom = manager.findProject(file.virtualFile)!!
-            val changes = if (kind == "bulk") {
+            if (kind == "bulk") {
                 val analysis = MavenDependencyAnalysis(MavenDomUtil.getMavenDomProjectModel(file)!!, pom,
                     mapOf(DependencyVersion("junit", "junit", "4.12") to "4.13.2"))
                 val plan = MavenBulkUpdatePlan.create(mapOf(file to analysis))
                 assertTrue(plan.apply(project))
-                plan.appliedChanges!!
             } else {
                 val fix = if (kind == "override") fixes(file).filterIsInstance<OverrideDependencyVersionFix>().single()
                     else fixes(file).filterIsInstance<UpdateDependencyVersionFix>().single()
                 apply(fix, declaration(file))
-                latestChanges()
             }
             FileDocumentManager.getInstance().saveAllDocuments()
             val effective = PlatformTestUtil.waitForFuture(com.intellij.openapi.application.ApplicationManager.getApplication()
@@ -807,13 +668,9 @@ class MavenInheritedVersionFixTest : BasePlatformTestCase() {
                 }), 120_000) ?: error("No native effective POM for $kind")
             val root = com.intellij.openapi.util.JDOMUtil.load(effective)
             val dependency = root.getChild("dependencies", root.namespace).getChild("dependency", root.namespace)
-            val target = changes.mavenVerificationTargets.single()
-            assertEquals(kind, file.virtualFile.path, target.pomPath)
-            assertEquals(kind, target.groupId, dependency.getChildTextTrim("groupId", root.namespace))
-            assertEquals(kind, target.artifactId, dependency.getChildTextTrim("artifactId", root.namespace))
-            assertEquals(kind, target.expectedVersion, dependency.getChildTextTrim("version", root.namespace))
-            // Effective-POM inspection is separate from the full-import evidence used by Verify.
-            assertFalse(evaluate(project.service<MavenUpdateVerificationService>(), changes).contains("Confirmed:"))
+            assertEquals(kind, "junit", dependency.getChildTextTrim("groupId", root.namespace))
+            assertEquals(kind, "junit", dependency.getChildTextTrim("artifactId", root.namespace))
+            assertEquals(kind, "4.13.2", dependency.getChildTextTrim("version", root.namespace))
         }
     }
 

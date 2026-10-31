@@ -4,7 +4,6 @@ import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
@@ -60,46 +59,24 @@ class BuildReloadOutcomeTest : BasePlatformTestCase() {
         val wasTrusted = TrustedProjects.isProjectTrusted(project)
         TrustedProjects.setProjectTrusted(project, true)
         try {
-            repeat(5) { assertNull(owner.outcome(adapter.id)) }
             assertEquals(0, adapter.saves.get())
             assertEquals(0, adapter.reloads.get())
-            val sessions = project.service<UpdateSessionService>()
-            val token = sessions.start(null, null, setOf(adapter.id))!!
-            owner.reload(adapter.id, token)
+            owner.reload(adapter.id)
             PlatformTestUtil.waitWithEventsDispatching("Saving entered", { adapter.saving.isCompleted }, 10)
-            assertEquals(BuildReloadOutcome.Phase.SAVING, owner.outcome(adapter.id)?.phase)
-            assertEquals(UpdateStepStatus.PREPARING, sessions.snapshot(token)!!.steps.single().status)
-            val newer = sessions.start(null, null, setOf(adapter.id))!!
-            repeat(5) { owner.outcome(adapter.id); owner.reload(adapter.id) }
+            repeat(5) { owner.reload(adapter.id) }
             assertEquals("Duplicate clicks must not start more saves", 1, adapter.saves.get())
             assertEquals(0, adapter.reloads.get())
             if (cancelSaving) scope.cancel() else adapter.release.complete(Unit)
-            PlatformTestUtil.waitWithEventsDispatching("Terminal reload outcome", {
-                owner.outcome(adapter.id)?.phase == expected
-            }, 10)
             PlatformTestUtil.waitWithEventsDispatching("Terminal reload notification", { notifications.isNotEmpty() }, 10)
-            val outcome = owner.outcome(adapter.id)!!
-            assertTrue(sessions.snapshot(newer)!!.steps.isEmpty())
-            val step = sessions.snapshot(token)!!.steps.single()
-            assertEquals(UpdateStepKind.NATIVE_RELOAD, step.kind)
-            assertEquals(when (expected) {
-                BuildReloadOutcome.Phase.REQUESTED -> UpdateStepStatus.REQUESTED
-                BuildReloadOutcome.Phase.UNAVAILABLE -> UpdateStepStatus.UNAVAILABLE
-                BuildReloadOutcome.Phase.CANCELLED -> UpdateStepStatus.CANCELLED
-                else -> UpdateStepStatus.UNKNOWN
-            }, step.status)
-            assertEquals(outcome.message, step.message)
+            val outcome = BuildReloadOutcome(expected, adapter.displayName, !cancelSaving)
+            assertEquals(outcome.message, notifications.single().content)
             assertEquals(if (cancelSaving) 0 else 1, adapter.reloads.get())
             assertTrue(outcome.message.contains(adapter.displayName))
-            assertTrue(outcome.message.contains("Dependency verification was not performed"))
-            assertEquals(outcome.message, notifications.last().content)
             if (expected == BuildReloadOutcome.Phase.REQUESTED)
                 assertTrue(outcome.message.contains("completion was not observed"))
-            assertEquals(!cancelSaving, outcome.requestAttempted)
-            assertFalse(outcome.message.contains("native private details"))
+            assertFalse(notifications.single().content.contains("native private details"))
             if (expected == BuildReloadOutcome.Phase.FAILED) assertTrue(outcome.message.contains("may have started"))
             owner.dispose()
-            assertNull(owner.outcome(adapter.id))
             assertTrue(notifications.all { it.isExpired })
             owner.reload(adapter.id)
             assertEquals(1, adapter.saves.get())
@@ -123,29 +100,27 @@ class BuildReloadOutcomeTest : BasePlatformTestCase() {
         val wasTrusted = TrustedProjects.isProjectTrusted(project)
         TrustedProjects.setProjectTrusted(project, true)
         try {
+            val notifications = CopyOnWriteArrayList<Notification>()
+            project.messageBus.connect(testRootDisposable).subscribe(Notifications.TOPIC, object : Notifications {
+                override fun notify(notification: Notification) { if (notification.title == "Build reload") notifications += notification }
+            })
             owner.reload("missing-fixture-provider")
-            PlatformTestUtil.waitWithEventsDispatching("Missing provider outcome", {
-                owner.outcome("missing-fixture-provider")?.phase == BuildReloadOutcome.Phase.UNAVAILABLE
-            }, 10)
-            assertTrue(owner.outcome("missing-fixture-provider")!!.message.contains("unavailable"))
+            PlatformTestUtil.waitWithEventsDispatching("Missing provider outcome", { notifications.isNotEmpty() }, 10)
+            assertTrue(notifications.single().content.contains("unavailable"))
         } finally {
             owner.dispose()
             scope.cancel()
             TrustedProjects.setProjectTrusted(project, wasTrusted)
         }
     }
-    fun testCancelledScopeRetiresTheOriginalStepWithoutStartingNativeWork() {
+    fun testCancelledScopeStartsNoNativeWork() {
         val scope = CoroutineScope(SupervisorJob().apply { cancel() } + Dispatchers.IO)
         val owner = BuildReloadService(project, scope)
         val adapter = Adapter()
         BuildSystemAdapter.EP.point.registerExtension(adapter, testRootDisposable)
         try {
-            val sessions = project.service<UpdateSessionService>()
-            val token = sessions.start(null, null, setOf(adapter.id))!!
-            owner.reload(adapter.id, token)
-            PlatformTestUtil.waitWithEventsDispatching("Unstarted reload step should retire", {
-                sessions.snapshot(token)!!.steps.single().status == UpdateStepStatus.CANCELLED
-            }, 5_000)
+            owner.reload(adapter.id)
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
             assertEquals(0, adapter.saves.get())
             assertEquals(0, adapter.reloads.get())
         } finally { owner.dispose(); scope.cancel() }

@@ -120,21 +120,9 @@ Missing outcomes stay pending.
 If any report has unknown coverage, the combined summary stays unknown.
 Dialogs and native build tools do not define these rules.
 
-## Native follow-up observations
+## Follow-up after updates
 
-`UpdateSessionStore` retains bounded immutable per-attempt steps with explicit statuses. Native reloads, npm commands and version observations have separate kinds. A session/step token attributes asynchronous updates; evicted tokens cannot modify newer attempts. The modeless summary polls memory snapshots and stops its timer when disposed. Passive viewing never starts native work.
-
-`NativeFileChangeCapture` takes cancellable, bounded physical UTF-8 snapshots of supported npm outputs before explicit command approval and after inspection. The before snapshot is compared to the command-preview hash baseline. File creation/deletion is represented separately from empty text. File limits, byte/text budgets, read failures, symlinks, invalid text and unstable reads omit whole files with a reason. `UpdateSessionStore` evicts native text independently from typed outcomes and declaration snapshots.
-
-Native snapshots are observational: they cannot prove exclusive writer ownership, and concurrent external changes may be included. Unsaved editor overlap and unconfirmed process termination add explicit limitations. Inspection failure does not change a completed process into verified dependency evidence. Native diff requests are read-only and separate from declaration undo; snapshots contain no live documents, PSI or process handles.
-
-## Maven update verification
-
-Maven prepared edits retain immutable consumer identities separately from physical XML ownership. A shared property or managed version can change several imported POM contexts; local overrides retain only their own child context. Quick fixes and bulk plans use the same ownership analysis. Selecting bulk edits preserves only those edits' consumers. Immediately before the authorized write, historical capture binds expected dependency versions to the current native-resolution generation and stores them with that update's captured file diff.
-
-`MavenUpdateVerificationService` accepts model evidence only after completion of its explicit full-import request with identical saved input captures before and after import. Verification compares those inputs, the captured after-text and the current IDE documents/settings/profiles again. Existing models and late unrelated resolution events cannot authorize confirmation. Bounded diff/session storage and unavailable or omitted captures keep their existing fail-closed behavior. Plugin/parent versions and runtime compatibility are not inferred from imported dependencies.
-
-The service subscribes to `MavenImportListener.TOPIC`, available in both supported IDE branches. Import and resolution events invalidate captured evidence. Disposing the service disconnects its listener.
+`notifyVersionUpdates` publishes one notification per apply. It offers **Review changed files** for the captured declaration diff and one action per touched build system. `BuildReloadService` saves build files and asks the provider to reload Maven or Gradle; `UpdateFollowUpService` previews and runs the npm lockfile command. Each reports its result in its own notification. Neither claims that a requested reload or a completed command proves the effective dependency versions.
 
 ## IntelliJ API dependencies
 
@@ -150,13 +138,12 @@ Cancellation terminates the goal and its child processes before request-file cle
 Category and batch progress remain available; embedded Maven artifact progress is no longer forwarded.
 
 Maven CLI always reads an existing `.mvn/maven.config`. If IDEA is configured to ignore that file, goal checks report the unsupported configuration.
-They do not silently activate settings which IDEA ignores. Native model capture and effective-version verification retain their existing IDE integration.
+They do not silently activate settings which IDEA ignores.
 The metadata protocol proves helper completion. If a Versions goal produces no report, the runner also requires Maven's success message.
 Quiet output, log redirection or informational CLI options can prevent that confirmation. Such checks report an unavailable result instead of claiming no updates.
 
 Only the reload integration still requires experimental SDK APIs.
-`MavenSyncSpec.full` and suspending `MavenAsyncProjectsManager.updateAllMavenProjects` identify and await the full reload used for verification.
-A scheduled request or unrelated completion event cannot establish this evidence. Verify the packaged plugin against both supported IDE branches when these calls change.
+`MavenSyncSpec.full` and suspending `MavenAsyncProjectsManager.updateAllMavenProjects` run and await the reload after updates. Verify the packaged plugin against both supported IDE branches when these calls change.
 
 ## Verification
 

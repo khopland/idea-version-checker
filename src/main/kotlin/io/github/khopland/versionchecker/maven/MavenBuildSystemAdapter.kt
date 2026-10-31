@@ -31,11 +31,9 @@ internal class MavenBuildSystemAdapter(
         return true
     }
     override suspend fun reloadProjectInBackground(project: Project): Boolean {
-        project.service<MavenUpdateVerificationService>().reloadAndCapture()
+        MavenProjectsManager.getInstance(project).updateAllMavenProjects(
+            org.jetbrains.idea.maven.buildtool.MavenSyncSpec.full("Version Checker reload after updates"))
         return true
-    }
-    override fun verifyUpdatedVersions(project: Project, changes: AppliedVersionChanges, publish: (VersionVerificationOutcome) -> Unit) {
-        project.service<MavenUpdateVerificationService>().verify(changes, publish)
     }
     override val id = "maven"
     override val displayName = "Maven"

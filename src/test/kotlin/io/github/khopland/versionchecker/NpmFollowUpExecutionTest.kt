@@ -39,7 +39,7 @@ class NpmFollowUpExecutionTest {
         assertTrue(outcomes.single().message.contains("could not be inspected"))
     }
 
-    @Test fun `inspection failure does not turn completed command into verified dependencies`() = runBlocking {
+    @Test fun `inspection failure is reported as a warning`() = runBlocking {
         val outcomes = mutableListOf<NpmFollowUpOutcome>()
         NpmFollowUpExecution.run(execute = { 0 }, inspect = { error("private diagnostic") },
             isAlive = { true }, publish = outcomes::add)
@@ -47,7 +47,7 @@ class NpmFollowUpExecutionTest {
         assertFalse(outcomes.single().changesKnown)
         assertTrue(outcomes.single().warning)
         assertFalse(outcomes.single().message.contains("private diagnostic"))
-        assertTrue(outcomes.single().message.contains("Dependency verification was not performed"))
+        assertTrue(outcomes.single().message.contains("could not be inspected"))
     }
 
     @Test fun `native failure reports exit code and known inspected writes`() = runBlocking {
