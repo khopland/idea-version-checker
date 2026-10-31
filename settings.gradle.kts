@@ -1,7 +1,6 @@
 import org.jetbrains.intellij.platform.gradle.extensions.intellijPlatform
 
 rootProject.name = "version-checker"
-include("maven-helper")
 
 pluginManagement {
     plugins {

@@ -1,0 +1,5 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="io.github.khopland.version-checker">
+        <declarationProvider implementation="io.github.khopland.versionchecker.npm.NpmProvider"/>
+    </extensions>
+</idea-plugin>
