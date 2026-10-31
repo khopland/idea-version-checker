@@ -728,7 +728,8 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             val snapshot = adapter.snapshot(project, childFile)!!
             assertEquals(listOf(allCoordinates.first()), snapshot.declarations.map { it.coordinate() })
             val samples = mutableMapOf<String, MutableList<Long>>()
-            repeat(5) {
+            // One pass checks behaviour; repeated samples only matter when benchmarking.
+            repeat(if (java.lang.Boolean.getBoolean("versionchecker.mavenLatencyBenchmark")) 5 else 1) {
                 for (filtered in listOf(false, true)) {
                     // Force the same freshness boundary for both paths, including inherited entries
                     // that the child snapshot does not own. Retain native artifacts and metadata.
