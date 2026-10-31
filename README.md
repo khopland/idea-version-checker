@@ -66,7 +66,9 @@ Use **Refresh** to check again.
 | --- | --- |
 | Maven | Dependencies, dependency management, BOMs, and build plugins in imported POMs and active profiles. Supports literal versions and simple local properties. Parent-managed versions can offer local overrides or imported-parent updates. |
 | npm, pnpm, Yarn, Bun | `dependencies`, `devDependencies`, and `optionalDependencies`. Supports scoped packages, aliases, and npm workspaces. Exact versions and simple `^` or `~` selectors keep their operator. |
-| Gradle | Fixed stable library and BOM versions in supported Groovy and Kotlin dependency calls. Supports the default local `gradle/libs.versions.toml` catalog, literal named local TOML catalog registrations in root settings, and simple `version.ref` entries. |
+| Gradle | Fixed stable library and BOM versions in supported Groovy and Kotlin dependency calls, and plugin versions in `plugins {}` blocks. Supports the default local `gradle/libs.versions.toml` catalog (libraries and plugins), literal named local TOML catalog registrations in root settings, and simple `version.ref` entries. |
+| Maven wrapper | The Apache Maven version in `.mvn/wrapper/maven-wrapper.properties`, resolved through your Maven repositories and mirrors. |
+| Gradle wrapper | The Gradle version in `gradle/wrapper/gradle-wrapper.properties` when it uses the official `services.gradle.org` URL. |
 
 These declarations require manual review:
 

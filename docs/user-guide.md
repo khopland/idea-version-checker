@@ -290,6 +290,14 @@ Build-file discovery and hashes are shared across checks for a linked Gradle bui
 
 The [Gradle demo](../src/test/resources/gradle-demo/README.md) includes Groovy and Kotlin scripts, a shared catalog, a BOM, and nested subprojects.
 
+## Wrapper versions
+
+**Maven wrapper.** The `distributionUrl` in `.mvn/wrapper/maven-wrapper.properties` names the `org.apache.maven:apache-maven` artifact. It is checked like a dependency of the Maven project next to it, so it uses that project's repositories, mirrors and credentials, the update mode, and the minimum release age. The update changes the version in both places of the URL and keeps the repository host, so a Nexus URL stays a Nexus URL. The inspection is **Settings → Editor → Inspections → Maven → Newer Maven wrapper version available**.
+
+**Gradle wrapper.** The `distributionUrl` in `gradle/wrapper/gradle-wrapper.properties` of each linked Gradle build is checked against the release list at `services.gradle.org`, using the IDE's proxy settings. Release candidates, milestones, nightlies and broken releases are skipped; the update mode and minimum release age apply. Only the official `https://services.gradle.org/distributions/` URL is checked: a mirrored distribution URL shows a manual-review hint, because the mirror's contents are unknown. Gradle offline mode disables the check. The inspection is **Settings → Editor → Inspections → Gradle → Newer Gradle wrapper version available**. The update edits the properties file only; run `./gradlew wrapper --gradle-version <version>` if you also want new wrapper scripts and JAR.
+
+Both wrappers need manual review when `distributionSha256Sum` is set, since the checksum has to change with the version. After an update, the notification offers **Reload Maven projects** or **Sync Gradle projects**.
+
 ## Other ecosystems
 
 The shared adapter model, coordinator, cache and edit bridge support Maven, npm and Gradle. pnpm, Yarn and Bun use the shared manifest pipeline with manager-specific discovery and native registry commands.

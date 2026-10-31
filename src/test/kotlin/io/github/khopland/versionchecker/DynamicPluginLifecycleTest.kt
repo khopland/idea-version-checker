@@ -229,7 +229,7 @@ class DynamicPluginLifecycleTest : HeavyPlatformTestCase() {
         assertNotNull(ActionManager.getInstance().getAction("VersionChecker.Refresh"))
         val adapters = ApplicationManager.getApplication().extensionArea.getExtensionPoint<Any>(BuildSystemAdapter.EP.name)
             .extensionList.map { it.javaClass.getMethod("getId").invoke(it) }.toSet()
-        assertEquals(setOf("maven", "npm", "pnpm", "yarn", "bun", "gradle"), adapters)
+        assertEquals(setOf("maven", "maven-wrapper", "npm", "pnpm", "yarn", "bun", "gradle", "gradle-wrapper"), adapters)
         assertNull(DynamicPlugins.checkCanUnloadWithoutRestart(plugin))
         assertTrue(DynamicPlugins.unloadPlugin(plugin, DynamicPlugins.UnloadPluginOptions(disable = false, save = false)))
         // DynamicPlugins clears disposal traces, so observe cleanup rather than calling isDisposed.

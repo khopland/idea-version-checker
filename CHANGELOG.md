@@ -4,6 +4,7 @@
 
 ### Added
 
+- Maven and Gradle wrapper versions. The Maven wrapper distribution (`org.apache.maven:apache-maven`) resolves through the project's Maven repositories and mirrors with the minimum release age; the Gradle wrapper is checked against `services.gradle.org` when it uses the official distribution URL. Wrappers with `distributionSha256Sum` or a mirrored Gradle URL need manual review.
 - Gradle plugin versions in `plugins {}` blocks and the version catalog `[plugins]` table are checked and can be updated, resolved through the build's `pluginManagement` repositories. A catalog version shared by libraries and plugins is updated when they all agree.
 - pnpm, Yarn Classic/modern Yarn and Bun adapters using their native read-only metadata commands.
 - pnpm YAML workspace discovery and manager-specific configuration validation; updates edit manifests only.

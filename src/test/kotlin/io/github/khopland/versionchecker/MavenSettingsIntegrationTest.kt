@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker
 
 import io.github.khopland.versionchecker.maven.*
 import io.github.khopland.versionchecker.core.*
+import com.intellij.openapi.fileEditor.FileDocumentManager
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.codeInspection.InspectionManager
@@ -990,6 +991,88 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             manager.generalSettings.setUserSettingsFile(previousSettings)
             server.stop(0)
             repository.resolve(group.replace('.', '/')).toFile().deleteRecursively()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    fun testMavenWrapperResolvesTheDistributionThroughMirrorsAndReleaseAge() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.mavenIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-maven-wrapper-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val now = java.time.Instant.now()
+        val published = mapOf("3.9.6" to now.minus(java.time.Duration.ofDays(400)), "3.9.9" to now.minus(java.time.Duration.ofDays(100)),
+            "4.0.0-rc-4" to now.minus(java.time.Duration.ofDays(20)), "4.0.1" to now.minus(java.time.Duration.ofHours(1)))
+        val stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(java.time.ZoneOffset.UTC)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { exchange ->
+            try {
+                val path = repositoryPath(exchange)
+                if (path.endsWith("/org/apache/maven/apache-maven/maven-metadata.xml")) {
+                    sendRepositoryResponse(exchange, """<metadata><groupId>org.apache.maven</groupId><artifactId>apache-maven</artifactId>
+                        <versioning><versions>${published.keys.joinToString("") { "<version>$it</version>" }}</versions>
+                        <lastUpdated>${stamp.format(now.minus(java.time.Duration.ofMinutes(30)))}</lastUpdated></versioning></metadata>""".toByteArray())
+                } else if (path.contains("/org/apache/maven/apache-maven/") && path.endsWith(".pom")) {
+                    val version = path.substringBeforeLast('/').substringAfterLast('/')
+                    exchange.responseHeaders.add("Last-Modified", java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
+                        .format(published.getValue(version).atZone(java.time.ZoneOffset.UTC)))
+                    sendRepositoryResponse(exchange, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                        <groupId>org.apache.maven</groupId><artifactId>apache-maven</artifactId><version>$version</version><packaging>pom</packaging></project>""".toByteArray())
+                } else exchange.sendResponseHeaders(404, -1)
+            } finally { exchange.close() }
+        }
+        server.start()
+        val manager = MavenProjectsManager.getInstance(project)
+        manager.initForTests()
+        manager.projectsTree.ignoredFilesPaths = manager.projects.map { it.path }
+        val previousSettings = manager.generalSettings.userSettingsFile
+        val options = project.service<VersionCheckerSettings>()
+        val previousOptions = options.state.copy()
+        try {
+            val settings = directory.resolve("settings.xml")
+            // A private local repository keeps the real ~/.m2 apache-maven metadata untouched.
+            Files.writeString(settings, """<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+                <localRepository>${directory.resolve("local")}</localRepository>
+                <mirrors><mirror><id>wrapper-mirror</id><mirrorOf>*</mirrorOf><url>http://127.0.0.1:${server.address.port}/</url></mirror></mirrors>
+                <profiles><profile><id>wrapper-repositories</id><repositories>
+                  <repository><id>central</id><url>https://repo.maven.apache.org/maven2</url><releases><updatePolicy>always</updatePolicy></releases></repository>
+                </repositories></profile></profiles>
+                <activeProfiles><activeProfile>wrapper-repositories</activeProfile></activeProfiles></settings>""")
+            manager.generalSettings.setUserSettingsFile(settings.toString())
+            val pom = directory.resolve("pom.xml")
+            Files.writeString(pom, """<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+                <groupId>example.wrapper</groupId><artifactId>app</artifactId><version>1</version><packaging>pom</packaging></project>""")
+            val properties = Files.createDirectories(directory.resolve(".mvn/wrapper")).resolve("maven-wrapper.properties")
+            Files.writeString(properties, "wrapperVersion=3.3.2\ndistributionUrl=https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.6/apache-maven-3.9.6-bin.zip\n")
+            val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(pom)!!
+            val wrapperFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(properties)!!
+            val mavenProject = MavenProject(virtualFile).apply { updateMavenId(MavenId("example.wrapper", "app", "1")) }
+            manager.projectsTree.putVirtualFileToProjectMapping(mavenProject, mavenProject.mavenId)
+            val wrapper = BuildSystemAdapter.find("maven-wrapper") as io.github.khopland.versionchecker.maven.MavenWrapperAdapter
+            fun <T> background(action: suspend () -> T): T = PlatformTestUtil.waitForFuture(
+                ApplicationManager.getApplication().executeOnPooledThread(Callable { runBlocking { action() } }), 180_000)
+            fun latest(mode: UpdateMode): UpdateReport {
+                BuildSystemAdapter.find("maven")!!.invalidateMetadata(project)
+                val snapshot = com.intellij.openapi.application.runReadAction { wrapper.snapshot(project, wrapperFile)!! }
+                return background { wrapper.check(project, snapshot, mode) }.also { assertTrue(it.failure.orEmpty(), it.successful) }
+            }
+            options.loadState(VersionCheckerSettings.Options())
+            assertEquals("4.0.1", latest(UpdateMode.MAJOR).candidates.single().version)
+            assertEquals("3.9.9", latest(UpdateMode.MINOR).candidates.single().version)
+            options.loadState(VersionCheckerSettings.Options(minimumReleaseAgeHours = 24))
+            val held = latest(UpdateMode.MAJOR)
+            assertEquals("The quarantined 4.0.1 is withheld and the RC is never offered", "3.9.9", held.candidates.single().version)
+            val snapshot = com.intellij.openapi.application.runReadAction { wrapper.snapshot(project, wrapperFile)!! }
+            val plan = background { wrapper.prepareUpdates(project, mapOf(snapshot to held)) }
+            assertTrue(plan.apply(project))
+            FileDocumentManager.getInstance().saveAllDocuments()
+            assertEquals("wrapperVersion=3.3.2\ndistributionUrl=https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.zip\n",
+                Files.readString(properties))
+        } finally {
+            options.loadState(previousOptions)
+            manager.projectsTree.setIgnoredState(manager.projects, true)
+            manager.embeddersManager.reset()
+            manager.generalSettings.setUserSettingsFile(previousSettings)
+            server.stop(0)
             directory.toFile().deleteRecursively()
         }
     }

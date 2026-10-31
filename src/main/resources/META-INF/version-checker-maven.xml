@@ -2,8 +2,10 @@
     <extensions defaultExtensionNs="com.intellij">
         <localInspection language="XML" shortName="NewerMavenDependencyVersion" displayName="Newer Maven dependency or plugin version available" groupName="Maven" enabledByDefault="true" level="WARNING" implementationClass="io.github.khopland.versionchecker.maven.NewerMavenDependencyInspection" />
         <localInspection language="XML" shortName="UnnecessaryMavenOverride" displayName="Unnecessary Maven property or dependency version override" groupName="Maven" enabledByDefault="true" level="WEAK WARNING" implementationClass="io.github.khopland.versionchecker.maven.UnnecessaryMavenOverrideInspection" />
+        <localInspection shortName="NewerMavenWrapperVersion" displayName="Newer Maven wrapper version available" groupName="Maven" enabledByDefault="true" level="WARNING" implementationClass="io.github.khopland.versionchecker.maven.MavenWrapperVersionInspection" />
     </extensions>
     <extensions defaultExtensionNs="io.github.khopland.version-checker">
         <buildSystemAdapter implementation="io.github.khopland.versionchecker.maven.MavenBuildSystemAdapter" />
+        <buildSystemAdapter implementation="io.github.khopland.versionchecker.maven.MavenWrapperAdapter" />
     </extensions>
 </idea-plugin>
