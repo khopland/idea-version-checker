@@ -143,7 +143,7 @@ internal object MavenVersionLookup {
 
     /** The Versions goals cannot see release dates, so re-select their answers when a minimum release age is set. */
     private suspend fun withholdRecent(scan: Scan, mode: UpdateMode, updates: Map<DependencyVersion, String>): Map<DependencyVersion, String> {
-        val age = MavenReleaseAge.of(scan.manager.project.service<VersionCheckerSettings>().state.mavenMinimumReleaseAgeHours)
+        val age = MavenReleaseAge.of(scan.manager.project.service<VersionCheckerSettings>().state.minimumReleaseAgeHours)
         if (age == null || updates.isEmpty()) return updates
         fun key(dependency: DependencyVersion) = MavenMetadataKey(dependency.groupId, dependency.artifactId,
             dependency.artifactKind == MavenArtifactKind.PLUGIN)

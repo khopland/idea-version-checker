@@ -965,7 +965,7 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
             assertEquals(mapOf("fixture" to "2.0", "settled" to "2.0", "fixture-plugin" to "2.0"), nativeVersions())
             assertTrue("Without a minimum age, dependency release dates are not read", pomRequests.none { "/fixture/" in it })
 
-            options.loadState(VersionCheckerSettings.Options(mavenMinimumReleaseAgeHours = 24))
+            options.loadState(VersionCheckerSettings.Options(minimumReleaseAgeHours = 24))
             assertEquals("Versions younger than 24 hours are withheld", mapOf("fixture" to "1.1", "settled" to "2.0", "fixture-plugin" to "1.1"),
                 nativeVersions())
             assertTrue("Old metadata settles every version without reading POMs", pomRequests.none { "/settled/" in it })
@@ -975,11 +975,11 @@ class MavenSettingsIntegrationTest : BasePlatformTestCase() {
                 nativeVersions())
             assertEquals(fetched, pomRequests.size)
 
-            options.loadState(VersionCheckerSettings.Options(mavenMinimumReleaseAgeHours = 2))
+            options.loadState(VersionCheckerSettings.Options(minimumReleaseAgeHours = 2))
             assertEquals(mapOf("fixture" to "1.2", "settled" to "2.0", "fixture-plugin" to "1.2"), nativeVersions())
 
             // Projects with custom extensions use the Versions goals, which cannot see release dates.
-            options.loadState(VersionCheckerSettings.Options(mavenMinimumReleaseAgeHours = 24))
+            options.loadState(VersionCheckerSettings.Options(minimumReleaseAgeHours = 24))
             val fallback = background { MavenVersionLookup.check(manager, mavenProject) }
             assertEquals("The Versions goal fallback applies the same minimum age",
                 mapOf("fixture" to "1.1", "settled" to "2.0"), fallback.mapKeys { it.key.artifactId })

@@ -1,6 +1,8 @@
 package io.github.khopland.versionchecker
 
+import io.github.khopland.versionchecker.core.BuildSystemAdapter
 import io.github.khopland.versionchecker.core.VersionChangeKind
+import com.intellij.util.xmlb.annotations.OptionTag
 
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
@@ -38,7 +40,9 @@ class VersionCheckerSettings : PersistentStateComponent<VersionCheckerSettings.O
         var deprecatedSeverity: VersionSeverity = VersionSeverity.ERROR,
         var deprecatedDependencies: String = "",
         var ignoredVersions: String = "",
-        var mavenMinimumReleaseAgeHours: Int = 0
+        // Stored under its original name so existing quarantine settings keep working.
+        @get:OptionTag("mavenMinimumReleaseAgeHours")
+        var minimumReleaseAgeHours: Int = 0
     )
     private var options = Options()
     override fun getState(): Options = options
@@ -54,7 +58,13 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     override fun getDisplayName(): String = "Version Checker"
     override fun createComponent(): JComponent {
         enabled = JBCheckBox("Enable version checks").apply { name = "versionChecker.enabled" }
+        releaseAge = JSpinner(SpinnerNumberModel(0, 0, MAX_RELEASE_AGE_HOURS, 1)).apply {
+            name = "versionChecker.minimumReleaseAge"
+            toolTipText = "Suggest only versions published at least this many hours ago, for example to match a repository " +
+                "quarantine period. Applies to Maven, npm, pnpm, Yarn and Bun. 0 suggests the newest version."
+        }
         val form = FormBuilder.createFormBuilder().addComponent(enabled!!)
+            .addLabeledComponent("Minimum release age (hours):", releaseAge!!)
         form.addComponent(TitledSeparator("Warnings"))
         for ((kind, label) in linkedMapOf(
             VersionChangeKind.PATCH to "Patch updates:",
@@ -83,14 +93,6 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         projectPolicy(project).shared.diagnostic?.let { diagnostic ->
             form.addComponent(JBLabel(diagnostic).apply { accessibleContext.accessibleName = "Shared policy error" })
         }
-
-        releaseAge = JSpinner(SpinnerNumberModel(0, 0, MAX_RELEASE_AGE_HOURS, 1)).apply {
-            name = "versionChecker.mavenMinimumReleaseAge"
-            toolTipText = "Suggest only versions published at least this many hours ago, for example to match a repository " +
-                "quarantine period. 0 suggests the newest version."
-        }
-        form.addComponent(TitledSeparator("Maven"))
-            .addLabeledComponent("Minimum release age (hours):", releaseAge!!)
         return form.panel.also { reset() }
     }
     override fun isModified(): Boolean {
@@ -98,11 +100,11 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         return enabled?.isSelected != state.enabled ||
             severities.any { (kind, selector) -> selector.selectedItem != kind.severity(state) } ||
             deprecated?.text != state.deprecatedDependencies || ignored?.text != state.ignoredVersions ||
-            releaseAge?.value != state.mavenMinimumReleaseAgeHours.coerceIn(0, MAX_RELEASE_AGE_HOURS)
+            releaseAge?.value != state.minimumReleaseAgeHours.coerceIn(0, MAX_RELEASE_AGE_HOURS)
     }
     override fun apply() {
         val state = project.service<VersionCheckerSettings>().state
-        val releaseAgeChanged = state.mavenMinimumReleaseAgeHours != releaseAge!!.value as Int
+        val releaseAgeChanged = state.minimumReleaseAgeHours != releaseAge!!.value as Int
         val disabling = state.enabled && !enabled!!.isSelected
         state.enabled = enabled!!.isSelected
         state.patchSeverity = selected(VersionChangeKind.PATCH)
@@ -112,10 +114,12 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         state.deprecatedSeverity = selected(VersionChangeKind.DEPRECATED)
         state.deprecatedDependencies = deprecated!!.text
         state.ignoredVersions = ignored!!.text
-        state.mavenMinimumReleaseAgeHours = releaseAge!!.value as Int
+        state.minimumReleaseAgeHours = releaseAge!!.value as Int
         if (disabling) project.service<VersionCheckService>().pause()
-        // Cached histories and release dates stay valid; only the selected versions change.
-        if (releaseAgeChanged) project.service<VersionCheckService>().invalidateResults("maven")
+        // Cached metadata stays valid (npm keys release times separately); only the selected versions change.
+        if (releaseAgeChanged) BuildSystemAdapter.EP.extensionList.forEach {
+            project.service<VersionCheckService>().invalidateResults(it.id)
+        }
         project.service<VersionCheckService>().statusChanged()
         refreshEditorProblems(project, this)
     }
@@ -125,7 +129,7 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         severities.forEach { (kind, selector) -> selector.selectedItem = kind.severity(state) }
         deprecated?.text = state.deprecatedDependencies
         ignored?.text = state.ignoredVersions
-        releaseAge?.value = state.mavenMinimumReleaseAgeHours.coerceIn(0, MAX_RELEASE_AGE_HOURS)
+        releaseAge?.value = state.minimumReleaseAgeHours.coerceIn(0, MAX_RELEASE_AGE_HOURS)
     }
     private fun collapsedSection(title: String, content: JComponent): JPanel = panel {
         collapsibleGroup(title) {

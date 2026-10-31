@@ -133,7 +133,7 @@ Open **Settings → Tools → Version Checker** to configure checks, severity, a
 Version updates use Warning severity by default.
 Deprecated and relocated artifacts use Error severity by default.
 
-Use **Maven → Minimum release age (hours)** to exclude recent Maven releases.
+Use **Minimum release age (hours)** to exclude recent Maven, npm, pnpm, Yarn and Bun releases.
 For example, use 24 hours to match a repository quarantine.
 See [minimum release age](docs/user-guide.md#minimum-release-age).
 
