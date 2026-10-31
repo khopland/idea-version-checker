@@ -1,12 +1,13 @@
 package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.components.service
-import com.intellij.openapi.application.readAction
 import io.github.khopland.versionchecker.CheckPerformance
 import io.github.khopland.versionchecker.CheckQueue
 import io.github.khopland.versionchecker.UpdateMode
 import io.github.khopland.versionchecker.VersionCheckerSettings
 import io.github.khopland.versionchecker.core.BuildSnapshot
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -27,29 +28,22 @@ internal object MavenBatchedLookup {
     }
 
     private suspend fun checkInSession(manager: MavenProjectsManager, project: MavenProject, snapshot: BuildSnapshot,
-                                       mode: UpdateMode, publish: (suspend (MavenLookupDelta) -> Unit)?): MavenLookupDelta? {
+                                       mode: UpdateMode, publish: (suspend (MavenLookupDelta) -> Unit)?): MavenLookupDelta? = coroutineScope {
         val coordinates = snapshot.declarations.map { it.coordinate() }.distinct()
-        if (coordinates.isEmpty()) return MavenLookupDelta(emptySet(), emptyMap(), emptyList(), null)
+        if (coordinates.isEmpty()) return@coroutineScope MavenLookupDelta(emptySet(), emptyMap(), emptyList(), null)
         val service = manager.project.service<MavenMetadataService>()
         val generation = service.cache.generation()
         val context = service.contexts.get(manager, project, snapshot, generation)
-        if (!context.nativeSupported) return null
+        if (!context.nativeSupported) return@coroutineScope null
         val options = manager.project.service<VersionCheckerSettings>().state.copy()
         val age = MavenReleaseAge.of(options.mavenMinimumReleaseAgeHours)
         val keys = coordinates.groupBy { MavenMetadataKey(it.groupId, it.artifactId, it.artifactKind == MavenArtifactKind.PLUGIN) }
-        val platformScope = MavenPlatformScope.isPlatform(snapshot)
-        val ownedPlatforms = if (platformScope) readAction { MavenPlatformScope.platformCoordinates(manager, project, snapshot) } else emptySet()
-        val platform = if (options.mavenPlatformFirst || platformScope) keys.filterValues { declarations -> declarations.any {
-            it.artifactKind == MavenArtifactKind.PARENT || it.groupId == "org.springframework.boot" &&
-                it.artifactId in setOf("spring-boot-dependencies", "spring-boot-starter-parent") || it in ownedPlatforms
-        } }.keys else emptySet()
-        // Publish dependencies before spending time on plugin candidate POMs. Optional platform
-        // priority gets its own batch so even a small POM can display that answer earlier.
-        val ordinary = keys.keys.filter { !it.plugin && it !in platform } + keys.keys.filter { it.plugin && it !in platform }
-        val first = if (platform.isEmpty()) ordinary.take(16).takeWhile { it.plugin == ordinary.first().plugin } else emptyList()
+        // Publish dependencies before spending time on plugin candidate POMs; a small first batch
+        // lets even a large POM display answers early.
+        val ordinary = keys.keys.filter { !it.plugin } + keys.keys.filter { it.plugin }
+        val first = ordinary.take(16).takeWhile { it.plugin == ordinary.first().plugin }
         val remaining = ordinary.drop(first.size)
-        val batches = platform.toList().chunked(128) + listOf(first).filter { it.isNotEmpty() } +
-            remaining.filter { !it.plugin }.chunked(128) + remaining.filter { it.plugin }.chunked(128)
+        val batches = listOf(first) + remaining.filter { !it.plugin }.chunked(128) + remaining.filter { it.plugin }.chunked(128)
         val updates = linkedMapOf<DependencyVersion, String>()
         val failures = mutableListOf<Exception>()
         val failedCoordinates = linkedSetOf<DependencyVersion>()
@@ -63,14 +57,17 @@ internal object MavenBatchedLookup {
             job.invokeOnCompletion { session?.release() }
         }) { missing ->
             withContext(session ?: EmptyCoroutineContext) {
-                MavenNativeMetadata.load(manager, project, context, missing, options.mavenMetadataThreads)
+                MavenNativeMetadata.load(manager, project, context, missing)
             }
         }
         val mavenVersion = MavenDistributionsCache.getInstance(manager.project).getMavenDistribution(project.file).version
-        for (batch in batches) {
+        // Keep two batches in flight, one per Maven process slot, so goal startup overlaps selection and publishing.
+        val pending = ArrayDeque(batches.take(2).map { batch -> async { load(batch) } })
+        for ((index, batch) in batches.withIndex()) {
             currentCoroutineContext().ensureActive()
             CheckQueue.yieldCurrent()
-            val result = load(batch)
+            val result = pending.removeFirst().await()
+            batches.getOrNull(index + 2)?.let { next -> pending.addLast(async { load(next) }) }
             val deltaUpdates = linkedMapOf<DependencyVersion, String>()
             val deltaFailures = mutableListOf<Exception>()
             val deltaFailedCoordinates = linkedSetOf<DependencyVersion>()
@@ -117,7 +114,7 @@ internal object MavenBatchedLookup {
             deltaCheckedAt?.let { checkedAt = minOf(checkedAt ?: Long.MAX_VALUE, it) }
             publish?.invoke(delta)
         }
-        return MavenLookupDelta(coordinates.toSet(), updates, failures, expires, checkedAt, failedCoordinates)
+        MavenLookupDelta(coordinates.toSet(), updates, failures, expires, checkedAt, failedCoordinates)
     }
 
     internal fun eligible(versions: List<String>, current: String, mode: UpdateMode): List<String> =

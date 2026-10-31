@@ -37,13 +37,7 @@ class VersionCheckerSettings : PersistentStateComponent<VersionCheckerSettings.O
         var otherSeverity: VersionSeverity = VersionSeverity.WARNING,
         var deprecatedSeverity: VersionSeverity = VersionSeverity.ERROR,
         var deprecatedDependencies: String = "",
-        var scheduledChecks: Boolean = false,
-        var checkIntervalMinutes: Int = 30,
         var ignoredVersions: String = "",
-        var mavenPlatformFirst: Boolean = false,
-        var mavenMetadataThreads: Int = 2,
-        var mavenFastEditorChecks: Boolean = false,
-        var mavenPersistentMetadata: Boolean = false,
         var mavenMinimumReleaseAgeHours: Int = 0
     )
     private var options = Options()
@@ -53,27 +47,15 @@ class VersionCheckerSettings : PersistentStateComponent<VersionCheckerSettings.O
 
 class VersionCheckerConfigurable(private val project: Project) : Configurable {
     private var enabled: JBCheckBox? = null
-    private var scheduled: JBCheckBox? = null
-    private var interval: JSpinner? = null
     private val severities = linkedMapOf<VersionChangeKind, ComboBox<VersionSeverity>>()
     private var deprecated: JBTextArea? = null
     private var ignored: JBTextArea? = null
-    private var platformFirst: JBCheckBox? = null
-    private var mavenThreads: JSpinner? = null
-    private var fastMaven: JBCheckBox? = null
-    private var persistentMaven: JBCheckBox? = null
     private var releaseAge: JSpinner? = null
     override fun getDisplayName(): String = "Version Checker"
     override fun createComponent(): JComponent {
         enabled = JBCheckBox("Enable version checks").apply { name = "versionChecker.enabled" }
         val form = FormBuilder.createFormBuilder().addComponent(enabled!!)
-        scheduled = JBCheckBox("Refresh periodically")
-        scheduled!!.toolTipText = "Check repositories while this project is open. Dependency versions are never changed automatically."
-        interval = JSpinner(SpinnerNumberModel(30, 1, 1440, 1))
-        scheduled!!.addActionListener { updateScheduleControls() }
-        enabled!!.addActionListener { updateScheduleControls() }
-        form.addComponent(scheduled!!).addLabeledComponent("Refresh interval (minutes):", interval!!)
-            .addComponent(TitledSeparator("Warnings"))
+        form.addComponent(TitledSeparator("Warnings"))
         for ((kind, label) in linkedMapOf(
             VersionChangeKind.PATCH to "Patch updates:",
             VersionChangeKind.MINOR to "Minor updates:",
@@ -102,47 +84,27 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
             form.addComponent(JBLabel(diagnostic).apply { accessibleContext.accessibleName = "Shared policy error" })
         }
 
-        platformFirst = JBCheckBox("Check Maven parents and Spring Boot BOMs first")
-        platformFirst!!.toolTipText = "Show platform results before checking the remaining dependencies."
-        fastMaven = JBCheckBox("Skip unused managed dependencies in editor checks")
-        fastMaven!!.toolTipText = "Refresh and update previews still check all supported declarations."
-        persistentMaven = JBCheckBox("Reuse Maven metadata across IDE sessions")
-        persistentMaven!!.toolTipText = "Reuse cached repository results for up to ten minutes. Refresh always queries fresh results."
-        mavenThreads = JSpinner(SpinnerNumberModel(2, 1, 4, 1)).apply {
-            toolTipText = "Use fewer parallel requests for slow or rate-limited repositories."
-        }
         releaseAge = JSpinner(SpinnerNumberModel(0, 0, MAX_RELEASE_AGE_HOURS, 1)).apply {
             name = "versionChecker.mavenMinimumReleaseAge"
             toolTipText = "Suggest only versions published at least this many hours ago, for example to match a repository " +
                 "quarantine period. 0 suggests the newest version."
         }
-        val maven = FormBuilder.createFormBuilder()
+        form.addComponent(TitledSeparator("Maven"))
             .addLabeledComponent("Minimum release age (hours):", releaseAge!!)
-            .addComponent(platformFirst!!)
-            .addComponent(fastMaven!!)
-            .addComponent(persistentMaven!!)
-            .addLabeledComponent("Parallel metadata requests:", mavenThreads!!)
-        form.addComponent(collapsedSection("Advanced Maven settings", maven.panel))
         return form.panel.also { reset() }
     }
     override fun isModified(): Boolean {
         val state = project.service<VersionCheckerSettings>().state
         return enabled?.isSelected != state.enabled ||
-            scheduled?.isSelected != state.scheduledChecks || interval?.value != state.checkIntervalMinutes.coerceIn(1, 1440) ||
             severities.any { (kind, selector) -> selector.selectedItem != kind.severity(state) } ||
             deprecated?.text != state.deprecatedDependencies || ignored?.text != state.ignoredVersions ||
-            platformFirst?.isSelected != state.mavenPlatformFirst || mavenThreads?.value != state.mavenMetadataThreads.coerceIn(1, 4) ||
-            fastMaven?.isSelected != state.mavenFastEditorChecks || persistentMaven?.isSelected != state.mavenPersistentMetadata ||
             releaseAge?.value != state.mavenMinimumReleaseAgeHours.coerceIn(0, MAX_RELEASE_AGE_HOURS)
     }
     override fun apply() {
         val state = project.service<VersionCheckerSettings>().state
-        val persistenceChanged = state.mavenPersistentMetadata != persistentMaven!!.isSelected
         val releaseAgeChanged = state.mavenMinimumReleaseAgeHours != releaseAge!!.value as Int
         val disabling = state.enabled && !enabled!!.isSelected
         state.enabled = enabled!!.isSelected
-        state.scheduledChecks = scheduled!!.isSelected
-        state.checkIntervalMinutes = interval!!.value as Int
         state.patchSeverity = selected(VersionChangeKind.PATCH)
         state.minorSeverity = selected(VersionChangeKind.MINOR)
         state.majorSeverity = selected(VersionChangeKind.MAJOR)
@@ -150,32 +112,19 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
         state.deprecatedSeverity = selected(VersionChangeKind.DEPRECATED)
         state.deprecatedDependencies = deprecated!!.text
         state.ignoredVersions = ignored!!.text
-        state.mavenPlatformFirst = platformFirst!!.isSelected
-        state.mavenMetadataThreads = mavenThreads!!.value as Int
-        state.mavenFastEditorChecks = fastMaven!!.isSelected
-        state.mavenPersistentMetadata = persistentMaven!!.isSelected
         state.mavenMinimumReleaseAgeHours = releaseAge!!.value as Int
         if (disabling) project.service<VersionCheckService>().pause()
-        if (persistenceChanged) io.github.khopland.versionchecker.core.BuildSystemAdapter.find("maven")?.invalidateMetadata(project)
         // Cached histories and release dates stay valid; only the selected versions change.
         if (releaseAgeChanged) project.service<VersionCheckService>().invalidateResults("maven")
-        project.service<ScheduledVersionChecks>().configure()
         project.service<VersionCheckService>().statusChanged()
         refreshEditorProblems(project, this)
     }
     override fun reset() {
         val state = project.service<VersionCheckerSettings>().state
         enabled?.isSelected = state.enabled
-        scheduled?.isSelected = state.scheduledChecks
-        interval?.value = state.checkIntervalMinutes.coerceIn(1, 1440)
-        updateScheduleControls()
         severities.forEach { (kind, selector) -> selector.selectedItem = kind.severity(state) }
         deprecated?.text = state.deprecatedDependencies
         ignored?.text = state.ignoredVersions
-        platformFirst?.isSelected = state.mavenPlatformFirst
-        mavenThreads?.value = state.mavenMetadataThreads.coerceIn(1, 4)
-        fastMaven?.isSelected = state.mavenFastEditorChecks
-        persistentMaven?.isSelected = state.mavenPersistentMetadata
         releaseAge?.value = state.mavenMinimumReleaseAgeHours.coerceIn(0, MAX_RELEASE_AGE_HOURS)
     }
     private fun collapsedSection(title: String, content: JComponent): JPanel = panel {
@@ -185,9 +134,5 @@ class VersionCheckerConfigurable(private val project: Project) : Configurable {
     }
 
     private fun selected(kind: VersionChangeKind) = severities.getValue(kind).selectedItem as VersionSeverity
-    private fun updateScheduleControls() {
-        scheduled?.isEnabled = enabled?.isSelected == true
-        interval?.isEnabled = enabled?.isSelected == true && scheduled?.isSelected == true
-    }
-    override fun disposeUIResources() { enabled = null; scheduled = null; interval = null; deprecated = null; ignored = null; platformFirst = null; mavenThreads = null; fastMaven = null; persistentMaven = null; releaseAge = null; severities.clear() }
+    override fun disposeUIResources() { enabled = null; deprecated = null; ignored = null; releaseAge = null; severities.clear() }
 }

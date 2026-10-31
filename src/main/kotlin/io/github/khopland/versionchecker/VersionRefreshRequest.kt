@@ -23,8 +23,4 @@ internal sealed interface VersionRefreshRequest {
         override val label = "Failed Checks"
         override fun requestedFiles(adapterId: String): Set<String>? = files[adapterId]
     }
-
-    data object Scheduled : VersionRefreshRequest {
-        override val selection = BuildSelection(UpdateScope.WHOLE_PROJECT)
-    }
 }

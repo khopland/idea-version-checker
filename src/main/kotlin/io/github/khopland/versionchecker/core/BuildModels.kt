@@ -5,7 +5,7 @@ import io.github.khopland.versionchecker.UpdateMode
 /** Coordinates, declarations and repository contexts have separate identities. */
 internal data class ArtifactId(val namespace: String, val name: String)
 
-enum class UpdateScope(val label: String) { CURRENT_FILE("Current File"), WHOLE_PROJECT("Whole Project"), MAVEN_PLATFORM("Maven Platform") }
+enum class UpdateScope(val label: String) { CURRENT_FILE("Current File"), WHOLE_PROJECT("Whole Project") }
 internal data class BuildSelection(val scope: UpdateScope, val currentFile: String? = null)
 internal data class AdapterCapabilities(
     val updateModes: Set<UpdateMode> = UpdateMode.entries.toSet(),

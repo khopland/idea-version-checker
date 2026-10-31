@@ -3,9 +3,7 @@ package io.github.khopland.versionchecker
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.progress.reportProgressScope
@@ -58,20 +56,6 @@ internal class VersionRefreshCoordinator(
         return job
     }
 
-    /** A timer must not invalidate work that an editor inspection or manual refresh is already doing. */
-    suspend fun refreshScheduled() {
-        if (!refreshMutex.tryLock()) return
-        try {
-            if (!isAvailable() || manualRefreshes.get() != 0 || executor.isBusy || DumbService.isDumb(project) ||
-                !project.service<VersionCheckerSettings>().state.enabled) return
-            val adapters = readAction { BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.WHOLE_PROJECT)) }
-                .filterNot { it.isOffline(project) }
-            refreshNow(adapters, VersionRefreshRequest.Scheduled)
-        } finally {
-            refreshMutex.unlock()
-        }
-    }
-
     fun recheckAfterEdits(adapters: List<BuildSystemAdapter>, selection: BuildSelection): Job = scope.launch(Dispatchers.IO) {
         val failures = VersionCheckFailures()
         try {
@@ -99,25 +83,18 @@ internal class VersionRefreshCoordinator(
 
     private suspend fun refreshNow(adapters: List<BuildSystemAdapter>, request: VersionRefreshRequest) {
         if (adapters.isEmpty() || !isAvailable() || !project.service<VersionCheckerSettings>().state.enabled) return
-        val scheduled = request == VersionRefreshRequest.Scheduled
         val selection = request.selection
         val affected = mutableSetOf<String>()
         val failures = VersionCheckFailures()
         selection.currentFile?.let { affected += it }
         try {
             withBackgroundProgress(project, "Checking dependency versions: ${request.label}", cancellable = true) {
-                val unsaved = if (scheduled) readAction {
-                    val documents = FileDocumentManager.getInstance()
-                    documents.unsavedDocuments.mapNotNull { documents.getFile(it)?.path }.toSet()
-                } else emptySet()
                 val scans = adapters.flatMap { adapter ->
                     try {
-                        if (!scheduled) {
-                            val requested = request.requestedFiles(adapter.id)
-                            if (requested == null) saveBuildInputs(project, selection, listOf(adapter))
-                            else for (path in requested) {
-                                saveBuildInputs(project, BuildSelection(UpdateScope.CURRENT_FILE, path), listOf(adapter))
-                            }
+                        val requested = request.requestedFiles(adapter.id)
+                        if (requested == null) saveBuildInputs(project, selection, listOf(adapter))
+                        else for (path in requested) {
+                            saveBuildInputs(project, BuildSelection(UpdateScope.CURRENT_FILE, path), listOf(adapter))
                         }
                         val discovered = discoverRefreshSnapshots(adapter, selection, request.requestedFiles(adapter.id), failures)
                         affected += discovered.map { it.sourceFile }
@@ -125,10 +102,7 @@ internal class VersionRefreshCoordinator(
                             failures.offline(adapter.displayName)
                             return@flatMap emptyList()
                         }
-                        val eligible = if (scheduled) discovered.filter { snapshot ->
-                            !readAction { adapter.hasUnsavedResolutionInputs(project, snapshot, unsaved) }
-                        } else discovered
-                        eligible.map { adapter to it }
+                        discovered.map { adapter to it }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (cancelled: ProcessCanceledException) {
@@ -142,12 +116,10 @@ internal class VersionRefreshCoordinator(
                     }
                 }.sortedByDescending { it.second.sourceFile in selectedPaths }
                 if (scans.isEmpty()) return@withBackgroundProgress
-                if (scheduled) scans.map { it.first }.distinctBy { it.id }.forEach { it.invalidateMetadata(project) }
                 withBuildScans(project, scans, UpdateMode.MAJOR) {
                     reportProgressScope(scans.size) { reporter ->
                         for ((adapter, snapshot) in scans) {
                             reporter.itemStep("${adapter.displayName}: ${snapshot.sourceFile.substringAfterLast('/')}") {
-                                if (scheduled) invalidateSource(adapter.id, snapshot.sourceFile)
                                 if (executor.scanRefresh(adapter, snapshot, interactive = request.interactive, failures = failures))
                                     affected -= snapshot.sourceFile
                             }

@@ -41,8 +41,8 @@ class SupportDiagnosticReportTest {
     }
 
     @Test fun settingsAndPolicyOnlyContainAllowlistedScalarsAndCountsWithProvenance() {
-        val settings = VersionCheckerSettings.Options(enabled = false, scheduledChecks = true, checkIntervalMinutes = -20,
-            mavenMetadataThreads = 500, mavenMinimumReleaseAgeHours = -10,
+        val settings = VersionCheckerSettings.Options(enabled = false,
+            mavenMinimumReleaseAgeHours = -10,
             deprecatedDependencies = "private:library = password=workspace-deprecation-secret",
             ignoredVersions = "npm private-package = private-version-secret")
         val policy = ProjectPolicySnapshot("""{"schemaVersion":1,"rules":[{"ecosystem":"npm","package":"private-shared-name",
@@ -57,9 +57,7 @@ class SupportDiagnosticReportTest {
         val document = JsonParser.parseString(json).asJsonObject
         val scalar = document.getAsJsonObject("settings")
         assertEquals("workspace-settings", scalar["source"].asString)
-        assertFalse(scalar["scheduledChecksEffective"].asBoolean)
-        assertEquals(1, scalar["checkIntervalMinutes"].asInt)
-        assertEquals(4, scalar["mavenMetadataThreads"].asInt)
+        assertFalse(scalar["enabled"].asBoolean)
         assertEquals(0, scalar["mavenMinimumReleaseAgeHours"].asInt)
         assertFalse(scalar.has("ignoredVersions"))
         val provenance = document.getAsJsonObject("policy")

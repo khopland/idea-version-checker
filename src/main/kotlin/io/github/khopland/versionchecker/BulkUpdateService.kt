@@ -103,9 +103,6 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                         val currentAvailable = currentFile != null && readAction {
                             BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
                         }
-                        val platformAvailable = currentFile != null && readAction {
-                            BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, currentFile.path)).isNotEmpty()
-                        }
                         val prepared = withBackgroundProgress(project, "Checking versions: ${selectedScope.label} — ${selectedMode.label}", cancellable = true) {
                             saveBuildInputs(project, BuildSelection(selectedScope, currentFile?.path), matching)
                             CheckPerformance.measure(CheckPerformance.Stage.PREVIEW_PREPARATION) {
@@ -119,7 +116,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                             var appliedInDialog = false
                             val accepted = showDialog {
                                 BulkUpdateDialog(project, selectedMode, selectedScope.label, matching.joinToString { it.displayName }, prepared.plan).also {
-                                    dialog = it; it.configure(prepared, currentAvailable, platformAvailable)
+                                    dialog = it; it.configure(prepared, currentAvailable)
                                     val review = it
                                     val requests = PreviewRequestController(scope,
                                         isAvailable = { !disposed && !project.isDisposed && !review.isDisposed },
@@ -127,7 +124,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
                                         onPrepared = { request, result ->
                                             matching = result.adapters
                                             review.replacePrepared(result.preview, request.mode, request.updateScope,
-                                                result.adapters.joinToString { it.displayName }, result.currentAvailable, result.platformAvailable)
+                                                result.adapters.joinToString { it.displayName }, result.currentAvailable)
                                         },
                                         onFailure = review::recheckFailed)
                                     Disposer.register(review.disposable, requests)
@@ -230,10 +227,7 @@ class BulkUpdateService(private val project: Project, private val scope: Corouti
         val current = currentFile != null && readAction {
             BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.CURRENT_FILE, currentFile.path)).isNotEmpty()
         }
-        val platform = currentFile != null && readAction {
-            BuildSystemAdapter.matching(project, BuildSelection(UpdateScope.MAVEN_PLATFORM, currentFile.path)).isNotEmpty()
-        }
-        return PreviewRecheckResult(prepared, adapters, current, platform)
+        return PreviewRecheckResult(prepared, adapters, current)
     }
 
     internal suspend fun createPlan(mode: UpdateMode, updateScope: UpdateScope = UpdateScope.WHOLE_PROJECT,

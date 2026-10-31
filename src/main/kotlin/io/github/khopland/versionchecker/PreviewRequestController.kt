@@ -27,8 +27,7 @@ internal data class PreviewRecheckRequest(
 internal data class PreviewRecheckResult(
     val preview: PreparedVersionPreview,
     val adapters: List<BuildSystemAdapter>,
-    val currentAvailable: Boolean,
-    val platformAvailable: Boolean
+    val currentAvailable: Boolean
 )
 
 /** One dialog's rechecks. Requests, disposal and delivery are serialized on EDT. */

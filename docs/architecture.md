@@ -9,7 +9,7 @@ Each adapter owns repository resolution, declaration parsing, and build-specific
 | --- | --- |
 | `core/BuildSystemAdapter` | Define discovery, snapshots, native checks, and update preparation. Provider plugin descriptors register optional IDE integrations. |
 | `VersionCheckService` | Provide project entry points, lifecycle control, editor selection, and inspection input caching. |
-| `VersionRefreshCoordinator` | Discover inputs and manage refresh requests, retries, and progress. `VersionRefreshRequest` defines manual and scheduled policies. |
+| `VersionRefreshCoordinator` | Discover inputs and manage refresh requests, retries, and progress. `VersionRefreshRequest` defines manual and retry policies. |
 | `CheckExecutor` | Queue checks, handle cancellation, publish results, and access the result cache. |
 | `core/VersionResultCache` | Track result identities, revisions, expiry, and inspection leases. |
 | `BulkUpdateService` | Manage previews, dialogs, source navigation, and accepted updates. |
@@ -79,7 +79,7 @@ Reading the dependency tool window must not start native checks.
 Manual refresh first invalidates metadata and results.
 It then saves the requested inputs, discovers snapshots, and runs checks.
 Current-file requests have interactive queue priority.
-Whole-project manual refreshes run in sequence with scheduled refreshes.
+Whole-project manual refreshes run in sequence.
 
 Retries also have interactive priority.
 They keep provider and source targets through saving, discovery, invalidation, and failure reporting.
@@ -93,7 +93,7 @@ They invalidate each source immediately before its check.
 ## Shared code and provider rules
 
 Maven and npm keep separate metadata caches.
-Maven batches requests and supports persistent storage.
+Maven batches requests and keeps metadata in memory only.
 npm, pnpm, Yarn and Bun share package workers and retained version indexes. Manager identity and native configuration isolate their metadata/runtime sessions; pnpm YAML changes also invalidate cached workspace ownership.
 `MetadataCacheContractTest` checks their common lifecycle rules.
 

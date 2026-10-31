@@ -39,13 +39,10 @@ internal class MavenBuildSystemAdapter(
     }
     override val id = "maven"
     override val displayName = "Maven"
-    override val capabilities = AdapterCapabilities(incrementalInspections = true, updateScopes = UpdateScope.entries.toSet())
+    override val capabilities = AdapterCapabilities(incrementalInspections = true)
 
-    override fun supports(project: Project, selection: BuildSelection): Boolean {
-        val manager = MavenProjectsManager.getInstance(project)
-        val projects = selectedProjects(manager, selection)
-        return projects.isNotEmpty() && (selection.scope != UpdateScope.MAVEN_PLATFORM || projects.any { MavenPlatformScope.hasPlatform(manager, it) })
-    }
+    override fun supports(project: Project, selection: BuildSelection): Boolean =
+        selectedProjects(MavenProjectsManager.getInstance(project), selection).isNotEmpty()
 
     override suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> {
         val inputs = readAction {
@@ -82,14 +79,7 @@ internal class MavenBuildSystemAdapter(
         return CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
             val manager = MavenProjectsManager.getInstance(project)
             val mavenProject = manager.findProject(file)?.takeUnless { manager.isIgnored(it) } ?: return@measure null
-            val snapshot = captureSnapshot(project, mavenProject, inputs) ?: return@measure null
-            // Retain the full audit's coverage and failures until it expires or is invalidated.
-            if (!project.service<VersionCheckerSettings>().state.mavenFastEditorChecks ||
-                project.service<VersionCheckService>().cached(snapshot) != null) snapshot else {
-                val file = PsiManager.getInstance(project).findFile(mavenProject.file) ?: return@measure snapshot
-                val model = MavenDomUtil.getMavenDomProjectModel(file) ?: return@measure snapshot
-                MavenFastEditorScope.select(manager, model, snapshot)
-            }
+            captureSnapshot(project, mavenProject, inputs)
         }
     }
 
@@ -173,9 +163,7 @@ internal class MavenBuildSystemAdapter(
         val manager = MavenProjectsManager.getInstance(project)
         selectedProjects(manager, selection).mapNotNull { mavenProject ->
             CheckPerformance.measure(CheckPerformance.Stage.MAVEN_SNAPSHOT) {
-                val snapshot = captureSnapshot(project, mavenProject, inputs) ?: return@measure null
-                if (selection.scope == UpdateScope.MAVEN_PLATFORM) MavenPlatformScope.select(manager, mavenProject, snapshot)
-                    .takeIf { it.declarations.isNotEmpty() } else snapshot
+                captureSnapshot(project, mavenProject, inputs)
             }
         }
     }
@@ -266,8 +254,7 @@ internal class MavenBuildSystemAdapter(
         manager.nonIgnoredProjects.singleOrNull { it.path == snapshot.sourceFile }
 
     private fun selectedProjects(manager: MavenProjectsManager, selection: BuildSelection): List<MavenProject> =
-        if (selection.scope == UpdateScope.MAVEN_PLATFORM) MavenPlatformScope.projects(manager, selection.currentFile) else
-            manager.nonIgnoredProjects.filter { selection.scope == UpdateScope.WHOLE_PROJECT || it.path == selection.currentFile }
+        manager.nonIgnoredProjects.filter { selection.scope == UpdateScope.WHOLE_PROJECT || it.path == selection.currentFile }
 
     private fun readRelocations(mavenProject: MavenProject, snapshot: BuildSnapshot): Map<DependencyVersion, String> = buildMap {
         for (coordinate in snapshot.declarations.map { it.coordinate() }.distinct()) {

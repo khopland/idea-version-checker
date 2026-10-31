@@ -138,8 +138,7 @@ internal object MavenVersionLookup {
     private suspend fun load(scan: Scan, repository: Path, keys: List<MavenMetadataKey>): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
         val context = MavenResolutionContext("", repository, scan.inputs.properties, scan.profiles,
             nativeSupported = false)
-        val threads = scan.manager.project.service<VersionCheckerSettings>().state.mavenMetadataThreads
-        return MavenNativeMetadata.load(scan.manager, scan.project, context, keys, threads)
+        return MavenNativeMetadata.load(scan.manager, scan.project, context, keys)
     }
 
     /** The Versions goals cannot see release dates, so re-select their answers when a minimum release age is set. */

@@ -26,7 +26,7 @@ internal object MavenNativeMetadata {
     }
 
     suspend fun load(manager: MavenProjectsManager, project: MavenProject, context: MavenResolutionContext,
-                     keys: List<MavenMetadataKey>, threads: Int): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
+                     keys: List<MavenMetadataKey>, threads: Int = 4): Map<MavenMetadataKey, Result<MavenMetadataValue>> {
         val response = request(manager, project, context, keys, threads)
         return keys.mapIndexed { index, key -> key to runCatching {
             response.getProperty("$index.error")?.let { throw IOException("${key.group}:${key.artifact}: $it") }

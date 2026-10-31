@@ -46,10 +46,7 @@ internal interface BuildSystemAdapter {
                                    publish: suspend (InspectionUpdate) -> Unit): UpdateReport = check(project, snapshot, mode)
     /** Presentation only; retained warnings must never satisfy a fresh check or bulk-preview guard. */
     fun retainInspectionReport(previous: BuildSnapshot, report: UpdateReport, current: BuildSnapshot): UpdateReport? = null
-    /** Called under a read action; timers must not resolve against files whose edits are unsaved. */
-    fun hasUnsavedResolutionInputs(project: Project, snapshot: BuildSnapshot, unsavedPaths: Set<String>): Boolean =
-        snapshot.fingerprint.files.keys.any { it in unsavedPaths }
-    /** Start a fresh native metadata generation before a manual/scheduled scan or bulk preview. */
+    /** Start a fresh native metadata generation before a manual scan or bulk preview. */
     fun invalidateMetadata(project: Project) = Unit
     suspend fun prepareUpdates(project: Project, reports: Map<BuildSnapshot, UpdateReport>): BulkUpdatePlan
 

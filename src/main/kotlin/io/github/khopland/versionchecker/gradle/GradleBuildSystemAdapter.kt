@@ -41,7 +41,6 @@ internal class GradleBuildSystemAdapter(
     override fun supports(project: Project, selection: BuildSelection): Boolean = when (selection.scope) {
         UpdateScope.CURRENT_FILE -> selection.currentFile?.let { inputs.find(project, it) }?.let { inputs.supportsFile(project, it) } == true
         UpdateScope.WHOLE_PROJECT -> inputs.roots(project).any { root -> inputs.files(project, root).any { inputs.supportsFile(project, it) } }
-        UpdateScope.MAVEN_PLATFORM -> false
     }
     override suspend fun resolutionInputPaths(project: Project, selection: BuildSelection): Set<String> =
         inputs.resolutionInputPaths(project, selection)

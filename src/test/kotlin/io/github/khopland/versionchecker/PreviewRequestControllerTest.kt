@@ -15,7 +15,7 @@ class PreviewRequestControllerTest : BasePlatformTestCase() {
     private val second = PreviewRecheckRequest(UpdateMode.entries.last(), UpdateScope.CURRENT_FILE, true,
         CheckPerformance.Interaction(42, System.nanoTime()))
     private val prepared = PreviewRecheckResult(
-        PreparedVersionPreview(BulkUpdatePlan(emptyList(), emptyList()), 1L, 0, 1), emptyList(), true, false)
+        PreparedVersionPreview(BulkUpdatePlan(emptyList(), emptyList()), 1L, 0, 1), emptyList(), true)
 
     override fun setUp() {
         super.setUp()

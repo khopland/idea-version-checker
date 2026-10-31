@@ -127,7 +127,6 @@ class VersionCheckService(private val project: Project, private val scope: Corou
     }
 
     /** A timer must not invalidate editor inspections or manual refreshes already in progress. */
-    internal suspend fun refreshScheduled() = refreshes.refreshScheduled()
 
     private fun invalidate(adapterId: String, sourceFile: String?) {
         inspectionInputs.invalidate(adapterId, sourceFile)
