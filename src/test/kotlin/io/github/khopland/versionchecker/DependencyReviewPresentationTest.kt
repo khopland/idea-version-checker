@@ -1,11 +1,9 @@
 package io.github.khopland.versionchecker
 
-import com.google.gson.JsonParser
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.*
-import java.time.Instant
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.RowSorter
@@ -184,20 +182,6 @@ class DependencyReviewPresentationTest : BasePlatformTestCase() {
         assertTrue(DependencyReviewCoverage.nextAction(review).contains("consumers"))
         assertFalse(DependencyReviewCoverage.description(listOf(observed("complete")))
             .contains("Coverage incomplete"))
-    }
-
-    fun testExportRedactsCheckSourceAndNeverSerializesContextOrConfiguration() {
-        val row = observed("module").copy(origin = observed("module").origin!!.copy(
-            context = BuildContextId("gradle", "/private/root", "private-resolution-key"),
-            checkSourceFile = "/Users/private/project/build.gradle.kts"))
-        val json = DependencyReviewExport.json(listOf(row), "/project", Instant.EPOCH, clock)
-        val result = JsonParser.parseString(json).asJsonObject.getAsJsonArray("results").single().asJsonObject
-        assertEquals("<outside-project>", result.get("checkSourceFile").asString)
-        for (private in listOf("private-resolution-key", "/Users/private", "private-configuration", "/private/root"))
-            assertFalse(private, json.contains(private))
-        val local = JsonParser.parseString(DependencyReviewExport.json(listOf(observed("module")), "/project", Instant.EPOCH, clock))
-            .asJsonObject.getAsJsonArray("results").single().asJsonObject
-        assertEquals("module/build.gradle.kts", local.get("checkSourceFile").asString)
     }
 
     fun testAgeSortingUsesOneClockSampleUntilPresentationRefresh() {

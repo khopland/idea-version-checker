@@ -115,7 +115,7 @@ See [update sessions](docs/user-guide.md#update-sessions) for retention and vali
 
 ## Cached results
 
-The **Dependency Versions** tool window can search, filter, sort, and export cached observations.
+The **Dependency Versions** tool window can search, filter, and sort cached observations.
 Opening the window or changing filters does not start a native check.
 Cached results can expire or refer to earlier build inputs.
 Refresh and review before you edit versions.
@@ -125,10 +125,6 @@ Zero updates does not confirm complete coverage.
 Separate build contexts or update modes can describe the same physical declaration.
 The parser cannot count declarations that it does not recognize.
 
-Use **Copy Markdown** to paste a review summary into an issue or pull request.
-**Export Markdown…** and **Export JSON…** save the displayed rows in their sort order.
-Exports use sanitized details and project-relative source paths. External paths are redacted.
-Copying or exporting preserves the original observation timing and does not refresh checks.
 See the [tool window guide](docs/user-guide.md#dependency-versions-tool-window) for details.
 
 ## Settings and repositories

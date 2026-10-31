@@ -35,11 +35,6 @@ kotlin {
 }
 
 tasks.processResources {
-    val supportReportVersion = project.version.toString()
-    inputs.property("supportReportVersion", supportReportVersion)
-    filesMatching("io/github/khopland/versionchecker/support-build.properties") {
-        expand("pluginVersion" to supportReportVersion)
-    }
     from("LICENSE") { into("META-INF") }
     from(project(":maven-helper").tasks.named("jar")) {
         into("maven-helper")

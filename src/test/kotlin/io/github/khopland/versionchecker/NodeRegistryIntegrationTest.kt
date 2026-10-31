@@ -152,14 +152,6 @@ class NodeRegistryIntegrationTest : BasePlatformTestCase() {
                 assertTrue(plan.changes.all { it.latest.endsWith(expected) && it.location.startsWith(root.path) })
                 assertTrue(plan.changes.all { it.buildSystemId == manager.id })
                 assertTrue(plan.followUp.none { it.startsWith("npm updates") })
-                if (mode == UpdateMode.MAJOR) {
-                    val target = plan.changes.single { it.npmTarget?.selector?.startsWith("npm:") == true }.npmTarget!!
-                    val details = PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
-                        runBlocking { NpmTargetDetailsLoader.load(project, target) }
-                    }), 30_000)
-                    assertEquals(mapOf("node" to ">=20"), details.engines)
-                    assertEquals(mapOf("react" to "^19"), details.peers)
-                }
             }
             val snapshot = adapter.snapshot(project, root)!!
             val service = project.service<VersionCheckService>()
