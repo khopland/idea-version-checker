@@ -55,9 +55,50 @@ gradle.projectsEvaluated {
                     }
                 }
                 def checkedCoordinates = [:]
+                // Plugin repositories come from pluginManagement and are only attached to the
+                // buildscript of projects with a plugins block; resolve the marker there.
+                def pluginOwners = gradle.rootProject.allprojects.findAll { p ->
+                    p.buildscript.repositories.any { it.name.startsWith('__plugin_repository__') }
+                }
+                def pluginNumbers = { s -> (s =~ /^[0-9]+(?:\.[0-9]+)*/).with { it.find(); it.group().tokenize('.').collect { n -> new BigInteger(n) } } }
+                def pluginQualifier = { s ->
+                    def match = s =~ probeConfiguration.suffixPattern
+                    match.find() ? match.group(1).toLowerCase(Locale.ROOT) : ''
+                }
+                def pluginChannel = { s -> def q = pluginQualifier(s); q in ['jre', 'android'] ? q : '' }
+                def checkPlugin = { request, requestSource ->
+                    def owner = requestSource.name.endsWith('.toml') ? pluginOwners.find() :
+                        pluginOwners.find { p -> p.buildFile.canonicalFile == requestSource }
+                    if (owner == null) return [versions: [], reason: 'No plugin repositories found for plugin ' + request.group + '; needs manual review']
+                    work.semanticProbes++
+                    def old = pluginNumbers(request.current)
+                    def marker = owner.buildscript.dependencies.create(request.group + ':' + request.name + ':+')
+                    def conf = owner.buildscript.configurations.detachedConfiguration(marker)
+                    conf.transitive = false
+                    conf.resolutionStrategy.componentSelection.all { selection ->
+                        def v = selection.candidate.version
+                        def stable = v ==~ probeConfiguration.stablePattern
+                        def next = stable ? pluginNumbers(v) : []
+                        if (!stable || pluginChannel(v) != pluginChannel(request.current) ||
+                            (probeConfiguration.mode != 'MAJOR' && old[0] != next[0]) ||
+                            (probeConfiguration.mode == 'PATCH' && (old.size() > 1 ? old[1] : BigInteger.ZERO) != (next.size() > 1 ? next[1] : BigInteger.ZERO)))
+                            selection.reject('Outside stable update scope')
+                    }
+                    def result = conf.incoming.resolutionResult.root.dependencies.find()
+                    if (result instanceof UnresolvedDependencyResult)
+                        throw new GradleException('Could not check plugin ' + request.group + ' in ' + owner.path, result.failure)
+                    if (!(result instanceof ResolvedDependencyResult) || result.selected.moduleVersion == null ||
+                        result.selected.moduleVersion.group != request.group || result.selected.moduleVersion.name != request.name)
+                        return [versions: [], reason: 'Plugin resolution needs manual review for ' + request.group]
+                    [versions: [result.selected.moduleVersion.version], reason: null]
+                }
                 requests.each { request ->
                     def requestKey = [request.group, request.name, request.current]
                     def requestSource = new File(request.source ?: source.path).canonicalFile
+                    if (request.plugin) {
+                        report[request.id] = checkPlugin(request, requestSource)
+                        return
+                    }
                     def checkedKey = [requestSource, requestKey]
                     if (indexed && checkedCoordinates.containsKey(checkedKey)) {
                         report[request.id] = checkedCoordinates[checkedKey]

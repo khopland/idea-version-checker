@@ -114,7 +114,7 @@ class GradleNamedCatalogTest : BasePlatformTestCase() {
         }
     }
 
-    fun testNamedCatalogRetainsMalformedSyntaxAndPluginSharedReferenceBlockers() {
+    fun testNamedCatalogSharesPluginReferencesAndRetainsMalformedSyntax() {
         val catalog = myFixture.addFileToProject("catalogs/versions/tools.toml", """
             [versions]
             shared = "1.2.3"
@@ -127,11 +127,12 @@ class GradleNamedCatalogTest : BasePlatformTestCase() {
         """.trimIndent())
         link(registration("tools", "versions/tools.toml"))
         val snapshot = adapter.snapshot(project, catalog.virtualFile)!!
-        assertEquals(setOf("libraries/alpha", "libraries/beta"), snapshot.skippedDeclarations.keys.map { it.location }.toSet())
+        assertTrue(snapshot.skippedDeclarations.isEmpty())
         val plan = background { adapter.prepareUpdates(project, mapOf(snapshot to report(snapshot))) }
-        assertEquals(1, plan.changes.size)
-        assertTrue(plan.changes.single().location.contains("libraries/direct"))
-        assertTrue(plan.skipped.any { it.contains("plugin") })
+        // The shared version has library and plugin consumers that agree on one target.
+        assertEquals(2, plan.changes.size)
+        assertTrue(plan.changes.any { it.location.contains("libraries/alpha") && it.location.contains("plugins/plugin") })
+        assertTrue(plan.changes.any { it.location.contains("libraries/direct") })
         edit(catalog, "[libraries]\nalpha = 'g:alpha:1.2.3'\nalpha = 'g:alpha:1.2.9'")
         val malformed = adapter.snapshot(project, catalog.virtualFile)!!
         assertEquals("catalog/syntax", malformed.declarations.single().id.location)

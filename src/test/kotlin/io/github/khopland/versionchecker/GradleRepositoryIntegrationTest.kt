@@ -674,6 +674,72 @@ class GradleRepositoryIntegrationTest : BasePlatformTestCase() {
         }
     }
 
+    fun testPluginVersionsResolveThroughPluginManagementRepositories() {
+        if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
+        val directory = Files.createTempDirectory("version-checker-gradle-plugins-").toRealPath()
+        VfsRootAccess.allowRootAccess(testRootDisposable, directory.toString())
+        val settings = GradleSettings.getInstance(project)
+        val previousOffline = settings.isOfflineWork
+        val plugins = mapOf("example.alpha" to listOf("1.0", "1.1", "2.0", "2.1-rc1"), "example.beta" to listOf("1.0", "1.0.1"))
+        try {
+            settings.isOfflineWork = false
+            project.service<VersionCheckerSettings>().loadState(VersionCheckerSettings.Options())
+            for ((id, versions) in plugins) {
+                val marker = "$id.gradle.plugin"
+                val publication = Files.createDirectories(directory.resolve("plugin-repo/${id.replace('.', '/')}/$marker"))
+                Files.writeString(publication.resolve("maven-metadata.xml"), """<metadata><groupId>$id</groupId><artifactId>$marker</artifactId>
+                  <versioning><versions>${versions.joinToString("") { "<version>$it</version>" }}</versions></versioning></metadata>""")
+                for (version in versions) {
+                    val path = Files.createDirectories(publication.resolve(version))
+                    Files.writeString(path.resolve("$marker-$version.pom"), """<project><modelVersion>4.0.0</modelVersion>
+                      <groupId>$id</groupId><artifactId>$marker</artifactId><version>$version</version><packaging>pom</packaging></project>""")
+                }
+            }
+            Files.writeString(directory.resolve("settings.gradle.kts"), """
+                pluginManagement { repositories { maven { url = uri("plugin-repo") } } }
+                rootProject.name = "plugin-fixture"
+            """.trimIndent())
+            Files.writeString(directory.resolve("build.gradle.kts"), """
+                plugins {
+                    id("example.alpha") version "1.0" apply false
+                    alias(libs.plugins.beta) apply false
+                }
+            """.trimIndent())
+            Files.createDirectories(directory.resolve("gradle"))
+            Files.writeString(directory.resolve("gradle/libs.versions.toml"), "[plugins]\nbeta = { id = \"example.beta\", version = \"1.0\" }\n")
+            val wrapper = Files.createDirectories(directory.resolve("gradle/wrapper"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.properties"), wrapper.resolve("gradle-wrapper.properties"))
+            Files.copy(Path.of("gradle/wrapper/gradle-wrapper.jar"), wrapper.resolve("gradle-wrapper.jar"))
+            val root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(directory)!!
+            VfsUtil.markDirtyAndRefresh(false, true, true, root)
+            settings.linkProject(GradleProjectSettings().apply {
+                externalProjectPath = directory.toString()
+                gradleJvm = "#JAVA_HOME"
+                distributionType = DistributionType.DEFAULT_WRAPPED
+                setModules(setOf(directory.toString()))
+            })
+            val adapter = GradleBuildSystemAdapter()
+            fun check(file: String, mode: UpdateMode): UpdateReport {
+                val snapshot = adapter.snapshot(project, root.findFileByRelativePath(file)!!)!!
+                return PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread(Callable {
+                    runBlocking { adapter.check(project, snapshot, mode) }
+                }), 120_000)
+            }
+            val script = check("build.gradle.kts", UpdateMode.MAJOR)
+            assertEquals(mapOf("example.alpha" to "2.0"), script.candidates.associate { it.declaration.artifact.name to it.version })
+            assertEquals("plugin", script.candidates.single().declaration.artifact.namespace)
+            assertEquals(mapOf("example.alpha" to "1.1"),
+                check("build.gradle.kts", UpdateMode.MINOR).candidates.associate { it.declaration.artifact.name to it.version })
+            assertEquals(mapOf("example.beta" to "1.0.1"),
+                check("gradle/libs.versions.toml", UpdateMode.MAJOR).candidates.associate { it.declaration.artifact.name to it.version })
+            assertFalse(Files.exists(directory.resolve("build/classes")))
+        } finally {
+            settings.unlinkExternalProject(directory.toString())
+            settings.isOfflineWork = previousOffline
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     fun testNativeGradleRepositoryAuthenticationCatalogSubprojectsAndModes() {
         if (!java.lang.Boolean.getBoolean("versionchecker.gradleIntegration")) return
         val directory = Files.createTempDirectory("version-checker-gradle-integration-").toRealPath()

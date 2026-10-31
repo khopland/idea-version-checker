@@ -72,7 +72,7 @@ These declarations require manual review:
 
 - Maven expressions that use more than a simple property reference.
 - npm ranges and peer dependencies.
-- Gradle dynamic versions, script properties, plugin versions, and published or programmatically constructed catalogs.
+- Gradle dynamic versions, script properties, and published or programmatically constructed catalogs.
 
 pnpm uses `pnpm-workspace.yaml`; Yarn and Bun use `package.json` workspaces.
 Checks use each manager’s native registry commands. Shared catalogs, resolution overrides and custom hooks require manual review.

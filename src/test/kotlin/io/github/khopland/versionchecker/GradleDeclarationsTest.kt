@@ -133,7 +133,7 @@ class GradleDeclarationsTest {
         assertEquals(listOf("1.2.3", "1.2.3", "2.3.4", "3.4.5"), declarations.take(4).map { it.range!!.substring(text) })
         assertTrue(declarations.last().declaration.baseline.isEmpty())
     }
-    @Test fun catalogPluginConsumersBlockSharedLibraryUpdates() {
+    @Test fun catalogPluginsAreDeclarationsAndShareReferencedVersions() {
         val text = """
             [versions]
             shared = "1.2.3"
@@ -142,10 +142,66 @@ class GradleDeclarationsTest {
             [plugins]
             alpha = { id = "g.plugin", version.ref = "shared" }
             direct = { id = "g.other", version = "2.0.0" }
+            short = "g.short:3.0.0"
+            dynamic = { id = "g.dynamic", version = "1.+" }
         """.trimIndent()
-        val declaration = GradleDeclarations.parse("gradle/libs.versions.toml", text).single()
-        assertTrue(declaration.declaration.baseline.isEmpty())
-        assertTrue(declaration.reason!!.contains("plugin"))
+        val declarations = GradleDeclarations.parse("gradle/libs.versions.toml", text).associateBy { it.declaration.id.location }
+        val library = declarations.getValue("libraries/alpha")
+        val shared = declarations.getValue("plugins/alpha")
+        assertNull(library.reason)
+        assertNull(shared.reason)
+        assertEquals(library.range, shared.range)
+        assertEquals(io.github.khopland.versionchecker.core.ArtifactId("plugin", "g.plugin"), shared.declaration.artifact)
+        assertTrue(GradleDeclarations.isPlugin(shared.declaration))
+        assertFalse(GradleDeclarations.isPlugin(library.declaration))
+        assertEquals("2.0.0", declarations.getValue("plugins/direct").range!!.substring(text))
+        assertEquals("3.0.0", declarations.getValue("plugins/short").range!!.substring(text))
+        assertEquals("g.short", declarations.getValue("plugins/short").declaration.artifact.name)
+        assertTrue(declarations.getValue("plugins/dynamic").declaration.baseline.isEmpty())
+        assertNotNull(declarations.getValue("plugins/dynamic").reason)
+    }
+
+    @Test fun pluginsBlockVersionsAreDeclarations() {
+        val cases = mapOf(
+            "build.gradle.kts" to """
+                plugins {
+                    id("com.example.alpha") version "1.2.3"
+                    id("com.example.beta") version "2.0.0" apply false
+                    kotlin("jvm") version "1.9.24"
+                    id("com.example.versionless")
+                    id("com.example.computed") version alphaVersion
+                    id("com.example.template") version "${'$'}v"
+                    `java-library`
+                }
+                dependencies { implementation("g:a:1.0.0") }
+            """.trimIndent(),
+            "build.gradle" to """
+                plugins {
+                    id 'com.example.alpha' version '1.2.3'
+                    id('com.example.beta') version('2.0.0') apply false
+                    id 'org.jetbrains.kotlin.jvm' version '1.9.24'
+                    id 'com.example.versionless'
+                    id 'com.example.computed' version alphaVersion
+                    id 'com.example.template' version "${'$'}v"
+                }
+                dependencies { implementation 'g:a:1.0.0' }
+            """.trimIndent())
+        for ((file, text) in cases) {
+            val declarations = GradleDeclarations.parse(file, text)
+            val plugins = declarations.filter { GradleDeclarations.isPlugin(it.declaration) }
+            assertEquals(file, listOf("com.example.alpha", "com.example.beta", "org.jetbrains.kotlin.jvm", "com.example.computed", "com.example.template"),
+                plugins.map { it.declaration.artifact.name })
+            assertEquals(file, listOf("1.2.3", "2.0.0", "1.9.24"), plugins.take(3).map { it.range!!.substring(text) })
+            assertEquals(file, listOf("1.2.3", "2.0.0", "1.9.24", "", ""), plugins.map { it.declaration.baseline })
+            assertTrue(file, plugins.take(3).all { it.reason == null })
+            assertTrue(file, plugins.drop(3).all { it.reason!!.contains("manual review") })
+            assertEquals(file, "a", declarations.single { !GradleDeclarations.isPlugin(it.declaration) }.declaration.artifact.name)
+        }
+    }
+
+    @Test fun pluginsInsideBuildscriptAreIgnored() {
+        val text = "buildscript { plugins { id(\"com.example.alpha\") version \"1.0.0\" } }"
+        assertTrue(GradleDeclarations.parse("build.gradle.kts", text).none { GradleDeclarations.isPlugin(it.declaration) })
     }
     @Test fun malformedCatalogsAreNotEdited() {
         for (text in listOf("[libraries]\na='g:a:1.0'\na='g:a:2.0'", "[libraries]\na = { module = 'g:a'", "[libraries")) {

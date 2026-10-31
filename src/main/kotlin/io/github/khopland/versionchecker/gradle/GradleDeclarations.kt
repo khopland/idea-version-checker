@@ -48,6 +48,11 @@ internal object GradleVersions {
 }
 
 internal object GradleDeclarations {
+    /** Plugins resolve through their `<id>.gradle.plugin` marker in the plugin repositories. */
+    const val PLUGIN_NAMESPACE = "plugin"
+    fun isPlugin(declaration: VersionDeclaration) = declaration.artifact.namespace == PLUGIN_NAMESPACE &&
+        (declaration.id.location.startsWith("plugin@") || declaration.id.location.startsWith("plugins/"))
+    private val pluginId = Regex("[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)+")
     const val CATALOG_SYNTAX_LOCATION = "catalog/syntax"
     const val CATALOG_OWNER_REASON = "Identical coordinates and declared version occur in distinct catalog files; " +
         "native source configurations cannot prove which catalog alias was consumed; manual review required"
@@ -131,6 +136,11 @@ internal object GradleDeclarations {
         for ((index, token) in tokens.withIndex()) {
             if (!token.string && token.text == "{") blocks += tokens.getOrNull(index - 1)?.text.orEmpty()
             if (!token.string && token.text == "}" && blocks.isNotEmpty()) blocks.removeAt(blocks.lastIndex)
+            if (!token.string && blocks.lastOrNull() == "plugins" && "buildscript" !in blocks && token.text in setOf("id", "kotlin") &&
+                tokens.getOrNull(index - 1)?.text != ".") {
+                plugin(file, tokens, index)?.let { result += it }
+                continue
+            }
             if ("dependencies" !in blocks || "buildscript" in blocks || token.start < mapEnd) continue
             if (!token.string) {
                 if (token.text in configurations) mapDependency(file, text, tokens, index)?.let { map ->
@@ -169,6 +179,30 @@ internal object GradleDeclarations {
             result += GradleDeclaration(declaration, range, reason)
         }
         return result
+    }
+
+    /** `id("x") version "1.0"`, `id 'x' version '1.0'` and `kotlin("jvm") version "1.0"`; versionless requests are not declarations. */
+    private fun plugin(file: String, tokens: List<Token>, callIndex: Int): GradleDeclaration? {
+        var next = callIndex + 1
+        val parenthesized = tokens.getOrNull(next)?.text == "("
+        if (parenthesized) next++
+        val name = tokens.getOrNull(next)?.takeIf { it.string } ?: return null
+        next++
+        if (parenthesized) { if (tokens.getOrNull(next)?.text != ")") return null; next++ }
+        val id = if (tokens[callIndex].text == "kotlin") "org.jetbrains.kotlin.${name.text}" else name.text
+        if (!pluginId.matches(id) || tokens.getOrNull(next)?.text != "version") return null
+        next++
+        val versionParenthesized = tokens.getOrNull(next)?.text == "("
+        if (versionParenthesized) next++
+        val version = tokens.getOrNull(next)
+        val after = tokens.getOrNull(next + 1)?.text
+        val literal = version != null && version.string && after != "+" && after != "." &&
+            (!versionParenthesized || after == ")") && GradleVersions.fixed(version.text)
+        val anchor = version ?: tokens[callIndex]
+        val declaration = VersionDeclaration(DeclarationId(file, "plugin@${tokens[callIndex].start}"),
+            ArtifactId(PLUGIN_NAMESPACE, id), if (version?.string == true) version.text else "", if (literal) version!!.text else "")
+        return GradleDeclaration(declaration, TextRange(anchor.start, anchor.start + anchor.text.length),
+            if (literal) null else "Dynamic, interpolated or computed plugin versions need manual review")
     }
 
     /** Map notation is coverage only: it does not establish literal/native edit ownership. */
@@ -273,13 +307,13 @@ internal object GradleDeclarations {
             if (raw !is String && (raw !is TomlTable || !richVersion(raw)))
                 review(versions, listOf(alias), "versions/$alias", "Catalog version must be a string or rich version table")
         }
-        val pluginRefs = mutableSetOf<String>()
         var unknownPluginRefs = parsed.get(listOf("plugins")) != null && plugins == null
+        val malformedPlugins = mutableSetOf<String>()
+        val malformedPluginRefs = mutableSetOf<String>()
         plugins?.keySet()?.forEach { alias ->
             val entry = plugins.get(listOf(alias))
             val version = (entry as? TomlTable)?.get(listOf("version"))
             val ref = (version as? TomlTable)?.get(listOf("ref"))
-            if (ref is String && ref.isNotBlank()) pluginRefs += ref
             val valid = when (entry) {
                 is String -> entry.split(':').let { it.size == 2 && it.all(String::isNotBlank) }
                 is TomlTable -> (value(entry, "id") as? String)?.isNotBlank() == true &&
@@ -289,6 +323,8 @@ internal object GradleDeclarations {
             }
             if (!valid) {
                 review(plugins, listOf(alias), "plugins/$alias", "Malformed catalog plugin declaration")
+                malformedPlugins += alias
+                if (ref is String && ref.isNotBlank()) malformedPluginRefs += ref
                 // A malformed reference may still consume a shared version. Without a
                 // known reference, no shared library version can be authorized safely.
                 if (ref !is String || ref.isBlank()) unknownPluginRefs = true
@@ -346,9 +382,8 @@ internal object GradleDeclarations {
                 if (rawRef is String && rawRef.isNotBlank()) {
                     version = versions?.get(listOf(rawRef)) as? String ?: ""
                     target = versions?.let { range(it, listOf(rawRef), version) }
-                    if (rawRef in pluginRefs) reason = "Version reference is also used by a plugin"
                     if ((rawVersion as TomlTable).keySet() != setOf("ref")) reason = "Composite catalog version references need manual review"
-                    if (unknownPluginRefs) reason = "Malformed catalog plugins prevent proving shared version ownership"
+                    if (unknownPluginRefs || rawRef in malformedPluginRefs) reason = "Malformed catalog plugins prevent proving shared version ownership"
                     if (rawRef in malformedLibraryRefs || unknownLibraryRefs)
                         reason = "Malformed catalog libraries prevent proving shared version ownership"
                 } else {
@@ -367,6 +402,44 @@ internal object GradleDeclarations {
                     ArtifactId(parts[0], parts[1]), version, if (reason == null) version else ""),
                     target ?: anchor(libraries, listOf(alias)), reason)
             }
+        }
+        plugins?.keySet()?.forEach { alias ->
+            if (alias in malformedPlugins) return@forEach
+            val entry = plugins.get(listOf(alias))
+            var id: String? = null
+            var version = ""
+            var target: TextRange? = null
+            var reason: String? = null
+            if (entry is String) {
+                val parts = entry.split(':')
+                if (parts.size == 2) {
+                    id = parts[0]; version = parts[1]
+                    target = range(plugins, listOf(alias), entry)?.let { TextRange(it.endOffset - version.length, it.endOffset) }
+                }
+            } else if (entry is TomlTable) {
+                id = value(entry, "id") as? String
+                val rawVersion = value(entry, "version")
+                val rawRef = (rawVersion as? TomlTable)?.get(listOf("ref"))
+                if (rawRef is String && rawRef.isNotBlank()) {
+                    version = versions?.get(listOf(rawRef)) as? String ?: ""
+                    target = versions?.let { range(it, listOf(rawRef), version) }
+                    if ((rawVersion as TomlTable).keySet() != setOf("ref")) reason = "Composite catalog version references need manual review"
+                    if (rawRef in malformedLibraryRefs || unknownLibraryRefs)
+                        reason = "Malformed catalog libraries prevent proving shared version ownership"
+                } else {
+                    version = rawVersion as? String ?: ""
+                    target = range(entry, listOf("version"), version)
+                }
+            }
+            if (id == null || !pluginId.matches(id)) {
+                review(plugins, listOf(alias), "plugins/$alias", "Malformed catalog plugin id")
+                return@forEach
+            }
+            if (!GradleVersions.fixed(version) || target == null)
+                reason = reason ?: "Rich, missing, malformed or dynamic catalog versions need manual review"
+            result += GradleDeclaration(VersionDeclaration(DeclarationId(file, "plugins/$alias"),
+                ArtifactId(PLUGIN_NAMESPACE, id), version, if (reason == null) version else ""),
+                target ?: anchor(plugins, listOf(alias)), reason)
         }
         return result
     }
