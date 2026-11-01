@@ -39,8 +39,8 @@
 
     <extensions defaultExtensionNs="io.github.khopland.version-checker">
         <declarationProvider implementation="io.github.khopland.versionchecker.gradle.GradleProvider"/>
-        <declarationProvider implementation="io.github.khopland.versionchecker.gradle.GradleWrapperProvider"/>
-        <declarationProvider implementation="io.github.khopland.versionchecker.maven.MavenWrapperProvider"/>
+        <declarationProvider implementation="io.github.khopland.versionchecker.wrapper.GradleWrapperProvider"/>
+        <declarationProvider implementation="io.github.khopland.versionchecker.wrapper.MavenWrapperProvider"/>
     </extensions>
 
     <actions>

@@ -17,7 +17,12 @@ Run `./gradlew test` after each step. Commit after each step with a message that
 
 - [x] Phase 0: spike (Maven repos/mirrors/credentials API, ExternalAnnotator)
 - [x] Phase 1: delete the old code; core (`core/Versions.kt`, `Http.kt`, `Model.kt`, `VersionService.kt`, `Edits.kt`, `Fixes.kt`, `Updater.kt`, `VersionAnnotator.kt`; `Actions.kt`, `VersionCheckerSettings.kt`). Unit tests are in `core/VersionsTest`.
-- [ ] Phase 2: Maven (declarations, repos, metadata, annotator + fixes, redundant overrides, wrapper)
+- [ ] Phase 2: Maven
+  - [x] `repo/MavenLookup.kt` (shared Maven-layout HTTP lookup, also used by Gradle and the wrapper)
+  - [x] `maven/MavenRepos.kt` (settings.xml servers, imported repos), `maven/MavenPoms.kt` (parent chain, properties), `maven/MavenProvider.kt`
+  - [ ] `maven/RedundantOverrideInspection.kt` (uses `MavenProject.findManagedDependencyVersion` + the parent chain; also unused version properties)
+  - [ ] `wrapper/MavenWrapperProvider.kt` + `wrapper/GradleWrapperProvider.kt` (registered in plugin.xml under the `wrapper` package)
+  - [ ] tests: MavenLookup with a fake HttpServer; MavenProvider with a light fixture
 - [ ] Phase 3: npm (package.json, .npmrc, registry, ranges)
 - [ ] Phase 4: Gradle (scripts, TOML, plugin portal, wrapper)
 - [ ] Phase 5: README, CHANGELOG, CI, version 2.0.0
