@@ -22,6 +22,7 @@ Version 2 is a rewrite. It is smaller and faster, and it reads repository metada
 ### Fixed
 
 - A prerelease such as `4.0.0-rc-5` or `2.0.0-M1` is offered its final release.
+- Prerelease spellings such as `1.0.0.Beta.1`, `1.0.0.RC.1` and `2.0.0-alpha01` are recognized. `-incubating` releases of Apache incubator projects are suggested.
 - A variant with a number keeps the number: Spock `2.3-groovy-3.0` is not offered `2.4-groovy-4.0`.
 - Maven: version properties are found in a parent that the POM names only partly, as Maven 4 parent inference and `${revision}` allow.
 
