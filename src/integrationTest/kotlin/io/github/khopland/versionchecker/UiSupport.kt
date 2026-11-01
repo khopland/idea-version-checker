@@ -31,8 +31,21 @@ fun runWithDemo(test: String, demo: String, prepare: (Path) -> Unit = {}, block:
     // Leave out build output that a local Maven run left in the demo.
     copy.toFile().walkBottomUp().filter { it.isDirectory && it.name == "target" }.forEach { it.deleteRecursively() }
     prepare(copy)
-    Starter.newContext(test, TestCase(LocalIde.info, LocalProjectInfo(copy))).apply {
+    runInIde(test, copy, block)
+}
+
+/** Writes [files] (relative path to content) to a temporary project called [name] and opens it in the sandbox IDE. */
+fun runWithFiles(test: String, name: String, files: Map<String, String>, block: Driver.() -> Unit) {
+    val project = Files.createTempDirectory("vc-ui-$name").resolve(name)
+    files.forEach { (path, text) -> project.resolve(path).toFile().apply { parentFile.mkdirs() }.writeText(text.trimIndent() + "\n") }
+    runInIde(test, project, block)
+}
+
+private fun runInIde(test: String, project: Path, block: Driver.() -> Unit) {
+    Starter.newContext(test, TestCase(LocalIde.info, LocalProjectInfo(project))).apply {
         PluginConfigurator(this).installPluginFromPath(Path.of(System.getProperty("versionchecker.pluginZip")))
+        // No "Got it" tips over the editor, such as the one for the trial.
+        applyVMOptionsPatch { addSystemProperty("ide.integration.test.disable.got.it.tooltips", true) }
     }.runIdeWithDriver().useDriverAndCloseIde {
         waitFor("the project is open", 2.minutes) { getOpenProjects().isNotEmpty() }
         // Indexing and the Maven or Gradle import run first.

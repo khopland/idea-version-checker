@@ -58,13 +58,18 @@ fun Driver.applyIntention(caretText: String, text: String) = withContext {
     }
 }
 
-private fun Driver.editorAt(caretText: String): Pair<Editor, PsiFile> {
-    val project = singleProject()
-    val editor = service(FileEditorManager::class, project).getSelectedTextEditor() ?: error("No editor is open")
+/** Puts the caret just inside the first occurrence of [caretText] in the open editor. */
+fun Driver.moveCaretTo(caretText: String): Editor {
+    val editor = service(FileEditorManager::class, singleProject()).getSelectedTextEditor() ?: error("No editor is open")
     val offset = editor.getDocument().getText().indexOf(caretText)
     check(offset >= 0) { "'$caretText' is not in the open file" }
     withContext(OnDispatcher.EDT) { editor.getCaretModel().moveToOffset(offset + 1) }
-    val file = service(PsiDocumentManagerRef::class, project).getPsiFile(editor.getDocument()) ?: error("No PSI file")
+    return editor
+}
+
+private fun Driver.editorAt(caretText: String): Pair<Editor, PsiFile> {
+    val editor = moveCaretTo(caretText)
+    val file = service(PsiDocumentManagerRef::class, singleProject()).getPsiFile(editor.getDocument()) ?: error("No PSI file")
     return editor to file
 }
 
