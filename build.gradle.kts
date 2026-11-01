@@ -87,19 +87,35 @@ val deleteUiScreenshots = tasks.register<Delete>("deleteUiScreenshots") {
 
 // Starts the sandbox IDE with the built plugin and runs src/integrationTest against it. It needs a desktop
 // session and the network, so it is not part of `check`: run `./gradlew integrationTest`.
+fun Test.runInSandboxIde() {
+    val integrationTestSourceSet = sourceSets.getByName("integrationTest")
+    testClassesDirs = integrationTestSourceSet.output.classesDirs
+    classpath = integrationTestSourceSet.runtimeClasspath
+    useJUnitPlatform()
+    testLogging { showStandardStreams = true }
+    // The IDE the plugin compiles against, from the Gradle cache, so Starter does not download another one.
+    systemProperty("versionchecker.idePath", intellijPlatform.platformPath.toString())
+    systemProperty("versionchecker.demos", layout.projectDirectory.dir("src/test/resources").asFile.absolutePath)
+    val pluginZip = tasks.named<Zip>("buildPlugin")
+    dependsOn(pluginZip)
+    systemProperty("versionchecker.pluginZip", pluginZip.get().archiveFile.get().asFile.absolutePath)
+    finalizedBy(deleteUiScreenshots)
+}
+
 val integrationTest by intellijPlatformTesting.testIdeUi.registering {
     task {
-        val integrationTestSourceSet = sourceSets.getByName("integrationTest")
-        testClassesDirs = integrationTestSourceSet.output.classesDirs
-        classpath = integrationTestSourceSet.runtimeClasspath
-        useJUnitPlatform()
-        testLogging { showStandardStreams = true }
-        // The IDE the plugin compiles against, from the Gradle cache, so Starter does not download another one.
-        systemProperty("versionchecker.idePath", intellijPlatform.platformPath.toString())
-        systemProperty("versionchecker.demos", layout.projectDirectory.dir("src/test/resources").asFile.absolutePath)
-        val pluginZip = tasks.named<Zip>("buildPlugin")
-        dependsOn(pluginZip)
-        systemProperty("versionchecker.pluginZip", pluginZip.get().archiveFile.get().asFile.absolutePath)
-        finalizedBy(deleteUiScreenshots)
+        runInSandboxIde()
+        filter { excludeTestsMatching("*MarketplaceScreenshots") }
+    }
+}
+
+// Screenshots for the Marketplace page, in build/marketplace-screenshots. The IDE paints only its own window.
+val marketplaceScreenshots by intellijPlatformTesting.testIdeUi.registering {
+    task {
+        runInSandboxIde()
+        filter { includeTestsMatching("*MarketplaceScreenshots") }
+        val out = layout.buildDirectory.dir("marketplace-screenshots").get().asFile
+        systemProperty("versionchecker.screenshots", out.absolutePath)
+        outputs.upToDateWhen { false }
     }
 }
