@@ -18,7 +18,7 @@ class NpmProvider : DeclarationProvider {
     override fun collect(file: PsiFile): List<Declaration> {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return emptyList()
         val vfile = file.virtualFile ?: return emptyList()
-        val npmrc by lazy { Npmrc.forDirectory(vfile.parent?.let { it.fileSystem.getNioPath(it) } ?: java.nio.file.Paths.get(System.getProperty("user.home"))) }
+        val npmrc by lazy { RegistryConfig.forDirectory(vfile.parent?.let { it.fileSystem.getNioPath(it) } ?: java.nio.file.Paths.get(System.getProperty("user.home"))) }
         return SECTIONS.flatMap { section ->
             (root.findProperty(section)?.value as? JsonObject)?.propertyList.orEmpty().mapNotNull { property ->
                 val literal = property.value as? JsonStringLiteral ?: return@mapNotNull null
