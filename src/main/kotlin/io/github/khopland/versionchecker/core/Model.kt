@@ -16,9 +16,14 @@ class Releases(
     private val publishedAt: (suspend (String) -> Long?)? = null,
     /** The repository already hides new releases, for example a Nexus quarantine on npm, so the minimum release age does not apply. */
     val ignoresMinimumAge: Boolean = false,
+    /** New coordinates when the package has moved. */
+    val moved: Moved? = null,
 ) {
     suspend fun publishedAt(version: String): Long? = publishedAt?.invoke(version)
 }
+
+/** The coordinates a package moved to, with the [newest] release there when known, and the publisher's [message]. */
+data class Moved(val to: String, val newest: String? = null, val message: String? = null)
 
 /** Fetches [Releases]. Lookups with the same [key] share one request and one cache entry. */
 interface Lookup {
@@ -70,6 +75,6 @@ interface DeclarationProvider {
 }
 
 sealed interface Outcome {
-    data class Updates(val targets: Targets, val deprecated: String?) : Outcome
+    data class Updates(val targets: Targets, val deprecated: String?, val moved: Moved? = null) : Outcome
     data class Failed(val message: String) : Outcome
 }

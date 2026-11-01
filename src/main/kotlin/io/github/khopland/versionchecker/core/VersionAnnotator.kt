@@ -32,10 +32,18 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
 
     override fun apply(file: PsiFile, result: Result, holder: AnnotationHolder) {
         val outcomes = result.outcomes
-        val key = HighlightDisplayKey.find(OutdatedVersionInspection.SHORT_NAME)
         val profile = InspectionProjectProfileManager.getInstance(file.project).currentProfile
-        if (key != null && !profile.isToolEnabled(key, file)) return
-        val severity = key?.let { profile.getErrorLevel(it, file) }?.severity ?: HighlightDisplayLevel.WARNING.severity
+        fun severity(shortName: String, default: HighlightDisplayLevel): HighlightSeverity? {
+            val key = HighlightDisplayKey.find(shortName) ?: return default.severity
+            return if (profile.isToolEnabled(key, file)) profile.getErrorLevel(key, file).severity else null
+        }
+        val movedSeverity = severity(MovedDependencyInspection.SHORT_NAME, HighlightDisplayLevel.WEAK_WARNING)
+        for (declaration in result.declarations) {
+            val moved = (outcomes[declaration] as? Outcome.Updates)?.moved ?: continue
+            if (movedSeverity != null && declaration.range.endOffset <= file.textLength)
+                holder.newAnnotation(movedSeverity, movedMessage(declaration, moved)).range(declaration.range).create()
+        }
+        val severity = severity(OutdatedVersionInspection.SHORT_NAME, HighlightDisplayLevel.WARNING) ?: return
         val fixes = VersionService.fixes(outcomes)
         val failures = result.declarations.filter { outcomes[it] is Outcome.Failed }.groupBy { (outcomes.getValue(it) as Outcome.Failed).message }
         // A repository that fails for many versions, for example without VPN, gets one warning for the file.
@@ -69,6 +77,9 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
     override fun getPairedBatchInspectionShortName() = OutdatedVersionInspection.SHORT_NAME
 
     companion object {
+        fun movedMessage(declaration: Declaration, moved: Moved): String =
+            "${declaration.name} has moved to ${moved.to}" + (moved.newest?.let { " (newest $it)" } ?: "") + (moved.message?.let { ": $it" } ?: "")
+
         fun message(declaration: Declaration, outcome: Outcome.Updates, fixes: Map<UpdateKind, String>): String? {
             val versions = UpdateKind.entries.mapNotNull { outcome.targets[it] }.distinct()
             val deprecated = outcome.deprecated?.let { "${declaration.current} is deprecated: $it" }
@@ -90,5 +101,14 @@ class OutdatedVersionInspection : LocalInspectionTool(), ExternalAnnotatorBatchI
 
     companion object {
         const val SHORT_NAME = "OutdatedDependencyVersion"
+    }
+}
+
+/** Moves have their own switch and severity, because the old coordinates often stay supported, as Jackson 2 does. */
+class MovedDependencyInspection : LocalInspectionTool() {
+    override fun getShortName() = SHORT_NAME
+
+    companion object {
+        const val SHORT_NAME = "MovedDependency"
     }
 }

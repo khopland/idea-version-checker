@@ -8,7 +8,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 /** Runs the real annotator, quick fixes and inspection profile against a fake provider. */
 class AnnotatorTest : BasePlatformTestCase() {
     private class FakeLookup(override val key: String, private val versions: List<String>, private val deprecated: Map<String, String> = emptyMap()) : Lookup {
-        override suspend fun fetch() = if (versions.isEmpty()) throw HttpFailure("repo needs credentials") else Releases(versions, deprecated)
+        override suspend fun fetch() = if (versions.isEmpty()) throw HttpFailure("repo needs credentials") else Releases(versions, deprecated, moved = MOVED[key])
     }
 
     /** `<lib name="x" version="1.0"/>`: each version attribute is a declaration. Names that start with "shared" share one edit. */
@@ -33,7 +33,7 @@ class AnnotatorTest : BasePlatformTestCase() {
     override fun setUp() {
         super.setUp()
         DeclarationProvider.EP.point.registerExtension(FakeProvider(), testRootDisposable)
-        myFixture.enableInspections(OutdatedVersionInspection())
+        myFixture.enableInspections(OutdatedVersionInspection(), MovedDependencyInspection())
         VersionService.getInstance().clear()
     }
 
@@ -91,6 +91,18 @@ class AnnotatorTest : BasePlatformTestCase() {
         assertTrue(myFixture.doHighlighting().none { it.description?.startsWith("a ") == true })
     }
 
+    fun testMovedPackageHasItsOwnWarning() {
+        myFixture.configureByText("fake.xml", """<libs><lib name="old" version="1.0.1"/><lib name="old-current" version="1.1.0"/></libs>""")
+        val highlights = myFixture.doHighlighting().filter { it.description != null }
+        assertEquals(listOf("old 1.0.1 → 1.1.0 (minor)"), highlights.filter { it.severity == HighlightSeverity.WARNING }.map { it.description })
+        assertEquals(listOf("old has moved to org.new:old (newest 2.0.0)", "old-current has moved to org.new:old: Renamed"),
+            highlights.filter { it.severity == HighlightSeverity.WEAK_WARNING }.map { it.description })
+
+        VersionService.getInstance().clear()
+        myFixture.disableInspections(MovedDependencyInspection())
+        assertTrue(myFixture.doHighlighting().none { it.description?.contains("has moved") == true })
+    }
+
     fun testUpdateAllFilesIsOneUndoableCommand() {
         val first = myFixture.addFileToProject("one/fake.xml", """<libs><lib name="a" version="1.0.0"/></libs>""")
         val second = myFixture.addFileToProject("two/fake.xml", """<libs><lib name="shared-y" version="1.0.0"/></libs>""")
@@ -114,6 +126,9 @@ class AnnotatorTest : BasePlatformTestCase() {
             "a" to listOf("1.0.0", "1.0.1", "1.1.0", "1.2.0", "2.0.0", "3.0.0-beta"),
             "current" to listOf("1.0.0", "2.0.0"),
             "shared-x" to listOf("1.0.0", "1.0.1", "1.2.0", "2.0.0"),
-            "shared-y" to listOf("1.0.0", "1.0.1", "1.1.0"))
+            "shared-y" to listOf("1.0.0", "1.0.1", "1.1.0"),
+            "old" to listOf("1.0.1", "1.1.0"),
+            "old-current" to listOf("1.0.0", "1.1.0"))
+        private val MOVED = mapOf("old" to Moved("org.new:old", "2.0.0"), "old-current" to Moved("org.new:old", message = "Renamed"))
     }
 }

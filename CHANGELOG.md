@@ -6,6 +6,7 @@
 
 ### Added
 
+- **Moved dependency** inspection: a weak warning when a Maven or Gradle dependency moved to new coordinates, from a `<relocation>` in the newest POM or, for Jackson 3, a release under `tools.jackson`.
 - Encrypted Maven passwords in `settings.xml`, decrypted with the master password in `settings-security.xml` like Maven 3.
 - Yarn 2+ projects read the registry and token from `.yarnrc.yml`.
 - Metadata stays on disk with its `ETag` and `Last-Modified`, so the first check after a restart only asks whether it changed.

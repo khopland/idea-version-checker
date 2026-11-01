@@ -1,0 +1,10 @@
+<html>
+<body>
+Reports Maven and Gradle dependencies whose publisher moved them to new coordinates.
+<p>A move comes from a <code>&lt;relocation&gt;</code> in the newest POM, for example
+<code>mysql:mysql-connector-java</code> to <code>com.mysql:mysql-connector-j</code>.
+Jackson 3 has no relocation POMs, so a <code>com.fasterxml.jackson</code> artifact is reported when the same artifact
+has a release under <code>tools.jackson</code>.</p>
+<p>The old coordinates may still get releases, as Jackson 2 does. Turn this inspection off if you stay on them on purpose.</p>
+</body>
+</html>

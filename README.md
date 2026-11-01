@@ -51,6 +51,15 @@ A version that several declarations share, like a Maven property or a catalog `v
 
 Not checked: version ranges and tags, computed versions, transitive and peer dependencies, lockfiles, and Gradle versions from variables.
 
+## Moved dependencies
+
+The **Moved dependency** inspection reports a Maven or Gradle dependency whose publisher moved it to new coordinates:
+
+- a `<relocation>` in the newest POM, for example `mysql:mysql-connector-java` to `com.mysql:mysql-connector-j`,
+- Jackson 3, which publishes no relocation POMs: a `com.fasterxml.jackson` artifact is reported when the same artifact has a stable release under `tools.jackson`. `jackson-annotations` stays in the old group, and modules that Jackson 3 merged into `jackson-databind` have no release there.
+
+It shows as a weak warning with no fix, because the code usually has to change too. Old coordinates can still get releases, as Jackson 2 does, so turn the inspection off if you stay on them on purpose.
+
 ## Redundant Maven overrides
 
 The **Redundant Maven override** inspection works offline and reports:
@@ -99,7 +108,7 @@ The demo projects in `src/test/resources` have outdated versions on purpose. Cop
 
 | Package | Contents |
 | --- | --- |
-| `core` | Version ordering and targets, the HTTP client, the cached checker, the annotator and inspection, quick fixes and bulk updates. |
+| `core` | Version ordering and targets, the HTTP client, the cached checker, the annotator and inspections, quick fixes and bulk updates. |
 | `repo` | The Maven-layout repository lookup used by Maven, Gradle and the Maven wrapper. |
 | `maven`, `npm`, `gradle`, `wrapper` | One `DeclarationProvider` each: find versions in a file, and say how to look them up and edit them. |
 

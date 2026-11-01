@@ -27,6 +27,12 @@ class LiveRepositoriesTest : BasePlatformTestCase() {
         listOfNotNull(targets.patch, targets.minor, targets.major).forEach { assertTrue(it, it.endsWith("-groovy-3.0")) }
         assertNotNull(targets.major)
 
+        val mysql = MavenLookup("mysql", "mysql-connector-java", listOf(MavenRepo.CENTRAL)).fetch()
+        assertEquals("com.mysql:mysql-connector-j", mysql.moved?.to)
+        val jackson = MavenLookup("com.fasterxml.jackson.core", "jackson-databind", listOf(MavenRepo.CENTRAL)).fetch()
+        assertEquals("tools.jackson.core:jackson-databind", jackson.moved?.to)
+        assertNull(MavenLookup("com.fasterxml.jackson.core", "jackson-annotations", listOf(MavenRepo.CENTRAL)).fetch().moved)
+
         val plugin = (GradleProvider.plugin("org.jetbrains.kotlin.jvm") as MavenLookup).fetch()
         assertTrue("2.0.0" in plugin.versions)
 
