@@ -19,6 +19,12 @@ Version 2 is a rewrite. It is smaller and faster, and it reads repository metada
 - One **Outdated dependency version** inspection for all build systems, under **Version Checker** in the inspection settings.
 - The settings are now application-wide.
 
+### Fixed
+
+- A prerelease such as `4.0.0-rc-5` or `2.0.0-M1` is offered its final release.
+- A variant with a number keeps the number: Spock `2.3-groovy-3.0` is not offered `2.4-groovy-4.0`.
+- Maven: version properties are found in a parent that the POM names only partly, as Maven 4 parent inference and `${revision}` allow.
+
 ### Removed
 
 - **Review Updates…**, the status bar widget, follow-up notifications and the npm lockfile command.

@@ -11,43 +11,87 @@ enum class UpdateKind {
     fun allows(kind: UpdateKind) = kind.ordinal <= ordinal
 }
 
-/** Version parsing and ordering shared by Maven, Gradle and npm. */
+/**
+ * Version parsing and ordering shared by Maven, Gradle and npm.
+ *
+ * A version is read as numbers, then an optional prerelease marker, then an optional variant:
+ * `2.4-M4-groovy-4.0` is `[2, 4]`, milestone 4, variant `groovy-4.0`. Only stable versions are
+ * suggested, and only with the same variant, so `-jre` stays `-jre` and `-groovy-3.0` never becomes
+ * `-groovy-4.0`. A prerelease is older than its final release, so `4.0.0-rc-5` is offered `4.0.0`.
+ */
 object Versions {
-    private val unstable = Regex(
-        """(?i)(?:^|[.\-_+])(?:alpha|a|beta|b|milestone|m|rc|cr|pre|preview|snapshot|dev|ea|eap|incubating|canary|nightly|next|experimental|insiders)(?:[.\-_]?\d+)*(?=$|[.\-_+])"""
-    )
     private val numericPrefix = Regex("""^[vV]?(\d+(?:\.\d+)*)(.*)$""")
-    private val releaseQualifiers = setOf("", "final", "release", "ga")
+    private val marker = Regex("""(?i)^(?:alpha|a|beta|b|milestone|m|rc|cr|pre|preview|snapshot|dev|ea|eap|incubating|canary|nightly|next|experimental|insiders)\d*$""")
+    private val separators = Regex("""[.\-_+]+""")
+    private val releaseWords = setOf("final", "release", "ga")
 
-    fun isStable(version: String) = numericPrefix.matches(version) && !unstable.containsMatchIn(version)
+    /** The parts after the numbers. Build numbers directly after the numbers belong to the version, not the variant. */
+    private class Suffix(val prerelease: List<String>, val build: List<String>, val variant: List<String>)
+
+    private fun suffix(version: String): Suffix? {
+        val rest = numericPrefix.matchEntire(version)?.groupValues?.get(2) ?: return null
+        val tokens = rest.split(separators).filter { it.isNotEmpty() && it.lowercase() !in releaseWords }
+        val prerelease = mutableListOf<String>()
+        val build = mutableListOf<String>()
+        val variant = mutableListOf<String>()
+        var i = 0
+        while (i < tokens.size) {
+            val token = tokens[i]
+            when {
+                marker.matches(token) -> {
+                    prerelease += token.lowercase()
+                    // A number after a marker is its counter, as in `rc-5`.
+                    while (i + 1 < tokens.size && tokens[i + 1].all(Char::isDigit)) prerelease += tokens[++i]
+                }
+                variant.isEmpty() && prerelease.isEmpty() && token.all(Char::isDigit) -> build += token
+                else -> variant += token.lowercase()
+            }
+            i++
+        }
+        return Suffix(prerelease, build, variant)
+    }
+
+    fun isStable(version: String) = suffix(version)?.prerelease?.isEmpty() == true
 
     /** The numeric part, for example `[4, 13, 2]` for `4.13.2-jre`. */
     fun numbers(version: String): List<Long> =
         numericPrefix.matchEntire(version)?.groupValues?.get(1)?.split('.')?.map { it.toLongOrNull() ?: Long.MAX_VALUE }.orEmpty()
 
-    /**
-     * The text after the numbers without digits or separators, so `-jre` stays a `jre` candidate
-     * and `.Final`, `.RELEASE` and `.GA` count as no qualifier.
-     */
-    fun flavor(version: String): String {
-        val rest = numericPrefix.matchEntire(version)?.groupValues?.get(2) ?: return version.lowercase()
-        val letters = rest.lowercase().filter(Char::isLetter)
-        return if (letters in releaseQualifiers) "" else letters
-    }
+    /** The variant, for example `jre` for `33.0.0-jre` and `groovy.4.0` for `2.3-groovy-4.0`. Empty for `5.6.15.Final`. */
+    fun flavor(version: String): String = suffix(version)?.variant?.joinToString(".") ?: version.lowercase()
 
     fun compare(left: String, right: String): Int {
-        val a = numbers(left)
-        val b = numbers(right)
+        compareNumbers(numbers(left), numbers(right)).let { if (it != 0) return it }
+        val a = suffix(left)
+        val b = suffix(right)
+        if (a == null || b == null) return left.compareTo(right)
+        compareTokens(a.build, b.build).let { if (it != 0) return it }
+        // A prerelease comes before the release with the same numbers.
+        if (a.prerelease.isEmpty() != b.prerelease.isEmpty()) return if (a.prerelease.isEmpty()) 1 else -1
+        compareTokens(a.prerelease, b.prerelease).let { if (it != 0) return it }
+        return compareTokens(a.variant, b.variant)
+    }
+
+    private fun compareNumbers(a: List<Long>, b: List<Long>): Int {
         for (i in 0 until maxOf(a.size, b.size)) {
             val c = a.getOrElse(i) { 0 }.compareTo(b.getOrElse(i) { 0 })
             if (c != 0) return c
         }
-        return qualifier(left).compareTo(qualifier(right))
+        return 0
+    }
+
+    /** Numbers compare as numbers and text compares alphabetically. A missing part sorts first. */
+    private fun compareTokens(a: List<String>, b: List<String>): Int {
+        for (i in 0 until maxOf(a.size, b.size)) {
+            val x = a.getOrNull(i) ?: return -1
+            val y = b.getOrNull(i) ?: return 1
+            val c = x.toLongOrNull()?.let { nx -> y.toLongOrNull()?.let { nx.compareTo(it) } } ?: x.compareTo(y, ignoreCase = true)
+            if (c != 0) return c
+        }
+        return 0
     }
 
     val comparator: Comparator<String> = Comparator(::compare)
-
-    private fun qualifier(version: String) = numericPrefix.matchEntire(version)?.groupValues?.get(2).orEmpty()
 
     fun kind(current: String, candidate: String): UpdateKind {
         val a = numbers(current)
@@ -59,7 +103,7 @@ object Versions {
         }
     }
 
-    /** Stable versions newer than [current] with the same flavor, newest first. */
+    /** Stable versions newer than [current] with the same variant, newest first. */
     fun candidates(current: String, versions: Collection<String>): List<String> {
         val flavor = flavor(current)
         return versions.asSequence().distinct()

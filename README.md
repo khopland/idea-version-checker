@@ -23,7 +23,20 @@ The plugin only edits declarations. It does not change lockfiles, `node_modules`
 Reload Maven or Gradle afterwards, then build and test: a newer version is not a compatibility guarantee.
 
 Only stable versions are suggested, without alpha, beta, milestone, RC, preview or snapshot versions.
-A version with a variant keeps it, so `33.0.0-jre` updates to a newer `-jre` version.
+If you use a prerelease, its final release counts as newer: `4.0.0-rc-5` is offered `4.0.0`.
+
+A version is read as numbers, an optional prerelease marker and an optional variant. The variant is kept:
+
+| Version | Updates to |
+| --- | --- |
+| `33.0.0-jre` | Newer `-jre` versions, never `-android`. |
+| `2.3-groovy-3.0` (Spock) | Newer `-groovy-3.0` versions, never `-groovy-4.0`. |
+| `5.2.9.RELEASE`, `5.6.15.Final` | Plain newer versions. `.RELEASE`, `.Final` and `.GA` are not variants. |
+| `1.2.3-1` | `1.2.3-2`: a number right after the version is a build number. |
+
+Versions that are not semver use the same rule: the first number is major, the second minor, and everything after is patch.
+A two-part `1.2` has minor updates, a date version like `20231013` only has major updates, and a calendar version like `2024.1.0` treats the year as major.
+Versions that do not start with a number, like `r09`, are not suggested.
 
 ## What is checked
 

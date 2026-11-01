@@ -21,6 +21,12 @@ class LiveRepositoriesTest : BasePlatformTestCase() {
         assertNotNull(junit.allPublishedBefore)
         assertNotNull(junit.publishedAt("4.13.2"))
 
+        // Spock publishes one build per Groovy version; an update must keep the Groovy variant.
+        val spock = MavenLookup("org.spockframework", "spock-core", listOf(MavenRepo.CENTRAL)).fetch()
+        val targets = io.github.khopland.versionchecker.core.Targets.pick("2.0-groovy-3.0", spock.versions) { true }
+        listOfNotNull(targets.patch, targets.minor, targets.major).forEach { assertTrue(it, it.endsWith("-groovy-3.0")) }
+        assertNotNull(targets.major)
+
         val plugin = (GradleProvider.plugin("org.jetbrains.kotlin.jvm") as MavenLookup).fetch()
         assertTrue("2.0.0" in plugin.versions)
 

@@ -53,7 +53,9 @@ internal object MavenPoms {
         var current = file
         while (ancestors.size < MAX_DEPTH) {
             val parent = child(root(current), "parent") ?: return PomChain(file, ancestors, true)
-            val id = MavenId(text(child(parent, "groupId")), text(child(parent, "artifactId")), text(child(parent, "version")))
+            // IDEA's import resolves what the XML may leave out: Maven 4 parent inference and `${revision}` versions.
+            val id = current.virtualFile?.let(manager::findProject)?.parentId
+                ?: MavenId(text(child(parent, "groupId")), text(child(parent, "artifactId")), text(child(parent, "version")))
             if (id.groupId == null || id.artifactId == null || id.version == null || '$' in id.toString()) return PomChain(file, ancestors, false)
             val next = manager.findProject(id)?.file ?: localPom(project, manager, id)
             val psi = next?.let { PsiManager.getInstance(project).findFile(it) } as? XmlFile
