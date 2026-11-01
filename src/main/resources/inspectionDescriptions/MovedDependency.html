@@ -1,0 +1,12 @@
+<html>
+<body>
+Reports Maven and Gradle dependencies whose publisher moved them to new coordinates.
+<p>A move comes from a <code>&lt;relocation&gt;</code> in the newest POM, for example
+<code>mysql:mysql-connector-java</code> to <code>com.mysql:mysql-connector-j</code>.
+Moves without relocation POMs come from a built-in list and are reported only when the new coordinates have a stable release:
+<code>javax.*</code> APIs to <code>jakarta.*</code>, Jackson 3 (<code>tools.jackson</code>), Testcontainers 2 modules,
+BouncyCastle <code>*-jdk18on</code>, AWS SDK v2, frozen libraries such as <code>log4j:log4j</code> and <code>dom4j:dom4j</code>,
+and the Gradle plugins <code>com.github.johnrengelman.shadow</code> and <code>org.jetbrains.intellij</code>.</p>
+<p>The old coordinates may still get releases, as Jackson 2 does. Turn this inspection off if you stay on them on purpose.</p>
+</body>
+</html>

@@ -67,7 +67,7 @@ class VersionService(private val scope: CoroutineScope) {
                 cutoff == null || releases.allPublishedBefore?.let { it <= cutoff } == true ||
                     releases.publishedAt(version)?.let { it <= cutoff } == true
             }
-            return Outcome.Updates(targets, releases.deprecated[current])
+            return Outcome.Updates(targets, releases.deprecated[current], releases.moved)
         }
 
         /**

@@ -6,6 +6,7 @@
 
 ### Added
 
+- **Moved dependency** inspection: a weak warning when a Maven or Gradle dependency moved to new coordinates, from a `<relocation>` in the newest POM or a built-in list: `javax.*` to `jakarta.*`, Jackson 3, Testcontainers 2, BouncyCastle `jdk18on`, AWS SDK v2, frozen libraries such as `log4j:log4j`, and the old Shadow and IntelliJ Gradle plugins.
 - Encrypted Maven passwords in `settings.xml`, decrypted with the master password in `settings-security.xml` like Maven 3.
 - Yarn 2+ projects read the registry and token from `.yarnrc.yml`.
 - Metadata stays on disk with its `ETag` and `Last-Modified`, so the first check after a restart only asks whether it changed.

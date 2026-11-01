@@ -31,6 +31,9 @@
         <localInspection shortName="OutdatedDependencyVersion" displayName="Outdated dependency version" groupName="Version Checker"
                          enabledByDefault="true" level="WARNING"
                          implementationClass="io.github.khopland.versionchecker.core.OutdatedVersionInspection"/>
+        <localInspection shortName="MovedDependency" displayName="Moved dependency" groupName="Version Checker"
+                         enabledByDefault="true" level="WEAK WARNING"
+                         implementationClass="io.github.khopland.versionchecker.core.MovedDependencyInspection"/>
         <applicationConfigurable parentId="tools" id="version.checker" displayName="Version Checker"
                                  instance="io.github.khopland.versionchecker.VersionCheckerConfigurable"/>
         <notificationGroup id="Version Checker" displayType="BALLOON"/>

@@ -7,6 +7,7 @@ import io.github.khopland.versionchecker.npm.Npmrc
 import io.github.khopland.versionchecker.repo.MavenLookup
 import io.github.khopland.versionchecker.repo.MavenRepo
 import io.github.khopland.versionchecker.wrapper.GradleReleases
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 
 /** Talks to the real public registries. Run with `./gradlew test -Plive=true --tests '*LiveRepositoriesTest'`. */
@@ -26,6 +27,17 @@ class LiveRepositoriesTest : BasePlatformTestCase() {
         val targets = io.github.khopland.versionchecker.core.Targets.pick("2.0-groovy-3.0", spock.versions) { true }
         listOfNotNull(targets.patch, targets.minor, targets.major).forEach { assertTrue(it, it.endsWith("-groovy-3.0")) }
         assertNotNull(targets.major)
+
+        val mysql = MavenLookup("mysql", "mysql-connector-java", listOf(MavenRepo.CENTRAL)).fetch()
+        assertEquals("com.mysql:mysql-connector-j", mysql.moved?.to)
+        val jackson = MavenLookup("com.fasterxml.jackson.core", "jackson-databind", listOf(MavenRepo.CENTRAL)).fetch()
+        assertEquals("tools.jackson.core:jackson-databind", jackson.moved?.to)
+        assertNull(MavenLookup("com.fasterxml.jackson.core", "jackson-annotations", listOf(MavenRepo.CENTRAL)).fetch().moved)
+        // Every listed move must still find a stable release at its new coordinates.
+        val moves = MavenLookup.MOVES.map { (old, new) ->
+            Triple(old, new, async { MavenLookup(old.substringBefore(':'), old.substringAfter(':'), listOf(MavenRepo.CENTRAL)).fetch().moved?.to })
+        } + MavenLookup.PLUGIN_MOVES.map { (old, new) -> Triple(old, new, async { (GradleProvider.plugin(old) as MavenLookup).fetch().moved?.to }) }
+        moves.forEach { (old, new, found) -> assertEquals(old, new, found.await()) }
 
         val plugin = (GradleProvider.plugin("org.jetbrains.kotlin.jvm") as MavenLookup).fetch()
         assertTrue("2.0.0" in plugin.versions)
