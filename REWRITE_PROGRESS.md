@@ -26,7 +26,7 @@ Run `./gradlew test` after each step. Commit after each step with a message that
   - [ ] TODO manual: RedundantOverrideInspection needs an imported Maven project, so check it in runIde with `src/test/resources/maven-demo`
 - [x] Phase 3: npm (`npm/Npmrc.kt`, `npm/NpmLookup.kt`, `npm/NpmProvider.kt` + NpmSpec; tests in `npm/NpmTest`)
   - [ ] optional later: read the package-manager age gate (pnpm `minimumReleaseAge`, Yarn `npmMinimalAgeGate`, Bun `minimumReleaseAge`) and `.yarnrc.yml` `npmRegistryServer`
-- [ ] Phase 4: Gradle (scripts, TOML, plugin portal, wrapper)
+- [x] Phase 4: Gradle (`gradle/GradleProvider.kt`: GradleScripts + GradleCatalog, text-based; tests in `gradle/GradleProviderTest`). The wrapper was done in phase 2.
 - [ ] Phase 5: README, CHANGELOG, CI, version 2.0.0
 
 ## Notes and findings
