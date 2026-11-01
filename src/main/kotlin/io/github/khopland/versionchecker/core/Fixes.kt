@@ -45,10 +45,10 @@ class UpdateFileFix : IntentionAction, LowPriorityAction {
 
     override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
         val target = file?.virtualFile ?: return
-        val popup = JBPopupFactory.getInstance().createPopupChooserBuilder(UpdateKind.entries)
+        val modes = UpdateKind.entries.associateBy { "${it.title} updates" }
+        val popup = JBPopupFactory.getInstance().createPopupChooserBuilder(modes.keys.toList())
             .setTitle("Update All Versions in ${target.name}")
-            .setRenderer(com.intellij.ui.SimpleListCellRenderer.create("") { "${it.title} updates" })
-            .setItemChosenCallback { mode -> Updater.getInstance(project).update(listOf(target), mode) }
+            .setItemChosenCallback { Updater.getInstance(project).update(listOf(target), modes.getValue(it)) }
             .createPopup()
         if (editor != null) popup.showInBestPositionFor(editor) else popup.showCenteredInCurrentWindow(project)
     }

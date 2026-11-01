@@ -1,19 +1,8 @@
-# GitHub Actions workflow for building, testing, verifying, and preparing plugin release drafts:
-# - Build the plugin ZIP with the 'buildPlugin' task and upload it as a workflow artifact.
-# - Run unit and native repository integration tests and upload test reports.
-# - Run the 'verifyPlugin' task and upload Plugin Verifier reports.
-# - Prepare a draft for a finalized version, pinned to the tested commit.
-#
-# The workflow is triggered on pushes to the 'main' branch and on pull_request events.
-#
-# GitHub Actions reference: https://docs.github.com/actions
-
+# Build, test and verify the plugin. On main, prepare a draft GitHub release for a version with a changelog entry.
 name: Build
 on:
-  # Trigger the workflow on pushes to only the 'main' branch (this avoids duplicate checks being run e.g., for dependabot pull requests)
   push:
     branches: [ main ]
-  # Trigger the workflow on any pull request
   pull_request:
   workflow_dispatch:
 
@@ -25,273 +14,94 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-
-  # Prepare the environment and build the plugin
   build:
-    name: Build
+    name: Build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
-
-      # Check out the current repository
-      - name: Fetch Sources
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-
-      # Set up the Java environment for the next steps
-      - name: Setup Java
-        uses: actions/setup-java@v6
+      - uses: actions/setup-java@v6
         with:
           distribution: zulu
           java-version: 21
-
-      # Setup Gradle
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-
-      # Build plugin
-      - name: Build plugin
-        run: ./gradlew buildPlugin
-
-      # Store an already-built plugin as an artifact for downloading
-      - name: Upload artifact
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Build and test
+        run: ./gradlew buildPlugin test --console=plain
+      - name: Upload plugin
         uses: actions/upload-artifact@v7
         with:
           name: plugin-distribution
           path: ./build/distributions/*.zip
           if-no-files-found: error
-
-  # Tests build their own lifecycle-test ZIP; no dependency on the distribution job.
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-
-      # Check out the current repository
-      - name: Fetch Sources
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-
-      # Set up the Java environment for the next steps
-      - name: Setup Java
-        uses: actions/setup-java@v6
-        with:
-          distribution: zulu
-          java-version: 21
-
-      # Setup Gradle
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-read-only: true
-
-      - name: Setup Node for npm integration fixtures
-        uses: actions/setup-node@v7
-        with:
-          node-version: '22.23.1'
-          package-manager-cache: false
-
-      - name: Install native Node package-manager fixtures
-        run: |
-          fixture_tools="$RUNNER_TEMP/version-checker-node-tools"
-          npm install --prefix "$fixture_tools" --ignore-scripts --no-audit --no-fund --no-package-lock \
-            @pnpm/exe.linux-x64@12.15.0 pnpm-legacy@npm:pnpm@10.34.7 yarn@1.22.22 @yarnpkg/cli-dist@4.18.1 @oven/bun-linux-x64@1.4.4
-          {
-            echo "VERSIONCHECKER_PNPM_PATH=$fixture_tools/node_modules/@pnpm/exe.linux-x64/pnpm"
-            echo "VERSIONCHECKER_PNPM_LEGACY_PATH=$fixture_tools/node_modules/pnpm-legacy/bin/pnpm.cjs"
-            echo "VERSIONCHECKER_YARN_CLASSIC_PATH=$fixture_tools/node_modules/yarn"
-            echo "VERSIONCHECKER_YARN_MODERN_PATH=$fixture_tools/node_modules/@yarnpkg/cli-dist/bin/yarn.js"
-            echo "VERSIONCHECKER_BUN_PATH=$fixture_tools/node_modules/@oven/bun-linux-x64/bin/bun"
-          } >> "$GITHUB_ENV"
-
-      - name: Test release automation
-        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
-
-      - name: Test acceptance fixture generators
-        run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
-
-      # Maven integration runs in its own job below, in parallel.
-      - name: Run unit and native repository integration tests
-        run: ./gradlew check -PnpmIntegration=true -PnodeIntegration=true -PgradleIntegration=true --console=plain
-
-      - name: Collect test results
+      - name: Upload test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: tests-result
-          path: |
-            build/reports/tests
-            build/test-results/test
+          path: build/reports/tests
           if-no-files-found: ignore
 
-  # The Maven goal-process tests are the slowest; running them beside the Test job halves wall time.
-  maven:
-    name: Maven integration
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Fetch Sources
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Setup Java
-        uses: actions/setup-java@v6
-        with:
-          distribution: zulu
-          java-version: 21
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-read-only: true
-      - name: Run Maven integration tests
-        run: >-
-          ./gradlew test -PmavenIntegration=true --console=plain
-          --tests '*MavenSettingsIntegrationTest' --tests '*MavenInheritedVersionFixTest' --tests '*MavenOverrideInspectionTest'
-      - name: Collect Maven test results
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: maven-tests-result
-          path: |
-            build/reports/tests
-            build/test-results/test
-          if-no-files-found: ignore
-
-  maven4:
-    name: Maven 4 integration
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Fetch Sources
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Setup Java
-        uses: actions/setup-java@v6
-        with:
-          distribution: zulu
-          java-version: 21
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-read-only: true
-      - name: Download and verify Maven 4
-        env:
-          MAVEN4_VERSION: 4.0.0-rc-7
-        run: |
-          artifact="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$MAVEN4_VERSION/apache-maven-$MAVEN4_VERSION-bin.tar.gz"
-          curl --fail --location "$artifact" --output "$RUNNER_TEMP/maven4.tar.gz"
-          curl --fail --location "$artifact.sha512" --output "$RUNNER_TEMP/maven4.sha512"
-          python3 - <<'PYTHON'
-          import hashlib, os
-          from pathlib import Path
-          root = Path(os.environ["RUNNER_TEMP"])
-          actual = hashlib.sha512((root / "maven4.tar.gz").read_bytes()).hexdigest()
-          expected = (root / "maven4.sha512").read_text().split()[0]
-          if actual != expected:
-              raise SystemExit("Maven 4 archive checksum mismatch")
-          PYTHON
-          tar -xzf "$RUNNER_TEMP/maven4.tar.gz" -C "$RUNNER_TEMP"
-      - name: Test Maven 4 with IDEA 2026.2.3
-        run: ./gradlew testMaven4 -Pmaven4Home="$RUNNER_TEMP/apache-maven-4.0.0-rc-7" --console=plain
-      - name: Collect Maven 4 test results
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: maven4-tests-result
-          path: |
-            build/reports/tests/testMaven4
-            build/test-results/testMaven4
-          if-no-files-found: ignore
-
-  # Verification builds its own archive and runs alongside tests and distribution packaging.
   verify:
     name: Verify plugin
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-
-      # Check out the current repository
-      - name: Fetch Sources
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-
-      # Set up the Java environment for the next steps
-      - name: Setup Java
-        uses: actions/setup-java@v6
+      - uses: actions/setup-java@v6
         with:
           distribution: zulu
           java-version: 21
-
-      # Setup Gradle
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: true
-
-      # Validate the project configuration and binary compatibility before drafting a release.
-      - name: Run plugin verification tasks
-        run: ./gradlew verifyPluginProjectConfiguration verifyPlugin
-
-      # Collect Plugin Verifier Result
-      - name: Collect Plugin Verifier Result
+      - name: Verify plugin
+        run: ./gradlew verifyPluginProjectConfiguration verifyPlugin --console=plain
+      - name: Upload Plugin Verifier result
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: pluginVerifier-result
           path: ${{ github.workspace }}/build/reports/pluginVerifier
 
-  # Prepare a draft release for GitHub Releases page for the manual verification
-  # If accepted and published, the release workflow would be triggered
   releaseDraft:
     name: Release draft
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [ build, test, maven, maven4, verify ]
+    needs: [ build, verify ]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
-
-      # Check out the current repository
-      - name: Fetch Sources
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-
-      # Set up the Java environment for the next steps
-      - name: Setup Java
-        uses: actions/setup-java@v6
+      - uses: actions/setup-java@v6
         with:
           distribution: zulu
           java-version: 21
-
-      # Setup Gradle
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: true
-
-      - name: Validate release metadata
+      - name: Read version
         id: metadata
-        run: python3 .github/scripts/release_metadata.py
-
+        run: |
+          version=$(sed -n 's/^version=//p' gradle.properties)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if grep -q "^## \[$version\]" CHANGELOG.md; then echo "releasable=true" >> "$GITHUB_OUTPUT"; fi
+          if [[ "$version" == *-* ]]; then echo "channel=eap" >> "$GITHUB_OUTPUT"; else echo "channel=default" >> "$GITHUB_OUTPUT"; fi
       - name: Download tested plugin
         if: steps.metadata.outputs.releasable == 'true'
         uses: actions/download-artifact@v8
         with:
           name: plugin-distribution
           path: build/distributions
-
       - name: Prepare release draft
         if: steps.metadata.outputs.releasable == 'true'
         env:

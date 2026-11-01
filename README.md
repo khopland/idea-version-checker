@@ -1,89 +1,93 @@
 # Version Checker
 
-Version Checker is an IntelliJ IDEA plugin that shows newer stable versions in your build files.
-It works with Maven, Gradle, npm, pnpm, Yarn and Bun.
+An IntelliJ IDEA plugin that highlights outdated dependency versions in build files and updates them by patch, minor or major version.
 
-> junit:junit · patch update: 4.12 → 4.13.2
-
-Use **Alt+Enter** to update one declaration.
-Use **Review Updates…** to select several updates for a file or the whole project.
+> junit:junit 4.12 → 4.12.1 (patch) · 4.13.2 (minor) · 5.0.0 (major)
 
 ## Install
 
-Use **IntelliJ IDEA 2026.1.4 through 2026.2.x**.
-
-1. Open **Settings → Plugins → Marketplace**.
-2. Search for **Version Checker**.
-3. Install the plugin.
-
-Each build system needs its bundled IDE plugin and an imported project:
-
-| Build system | Setup |
-| --- | --- |
-| Maven | Enable Java and Maven. Import the Maven project. Maven 4 needs IDEA 2026.2.3 or later. |
-| Gradle | Enable Gradle. Link the Gradle project. |
-| npm, pnpm, Yarn, Bun | Enable JavaScript and TypeScript. Configure a local Node.js interpreter and the package manager. |
+Use IntelliJ IDEA 2026.1.4 through 2026.2.x. Open **Settings → Plugins → Marketplace** and search for **Version Checker**.
 
 ## Use
 
-The plugin checks a build file when IDEA inspects it.
-Newer versions show as warnings on the declared version.
-
 | Task | Action |
 | --- | --- |
-| Update one version | Put the caret on the warning. Press **Alt+Enter**. |
-| Check a file again | Right-click the build file. Select **Check This File for Updates**. |
-| Check the whole project | Select **Tools → Versions → Check for Updates**. |
-| Select several updates | Select **Tools → Versions → Review Updates…**, or right-click a build file. |
-| See the check status | Click **Versions** in the status bar. |
+| Update one version | Put the caret on the warning and press **Alt+Enter**. Pick the patch, minor or major update. |
+| Update every version in a file | **Tools → Versions → Update This File → Patch / Minor / Major**, or the editor and Project view context menus. |
+| Update every build file in the project | **Tools → Versions → Update All Files → Patch / Minor / Major**. |
+| Check again now | **Tools → Versions → Check Now**. Results otherwise stay cached for 30 minutes. |
 
-**Review Updates…** shows all proposed changes in one window.
-Select the update mode: **Patch only**, **Minor + patch** or **Major + minor + patch**.
-Select the changes, then click **Update selected declarations**.
-The plugin applies them as one edit that you can undo.
+Each mode picks the newest version in its branch. **Patch** finds the newest `1.2.x` even when `2.0` exists. **Minor** stays on the same major version.
+A bulk update is one edit, across all files. **Edit → Undo** reverts all of it.
+The plugin only edits declarations. It does not change lockfiles, `node_modules` or downloaded artifacts.
+Reload Maven or Gradle afterwards, then build and test: a newer version is not a compatibility guarantee.
 
-After an update, a notification offers the next step:
-**Reload Maven projects**, **Sync Gradle projects** or **Update npm lockfile…**.
-The plugin changes declarations only. It does not change lockfiles or installed packages.
-
-An available update is not a compatibility guarantee. Build and test after you update.
+Only stable versions are suggested, without alpha, beta, milestone, RC, preview or snapshot versions.
+A version with a variant keeps it, so `33.0.0-jre` updates to a newer `-jre` version.
 
 ## What is checked
 
 | Build system | Declarations |
 | --- | --- |
-| Maven | Dependencies, dependency management, BOMs and build plugins. Literal versions and simple version properties, including properties from a parent POM. |
-| Gradle | Libraries, BOMs and plugins in Groovy and Kotlin build scripts. Libraries and plugins in local version catalogs. |
-| npm, pnpm, Yarn, Bun | `dependencies`, `devDependencies` and `optionalDependencies`, including workspaces and aliases. `^` and `~` selectors keep their operator. |
-| Maven wrapper | The Maven version in `.mvn/wrapper/maven-wrapper.properties`. |
-| Gradle wrapper | The Gradle version in `gradle/wrapper/gradle-wrapper.properties`, for the official download URL. |
+| Maven | `pom.xml`: dependencies, dependency management and BOMs, build plugins, plugin management, extensions, profiles and an external parent. Literal versions and `${property}` versions. The fix changes the property where it is set, also in a parent POM in the project. |
+| npm | `package.json`: `dependencies`, `devDependencies` and `optionalDependencies`. Exact, `^` and `~` versions keep their operator. Works for npm, pnpm, Yarn and Bun projects. Registry deprecations show in the message. |
+| Gradle | Build scripts: `"group:artifact:version"` strings, `id("x") version "v"` and `kotlin("jvm") version "v"`. `libs.versions.toml`: `[libraries]` and `[plugins]`, with literal versions or `version.ref`. |
+| Wrappers | `distributionUrl` in `.mvn/wrapper/maven-wrapper.properties` and `gradle/wrapper/gradle-wrapper.properties`. |
 
-Some declarations show as **Needs review** instead of an automatic update.
-Examples are version ranges, computed versions and shared versions whose users do not agree.
-The [user guide](docs/user-guide.md) lists the rules for each build system.
+A version that several declarations share, like a Maven property or a catalog `version.ref`, changes only when they all want the same version.
+
+Not checked: version ranges and tags, computed versions, transitive and peer dependencies, lockfiles, and Gradle versions from variables.
+
+## Redundant Maven overrides
+
+The **Redundant Maven override** inspection works offline and reports:
+
+- a dependency `<version>` that equals the managed version from a parent or BOM, or is older than it,
+- a dependency management entry that repeats the parent module's version,
+- a property with the same value as in the parent, or an older value,
+- a version property that no POM in the project or parent chain uses.
+
+Use **Alt+Enter** to remove one, or **Fix all** in the file.
 
 ## Settings
 
-Open **Settings → Tools → Version Checker**.
+**Settings → Tools → Version Checker**:
 
-- **Minimum release age (hours):** hide releases that are newer than this. Set it to your repository quarantine, for example 24.
-- **Dependency rules:** mark packages as deprecated, and see the versions you ignored.
+- **Check versions in build files**: turn the checks on or off.
+- **Minimum release age (hours)**: hide versions published less recently than this, for example `24` to match a Nexus or Artifactory quarantine.
 
-To hide one release, use **Alt+Enter → Ignore … in this project**.
-To change the warning level, use **Settings → Editor → Inspections**.
+Severity and per-inspection on/off are under **Settings → Editor → Inspections → Version Checker**.
 
-Checks use your existing repository configuration: Maven settings and mirrors, `.npmrc`, and Gradle repositories.
-You do not need to enter repository credentials in the plugin.
-Offline mode in Maven or Gradle stops remote checks.
+## Repositories and credentials
 
-## Documentation
+The plugin reads repository metadata over HTTP, using the IDE proxy settings. It does not start Maven, Node or Gradle.
 
-- [User guide](docs/user-guide.md): checks, reviews and the rules for each build system.
-- [Development](docs/development.md): build, test and try the plugin from source.
-- [Architecture](docs/architecture.md): how the code is organized.
-- [Releasing](docs/releasing.md) and [packaged plugin acceptance](docs/ide-acceptance.md).
+| Build system | Repositories | Credentials |
+| --- | --- | --- |
+| Maven | The repositories IDEA imported for the module, with mirrors applied. Maven Central if the project is not imported. **Work offline** stops checks. | `<server>` entries in your `settings.xml`, matched by repository or mirror id: `username` and `password`, or `configuration/httpHeaders`. `${env.NAME}` works. Encrypted passwords are not supported. |
+| npm | `registry` and `@scope:registry` from `.npmrc` files in the package directory and above, the user `.npmrc` and `npm_config_registry`. | `//host/path/:_authToken`, `_auth`, or `username` and `_password` in `.npmrc`. `${NAME}` works. |
+| Gradle | Maven Central (Google's repository for `androidx`, `com.android` and similar groups) and the Gradle Plugin Portal. | None. |
+
+Release times for the minimum release age come from the POM's `Last-Modified` header (Maven and Gradle), the registry's `time` field (npm) and `services.gradle.org` (Gradle wrapper).
+A version without a known release time is hidden while the setting is above zero.
+
+## Development
+
+```bash
+./gradlew runIde                        # A sandbox IDE with the plugin.
+./gradlew test                          # Unit and platform tests, with no network.
+./gradlew test -Plive=true --tests '*LiveRepositoriesTest'   # Against the public registries.
+./gradlew buildPlugin verifyPlugin      # The ZIP in build/distributions, and binary compatibility.
+```
+
+The demo projects in `src/test/resources` have outdated versions on purpose. Copy one to the Git-ignored `examples/` directory and open the copy.
+
+| Package | Contents |
+| --- | --- |
+| `core` | Version ordering and targets, the HTTP client, the cached checker, the annotator and inspection, quick fixes and bulk updates. |
+| `repo` | The Maven-layout repository lookup used by Maven, Gradle and the Maven wrapper. |
+| `maven`, `npm`, `gradle`, `wrapper` | One `DeclarationProvider` each: find versions in a file, and say how to look them up and edit them. |
 
 ## License
 
-Copyright 2026 Kristoffer Larsen Hopland.
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Copyright 2026 Kristoffer Larsen Hopland. Licensed under the [Apache License, Version 2.0](LICENSE).

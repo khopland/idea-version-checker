@@ -56,3 +56,7 @@ intellijPlatform {
         }
     }
 }
+
+tasks.test {
+    systemProperty("versionchecker.live", providers.gradleProperty("live").orElse("false").get())
+}

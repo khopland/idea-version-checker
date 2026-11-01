@@ -27,7 +27,14 @@ Run `./gradlew test` after each step. Commit after each step with a message that
 - [x] Phase 3: npm (`npm/Npmrc.kt`, `npm/NpmLookup.kt`, `npm/NpmProvider.kt` + NpmSpec; tests in `npm/NpmTest`)
   - [ ] optional later: read the package-manager age gate (pnpm `minimumReleaseAge`, Yarn `npmMinimalAgeGate`, Bun `minimumReleaseAge`) and `.yarnrc.yml` `npmRegistryServer`
 - [x] Phase 4: Gradle (`gradle/GradleProvider.kt`: GradleScripts + GradleCatalog, text-based; tests in `gradle/GradleProviderTest`). The wrapper was done in phase 2.
-- [ ] Phase 5: README, CHANGELOG, CI, version 2.0.0
+- [x] Phase 5: README, CHANGELOG 2.0.0, demo READMEs, CI (build+test, verify, release draft without Python), version 2.0.0. verifyPlugin: compatible with 2026.1.4 and 2026.2.3, no deprecated API.
+- [x] Extra tests: `core/AnnotatorTest` (real annotator + fixes + shared-edit agreement + disabled inspection + Update All Files with one global undo), `LiveRepositoriesTest` (opt-in `-Plive=true`).
+
+## Left to do (needs the user or is optional)
+- Manual check in `./gradlew runIde` with the demos, especially RedundantOverrideInspection, which needs an imported Maven project.
+- The user should compare 1.4.0 and 2.0 speed on a work Maven/Nexus project and a work npm project, and confirm that settings.xml credentials work.
+- Optional: persist ETags for conditional GETs across restarts; read package-manager age gates; `.yarnrc.yml` registry; encrypted Maven passwords.
+- Before merging: delete `REWRITE_PROGRESS.md` and `rewrite-plan.html`, or keep them, as the user prefers.
 
 ## Notes and findings
 

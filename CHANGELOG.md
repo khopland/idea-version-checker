@@ -2,33 +2,30 @@
 
 ## [Unreleased]
 
+## [2.0.0]
+
+Version 2 is a rewrite. It is smaller and faster, and it reads repository metadata directly instead of starting Maven, Node or Gradle.
+
 ### Added
 
-- Gradle plugin versions in `plugins {}` blocks and in the catalog `[plugins]` table. They resolve through the build's `pluginManagement` repositories. A catalog version shared by libraries and plugins changes when they all agree.
-- Maven wrapper and Gradle wrapper versions. The Maven wrapper resolves through your Maven repositories and mirrors. The Gradle wrapper is checked against `services.gradle.org` for the official download URL.
-- pnpm, Yarn (Classic and modern) and Bun support, using each manager's own read-only registry command. pnpm workspaces come from `pnpm-workspace.yaml`.
+- **Tools → Versions → Update This File** and **Update All Files**, each with **Patch**, **Minor** and **Major**. All changes apply as one undoable edit.
+- **Alt+Enter** offers the patch, minor and major update for each version, and **Update all versions in this file…**.
+- The minimum release age now also applies to Gradle libraries and plugins.
+- Maven: the parent POM version, build extensions, and unused version properties in the **Redundant Maven override** inspection.
 
 ### Changed
 
-- **Minimum release age** now also applies to npm, pnpm, Yarn, Bun and the wrappers. Your saved value is kept.
-- One **Tools → Versions** menu with **Check for Updates** and **Review Updates…** replaces the eight items in the Check Versions and Update Versions menus. The editor menu offers **Check This File for Updates** and **Review Updates…**.
-- After an update, one **Versions updated** notification offers **Reload Maven projects**, **Sync Gradle projects** or **Update npm lockfile…**, and **Review changed files**.
-- The warning level comes from each inspection under **Settings → Editor → Inspections**. Deprecated and relocated packages are struck through.
-- Maven checks are faster: each metadata request reads four repository files at a time, and the next batch starts while the current one is shown.
+- Checks run over HTTP with the IDE proxy settings. Maven uses the imported repositories and mirrors, with credentials from `settings.xml`. npm uses `.npmrc`. No Node.js interpreter or package-manager setting is needed.
+- One **Outdated dependency version** inspection for all build systems, under **Version Checker** in the inspection settings.
+- The settings are now application-wide.
 
 ### Removed
 
-- The **Dependency Versions** tool window, with its Markdown and JSON exports and the support report. Hints, the status bar and **Review Updates…** show the same results.
-- **View Latest Update Session…** and **Verify Maven effective versions**.
-- The five severity settings. Saved choices are ignored.
-- The **Maven Platform** scope, periodic background refresh and the advanced Maven tuning settings.
-- **Load npm target details** in update reviews.
-- The `CheckPerformance` debug trace category.
-
-### Fixed
-
-- Maven metadata and Versions goals run in cancellable Java processes with IDEA's selected Maven and import JDK.
-- Deprecated IntelliJ API calls are replaced.
+- **Review Updates…**, the status bar widget, follow-up notifications and the npm lockfile command.
+- Ignored versions, deprecation rules and the shared `.version-checker.json` policy file.
+- Maven relocation notices, the versions-maven-plugin fallback and Maven goal processes.
+- npm workspace-wide updates, aliases, and the pnpm, Yarn and Bun specific settings.
+- Gradle repository discovery through the build. Gradle checks use Maven Central, Google and the Gradle Plugin Portal.
 
 ## [1.4.0] - 2026-10-22
 
