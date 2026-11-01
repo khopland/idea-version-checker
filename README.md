@@ -56,7 +56,15 @@ Not checked: version ranges and tags, computed versions, transitive and peer dep
 The **Moved dependency** inspection reports a Maven or Gradle dependency whose publisher moved it to new coordinates:
 
 - a `<relocation>` in the newest POM, for example `mysql:mysql-connector-java` to `com.mysql:mysql-connector-j`,
-- Jackson 3, which publishes no relocation POMs: a `com.fasterxml.jackson` artifact is reported when the same artifact has a stable release under `tools.jackson`. `jackson-annotations` stays in the old group, and modules that Jackson 3 merged into `jackson-databind` have no release there.
+- a built-in list of moves without relocation POMs, reported only when the new coordinates have a stable release:
+  - `javax.*` APIs to `jakarta.*`, for example `javax.servlet:javax.servlet-api` to `jakarta.servlet:jakarta.servlet-api`,
+  - Jackson 3: `com.fasterxml.jackson.*` to `tools.jackson.*`, except `jackson-annotations` and the modules Jackson 3 merged into `jackson-databind`,
+  - Testcontainers 2 modules, for example `org.testcontainers:postgresql` to `org.testcontainers:testcontainers-postgresql`,
+  - BouncyCastle `*-jdk15on` to `*-jdk18on`, and AWS SDK v1 `com.amazonaws:aws-java-sdk-<service>` to `software.amazon.awssdk:<service>`,
+  - frozen libraries such as `log4j:log4j`, `dom4j:dom4j`, `commons-lang`, `commons-collections`, Jackson 1, `okhttp` 2, `retrofit` 1, RxJava 1 and 2, `mockito-all` and `hamcrest-all`,
+  - the Gradle plugins `com.github.johnrengelman.shadow` and `org.jetbrains.intellij`.
+
+  The full list is `MOVES` and `knownMove` in `repo/MavenLookup.kt`.
 
 It shows as a weak warning with no fix, because the code usually has to change too. Old coordinates can still get releases, as Jackson 2 does, so turn the inspection off if you stay on them on purpose.
 

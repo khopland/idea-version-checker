@@ -76,6 +76,35 @@ class MavenLookupTest {
     }
 
     @Test
+    fun knownMovesMapTablesAndPatterns() {
+        assertEquals("jakarta.servlet:jakarta.servlet-api", MavenLookup.knownMove("javax.servlet", "javax.servlet-api"))
+        assertEquals("tools.jackson.module:jackson-module-kotlin", MavenLookup.knownMove("com.fasterxml.jackson.module", "jackson-module-kotlin"))
+        assertEquals("org.testcontainers:testcontainers-postgresql", MavenLookup.knownMove("org.testcontainers", "postgresql"))
+        assertNull(MavenLookup.knownMove("org.testcontainers", "testcontainers"))
+        assertNull(MavenLookup.knownMove("org.testcontainers", "testcontainers-postgresql"))
+        assertEquals("org.bouncycastle:bcpkix-jdk18on", MavenLookup.knownMove("org.bouncycastle", "bcpkix-jdk15on"))
+        assertNull(MavenLookup.knownMove("org.bouncycastle", "bcprov-jdk15to18"))
+        assertEquals("software.amazon.awssdk:s3", MavenLookup.knownMove("com.amazonaws", "aws-java-sdk-s3"))
+        assertNull(MavenLookup.knownMove("com.amazonaws", "aws-java-sdk-core"))
+        assertEquals("com.gradleup.shadow:com.gradleup.shadow.gradle.plugin",
+            MavenLookup.knownMove("com.github.johnrengelman.shadow", "com.github.johnrengelman.shadow.gradle.plugin"))
+        assertNull(MavenLookup.knownMove("org.example", "lib"))
+    }
+
+    @Test
+    fun movedPluginIsNamedByItsId() = runBlocking {
+        FakeRepository().use { repository ->
+            repository.routes["/com/github/johnrengelman/shadow/com.github.johnrengelman.shadow.gradle.plugin/maven-metadata.xml"] =
+                FakeRepository.Response(200, FakeRepository.metadata("8.1.1"))
+            repository.routes["/com/gradleup/shadow/com.gradleup.shadow.gradle.plugin/maven-metadata.xml"] =
+                FakeRepository.Response(200, FakeRepository.metadata("9.0.0", "9.6.1"))
+            val lookup = MavenLookup("com.github.johnrengelman.shadow", "com.github.johnrengelman.shadow.gradle.plugin",
+                listOf(MavenRepo("r", repository.url)), http = { repository.http }, times = { null })
+            assertEquals(Moved("com.gradleup.shadow", "9.6.1"), lookup.fetch().moved)
+        }
+    }
+
+    @Test
     fun sendsCredentialsAndExplainsAuthFailures() = runBlocking {
         FakeRepository().use { repository ->
             repository.routes["/org/example/lib/maven-metadata.xml"] = FakeRepository.Response(401)
