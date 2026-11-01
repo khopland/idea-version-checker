@@ -57,6 +57,19 @@ class AnnotatorTest : BasePlatformTestCase() {
         assertTrue(myFixture.editor.document.text.contains("""<lib name="a" version="1.2.0"/>"""))
     }
 
+    fun testRepeatedFailuresShowOnceForTheFile() {
+        myFixture.configureByText("fake.xml", """
+            <libs>
+              <lib name="broken" version="1.0.0"/>
+              <lib name="broken-too" version="1.0.0"/>
+              <lib name="a" version="1.0.0"/>
+            </libs>
+        """.trimIndent())
+        val weak = myFixture.doHighlighting().filter { it.severity == HighlightSeverity.WEAK_WARNING }
+        assertEquals(listOf("Could not check 2 versions: repo needs credentials"), weak.map { it.description })
+        assertTrue(weak.single().isFileLevelAnnotation)
+    }
+
     fun testSharedVersionNeedsAgreement() {
         myFixture.configureByText("fake.xml", """
             <libs><shared>1.0.0</shared>
