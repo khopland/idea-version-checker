@@ -66,18 +66,55 @@ The **Moved dependency** inspection reports a Maven or Gradle dependency whose p
 
   The full list is `MOVES` and `knownMove` in `repo/MavenLookup.kt`.
 
-It shows as a weak warning with no fix, because the code usually has to change too. Old coordinates can still get releases, as Jackson 2 does, so turn the inspection off if you stay on them on purpose.
+It shows as a weak warning with no fix, because the code usually has to change too. Old coordinates can still get releases, as Jackson 2 does, so turn the inspection off or suppress it if you stay on them on purpose.
+
+## Keep a version on purpose
+
+A suppress comment in the build file keeps one version. It lives in the file, so the whole team shares it, and **Update This File** and **Update All Files** skip the version too.
+
+```xml
+<!--suppress OutdatedDependencyVersion: waiting for Spring 7 -->
+<dependency>…<version>5.3.39</version></dependency>
+```
+
+| File | Comment |
+| --- | --- |
+| `pom.xml` | `<!--suppress OutdatedDependencyVersion -->` above the tag, or for a whole file above `<project>`. |
+| Gradle scripts | `//noinspection OutdatedDependencyVersion` on the line above. |
+| `libs.versions.toml` | `#noinspection OutdatedDependencyVersion` on the line above. |
+| Wrapper properties | `# suppress inspection "OutdatedDependencyVersion"` on the line above. |
+
+To add the comment, press **Alt+Enter** on the warning, open the submenu of any fix with the right arrow, and pick **Suppress for tag**, **Suppress for statement** or **Suppress for line**. A comment where the version is set, on a Maven property or a catalog `[versions]` entry, keeps every declaration that uses it.
+Use `MovedDependency` the same way for moved packages. `package.json` cannot have comments, so there turn the inspection off for the file or project instead.
 
 ## Redundant Maven overrides
 
 The **Redundant Maven override** inspection works offline and reports:
 
 - a dependency `<version>` that equals the managed version from a parent or BOM, or is older than it,
+- a plugin `<version>` in `<build><plugins>` that equals the version in plugin management of this POM or a parent, or is older than it,
 - a dependency management entry that repeats the parent module's version,
 - a property with the same value as in the parent, or an older value,
-- a version property that no POM in the project or parent chain uses.
+- a version property that no POM in the project or parent chain uses,
+- the same dependency twice in one `<dependencies>` block, which Maven only warns about at build time. The fix removes the copy when both are the same, and otherwise you choose which one to keep.
 
 Use **Alt+Enter** to remove one, or **Fix all** in the file.
+
+## Duplicate npm dependencies
+
+The **Duplicate npm dependency** inspection reports a package that `package.json` lists in both `dependencies` and `devDependencies` (or `optionalDependencies`), and a package in both `dependencies` and `optionalDependencies`, which overrides it.
+**Alt+Enter** removes it from `devDependencies` or `dependencies`. A package in both `peerDependencies` and `devDependencies` is normal and is not reported.
+
+## Unused version catalog entries
+
+The **Unused version catalog entry** inspection reports entries in `gradle/libs.versions.toml` that nothing uses:
+
+- a `[versions]` entry without a `version.ref` in the catalog or a `libs.versions.x` in a build script,
+- a `[libraries]` alias that no build script uses as `libs.x` and no bundle lists,
+- a `[plugins]` alias that no build script uses as `libs.plugins.x`.
+
+The alias `junit-api` is the accessor `libs.junit.api`. An alias in quotes, as in `libs.findLibrary("junit-api")`, also counts.
+Build scripts, `buildSrc` and included builds that import the catalog are searched. The check is skipped when the settings script registers a catalog with another name.
 
 ## Settings
 

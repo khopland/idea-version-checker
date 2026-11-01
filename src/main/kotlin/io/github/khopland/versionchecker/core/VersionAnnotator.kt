@@ -2,6 +2,8 @@ package io.github.khopland.versionchecker.core
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel
 import com.intellij.codeInsight.daemon.HighlightDisplayKey
+import com.intellij.codeInsight.intention.EmptyIntentionAction
+import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.ex.ExternalAnnotatorBatchInspection
 import com.intellij.lang.annotation.AnnotationHolder
@@ -15,8 +17,12 @@ import io.github.khopland.versionchecker.VersionCheckerSettings
 
 /** Shows outdated versions. Lookups run on the annotator's background thread, not in the highlighting pass. */
 class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotator.Result>() {
-    class Info(val declarations: List<Declaration>, val related: List<Declaration>)
-    class Result(val declarations: List<Declaration>, val outcomes: Map<Declaration, Outcome>)
+    /** [suppressed] and [movedSuppressed] are kept by a suppress comment. They still take part in the agreement on a shared version. */
+    class Info(val declarations: List<Declaration>, val related: List<Declaration>,
+               val suppressed: Set<Declaration> = emptySet(), val movedSuppressed: Set<Declaration> = emptySet())
+    class Result(val info: Info, val outcomes: Map<Declaration, Outcome>) {
+        val declarations get() = info.declarations
+    }
 
     override fun collectInformation(file: PsiFile, editor: Editor, hasErrors: Boolean): Info? = collectInformation(file)
 
@@ -24,11 +30,13 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
         if (!VersionCheckerSettings.getInstance().enabled) return null
         val provider = DeclarationProvider.forFile(file) ?: return null
         val declarations = provider.collect(file)
-        return if (declarations.isEmpty()) null else Info(declarations, provider.related(file, declarations))
+        if (declarations.isEmpty()) return null
+        return Info(declarations, provider.related(file, declarations), Suppression.suppressed(file, declarations, OutdatedVersionInspection()),
+            Suppression.suppressed(file, declarations, MovedDependencyInspection()))
     }
 
     override fun doAnnotate(info: Info): Result =
-        Result(info.declarations, runBlockingCancellable { VersionService.getInstance().check(info.declarations + info.related) })
+        Result(info, runBlockingCancellable { VersionService.getInstance().check(info.declarations + info.related) })
 
     override fun apply(file: PsiFile, result: Result, holder: AnnotationHolder) {
         val outcomes = result.outcomes
@@ -38,14 +46,20 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
             return if (profile.isToolEnabled(key, file)) profile.getErrorLevel(key, file).severity else null
         }
         val movedSeverity = severity(MovedDependencyInspection.SHORT_NAME, HighlightDisplayLevel.WEAK_WARNING)
+        val movedKey = HighlightDisplayKey.find(MovedDependencyInspection.SHORT_NAME)
         for (declaration in result.declarations) {
             val moved = (outcomes[declaration] as? Outcome.Updates)?.moved ?: continue
-            if (movedSeverity != null && declaration.range.endOffset <= file.textLength)
-                holder.newAnnotation(movedSeverity, movedMessage(declaration, moved)).range(declaration.range).create()
+            if (movedSeverity != null && declaration !in result.info.movedSuppressed && declaration.range.endOffset <= file.textLength) {
+                val builder = holder.newAnnotation(movedSeverity, movedMessage(declaration, moved)).range(declaration.range)
+                // An annotation without fixes has no Alt+Enter menu, so an empty action carries the suppress actions.
+                (if (movedKey == null) builder else builder.newFix(EmptyIntentionAction("Moved dependency")).key(movedKey).registerFix()).create()
+            }
         }
         val severity = severity(OutdatedVersionInspection.SHORT_NAME, HighlightDisplayLevel.WARNING) ?: return
+        val key = HighlightDisplayKey.find(OutdatedVersionInspection.SHORT_NAME)
         val fixes = VersionService.fixes(outcomes)
-        val failures = result.declarations.filter { outcomes[it] is Outcome.Failed }.groupBy { (outcomes.getValue(it) as Outcome.Failed).message }
+        val checked = result.declarations.filter { it !in result.info.suppressed }
+        val failures = checked.filter { outcomes[it] is Outcome.Failed }.groupBy { (outcomes.getValue(it) as Outcome.Failed).message }
         // A repository that fails for many versions, for example without VPN, gets one warning for the file.
         for ((message, failed) in failures) {
             if (failed.size == 1) {
@@ -56,7 +70,7 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
                 holder.newAnnotation(HighlightSeverity.WEAK_WARNING, "Could not check ${failed.size} versions: $message").fileLevel().create()
             }
         }
-        for (declaration in result.declarations) {
+        for (declaration in checked) {
             val outcome = outcomes[declaration] ?: continue
             if (declaration.range.endOffset > file.textLength) continue
             when (outcome) {
@@ -64,11 +78,16 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
                 is Outcome.Updates -> {
                     val message = message(declaration, outcome, fixes[declaration].orEmpty()) ?: continue
                     var builder = holder.newAnnotation(severity, message).range(declaration.range)
+                    // The key adds the inspection's suppress actions to each fix's submenu.
+                    fun register(fix: IntentionAction) {
+                        builder = if (key == null) builder.withFix(fix) else builder.newFix(fix).key(key).registerFix()
+                    }
                     val edit = declaration.edit
                     if (edit != null) fixes[declaration].orEmpty().values.distinct().forEach { version ->
-                        builder = builder.withFix(UpdateVersionFix(edit, version, Versions.kind(declaration.current, version)))
+                        register(UpdateVersionFix(edit, version, Versions.kind(declaration.current, version)))
                     }
-                    builder.withFix(UpdateFileFix()).create()
+                    register(UpdateFileFix())
+                    builder.create()
                 }
             }
         }

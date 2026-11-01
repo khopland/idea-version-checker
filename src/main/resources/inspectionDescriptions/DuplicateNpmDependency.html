@@ -1,0 +1,11 @@
+<html>
+<body>
+Reports a package that <code>package.json</code> lists twice:
+<ul>
+  <li>in <code>devDependencies</code> and also in <code>dependencies</code> or <code>optionalDependencies</code>, where the dev entry has no effect,</li>
+  <li>in <code>dependencies</code> and also in <code>optionalDependencies</code>, which overrides it.</li>
+</ul>
+<p>A package in both <code>peerDependencies</code> and <code>devDependencies</code> is normal and is not reported.</p>
+<p>Use <b>Alt+Enter</b> to remove the extra entry.</p>
+</body>
+</html>

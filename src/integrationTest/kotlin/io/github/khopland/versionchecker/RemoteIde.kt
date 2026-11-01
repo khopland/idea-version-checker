@@ -20,12 +20,16 @@ interface PsiDocumentManagerRef {
 }
 
 @Remote("com.intellij.codeInsight.intention.IntentionAction")
-interface IntentionActionRef
+interface IntentionActionRef {
+    fun getText(): String
+}
 
 @Remote("com.intellij.codeInsight.intention.impl.IntentionActionWithTextCaching")
 interface IntentionWithTextRef {
     fun getText(): String
     fun getAction(): IntentionActionRef
+    /** The submenu of the action, such as the suppress actions. */
+    fun getOptionActions(): List<IntentionActionRef>
 }
 
 @Remote("com.intellij.codeInsight.intention.impl.CachedIntentions")
@@ -55,6 +59,18 @@ fun Driver.applyIntention(caretText: String, text: String) = withContext {
         val action = handler.calcCachedIntentions(singleProject(), editor, file).getAllActions().firstOrNull { it.getText() == text }
             ?: error("No intention '$text' at '$caretText'")
         check(handler.chooseActionAndInvoke(file, editor, action.getAction(), text, -1)) { "'$text' did not run" }
+    }
+}
+
+/** Runs the action called [text] from the submenu of any Alt+Enter action at [caretText], such as **Suppress for line**. */
+fun Driver.applyIntentionOption(caretText: String, text: String) = withContext {
+    val (editor, file) = editorAt(caretText)
+    withContext(OnDispatcher.EDT) {
+        val handler = utility(ShowIntentionActionsHandlerRef::class)
+        val option = handler.calcCachedIntentions(singleProject(), editor, file).getAllActions()
+            .firstNotNullOfOrNull { action -> action.getOptionActions().firstOrNull { it.getText() == text } }
+            ?: error("No option '$text' at '$caretText'")
+        check(handler.chooseActionAndInvoke(file, editor, option, text, -1)) { "'$text' did not run" }
     }
 }
 

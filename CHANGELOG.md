@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Suppress comments keep a version on purpose: `<!--suppress OutdatedDependencyVersion -->` in a POM, `//noinspection OutdatedDependencyVersion` in a Gradle script, and `#noinspection` in `libs.versions.toml`. **Alt+Enter** adds them, and the update actions skip the version.
+- **Redundant Maven override** also reports a plugin version that plugin management already gives, and the same dependency twice in one `<dependencies>` block.
+- **Duplicate npm dependency** inspection: a package in both `dependencies` and `devDependencies`, or overridden by `optionalDependencies`.
+- **Unused version catalog entry** inspection: `[versions]`, `[libraries]` and `[plugins]` entries in `libs.versions.toml` that no build script uses.
+
 ## [2.0.1]
 
 ### Added

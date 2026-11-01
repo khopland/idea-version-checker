@@ -103,6 +103,64 @@ class AnnotatorTest : BasePlatformTestCase() {
         assertTrue(myFixture.doHighlighting().none { it.description?.contains("has moved") == true })
     }
 
+    fun testSuppressCommentKeepsTheVersion() {
+        myFixture.configureByText("fake.xml", """
+            <libs>
+              <!--suppress OutdatedDependencyVersion -->
+              <lib name="a" version="1.0.0"/>
+              <!--suppress MovedDependency: renamed later -->
+              <lib name="old" version="1.0.1"/>
+              <lib name="current" version="1.1.0"/>
+            </libs>
+        """.trimIndent())
+        val highlights = myFixture.doHighlighting().filter { it.description != null }
+        assertEquals(listOf("old 1.0.1 → 1.1.0 (minor)", "current 1.1.0 → 2.0.0 (major)"),
+            highlights.filter { it.severity == HighlightSeverity.WARNING }.map { it.description })
+        assertTrue(highlights.none { it.description?.contains("has moved") == true })
+
+        // The fixes carry the platform's suppress actions.
+        myFixture.editor.caretModel.moveToOffset(myFixture.editor.document.text.indexOf("1.1.0\"/>\n</libs>") + 1)
+        myFixture.launchAction(myFixture.availableIntentions.first { it.text == "Suppress for tag" })
+        assertTrue(Regex("""<!--suppress OutdatedDependencyVersion -->\s*<lib name="current"""").containsMatchIn(myFixture.editor.document.text))
+        assertTrue(myFixture.doHighlighting().none { it.severity == HighlightSeverity.WARNING && it.description?.startsWith("current") == true })
+    }
+
+    fun testSuppressCommentAboveTheLine() {
+        val text = """
+            //noinspection UnusedProperty, OutdatedDependencyVersion
+            implementation("a:b:1.0")
+            #noinspection ALL
+            junit = "4.13"
+            # noinspection OutdatedDependencyVersion
+
+            guava = "33.0"
+        """.trimIndent()
+        fun suppressed(line: String) = Suppression.commentAbove(text, text.indexOf(line), OutdatedVersionInspection.SHORT_NAME)
+        assertTrue(suppressed("implementation"))
+        assertTrue(suppressed("junit"))
+        assertFalse("Only the line right above counts", suppressed("guava"))
+        assertFalse(Suppression.commentAbove(text, 0, OutdatedVersionInspection.SHORT_NAME))
+    }
+
+    fun testUpdateSkipsSuppressedVersions() {
+        val file = myFixture.addFileToProject("fake.xml", """
+            <libs>
+              <!--suppress OutdatedDependencyVersion -->
+              <lib name="a" version="1.0.0"/>
+              <lib name="shared-y" version="1.0.0"/>
+            </libs>
+        """.trimIndent())
+        val document = com.intellij.psi.PsiDocumentManager.getInstance(project).getDocument(file)!!
+        Updater.getInstance(project).update(listOf(file.virtualFile), UpdateKind.MINOR)
+        val deadline = System.currentTimeMillis() + 10_000
+        while (!document.text.contains("1.1.0") && System.currentTimeMillis() < deadline) {
+            com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            Thread.sleep(10)
+        }
+        assertTrue(document.text.contains("""<lib name="shared-y" version="1.1.0"/>"""))
+        assertTrue(document.text.contains("""<lib name="a" version="1.0.0"/>"""))
+    }
+
     fun testUpdateAllFilesIsOneUndoableCommand() {
         val first = myFixture.addFileToProject("one/fake.xml", """<libs><lib name="a" version="1.0.0"/></libs>""")
         val second = myFixture.addFileToProject("two/fake.xml", """<libs><lib name="shared-y" version="1.0.0"/></libs>""")
