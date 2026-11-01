@@ -34,3 +34,13 @@ class HttpCacheTest {
         }
     }
 }
+
+class HttpReasonTest {
+    @Test
+    fun networkErrorsReadWell() {
+        assertEquals("could not connect", Http.reason(java.io.IOException(java.net.ConnectException())))
+        assertEquals("unknown host", Http.reason(java.net.UnknownHostException("nexus.example")))
+        assertEquals("connection timed out", Http.reason(java.net.http.HttpConnectTimeoutException("x")))
+        assertEquals("Bad gateway", Http.reason(java.io.IOException("Bad gateway")))
+    }
+}
