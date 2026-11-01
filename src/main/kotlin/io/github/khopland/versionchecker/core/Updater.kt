@@ -35,13 +35,17 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
     private suspend fun run(files: List<VirtualFile>?, mode: UpdateKind) {
         withContext(Dispatchers.EDT) { PsiDocumentManager.getInstance(project).commitAllDocuments() }
         val targets = files ?: buildFiles(project)
-        val declarations = readAction {
-            targets.flatMap { file ->
-                val psi = PsiManager.getInstance(project).findFile(file) ?: return@flatMap emptyList()
-                DeclarationProvider.forFile(psi)?.collect(psi).orEmpty()
+        // Every build file already takes part when the whole project updates, so only a file scope needs related declarations.
+        val (declarations, related) = readAction {
+            val found = targets.mapNotNull { file ->
+                val psi = PsiManager.getInstance(project).findFile(file) ?: return@mapNotNull null
+                val provider = DeclarationProvider.forFile(psi) ?: return@mapNotNull null
+                val own = provider.collect(psi)
+                own to (if (files == null) emptyList() else provider.related(psi, own))
             }
+            found.flatMap { it.first } to found.flatMap { it.second }
         }
-        val outcomes = VersionService.getInstance().check(declarations)
+        val outcomes = VersionService.getInstance().check(declarations + related)
         val fixes = VersionService.fixes(outcomes)
         val changes = declarations.mapNotNull { declaration ->
             val version = fixes[declaration]?.get(mode) ?: return@mapNotNull null
@@ -50,7 +54,7 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
         val applied = withContext(Dispatchers.EDT) {
             Edits.apply(project, changes.map { it.second }, "Update ${mode.label} versions").toSet()
         }
-        val failed = outcomes.filterValues { it is Outcome.Failed }
+        val failed = declarations.associateWith { outcomes.getValue(it) }.filterValues { it is Outcome.Failed }
         notify(changes.filter { it.second in applied }.map { it.first }, fixes, mode, failed)
     }
 

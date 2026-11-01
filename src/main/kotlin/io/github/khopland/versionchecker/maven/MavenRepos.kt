@@ -16,29 +16,32 @@ import java.util.concurrent.ConcurrentHashMap
 /** Credentials for one `<server>` in `settings.xml`. */
 internal data class MavenServer(val headers: Map<String, String>, val encrypted: Boolean)
 
-/** Reads `<servers>` from settings files. Results are cached until a file changes. */
+/** Reads `<servers>` from settings files. Results are cached until a settings file or `settings-security.xml` changes. */
 internal object MavenServers {
-    private class Parsed(val stamp: Long, val servers: Map<String, MavenServer>)
+    private class Parsed(val stamp: String, val servers: Map<String, MavenServer>)
 
     private val cache = ConcurrentHashMap<Path, Parsed>()
     private val placeholder = Regex("""\$\{(env\.)?([^}]+)}""")
 
-    fun servers(files: List<Path>): Map<String, MavenServer> {
+    fun servers(files: List<Path>, security: Path = MavenPasswords.securityFile()): Map<String, MavenServer> {
         val result = linkedMapOf<String, MavenServer>()
         // The user settings file comes first and wins over the global file.
-        for (file in files) parse(file).forEach { (id, server) -> result.putIfAbsent(id, server) }
+        for (file in files) parse(file, security).forEach { (id, server) -> result.putIfAbsent(id, server) }
         return result
     }
 
-    private fun parse(file: Path): Map<String, MavenServer> {
-        val stamp = runCatching { Files.getLastModifiedTime(file).toMillis() }.getOrNull() ?: return emptyMap()
+    private fun stamp(file: Path) = runCatching { Files.getLastModifiedTime(file).toMillis() }.getOrNull()
+
+    private fun parse(file: Path, security: Path): Map<String, MavenServer> {
+        val stamp = "${stamp(file) ?: return emptyMap()}/${stamp(security)}"
         cache[file]?.takeIf { it.stamp == stamp }?.let { return it.servers }
-        val servers = runCatching { parse(JDOMUtil.load(file)) }.getOrDefault(emptyMap())
+        val master by lazy { MavenPasswords.master(security) }
+        val servers = runCatching { parse(JDOMUtil.load(file)) { master } }.getOrDefault(emptyMap())
         cache[file] = Parsed(stamp, servers)
         return servers
     }
 
-    fun parse(settings: Element): Map<String, MavenServer> {
+    fun parse(settings: Element, master: () -> String? = { null }): Map<String, MavenServer> {
         fun Element.child(name: String) = children.firstOrNull { it.name == name }
         fun Element.text(name: String) = child(name)?.textTrim?.let(::expand)?.takeIf { it.isNotEmpty() }
         val servers = settings.child("servers")?.children?.filter { it.name == "server" }.orEmpty()
@@ -51,9 +54,10 @@ internal object MavenServers {
                 if (name != null && value != null) headers[name] = value
             }
             val user = server.text("username")
-            val password = server.text("password")
-            val encrypted = password != null && password.startsWith("{") && password.endsWith("}")
-            if (user != null && password != null && !encrypted) headers["Authorization"] = Http.basicAuth(user, password)
+            val stored = server.text("password")
+            val password = if (stored != null && MavenPasswords.isEncrypted(stored)) master()?.let { MavenPasswords.decrypt(stored, it) } else stored
+            val encrypted = stored != null && password == null
+            if (user != null && password != null) headers["Authorization"] = Http.basicAuth(user, password)
             id to MavenServer(headers, encrypted)
         }.toMap()
     }
@@ -83,7 +87,7 @@ internal object MavenRepos {
     private fun repo(remote: MavenRemoteRepository, server: MavenServer?): MavenRepo {
         val hint = when {
             server == null -> "Add a <server> with id '${remote.id}' to settings.xml"
-            server.encrypted -> "Encrypted passwords for server '${remote.id}' are not supported. Use a token or an environment variable"
+            server.encrypted -> "Could not decrypt the password for server '${remote.id}'. Check ~/.m2/settings-security.xml; Maven 4 encrypted passwords are not supported"
             else -> "Check the credentials for server '${remote.id}' in settings.xml"
         }
         return MavenRepo(remote.id, remote.url, server?.headers.orEmpty(), hint)
