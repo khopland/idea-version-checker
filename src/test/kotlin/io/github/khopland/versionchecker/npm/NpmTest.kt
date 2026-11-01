@@ -37,16 +37,15 @@ class NpmTest : BasePlatformTestCase() {
         assertEquals(Npmrc.DEFAULT, Npmrc.forDirectory(Files.createTempDirectory("empty"), env = emptyMap(), home = Files.createTempDirectory("h").toString()).registry("react").url)
     }
 
-    fun testRegistryDocumentAndQuarantine() = runBlocking {
+    fun testRegistryDocumentIgnoresTheMinimumReleaseAge() = runBlocking {
         val document = JsonParser.parseString("""
-            {"versions": {"1.0.0": {}, "1.0.1": {"deprecated": "Security issue"}, "1.1.0": {}, "2.0.0-rc.1": {}, "2.0.0": {}},
-             "time": {"created": "2020-01-01T00:00:00.000Z", "1.0.0": "2020-01-01T00:00:00.000Z", "1.0.1": "2020-02-01T00:00:00.000Z",
-                      "1.1.0": "2026-10-31T00:00:00.000Z", "2.0.0": "2026-10-31T00:00:00.000Z"}}
+            {"versions": {"1.0.0": {}, "1.0.1": {"deprecated": "Security issue"}, "1.1.0": {}, "2.0.0-rc.1": {}, "2.0.0": {}}}
         """).asJsonObject
         val releases = NpmLookup.parse(document)
         assertEquals(listOf("1.0.0", "1.0.1", "1.1.0", "2.0.0"), releases.versions)
-        val cutoff = java.time.Instant.parse("2026-10-01T00:00:00Z").toEpochMilli()
-        assertEquals(Targets("1.0.1", "1.0.1", "1.0.1"), VersionService.outcome("1.0.0", releases, cutoff).targets)
+        // The registry quarantine already removed held-back versions, so a cutoff does not hide anything.
+        val cutoff = System.currentTimeMillis()
+        assertEquals(Targets("1.0.1", "1.1.0", "2.0.0"), VersionService.outcome("1.0.0", releases, cutoff).targets)
         assertEquals("Security issue", VersionService.outcome("1.0.1", releases, null).deprecated)
     }
 
@@ -55,9 +54,9 @@ class NpmTest : BasePlatformTestCase() {
             // The server decodes %2f, so the route uses a slash.
             repository.routes["/@corp/lib"] = FakeRepository.Response(200, """{"versions": {"1.0.0": {}}}""")
             val registry = NpmRegistry(repository.url + "/", mapOf("Authorization" to "Bearer t"))
-            assertEquals(listOf("1.0.0"), NpmLookup("@corp/lib", registry, false, http = { repository.http }).fetch().versions)
+            assertEquals(listOf("1.0.0"), NpmLookup("@corp/lib", registry, http = { repository.http }).fetch().versions)
             assertEquals(listOf("Bearer t"), repository.authorizations)
-            assertEquals(emptyList<String>(), NpmLookup("local-only", registry, false, http = { repository.http }).fetch().versions)
+            assertEquals(emptyList<String>(), NpmLookup("local-only", registry, http = { repository.http }).fetch().versions)
         }
     }
 

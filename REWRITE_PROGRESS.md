@@ -25,7 +25,7 @@ Run `./gradlew test` after each step. Commit after each step with a message that
   - [x] tests: `repo/MavenLookupTest` (+ `FakeRepository`), `maven/MavenProviderTest`, `wrapper/WrapperProvidersTest`
   - [ ] TODO manual: RedundantOverrideInspection needs an imported Maven project, so check it in runIde with `src/test/resources/maven-demo`
 - [x] Phase 3: npm (`npm/Npmrc.kt`, `npm/NpmLookup.kt`, `npm/NpmProvider.kt` + NpmSpec; tests in `npm/NpmTest`)
-  - [ ] optional later: read the package-manager age gate (pnpm `minimumReleaseAge`, Yarn `npmMinimalAgeGate`, Bun `minimumReleaseAge`) and `.yarnrc.yml` `npmRegistryServer`
+  - Decision 2026-11-01: no minimum release age for npm. A Nexus quarantine already removes held-back versions from npm metadata (Maven metadata still lists them). npm always uses the abbreviated document (`Releases.ignoresMinimumAge`).
 - [x] Phase 4: Gradle (`gradle/GradleProvider.kt`: GradleScripts + GradleCatalog, text-based; tests in `gradle/GradleProviderTest`). The wrapper was done in phase 2.
 - [x] Phase 5: README, CHANGELOG 2.0.0, demo READMEs, CI (build+test, verify, release draft without Python), version 2.0.0. verifyPlugin: compatible with 2026.1.4 and 2026.2.3, no deprecated API.
 - [x] Extra tests: `core/AnnotatorTest` (real annotator + fixes + shared-edit agreement + disabled inspection + Update All Files with one global undo), `LiveRepositoriesTest` (opt-in `-Plive=true`).
@@ -33,7 +33,7 @@ Run `./gradlew test` after each step. Commit after each step with a message that
 ## Left to do (needs the user or is optional)
 - Manual check in `./gradlew runIde` with the demos, especially RedundantOverrideInspection, which needs an imported Maven project.
 - The user should compare 1.4.0 and 2.0 speed on a work Maven/Nexus project and a work npm project, and confirm that settings.xml credentials work.
-- Optional: persist ETags for conditional GETs across restarts; read package-manager age gates; `.yarnrc.yml` registry; encrypted Maven passwords.
+- Optional: persist ETags for conditional GETs across restarts; `.yarnrc.yml` registry; encrypted Maven passwords.
 - Before merging: delete `REWRITE_PROGRESS.md` and `rewrite-plan.html`, or keep them, as the user prefers.
 
 ## Notes and findings
@@ -55,3 +55,6 @@ Run `./gradlew test` after each step. Commit after each step with a message that
 - Stable filter: one regex for qualifiers. A candidate must have the same non-stable-equivalent qualifier as the current version (`-jre` stays `-jre`); `.Final`, `.RELEASE` and `.GA` count as no qualifier.
 - Quarantine: when cutoff > 0, an undated version counts as too new. Maven uses metadata `<lastUpdated>` <= cutoff as a shortcut, then POM HEAD Last-Modified. Release times persist on disk forever.
 - Settings are application level: enabled, minReleaseAgeHours.
+
+### Build gotcha
+- After changing a constructor that has default arguments (for example `Releases`), the local Gradle build cache can restore test classes compiled against the old constructor, and the AnnotatorTest then fails. Run `./gradlew test --no-build-cache --rerun-tasks` before you look for a bug.

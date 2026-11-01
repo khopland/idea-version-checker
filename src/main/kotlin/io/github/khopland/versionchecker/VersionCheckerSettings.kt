@@ -36,7 +36,7 @@ class VersionCheckerConfigurable : BoundConfigurable("Version Checker") {
         row("Minimum release age:") {
             intTextField(0..100_000).columns(6).bindIntText(state::minReleaseAgeHours)
             label("hours")
-        }.rowComment("Hide versions published less than this long ago, for example to match a repository quarantine. 0 shows the newest version.")
+        }.rowComment("Hide Maven, Gradle and wrapper versions published less than this long ago, for example to match a Nexus quarantine. npm is not affected: the registry already hides quarantined versions. 0 shows the newest version.")
     }
 
     override fun apply() {

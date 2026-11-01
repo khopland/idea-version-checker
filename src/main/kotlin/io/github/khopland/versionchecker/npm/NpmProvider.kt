@@ -5,7 +5,6 @@ import com.intellij.json.psi.JsonObject
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
-import io.github.khopland.versionchecker.VersionCheckerSettings
 import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Edit
@@ -20,14 +19,13 @@ class NpmProvider : DeclarationProvider {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return emptyList()
         val vfile = file.virtualFile ?: return emptyList()
         val npmrc by lazy { Npmrc.forDirectory(vfile.parent?.let { it.fileSystem.getNioPath(it) } ?: java.nio.file.Paths.get(System.getProperty("user.home"))) }
-        val withTimes = VersionCheckerSettings.getInstance().minReleaseAgeHours > 0
         return SECTIONS.flatMap { section ->
             (root.findProperty(section)?.value as? JsonObject)?.propertyList.orEmpty().mapNotNull { property ->
                 val literal = property.value as? JsonStringLiteral ?: return@mapNotNull null
                 val spec = NpmSpec.parse(literal.value) ?: return@mapNotNull null
                 val raw = literal.value
                 val range = TextRange.from(literal.textRange.startOffset + 1, raw.length).takeIf { literal.text.length == raw.length + 2 } ?: return@mapNotNull null
-                val lookup = NpmLookup(property.name, npmrc.registry(property.name), withTimes)
+                val lookup = NpmLookup(property.name, npmrc.registry(property.name))
                 Declaration(property.name, range, spec.version, lookup, Edit(vfile, range, raw) { spec.prefix + it })
             }
         }

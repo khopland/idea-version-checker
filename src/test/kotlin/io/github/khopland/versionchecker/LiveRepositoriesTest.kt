@@ -24,10 +24,10 @@ class LiveRepositoriesTest : BasePlatformTestCase() {
         val plugin = (GradleProvider.plugin("org.jetbrains.kotlin.jvm") as MavenLookup).fetch()
         assertTrue("2.0.0" in plugin.versions)
 
-        val react = NpmLookup("react", Npmrc(emptyMap()).registry("react"), withTimes = false).fetch()
+        val react = NpmLookup("react", Npmrc(emptyMap()).registry("react")).fetch()
         assertTrue("18.2.0" in react.versions)
-        val scoped = NpmLookup("@types/node", Npmrc(emptyMap()).registry("@types/node"), withTimes = true).fetch()
-        assertNotNull(scoped.publishedAt("20.0.0"))
+        val scoped = NpmLookup("@types/node", Npmrc(emptyMap()).registry("@types/node")).fetch()
+        assertTrue("20.0.0" in scoped.versions)
 
         val gradle = GradleReleases().fetch()
         assertTrue("8.14" in gradle.versions)

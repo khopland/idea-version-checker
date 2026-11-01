@@ -11,7 +11,7 @@
           <li>The Maven and Gradle wrappers.</li>
         </ul>
         <p>Use <b>Alt+Enter</b> on a version, or <b>Tools | Versions</b> to update a file or the whole project in one undoable edit.
-        A minimum release age hides new releases, for example to match a repository quarantine.</p>
+        A minimum release age hides new Maven and Gradle releases, for example to match a Nexus quarantine.</p>
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>

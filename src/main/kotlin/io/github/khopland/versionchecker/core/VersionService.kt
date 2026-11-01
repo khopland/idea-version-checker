@@ -61,7 +61,8 @@ class VersionService(private val scope: CoroutineScope) {
 
         fun getInstance(): VersionService = ApplicationManager.getApplication().getService(VersionService::class.java)
 
-        suspend fun outcome(current: String, releases: Releases, cutoff: Long?): Outcome.Updates {
+        suspend fun outcome(current: String, releases: Releases, minimumAgeCutoff: Long?): Outcome.Updates {
+            val cutoff = minimumAgeCutoff.takeUnless { releases.ignoresMinimumAge }
             val targets = Targets.pick(current, releases.versions) { version ->
                 cutoff == null || releases.allPublishedBefore?.let { it <= cutoff } == true ||
                     releases.publishedAt(version)?.let { it <= cutoff } == true

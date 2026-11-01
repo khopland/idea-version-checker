@@ -54,7 +54,7 @@ Use **Alt+Enter** to remove one, or **Fix all** in the file.
 **Settings → Tools → Version Checker**:
 
 - **Check versions in build files**: turn the checks on or off.
-- **Minimum release age (hours)**: hide versions published less recently than this, for example `24` to match a Nexus or Artifactory quarantine.
+- **Minimum release age (hours)**: hide Maven, Gradle and wrapper versions published less recently than this, for example `24` to match a Nexus quarantine. It does not apply to npm: a Nexus quarantine already leaves held-back versions out of the npm metadata, while Maven metadata still lists them.
 
 Severity and per-inspection on/off are under **Settings → Editor → Inspections → Version Checker**.
 
@@ -68,7 +68,7 @@ The plugin reads repository metadata over HTTP, using the IDE proxy settings. It
 | npm | `registry` and `@scope:registry` from `.npmrc` files in the package directory and above, the user `.npmrc` and `npm_config_registry`. | `//host/path/:_authToken`, `_auth`, or `username` and `_password` in `.npmrc`. `${NAME}` works. |
 | Gradle | Maven Central (Google's repository for `androidx`, `com.android` and similar groups) and the Gradle Plugin Portal. | None. |
 
-Release times for the minimum release age come from the POM's `Last-Modified` header (Maven and Gradle), the registry's `time` field (npm) and `services.gradle.org` (Gradle wrapper).
+Release times for the minimum release age come from the POM's `Last-Modified` header (Maven and Gradle) and `services.gradle.org` (Gradle wrapper).
 A version without a known release time is hidden while the setting is above zero.
 
 ## Development

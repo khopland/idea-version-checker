@@ -14,6 +14,8 @@ class Releases(
     val allPublishedBefore: Long? = null,
     /** Publication time of one version, or null when the repository cannot tell. */
     private val publishedAt: (suspend (String) -> Long?)? = null,
+    /** The repository already hides new releases, for example a Nexus quarantine on npm, so the minimum release age does not apply. */
+    val ignoresMinimumAge: Boolean = false,
 ) {
     suspend fun publishedAt(version: String): Long? = publishedAt?.invoke(version)
 }

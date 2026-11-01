@@ -25,6 +25,7 @@ Version 2 is a rewrite. It is smaller and faster, and it reads repository metada
 - Ignored versions, deprecation rules and the shared `.version-checker.json` policy file.
 - Maven relocation notices, the versions-maven-plugin fallback and Maven goal processes.
 - npm workspace-wide updates, aliases, and the pnpm, Yarn and Bun specific settings.
+- The minimum release age for npm. A Nexus quarantine already removes held-back versions from the npm metadata.
 - Gradle repository discovery through the build. Gradle checks use Maven Central, Google and the Gradle Plugin Portal.
 
 ## [1.4.0] - 2026-10-22
