@@ -5,13 +5,14 @@
     <description><![CDATA[
         <p>Highlights outdated dependency versions in your build files and updates them by patch, minor or major.</p>
         <ul>
-          <li><b>Maven:</b> dependencies, BOMs, build plugins and version properties, with fixes that remove redundant overrides.</li>
-          <li><b>npm:</b> dependencies in <code>package.json</code>, for npm, pnpm, Yarn and Bun projects.</li>
-          <li><b>Gradle:</b> libraries and plugins in build scripts and <code>libs.versions.toml</code>.</li>
+          <li><b>Maven:</b> dependencies, BOMs, build plugins and version properties, with fixes that remove redundant overrides and duplicates.</li>
+          <li><b>npm:</b> dependencies in <code>package.json</code>, for npm, pnpm, Yarn and Bun projects, and packages listed twice.</li>
+          <li><b>Gradle:</b> libraries and plugins in build scripts and <code>libs.versions.toml</code>, and unused catalog entries.</li>
           <li>The Maven and Gradle wrappers.</li>
         </ul>
         <p>Use <b>Alt+Enter</b> on a version, or <b>Tools | Versions</b> to update a file or the whole project in one undoable edit.
-        A minimum release age hides new Maven and Gradle releases, for example to match a Nexus quarantine.</p>
+        A minimum release age hides new Maven and Gradle releases, for example to match a Nexus quarantine.
+        A suppress comment keeps a version on purpose.</p>
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
@@ -31,9 +32,13 @@
         <localInspection shortName="OutdatedDependencyVersion" displayName="Outdated dependency version" groupName="Version Checker"
                          enabledByDefault="true" level="WARNING"
                          implementationClass="io.github.khopland.versionchecker.core.OutdatedVersionInspection"/>
+        <lang.inspectionSuppressor language="TOML" implementationClass="io.github.khopland.versionchecker.core.LineCommentSuppressor"/>
         <localInspection shortName="MovedDependency" displayName="Moved dependency" groupName="Version Checker"
                          enabledByDefault="true" level="WEAK WARNING"
                          implementationClass="io.github.khopland.versionchecker.core.MovedDependencyInspection"/>
+        <localInspection language="TOML" shortName="UnusedCatalogEntry" displayName="Unused version catalog entry" groupName="Version Checker"
+                         enabledByDefault="true" level="WEAK WARNING"
+                         implementationClass="io.github.khopland.versionchecker.gradle.UnusedCatalogEntryInspection"/>
         <applicationConfigurable parentId="tools" id="version.checker" displayName="Version Checker"
                                  instance="io.github.khopland.versionchecker.VersionCheckerConfigurable"/>
         <notificationGroup id="Version Checker" displayType="BALLOON"/>

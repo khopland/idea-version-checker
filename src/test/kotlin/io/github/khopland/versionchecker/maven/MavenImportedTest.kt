@@ -97,6 +97,59 @@ class MavenImportedTest : BasePlatformTestCase() {
         assertEquals("A newer local version is a deliberate override", 5, found.size)
     }
 
+    fun testRedundantPluginVersions() {
+        pom("parent", """
+            <properties><compiler.version>3.13.0</compiler.version></properties>
+            <build><pluginManagement><plugins>
+              <plugin><artifactId>maven-compiler-plugin</artifactId><version>${'$'}{compiler.version}</version></plugin>
+              <plugin><groupId>org.example</groupId><artifactId>newer-plugin</artifactId><version>2.0</version></plugin>
+              <plugin><groupId>org.example</groupId><artifactId>profiled-plugin</artifactId><version>1.0</version></plugin>
+            </plugins></pluginManagement></build>
+            <profiles><profile><id>x</id><build><pluginManagement><plugins>
+              <plugin><groupId>org.example</groupId><artifactId>profiled-plugin</artifactId><version>1.1</version></plugin>
+            </plugins></pluginManagement></build></profile></profiles>
+        """)
+        val child = pom("child", """
+            <build>
+              <pluginManagement><plugins>
+                <plugin><groupId>org.example</groupId><artifactId>local-plugin</artifactId><version>1.0</version></plugin>
+              </plugins></pluginManagement>
+              <plugins>
+                <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+                <plugin><groupId>org.example</groupId><artifactId>newer-plugin</artifactId><version>1.5</version></plugin>
+                <plugin><groupId>org.example</groupId><artifactId>local-plugin</artifactId><version>1.0</version></plugin>
+                <plugin><groupId>org.example</groupId><artifactId>profiled-plugin</artifactId><version>1.0</version></plugin>
+                <plugin><groupId>org.example</groupId><artifactId>unmanaged-plugin</artifactId><version>1.0</version></plugin>
+              </plugins>
+            </build>
+        """, parent = "parent")
+        assertEquals(listOf("Plugin version 3.13.0 is already managed", "Plugin management gives a newer version 2.0 (local override: 1.5)",
+            "Plugin version 1.0 is already managed"), problems(child))
+    }
+
+    fun testDuplicateDependencies() {
+        val dependency = { artifact: String, extra: String -> "<dependency><groupId>org.example</groupId><artifactId>$artifact</artifactId>$extra</dependency>" }
+        // Duplicates need no import, so this POM is not registered.
+        val file = myFixture.configureByText("pom.xml", """
+            <project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>dup</artifactId><version>1</version>
+            <dependencies>
+              ${dependency("same", "<version>1.0</version>")}
+              ${dependency("other", "<version>1.0</version>")}
+              ${dependency("same", "\n                <version>1.0</version>")}
+              ${dependency("different", "<version>1.0</version>")}
+              ${dependency("different", "<version>2.0</version>")}
+              ${dependency("other", "<version>1.0</version><classifier>tests</classifier>")}
+            </dependencies>
+            <dependencyManagement><dependencies>${dependency("same", "<version>1.0</version>")}</dependencies></dependencyManagement>
+            </project>
+        """.trimIndent()) as XmlFile
+        assertEquals(listOf("Dependency org.example:same is declared twice", "Dependency org.example:different is declared twice, with different settings"),
+            problems(file))
+        myFixture.enableInspections(RedundantOverrideInspection())
+        myFixture.launchAction(myFixture.getAllQuickFixes().single { it.text == "Remove duplicate dependency" })
+        assertEquals(1, Regex("<artifactId>same</artifactId>").findAll(file.rootTag!!.findFirstSubTag("dependencies")!!.text).count())
+    }
+
     fun testInferredParentAndRevisionFindTheParentProperty() {
         pom("parent", "<properties><lib.version>1.0</lib.version></properties>")
         // Maven 4 can infer the parent from its location, and ${revision} hides the version from the XML.

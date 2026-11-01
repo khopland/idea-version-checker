@@ -1,0 +1,14 @@
+<html>
+<body>
+Reports entries in <code>gradle/libs.versions.toml</code> that nothing uses:
+<ul>
+  <li>a <code>[versions]</code> entry without a <code>version.ref</code> or <code>libs.versions.x</code>,</li>
+  <li>a <code>[libraries]</code> alias that no build script uses as <code>libs.x</code> and no bundle lists,</li>
+  <li>a <code>[plugins]</code> alias that no build script uses as <code>libs.plugins.x</code>.</li>
+</ul>
+<p>The alias <code>junit-api</code> is used as <code>libs.junit.api</code>, or as <code>"junit-api"</code>, for example in
+<code>findLibrary("junit-api")</code>. Build scripts, <code>buildSrc</code> and included builds that import the catalog count.
+The check is skipped when the settings script registers another catalog.</p>
+<p>Use <b>Alt+Enter</b> to remove the entry.</p>
+</body>
+</html>

@@ -6,5 +6,8 @@ Reports dependency, plugin and wrapper versions that have a newer stable release
 <p>Supported files: <code>pom.xml</code>, <code>package.json</code>, Gradle build scripts, <code>libs.versions.toml</code>,
 and the Maven and Gradle wrapper properties.
 The minimum release age in <b>Settings | Tools | Version Checker</b> hides recent Maven, Gradle and wrapper releases.</p>
+<p>To keep a version on purpose, add a suppress comment from the <b>Alt+Enter</b> menu, for example
+<code>&lt;!--suppress OutdatedDependencyVersion --&gt;</code> in a POM or <code>#noinspection OutdatedDependencyVersion</code>
+in <code>libs.versions.toml</code>. The update actions skip suppressed versions.</p>
 </body>
 </html>

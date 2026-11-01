@@ -61,4 +61,34 @@ class NpmAndGradleUiTest {
         val script = openDocument("build.gradle.kts")
         waitForHighlight(script, "a Guava warning") { it.message().startsWith("com.google.guava:guava 32.1.1-jre → ") }
     }
+
+    @Test
+    fun catalogEntriesCanBeUnusedOrSuppressed() = runWithDemo("gradle-catalog-cleanup", "gradle-demo", prepare = { demo ->
+        demo.resolve("settings.gradle.kts").toFile().delete()
+        // Inspections only run on project files, so a plain module gives the demo a content root without a Gradle import.
+        val idea = demo.resolve(".idea").toFile().apply { mkdirs() }
+        idea.resolve("modules.xml").writeText("""
+            <project version="4"><component name="ProjectModuleManager"><modules>
+              <module fileurl="file://${'$'}PROJECT_DIR${'$'}/demo.iml" filepath="${'$'}PROJECT_DIR${'$'}/demo.iml"/>
+            </modules></component></project>
+        """.trimIndent())
+        demo.resolve("demo.iml").toFile().writeText("""
+            <module type="JAVA_MODULE" version="4"><component name="NewModuleRootManager"><content url="file://${'$'}MODULE_DIR${'$'}"/></component></module>
+        """.trimIndent())
+        val catalog = demo.resolve("gradle/libs.versions.toml").toFile()
+        catalog.writeText(catalog.readText().trimEnd() + "\nunused-lib = \"org.example:unused:1.0\"\nslf4j = \"org.slf4j:slf4j-api:2.0.0\"\n")
+    }) {
+        val catalog = openDocument("gradle/libs.versions.toml")
+        waitForHighlight(catalog, "an unused-entry warning") { it.message() == "Library unused-lib is not used" }
+        waitForHighlight(catalog, "an slf4j warning") { it.message().startsWith("org.slf4j:slf4j-api 2.0.0 → ") }
+        val unused = getHighlights(catalog, singleProject()).map { it.message() }.filter { it.endsWith(" is not used") }
+        println("Unused: $unused")
+        assertTrue(unused.none { "jackson" in it }, "The scripts use the jackson entries: $unused")
+
+        applyIntentionOption("2.0.0\"", "Suppress for line")
+        waitFor("the suppress comment", 10.seconds) { "#noinspection OutdatedDependencyVersion\nslf4j =" in catalog.getText() }
+        waitFor("no slf4j warning", 1.minutes) {
+            getHighlights(catalog, singleProject()).none { it.message().startsWith("org.slf4j:slf4j-api") }
+        }
+    }
 }

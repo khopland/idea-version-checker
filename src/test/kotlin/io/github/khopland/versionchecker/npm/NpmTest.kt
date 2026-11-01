@@ -72,4 +72,33 @@ class NpmTest : BasePlatformTestCase() {
         assertEquals("~5.6.2", declarations[2].edit!!.format("5.6.2"))
         assertEquals("18.2.0", declarations[0].current)
     }
+
+    fun testDuplicateDependencies() {
+        myFixture.enableInspections(DuplicateDependencyInspection())
+        myFixture.configureByText("package.json", """
+            {
+              "dependencies": {"react": "^18.2.0", "left-pad": "1.3.0", "fsevents": "^2.3.0"},
+              "devDependencies": {
+                "typescript": "~5.4.5",
+                "react": "^18.0.0",
+                "eslint": "^9.0.0"
+              },
+              "optionalDependencies": {"fsevents": "^2.3.3"},
+              "peerDependencies": {"typescript": "^5.0.0"}
+            }
+        """.trimIndent())
+        val highlights = myFixture.doHighlighting().filter { it.inspectionToolId == "DuplicateNpmDependency" }
+        assertEquals(listOf("fsevents is also in optionalDependencies (^2.3.3), which overrides this entry", "react is also in dependencies (^18.2.0)"),
+            highlights.map { it.description }.sorted())
+
+        myFixture.launchAction(myFixture.getAllQuickFixes().single { it.text == "Remove from devDependencies" })
+        assertTrue(myFixture.editor.document.text, myFixture.editor.document.text.contains("""
+              "devDependencies": {
+                "typescript": "~5.4.5",
+                "eslint": "^9.0.0"
+              },
+        """.trimIndent().prependIndent("  ").trimStart()))
+        myFixture.launchAction(myFixture.getAllQuickFixes().single { it.text == "Remove from dependencies" })
+        assertTrue(myFixture.editor.document.text, myFixture.editor.document.text.contains(""""dependencies": {"react": "^18.2.0", "left-pad": "1.3.0"},"""))
+    }
 }

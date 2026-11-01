@@ -14,12 +14,12 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 class RedundantOverrideInspection : LocalInspectionTool() {
     override fun checkFile(file: PsiFile, manager: InspectionManager, isOnTheFly: Boolean): Array<ProblemDescriptor> =
         RedundantOverrides.find(file).map { problem ->
-            manager.createProblemDescriptor(problem.tag, problem.message, isOnTheFly, arrayOf(RemoveOverrideFix(problem.fixName, problem.removeParent)),
-                ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+            val fixes = problem.fixName?.let { arrayOf<LocalQuickFix>(RemoveOverrideFix(it, problem.removeParent)) } ?: LocalQuickFix.EMPTY_ARRAY
+            manager.createProblemDescriptor(problem.tag, problem.message, isOnTheFly, fixes, ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
         }.toTypedArray()
 }
 
-internal data class Redundancy(val tag: XmlTag, val message: String, val fixName: String, val removeParent: Boolean = false)
+internal data class Redundancy(val tag: XmlTag, val message: String, val fixName: String?, val removeParent: Boolean = false)
 
 /** Deletes the highlighted tag, or its enclosing `<dependency>`. */
 internal class RemoveOverrideFix(private val name: String, private val removeParent: Boolean) : LocalQuickFix {
@@ -40,13 +40,15 @@ internal object RedundantOverrides {
         val xml = file as? XmlFile ?: return emptyList()
         if (xml.name != "pom.xml") return emptyList()
         val root = MavenPoms.root(xml) ?: return emptyList()
+        // Duplicates only need the XML, so they show before the project is imported.
+        val duplicates = duplicateDependencies(root)
         val manager = MavenProjectsManager.getInstance(file.project)
-        val imported = manager.findProject(file.virtualFile ?: return emptyList()) ?: return emptyList()
-        if (imported.hasReadingErrors()) return emptyList()
+        val imported = manager.findProject(file.virtualFile ?: return duplicates) ?: return duplicates
+        if (imported.hasReadingErrors()) return duplicates
         val chain = MavenPoms.chain(file.project, xml)
         // One warning per tag: a property equal to the parent's is reported as that, even when it is also unused.
-        return (dependencyVersions(root, imported) + managedDuplicates(root, imported, manager) + properties(root, chain) +
-            unusedProperties(root, chain, manager)).distinctBy { it.tag }
+        return (duplicates + dependencyVersions(root, imported) + pluginVersions(root, chain, imported) + managedDuplicates(root, imported, manager) +
+            properties(root, chain) + unusedProperties(root, chain, manager)).distinctBy { it.tag }
     }
 
     private fun coordinate(dependency: XmlTag): Pair<String, String>? {
@@ -74,6 +76,60 @@ internal object RedundantOverrides {
             newer(managed, value) -> Redundancy(version, "Dependency management gives a newer version $managed (local override: $value)",
                 "Remove version override and use $managed")
             else -> null
+        }
+    }
+
+    /** The same dependency twice in one `<dependencies>` block. Maven only warns about it at build time. */
+    private fun duplicateDependencies(root: XmlTag): List<Redundancy> {
+        val blocks = listOf(root) + MavenPoms.profiles(root)
+        val plugins = blocks.flatMap { MavenPoms.children(it, "build", "plugins", "plugin") + MavenPoms.children(it, "build", "pluginManagement", "plugins", "plugin") }
+        val lists = blocks.flatMap { listOfNotNull(MavenPoms.child(it, "dependencies"), MavenPoms.child(it, "dependencyManagement", "dependencies")) } +
+            plugins.mapNotNull { MavenPoms.child(it, "dependencies") }
+        return lists.flatMap { list ->
+            val seen = HashMap<String, XmlTag>()
+            list.findSubTags("dependency").mapNotNull { dependency ->
+                val group = MavenPoms.text(MavenPoms.child(dependency, "groupId")) ?: return@mapNotNull null
+                val artifactTag = MavenPoms.child(dependency, "artifactId") ?: return@mapNotNull null
+                val artifact = MavenPoms.text(artifactTag) ?: return@mapNotNull null
+                val type = MavenPoms.text(MavenPoms.child(dependency, "type")) ?: "jar"
+                val classifier = MavenPoms.text(MavenPoms.child(dependency, "classifier")).orEmpty()
+                val first = seen.putIfAbsent("$group:$artifact:$type:$classifier", dependency) ?: return@mapNotNull null
+                // Removing one of two different declarations changes the build, so only an exact copy gets a fix.
+                if (normalized(first) == normalized(dependency))
+                    Redundancy(artifactTag, "Dependency $group:$artifact is declared twice", "Remove duplicate dependency", removeParent = true)
+                else Redundancy(artifactTag, "Dependency $group:$artifact is declared twice, with different settings", null)
+            }
+        }
+    }
+
+    private fun normalized(tag: XmlTag) = tag.subTags.joinToString("|") { it.text.replace(Regex("""\s+"""), " ") }
+
+    /** A plugin `<version>` in `<build><plugins>` that equals, or is older than, the version in plugin management. */
+    private fun pluginVersions(root: XmlTag, chain: PomChain, imported: MavenProject): List<Redundancy> {
+        fun key(plugin: XmlTag) = MavenPoms.text(MavenPoms.child(plugin, "artifactId"))?.let {
+            (MavenPoms.text(MavenPoms.child(plugin, "groupId")) ?: "org.apache.maven.plugins") + ":" + it
+        }
+        // The nearest POM with a version wins. A profile could change it, so those plugins are skipped.
+        val managed = HashMap<String, String>()
+        val inProfiles = HashSet<String>()
+        for (pom in chain.all.mapNotNull { MavenPoms.root(it) }) {
+            MavenPoms.children(pom, "build", "pluginManagement", "plugins", "plugin").forEach { plugin ->
+                val version = MavenPoms.text(MavenPoms.child(plugin, "version")) ?: return@forEach
+                key(plugin)?.let { managed.putIfAbsent(it, version) }
+            }
+            MavenPoms.profiles(pom).flatMap { MavenPoms.children(it, "build", "pluginManagement", "plugins", "plugin") }.mapNotNullTo(inProfiles, ::key)
+        }
+        return MavenPoms.children(root, "build", "plugins", "plugin").mapNotNull { plugin ->
+            val key = key(plugin)?.takeIf { it !in inProfiles } ?: return@mapNotNull null
+            val version = MavenPoms.child(plugin, "version") ?: return@mapNotNull null
+            val value = MavenPoms.text(version)?.let { resolved(it, imported) } ?: return@mapNotNull null
+            val expected = managed[key]?.let { resolved(it, imported) } ?: return@mapNotNull null
+            when {
+                expected == value -> Redundancy(version, "Plugin version $value is already managed", "Remove redundant version")
+                newer(expected, value) -> Redundancy(version, "Plugin management gives a newer version $expected (local override: $value)",
+                    "Remove version override and use $expected")
+                else -> null
+            }
         }
     }
 
