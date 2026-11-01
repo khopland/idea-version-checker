@@ -18,10 +18,11 @@ enum class UpdateKind {
  * `2.4-M4-groovy-4.0` is `[2, 4]`, milestone 4, variant `groovy-4.0`. Only stable versions are
  * suggested, and only with the same variant, so `-jre` stays `-jre` and `-groovy-3.0` never becomes
  * `-groovy-4.0`. A prerelease is older than its final release, so `4.0.0-rc-5` is offered `4.0.0`.
+ * `-incubating` is a variant: Apache incubator projects publish real releases with it.
  */
 object Versions {
     private val numericPrefix = Regex("""^[vV]?(\d+(?:\.\d+)*)(.*)$""")
-    private val marker = Regex("""(?i)^(?:alpha|a|beta|b|milestone|m|rc|cr|pre|preview|snapshot|dev|ea|eap|incubating|canary|nightly|next|experimental|insiders)\d*$""")
+    private val marker = Regex("""(?i)^(?:alpha|a|beta|b|milestone|m|rc|cr|pre|preview|snapshot|dev|ea|eap|canary|nightly|next|experimental|insiders)\d*$""")
     private val separators = Regex("""[.\-_+]+""")
     private val releaseWords = setOf("final", "release", "ga")
 

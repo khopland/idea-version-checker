@@ -10,7 +10,8 @@ class VersionsTest {
         listOf("1.0", "4.13.2", "33.0.0-jre", "5.6.15.Final", "5.2.9.RELEASE", "1.0.GA", "20030203.000550", "v2.1.0", "33.0-android")
             .forEach { assertTrue(it, Versions.isStable(it)) }
         listOf("1.0-SNAPSHOT", "2.0.0-M1", "1.0-RC1", "1.0.0.CR1", "2.1.0-Beta1", "1.0.0-alpha.3", "3.0-b2", "5.0.0-dev.1",
-            "1.0-preview", "21-ea", "LATEST", "[1.0,2.0)", "1.0.0-next.4", "2.0-rc")
+            "1.0-preview", "21-ea", "LATEST", "1.0.0.Beta.1", "1.0.0.Beta1", "1.0.0-beta-1", "1.0.0.Alpha.2", "2.0.0.M1",
+            "1.0.0.RC.1", "1.0.0-RC1", "3.0.0.CR2", "1.0.0-preview.3", "1.0.0-SNAPSHOT", "2.0.0-alpha01", "1.0.0-beta.1+build.5", "[1.0,2.0)", "1.0.0-next.4", "2.0-rc")
             .forEach { assertFalse(it, Versions.isStable(it)) }
     }
 
@@ -49,6 +50,11 @@ class VersionsTest {
         assertEquals("2.0.0", Targets.pick("2.0.0-alpha.3", listOf("2.0.0-beta.1", "2.0.0")) { true }.patch)
         assertEquals("6.0.0.Final", Targets.pick("6.0.0.Beta1", listOf("6.0.0.CR1", "6.0.0.Final")) { true }.patch)
         assertEquals("2.1.0", Targets.pick("2.1.0-Beta1", listOf("2.1.0-RC", "2.1.0", "2.1.20-Beta1")) { true }.patch)
+        assertEquals("1.0.0.Final", Targets.pick("1.0.0.Beta.1", listOf("1.0.0.Beta.2", "1.0.0.CR1", "1.0.0.Final")) { true }.patch)
+        assertTrue(Versions.compare("1.0.0.Beta.2", "1.0.0.Beta.1") > 0)
+        // Apache incubator releases are real releases with an `-incubating` variant.
+        assertTrue(Versions.isStable("1.0.0-incubating"))
+        assertEquals(listOf("1.1.0-incubating"), Versions.candidates("1.0.0-incubating", listOf("1.1.0-incubating", "1.1.0")))
         // Prereleases sort before their release and by marker.
         assertTrue(Versions.compare("4.0.0-rc-5", "4.0.0-rc-4") > 0)
         assertTrue(Versions.compare("4.0.0", "4.0.0-rc-5") > 0)
