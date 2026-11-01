@@ -93,7 +93,14 @@ A version without a known release time is hidden while the setting is above zero
 ./gradlew test                          # Unit and platform tests, with no network.
 ./gradlew test -Plive=true --tests '*LiveRepositoriesTest'   # Against the public registries.
 ./gradlew buildPlugin verifyPlugin      # The ZIP in build/distributions, and binary compatibility.
+./gradlew integrationTest               # The plugin in a real sandbox IDE, against the demo projects (about 5 minutes).
 ```
+
+`integrationTest` starts the IDE from the Gradle cache with the built plugin, through JetBrains' Starter and Driver.
+Each test opens a copy of a demo project, reads the plugin's warnings and runs quick fixes and actions through IDE calls.
+It sends no keyboard or mouse input, so you can keep working, but an IDE window opens and closes several times.
+It needs the network for Maven Central and npm. It is not part of `check` or CI.
+Starter takes screenshots of the whole screen when a step fails; the task deletes them after every run.
 
 The demo projects in `src/test/resources` have outdated versions on purpose. Copy one to the Git-ignored `examples/` directory and open the copy.
 

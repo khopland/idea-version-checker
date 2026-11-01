@@ -57,7 +57,7 @@ class Http internal constructor(private val client: HttpClient, private val cach
         val response = try {
             permits.withPermit { client.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray()).await() }
         } catch (e: IOException) {
-            throw HttpFailure("${uri.host}: ${e.message ?: e.javaClass.simpleName}")
+            throw HttpFailure("${uri.host}: ${reason(e)}")
         }
         return HttpResult(response.statusCode(), response.body() ?: ByteArray(0), response.headers().map())
     }
@@ -77,6 +77,19 @@ class Http internal constructor(private val client: HttpClient, private val cach
                 .proxy(proxy.proxySelector)
                 .authenticator(proxy.authenticator)
                 .build()
+        }
+
+        /** A short reason people can act on. The JDK client often leaves the message empty. */
+        internal fun reason(error: Throwable): String {
+            val cause = generateSequence(error) { it.cause }.toList()
+            return when {
+                cause.any { it is java.net.http.HttpConnectTimeoutException } -> "connection timed out"
+                cause.any { it is java.net.http.HttpTimeoutException } -> "timed out"
+                cause.any { it is java.net.UnknownHostException || it is java.nio.channels.UnresolvedAddressException } -> "unknown host"
+                cause.any { it is java.net.ConnectException } -> "could not connect"
+                cause.any { it is javax.net.ssl.SSLException } -> "TLS error: ${cause.first { it is javax.net.ssl.SSLException }.message}"
+                else -> error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+            }
         }
 
         fun basicAuth(user: String, password: String): String =

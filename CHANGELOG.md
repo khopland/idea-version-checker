@@ -15,6 +15,7 @@
 - When a repository fails for several versions in a file, the file shows one warning instead of one per version.
 - **Alt+Enter** on a version from a parent POM property also considers the other modules that use the property, so the fix only offers a version that suits all of them.
 - **Redundant Maven override** shows one warning per property, even when it is both equal to the parent and unused.
+- Network errors read as "could not connect", "timed out" or "unknown host" instead of a Java exception name.
 
 ## [2.0.0]
 
