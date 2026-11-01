@@ -12,16 +12,21 @@ class FakeRepository : AutoCloseable {
     val routes = mutableMapOf<String, Response>()
     val requests = mutableListOf<String>()
     val authorizations = mutableListOf<String?>()
+    /** The status code sent for each request. */
+    val statuses = mutableListOf<Int>()
     private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
         createContext("/") { exchange ->
             synchronized(requests) {
                 requests += "${exchange.requestMethod} ${exchange.requestURI.path}"
                 authorizations += exchange.requestHeaders.getFirst("Authorization")
             }
-            val response = routes[exchange.requestURI.path] ?: Response(404)
+            val route = routes[exchange.requestURI.path] ?: Response(404)
+            val etag = route.headers["ETag"]
+            val response = if (etag != null && exchange.requestHeaders.getFirst("If-None-Match") == etag) Response(304, headers = route.headers) else route
+            synchronized(requests) { statuses += response.status }
             response.headers.forEach { (name, value) -> exchange.responseHeaders.add(name, value) }
             val bytes = response.body.toByteArray()
-            if (exchange.requestMethod == "HEAD") exchange.sendResponseHeaders(response.status, -1)
+            if (exchange.requestMethod == "HEAD" || response.status == 304) exchange.sendResponseHeaders(response.status, -1)
             else {
                 exchange.sendResponseHeaders(response.status, if (bytes.isEmpty()) -1 else bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
