@@ -10,8 +10,8 @@ import java.util.concurrent.ConcurrentHashMap
 internal data class NpmRegistry(val url: String, val headers: Map<String, String>)
 
 /** npm settings merged from the nearest `.npmrc` files, the user `.npmrc` and `npm_config_*` variables. */
-internal class Npmrc(private val values: Map<String, String>) {
-    fun registry(packageName: String): NpmRegistry {
+internal class Npmrc(private val values: Map<String, String>) : RegistryConfig {
+    override fun registry(packageName: String): NpmRegistry {
         val scope = packageName.takeIf { it.startsWith('@') && '/' in it }?.substringBefore('/')
         val url = (scope?.let { values["$scope:registry"] } ?: values["registry"] ?: DEFAULT).trimEnd('/') + "/"
         return NpmRegistry(url, auth(url))

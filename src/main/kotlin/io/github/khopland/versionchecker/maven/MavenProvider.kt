@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
 import io.github.khopland.versionchecker.core.Declaration
@@ -17,6 +18,20 @@ class MavenProvider : DeclarationProvider {
     override val fileNames = listOf("pom.xml")
 
     override fun accepts(file: PsiFile) = file is XmlFile && file.name == "pom.xml"
+
+    /** Other project POMs that use a property defined in another file, so a fix agrees with every module. */
+    override fun related(file: PsiFile, declarations: List<Declaration>): List<Declaration> {
+        val self = file.virtualFile ?: return emptyList()
+        val shared = declarations.mapNotNull { it.edit }.filter { it.file != self }.mapTo(hashSetOf()) { it.key }
+        if (shared.isEmpty()) return emptyList()
+        val psi = PsiManager.getInstance(file.project)
+        return MavenProjectsManager.getInstance(file.project).projects.asSequence()
+            .map { it.file }.filter { it != self && it.isValid }
+            .mapNotNull { psi.findFile(it) as? XmlFile }
+            .flatMap { collect(it) }
+            .filter { it.edit?.key in shared }
+            .toList()
+    }
 
     override fun collect(file: PsiFile): List<Declaration> {
         val xml = file as? XmlFile ?: return emptyList()

@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [2.0.1]
+
+### Added
+
+- Encrypted Maven passwords in `settings.xml`, decrypted with the master password in `settings-security.xml` like Maven 3.
+- Yarn 2+ projects read the registry and token from `.yarnrc.yml`.
+- Metadata stays on disk with its `ETag` and `Last-Modified`, so the first check after a restart only asks whether it changed.
+
+### Fixed
+
+- When a repository fails for several versions in a file, the file shows one warning instead of one per version.
+- **Alt+Enter** on a version from a parent POM property also considers the other modules that use the property, so the fix only offers a version that suits all of them.
+- **Redundant Maven override** shows one warning per property, even when it is both equal to the parent and unused.
+
 ## [2.0.0]
 
 Version 2 is a rewrite. It is smaller and faster, and it reads repository metadata directly instead of starting Maven, Node or Gradle.

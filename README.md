@@ -15,7 +15,7 @@ Use IntelliJ IDEA 2026.1.4 through 2026.2.x. Open **Settings → Plugins → Mar
 | Update one version | Put the caret on the warning and press **Alt+Enter**. Pick the patch, minor or major update. |
 | Update every version in a file | **Tools → Versions → Update This File → Patch / Minor / Major**, or the editor and Project view context menus. |
 | Update every build file in the project | **Tools → Versions → Update All Files → Patch / Minor / Major**. |
-| Check again now | **Tools → Versions → Check Now**. Results otherwise stay cached for 30 minutes. |
+| Check again now | **Tools → Versions → Check Now**. Results otherwise stay cached for 30 minutes. After that, and after a restart, the plugin asks the repository whether its stored copy is still current, so an unchanged document is not downloaded again. |
 
 Each mode picks the newest version in its branch. **Patch** finds the newest `1.2.x` even when `2.0` exists. **Minor** stays on the same major version.
 A bulk update is one edit, across all files. **Edit → Undo** reverts all of it.
@@ -77,9 +77,11 @@ The plugin reads repository metadata over HTTP, using the IDE proxy settings. It
 
 | Build system | Repositories | Credentials |
 | --- | --- | --- |
-| Maven | The repositories IDEA imported for the module, with mirrors applied. Maven Central if the project is not imported. **Work offline** stops checks. | `<server>` entries in your `settings.xml`, matched by repository or mirror id: `username` and `password`, or `configuration/httpHeaders`. `${env.NAME}` works. Encrypted passwords are not supported. |
-| npm | `registry` and `@scope:registry` from `.npmrc` files in the package directory and above, the user `.npmrc` and `npm_config_registry`. | `//host/path/:_authToken`, `_auth`, or `username` and `_password` in `.npmrc`. `${NAME}` works. |
+| Maven | The repositories IDEA imported for the module, with mirrors applied. Maven Central if the project is not imported. **Work offline** stops checks. | `<server>` entries in your `settings.xml`, matched by repository or mirror id: `username` and `password`, or `configuration/httpHeaders`. `${env.NAME}` works. Encrypted `{…}` passwords are decrypted with the master password in `~/.m2/settings-security.xml`, like Maven 3. Maven 4's new encrypted format is not supported. |
+| npm | `registry` and `@scope:registry` from `.npmrc` files in the package directory and above, the user `.npmrc` and `npm_config_registry`. With a `.yarnrc.yml` (Yarn 2+), `npmRegistryServer` and `npmScopes` from `.yarnrc.yml` instead. | `//host/path/:_authToken`, `_auth`, or `username` and `_password` in `.npmrc`. For Yarn 2+, `npmAuthToken` or `npmAuthIdent` in `.yarnrc.yml`, per scope, per registry or for all. `${NAME}` works. |
 | Gradle | Maven Central (Google's repository for `androidx`, `com.android` and similar groups) and the Gradle Plugin Portal. | None. |
+
+When a repository fails for several versions in a file, for example without VPN, the file shows one warning that says how many versions were not checked.
 
 Release times for the minimum release age come from the POM's `Last-Modified` header (Maven and Gradle) and `services.gradle.org` (Gradle wrapper).
 A version without a known release time is hidden while the setting is above zero.

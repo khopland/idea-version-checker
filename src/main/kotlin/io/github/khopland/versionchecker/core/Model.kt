@@ -56,6 +56,12 @@ interface DeclarationProvider {
     /** Runs in a read action. Must not do I/O. */
     fun collect(file: PsiFile): List<Declaration>
 
+    /**
+     * Declarations in other files that share an edit with [declarations], such as other modules that use
+     * a parent POM property. They take part in the agreement on a shared version but get no warning here.
+     */
+    fun related(file: PsiFile, declarations: List<Declaration>): List<Declaration> = emptyList()
+
     companion object {
         val EP = ExtensionPointName<DeclarationProvider>("io.github.khopland.version-checker.declarationProvider")
 

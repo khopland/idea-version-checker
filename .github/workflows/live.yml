@@ -1,0 +1,36 @@
+# Check the public registries once a week, so a change in Maven Central, npm, the Gradle Plugin Portal
+# or services.gradle.org shows up before users report it.
+name: Live registries
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    name: Live registry test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+      - name: Test against the public registries
+        run: ./gradlew test -Plive=true --tests '*LiveRepositoriesTest' --console=plain
+      - name: Upload test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-tests-result
+          path: build/reports/tests
+          if-no-files-found: ignore

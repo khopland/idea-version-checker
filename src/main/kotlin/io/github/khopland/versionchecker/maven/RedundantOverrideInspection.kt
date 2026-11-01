@@ -44,7 +44,9 @@ internal object RedundantOverrides {
         val imported = manager.findProject(file.virtualFile ?: return emptyList()) ?: return emptyList()
         if (imported.hasReadingErrors()) return emptyList()
         val chain = MavenPoms.chain(file.project, xml)
-        return dependencyVersions(root, imported) + managedDuplicates(root, imported, manager) + properties(root, chain) + unusedProperties(root, chain, manager)
+        // One warning per tag: a property equal to the parent's is reported as that, even when it is also unused.
+        return (dependencyVersions(root, imported) + managedDuplicates(root, imported, manager) + properties(root, chain) +
+            unusedProperties(root, chain, manager)).distinctBy { it.tag }
     }
 
     private fun coordinate(dependency: XmlTag): Pair<String, String>? {

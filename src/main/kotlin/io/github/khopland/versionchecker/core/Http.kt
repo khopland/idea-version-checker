@@ -24,13 +24,26 @@ class HttpFailure(message: String) : IOException(message)
 
 /** One HTTP/2 client for every repository, limited per host. It uses the IDE proxy settings. */
 @Service
-class Http internal constructor(private val client: HttpClient) {
+class Http internal constructor(private val client: HttpClient, private val cache: HttpCache? = null) {
     @Suppress("unused") // Created by the platform.
-    constructor() : this(defaultClient())
+    constructor() : this(defaultClient(), HttpCache(com.intellij.openapi.application.PathManager.getSystemDir().resolve("version-checker").resolve("http")))
 
     private val hosts = ConcurrentHashMap<String, Semaphore>()
 
-    suspend fun get(url: String, headers: Map<String, String> = emptyMap()) = send(url, "GET", headers)
+    /** A GET that revalidates a cached copy with `If-None-Match` or `If-Modified-Since`. A `304` returns the cached body as `200`. */
+    suspend fun get(url: String, headers: Map<String, String> = emptyMap()): HttpResult {
+        val cache = cache ?: return send(url, "GET", headers)
+        val key = cache.key(url, headers)
+        val cached = cache.get(key)
+        val conditions = buildMap {
+            cached?.etag?.let { put("If-None-Match", it) }
+            cached?.lastModified?.let { put("If-Modified-Since", it) }
+        }
+        val response = send(url, "GET", headers + conditions)
+        if (response.status == 304 && cached != null) return HttpResult(200, cached.body, emptyMap())
+        if (response.status == 200) cache.put(key, HttpCache.Entry(response.body, response.header("ETag"), response.header("Last-Modified")))
+        return response
+    }
 
     suspend fun head(url: String, headers: Map<String, String> = emptyMap()) = send(url, "HEAD", headers)
 
