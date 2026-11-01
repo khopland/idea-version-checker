@@ -6,8 +6,21 @@ updates:
       - "src/test/resources/**"
     schedule:
       interval: "weekly"
-  # Fixture versions are intentional inputs, including older versions.
-  # Ignore npm dependencies explicitly to suppress security-update PRs too.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # The demo projects in src/test/resources use old versions on purpose.
+  # Ignoring every dependency also stops security-update pull requests for them.
+  - package-ecosystem: "maven"
+    directories:
+      - "/src/test/resources/**"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
   - package-ecosystem: "npm"
     directories:
       - "/src/test/resources/**"
@@ -16,7 +29,11 @@ updates:
     open-pull-requests-limit: 0
     ignore:
       - dependency-name: "*"
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: "gradle"
+    directories:
+      - "/src/test/resources/**"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"

@@ -3,41 +3,67 @@
     <name>Version Checker</name>
     <vendor>khopland</vendor>
     <description><![CDATA[
-        <p>Shows newer stable dependency versions in your build files, and updates them with Alt+Enter or in one reviewed batch.</p>
+        <p>Highlights outdated dependency versions in your build files and updates them by patch, minor or major.</p>
         <ul>
-          <li><b>Maven:</b> dependencies, BOMs, build plugins, version properties and the Maven wrapper.</li>
-          <li><b>Gradle:</b> libraries, BOMs and plugins in build scripts and version catalogs, and the Gradle wrapper.</li>
-          <li><b>npm, pnpm, Yarn and Bun:</b> dependencies in <code>package.json</code>, including workspaces and aliases.</li>
+          <li><b>Maven:</b> dependencies, BOMs, build plugins and version properties, with fixes that remove redundant overrides.</li>
+          <li><b>npm:</b> dependencies in <code>package.json</code>, for npm, pnpm, Yarn and Bun projects.</li>
+          <li><b>Gradle:</b> libraries and plugins in build scripts and <code>libs.versions.toml</code>.</li>
+          <li>The Maven and Gradle wrappers.</li>
         </ul>
-        <p>Checks use your existing build configuration: Maven settings and mirrors, <code>.npmrc</code> and Gradle repositories.
-        A minimum release age can hold back new releases, for example to match a repository quarantine.</p>
-        <p>Use <b>Tools | Versions | Review Updates…</b> to choose patch, minor or major updates for a file or the whole project.
-        All changes apply as one undoable edit. The plugin edits declarations only; it does not change lockfiles or installed packages.</p>
+        <p>Use <b>Alt+Enter</b> on a version, or <b>Tools | Versions</b> to update a file or the whole project in one undoable edit.
+        A minimum release age hides new Maven and Gradle releases, for example to match a Nexus quarantine.</p>
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
-    <depends optional="true" config-file="version-checker-npm.xml">JavaScript</depends>
-    <depends optional="true" config-file="version-checker-gradle.xml">com.intellij.gradle</depends>
+    <depends optional="true" config-file="version-checker-json.xml">com.intellij.modules.json</depends>
+
     <extensionPoints>
-        <extensionPoint name="buildSystemAdapter" interface="io.github.khopland.versionchecker.core.BuildSystemAdapter" dynamic="true" />
+        <extensionPoint name="declarationProvider" interface="io.github.khopland.versionchecker.core.DeclarationProvider" dynamic="true"/>
     </extensionPoints>
+
     <extensions defaultExtensionNs="com.intellij">
-        <errorHandler implementation="com.intellij.diagnostic.JetBrainsMarketplaceErrorReportSubmitter" />
-        <notificationGroup id="Version Checker" displayType="BALLOON" />
-        <statusBarWidgetFactory id="VersionChecker.Status" implementation="io.github.khopland.versionchecker.VersionCheckStatusWidgetFactory" />
-        <projectConfigurable parentId="tools" id="version.checker" displayName="Version Checker" instance="io.github.khopland.versionchecker.VersionCheckerConfigurable" />
+        <externalAnnotator language="XML" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
+        <externalAnnotator language="JSON" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
+        <externalAnnotator language="kotlin" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
+        <externalAnnotator language="Groovy" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
+        <externalAnnotator language="TOML" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
+        <externalAnnotator language="Properties" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
+        <localInspection shortName="OutdatedDependencyVersion" displayName="Outdated dependency version" groupName="Version Checker"
+                         enabledByDefault="true" level="WARNING"
+                         implementationClass="io.github.khopland.versionchecker.core.OutdatedVersionInspection"/>
+        <applicationConfigurable parentId="tools" id="version.checker" displayName="Version Checker"
+                                 instance="io.github.khopland.versionchecker.VersionCheckerConfigurable"/>
+        <notificationGroup id="Version Checker" displayType="BALLOON"/>
+        <errorHandler implementation="com.intellij.diagnostic.JetBrainsMarketplaceErrorReportSubmitter"/>
     </extensions>
+
+    <extensions defaultExtensionNs="io.github.khopland.version-checker">
+        <declarationProvider implementation="io.github.khopland.versionchecker.gradle.GradleProvider"/>
+        <declarationProvider implementation="io.github.khopland.versionchecker.wrapper.GradleWrapperProvider"/>
+        <declarationProvider implementation="io.github.khopland.versionchecker.wrapper.MavenWrapperProvider"/>
+    </extensions>
+
     <actions>
         <group id="VersionChecker.Menu" text="Versions" popup="true">
-            <add-to-group group-id="ToolsMenu" anchor="last" />
-            <action id="VersionChecker.Refresh" class="io.github.khopland.versionchecker.RefreshVersionsAction" text="Check for Updates" description="Check every supported build file in the project for newer versions" />
-            <action id="VersionChecker.Review" class="io.github.khopland.versionchecker.ReviewUpdatesAction" text="Review Updates…" description="Review and select dependency updates for this build file, or for the project" />
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <group id="VersionChecker.UpdateFile" text="Update This File" popup="true">
+                <action id="VersionChecker.UpdateFile.Patch" class="io.github.khopland.versionchecker.UpdateFilePatchAction" text="Patch" description="Update each version in the selected build files to the newest patch release"/>
+                <action id="VersionChecker.UpdateFile.Minor" class="io.github.khopland.versionchecker.UpdateFileMinorAction" text="Minor" description="Update each version in the selected build files to the newest minor or patch release"/>
+                <action id="VersionChecker.UpdateFile.Major" class="io.github.khopland.versionchecker.UpdateFileMajorAction" text="Major" description="Update each version in the selected build files to the newest release"/>
+            </group>
+            <group id="VersionChecker.UpdateAll" text="Update All Files" popup="true">
+                <action id="VersionChecker.UpdateAll.Patch" class="io.github.khopland.versionchecker.UpdateAllPatchAction" text="Patch" description="Update each version in the project to the newest patch release"/>
+                <action id="VersionChecker.UpdateAll.Minor" class="io.github.khopland.versionchecker.UpdateAllMinorAction" text="Minor" description="Update each version in the project to the newest minor or patch release"/>
+                <action id="VersionChecker.UpdateAll.Major" class="io.github.khopland.versionchecker.UpdateAllMajorAction" text="Major" description="Update each version in the project to the newest release"/>
+            </group>
+            <separator/>
+            <action id="VersionChecker.CheckNow" class="io.github.khopland.versionchecker.CheckNowAction" text="Check Now" description="Read repository metadata again and check the open build files"/>
         </group>
-        <group id="VersionChecker.EditorMenu">
-            <add-to-group group-id="EditorPopupMenu" anchor="last" />
-            <separator />
-            <action id="VersionChecker.RefreshCurrentFile" class="io.github.khopland.versionchecker.CurrentFileRefreshVersionsAction" text="Check This File for Updates" description="Check this build file for newer versions" />
-            <reference ref="VersionChecker.Review" />
+        <group id="VersionChecker.ContextMenu">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            <separator/>
+            <reference ref="VersionChecker.UpdateFile"/>
         </group>
     </actions>
 </idea-plugin>
