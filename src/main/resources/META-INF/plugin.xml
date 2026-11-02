@@ -6,7 +6,7 @@
         <p>Highlights outdated dependency versions in your build files and updates them by patch, minor or major.</p>
         <ul>
           <li><b>Maven:</b> dependencies, BOMs, build plugins and version properties, with fixes that remove redundant overrides and duplicates.</li>
-          <li><b>npm:</b> dependencies in <code>package.json</code>, for npm, pnpm, Yarn and Bun projects, and packages listed twice.</li>
+          <li><b>npm:</b> dependencies, overrides, resolutions, catalogs and <code>packageManager</code> in <code>package.json</code> and <code>pnpm-workspace.yaml</code>, for npm, pnpm, Yarn and Bun projects, and packages listed twice.</li>
           <li><b>Gradle:</b> libraries and plugins in build scripts, <code>gradle.properties</code> and <code>libs.versions.toml</code>, from the repositories the build declares, and unused catalog entries.</li>
           <li>The Maven and Gradle wrappers.</li>
         </ul>
@@ -17,6 +17,7 @@
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
     <depends optional="true" config-file="version-checker-json.xml">com.intellij.modules.json</depends>
+    <depends optional="true" config-file="version-checker-yaml.xml">org.jetbrains.plugins.yaml</depends>
 
     <extensionPoints>
         <extensionPoint name="declarationProvider" interface="io.github.khopland.versionchecker.core.DeclarationProvider" dynamic="true"/>
