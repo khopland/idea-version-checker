@@ -13,8 +13,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 
-/** Credentials for one `<server>` in `settings.xml`. */
-internal data class MavenServer(val headers: Map<String, String>, val encrypted: Boolean)
+/** Credentials for one `<server>` in `settings.xml`. [problem] says why an encrypted password could not be decrypted. */
+internal data class MavenServer(val headers: Map<String, String>, val problem: String? = null)
 
 /** One `<mirror>` in `settings.xml`. */
 internal data class MavenMirror(val id: String, val mirrorOf: String, val url: String, val blocked: Boolean = false) {
@@ -45,14 +45,14 @@ internal data class MavenMirror(val id: String, val mirrorOf: String, val url: S
     }
 }
 
-/** Reads `<servers>` and `<mirrors>` from settings files. Results are cached until a settings file or `settings-security.xml` changes. */
+/** Reads `<servers>` and `<mirrors>` from settings files. Results are cached until a settings file or a security file changes. */
 internal object MavenSettings {
     private class Parsed(val stamp: String, val servers: Map<String, MavenServer>, val mirrors: List<MavenMirror>)
 
     private val cache = ConcurrentHashMap<Path, Parsed>()
     private val placeholder = Regex("""\$\{(env\.)?([^}]+)}""")
 
-    fun servers(files: List<Path>, security: Path = MavenPasswords.securityFile()): Map<String, MavenServer> {
+    fun servers(files: List<Path>, security: MavenSecurity = MavenSecurity()): Map<String, MavenServer> {
         val result = linkedMapOf<String, MavenServer>()
         // The user settings file comes first and wins over the global file.
         for (file in files) parse(file, security)?.servers?.forEach { (id, server) -> result.putIfAbsent(id, server) }
@@ -60,17 +60,16 @@ internal object MavenSettings {
     }
 
     /** User mirrors come first, and a global mirror with the same id is dropped, as Maven merges them. */
-    fun mirrors(files: List<Path>, security: Path = MavenPasswords.securityFile()): List<MavenMirror> =
+    fun mirrors(files: List<Path>, security: MavenSecurity = MavenSecurity()): List<MavenMirror> =
         files.flatMap { parse(it, security)?.mirrors.orEmpty() }.distinctBy { it.id }
 
     private fun stamp(file: Path) = runCatching { Files.getLastModifiedTime(file).toMillis() }.getOrNull()
 
-    private fun parse(file: Path, security: Path): Parsed? {
-        val stamp = "${stamp(file) ?: return null}/${stamp(security)}"
+    private fun parse(file: Path, security: MavenSecurity): Parsed? {
+        val stamp = "${stamp(file) ?: return null}/${security.stamp}"
         cache[file]?.takeIf { it.stamp == stamp }?.let { return it }
-        val master by lazy { MavenPasswords.master(security) }
         val root = runCatching { JDOMUtil.load(file) }.getOrNull()
-        val servers = root?.let { runCatching { parse(it) { master } }.getOrNull() }.orEmpty()
+        val servers = root?.let { runCatching { parse(it, security::decrypt) }.getOrNull() }.orEmpty()
         val mirrors = root?.let { runCatching { mirrors(it) }.getOrNull() }.orEmpty()
         return Parsed(stamp, servers, mirrors).also { cache[file] = it }
     }
@@ -84,7 +83,7 @@ internal object MavenSettings {
                 mirror.text("url") ?: return@mapNotNull null, mirror.text("blocked") == "true")
         }
 
-    fun parse(settings: Element, master: () -> String? = { null }): Map<String, MavenServer> {
+    fun parse(settings: Element, decrypt: (String) -> Decryption = { Decryption.failed("there is no master password") }): Map<String, MavenServer> {
         val servers = settings.child("servers")?.children?.filter { it.name == "server" }.orEmpty()
         return servers.mapNotNull { server ->
             val id = server.text("id") ?: return@mapNotNull null
@@ -96,10 +95,10 @@ internal object MavenSettings {
             }
             val user = server.text("username")
             val stored = server.text("password")
-            val password = if (stored != null && MavenPasswords.isEncrypted(stored)) master()?.let { MavenPasswords.decrypt(stored, it) } else stored
-            val encrypted = stored != null && password == null
+            val decryption = stored?.takeIf(MavenPasswords::isEncrypted)?.let(decrypt)
+            val password = if (decryption != null) decryption.value else stored
             if (user != null && password != null) headers["Authorization"] = Http.basicAuth(user, password)
-            id to MavenServer(headers, encrypted)
+            id to MavenServer(headers, decryption?.problem)
         }.toMap()
     }
 
@@ -140,7 +139,7 @@ internal object MavenRepos {
     private fun repo(id: String, url: String, server: MavenServer?): MavenRepo {
         val hint = when {
             server == null -> "Add a <server> with id '$id' to settings.xml"
-            server.encrypted -> "Could not decrypt the password for server '$id'. Check ~/.m2/settings-security.xml; Maven 4 encrypted passwords are not supported"
+            server.problem != null -> "Could not decrypt the password for server '$id': ${server.problem}"
             else -> "Check the credentials for server '$id' in settings.xml"
         }
         return MavenRepo(id, url, server?.headers.orEmpty(), hint)
