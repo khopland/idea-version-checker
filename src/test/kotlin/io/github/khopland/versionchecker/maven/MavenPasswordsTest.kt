@@ -36,14 +36,14 @@ class MavenPasswordsTest {
               <server><id>maven4</id><username>me</username><password>{[name=master,version=4.0]abc}</password></server>
               <server><id>plain</id><username>me</username><password>text</password></server>
             </servers></settings>""".trimIndent())
-        val servers = MavenServers.servers(listOf(settings), security)
+        val servers = MavenSettings.servers(listOf(settings), security)
         assertEquals(Http.basicAuth("me", "server-p@ss"), servers.getValue("corp").headers["Authorization"])
         assertFalse(servers.getValue("corp").encrypted)
         assertTrue("A password that cannot be decrypted is reported", servers.getValue("maven4").encrypted)
         assertNull(servers.getValue("maven4").headers["Authorization"])
         assertEquals(Http.basicAuth("me", "text"), servers.getValue("plain").headers["Authorization"])
         // Without settings-security.xml the encrypted password cannot be used.
-        val missing = MavenServers.parse(JDOMUtil.load(settings))
+        val missing = MavenSettings.parse(JDOMUtil.load(settings))
         assertTrue(missing.getValue("corp").encrypted)
     }
 }

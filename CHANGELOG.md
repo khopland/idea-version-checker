@@ -9,6 +9,10 @@
 - **Duplicate npm dependency** inspection: a package in both `dependencies` and `devDependencies`, or overridden by `optionalDependencies`.
 - **Unused version catalog entry** inspection: `[versions]`, `[libraries]` and `[plugins]` entries in `libs.versions.toml` that no build script uses.
 
+### Fixed
+
+- Maven checks use the `<mirrors>` in `settings.xml`, including `*`, `external:*` and `!id` patterns and blocked mirrors. Before, a Nexus setup that declares `central` as `http://central` failed with "central: unknown host".
+
 ## [2.0.1]
 
 ### Added
