@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.2.0]
+
 ### Added
 
 - Gradle checks use the repositories the build declares: `dependencyResolutionManagement`, `pluginManagement`, project, `allprojects`, `subprojects` and `buildscript` repositories, and init scripts in `~/.gradle`. Credentials come from `credentials { }` blocks, `credentials(PasswordCredentials::class)` and header credentials, with values from Gradle properties and environment variables. Before, only Maven Central, Google and the Plugin Portal were read.
