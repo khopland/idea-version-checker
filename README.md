@@ -44,12 +44,12 @@ Versions that do not start with a number, like `r09`, are not suggested.
 | --- | --- |
 | Maven | `pom.xml`: dependencies, dependency management and BOMs, build plugins, plugin management, extensions, profiles and an external parent. Literal versions and `${property}` versions. The fix changes the property where it is set, also in a parent POM in the project. |
 | npm | `package.json`: `dependencies`, `devDependencies` and `optionalDependencies`. Exact, `^` and `~` versions keep their operator. Works for npm, pnpm, Yarn and Bun projects. Registry deprecations show in the message. |
-| Gradle | Build scripts: `"group:artifact:version"` strings, `id("x") version "v"` and `kotlin("jvm") version "v"`. `libs.versions.toml`: `[libraries]` and `[plugins]`, with literal versions or `version.ref`. |
+| Gradle | Build scripts: `"group:artifact:version"` strings, `id("x") version "v"` and `kotlin("jvm") version "v"`. The version can be a variable, as in `"group:artifact:$x"`, `${property("x")}` or `version kotlinVersion`, set in the script (`val`, `def`, `ext`, `extra`), as an extra property of the root project or in `gradle.properties`. The fix changes it where it is set. `libs.versions.toml`: `[libraries]` and `[plugins]`, with literal versions or `version.ref`. |
 | Wrappers | `distributionUrl` in `.mvn/wrapper/maven-wrapper.properties` and `gradle/wrapper/gradle-wrapper.properties`. |
 
 A version that several declarations share, like a Maven property or a catalog `version.ref`, changes only when they all want the same version.
 
-Not checked: version ranges and tags, computed versions, transitive and peer dependencies, lockfiles, and Gradle versions from variables.
+Not checked: version ranges and tags, computed versions, transitive and peer dependencies, lockfiles, and Gradle versions from maps, functions, `buildSrc` constants or convention plugins.
 
 ## Moved dependencies
 
@@ -133,7 +133,7 @@ The plugin reads repository metadata over HTTP, using the IDE proxy settings. It
 | --- | --- | --- |
 | Maven | The repositories IDEA imported for the module, with mirrors applied. Maven Central if the project is not imported. **Work offline** stops checks. | `<server>` entries in your `settings.xml`, matched by repository or mirror id: `username` and `password`, or `configuration/httpHeaders`. `${env.NAME}` works. Encrypted `{…}` passwords are decrypted with the master password in `~/.m2/settings-security.xml`, like Maven 3. Maven 4's new encrypted format is not supported. |
 | npm | `registry` and `@scope:registry` from `.npmrc` files in the package directory and above, the user `.npmrc` and `npm_config_registry`. With a `.yarnrc.yml` (Yarn 2+), `npmRegistryServer` and `npmScopes` from `.yarnrc.yml` instead. | `//host/path/:_authToken`, `_auth`, or `username` and `_password` in `.npmrc`. For Yarn 2+, `npmAuthToken` or `npmAuthIdent` in `.yarnrc.yml`, per scope, per registry or for all. `${NAME}` works. |
-| Gradle | Maven Central (Google's repository for `androidx`, `com.android` and similar groups) and the Gradle Plugin Portal. | None. |
+| Gradle | The `repositories { }` the build declares, read from the scripts as text: `mavenCentral()`, `google()`, `gradlePluginPortal()` and `maven { url = … }`. Libraries use `dependencyResolutionManagement` in the settings script, or the project's own, `allprojects` and `subprojects` repositories, as Gradle's `repositoriesMode` says. Plugins use `pluginManagement`, and `classpath` dependencies use `buildscript`. Init scripts in `~/.gradle/init.d` add theirs. Without declared repositories: Maven Central (Google's repository for `androidx`, `com.android` and similar groups) and the Gradle Plugin Portal. `publishing` repositories are ignored. | `credentials { username = …; password = … }`, `credentials(HttpHeaderCredentials::class) { name = …; value = … }`, or `credentials(PasswordCredentials::class)` with the properties `<name>Username` and `<name>Password`. Values can be literals, Gradle properties (`providers.gradleProperty("x")`, `findProperty("x")` or a bare name) from `ORG_GRADLE_PROJECT_x`, `~/.gradle/gradle.properties` or the build's `gradle.properties`, and environment variables (`System.getenv("X")`, `providers.environmentVariable("X")`). An IDE started from the Dock or Start menu does not see variables set in a shell profile. |
 
 When a repository fails for several versions in a file, for example without VPN, the file shows one warning that says how many versions were not checked.
 

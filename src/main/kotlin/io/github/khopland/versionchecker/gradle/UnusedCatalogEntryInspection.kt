@@ -155,7 +155,7 @@ internal object CatalogSources {
      * Files under [dir], from the file system rather than the index, so the check also works before the build is imported.
      * Build output and hidden directories are skipped, and source directories unless [sources] is set.
      */
-    private fun files(dir: VirtualFile, sources: Boolean, accept: (VirtualFile) -> Boolean): List<VirtualFile> {
+    fun files(dir: VirtualFile, sources: Boolean, accept: (VirtualFile) -> Boolean): List<VirtualFile> {
         val result = mutableListOf<VirtualFile>()
         VfsUtilCore.visitChildrenRecursively(dir, object : VirtualFileVisitor<Any>() {
             override fun visitFile(file: VirtualFile): Boolean {
