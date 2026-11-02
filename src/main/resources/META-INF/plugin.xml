@@ -7,7 +7,7 @@
         <ul>
           <li><b>Maven:</b> dependencies, BOMs, build plugins and version properties, with fixes that remove redundant overrides and duplicates.</li>
           <li><b>npm:</b> dependencies in <code>package.json</code>, for npm, pnpm, Yarn and Bun projects, and packages listed twice.</li>
-          <li><b>Gradle:</b> libraries and plugins in build scripts and <code>libs.versions.toml</code>, and unused catalog entries.</li>
+          <li><b>Gradle:</b> libraries and plugins in build scripts, <code>gradle.properties</code> and <code>libs.versions.toml</code>, from the repositories the build declares, and unused catalog entries.</li>
           <li>The Maven and Gradle wrappers.</li>
         </ul>
         <p>Use <b>Alt+Enter</b> on a version, or <b>Tools | Versions</b> to update a file or the whole project in one undoable edit.

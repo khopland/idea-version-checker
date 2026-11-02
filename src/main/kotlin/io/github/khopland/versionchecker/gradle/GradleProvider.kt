@@ -3,6 +3,7 @@ package io.github.khopland.versionchecker.gradle
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiManager
 import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Edit
@@ -11,65 +12,116 @@ import io.github.khopland.versionchecker.repo.MavenLookup
 import io.github.khopland.versionchecker.repo.MavenRepo
 
 /**
- * Simple Gradle support. Build scripts and `libs.versions.toml` are read as text, so only literal
- * versions in the common notations are found. Libraries come from Maven Central or Google, and plugins
- * from the Gradle Plugin Portal.
+ * Simple Gradle support. Build scripts and `libs.versions.toml` are read as text, so only literal versions and
+ * versions in simple variables are found. Libraries and plugins come from the repositories the build declares, or
+ * from Maven Central, Google and the Gradle Plugin Portal when it declares none.
  */
-class GradleProvider : DeclarationProvider {
+class GradleProvider internal constructor(private val environment: () -> GradleEnvironment) : DeclarationProvider {
+    @Suppress("unused") // Created by the platform.
+    constructor() : this(GradleEnvironment::system)
+
     override val fileNames = listOf("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "libs.versions.toml")
 
     override fun accepts(file: PsiFile) = file.name.endsWith(".gradle") || file.name.endsWith(".gradle.kts") || file.name.endsWith(".versions.toml")
 
     override fun collect(file: PsiFile): List<Declaration> {
         val vfile = file.virtualFile ?: return emptyList()
-        return if (file.name.endsWith(".toml")) GradleCatalog.collect(file.text, vfile) else GradleScripts.collect(file.text, vfile)
+        if (file.name.endsWith(".toml")) return GradleCatalog.collect(file.text, vfile, GradleBuildFiles.forCatalog(vfile, environment()))
+        val script = ScriptText(file.text)
+        return GradleScripts.collect(script, vfile, GradleBuildFiles.forScript(vfile, script, environment()))
+    }
+
+    /** Other scripts of the build that use the same root project property or `gradle.properties` entry. */
+    override fun related(file: PsiFile, declarations: List<Declaration>): List<Declaration> {
+        val self = file.virtualFile ?: return emptyList()
+        val shared = declarations.mapNotNull { it.edit }
+            .filter { it.label != null && (it.file != self || it.file.parent == GradleBuildFiles.root(self)) }
+            .mapTo(hashSetOf()) { it.key }
+        if (shared.isEmpty()) return emptyList()
+        val root = GradleBuildFiles.root(self) ?: return emptyList()
+        val psi = PsiManager.getInstance(file.project)
+        return CatalogSources.files(root, sources = false) { it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") }
+            .filter { it != self }
+            .mapNotNull { psi.findFile(it) }
+            .flatMap { collect(it) }
+            .filter { it.edit?.key in shared }
     }
 
     companion object {
         private val googleGroups = listOf("androidx.", "com.android.", "com.google.android.", "com.google.firebase", "com.google.gms", "com.google.mlkit")
 
-        fun library(group: String, artifact: String): Lookup = MavenLookup(group, artifact,
-            listOf(if (googleGroups.any { group.startsWith(it) || "$group." == it }) MavenRepo.GOOGLE else MavenRepo.CENTRAL))
+        /** [repos] are the ones the build declares, or null for Maven Central, or Google for Android groups. */
+        fun library(group: String, artifact: String, repos: List<MavenRepo>? = null): Lookup = MavenLookup(group, artifact,
+            repos ?: listOf(if (googleGroups.any { group.startsWith(it) || "$group." == it }) MavenRepo.GOOGLE else MavenRepo.CENTRAL))
 
-        /** The Plugin Portal publishes a marker artifact `<id>:<id>.gradle.plugin` for every plugin. */
-        fun plugin(id: String): Lookup = MavenLookup(id, "$id.gradle.plugin", listOf(MavenRepo.GRADLE_PLUGINS))
+        /** Every plugin has a marker artifact `<id>:<id>.gradle.plugin`, on the Plugin Portal unless [repos] are declared. */
+        fun plugin(id: String, repos: List<MavenRepo>? = null): Lookup = MavenLookup(id, "$id.gradle.plugin", repos ?: listOf(MavenRepo.GRADLE_PLUGINS))
 
         fun literal(version: String) = version.isNotEmpty() && version[0].isDigit() && version.none { it in "$[]()*+, " }
 
         fun declaration(name: String, version: String, range: TextRange, lookup: Lookup, file: VirtualFile, label: String? = null,
-                        editRange: TextRange = range) =
-            Declaration(name, range, version, lookup, Edit(file, editRange, version, label))
+                        editRange: TextRange = range, editFile: VirtualFile = file) =
+            Declaration(name, range, version, lookup, Edit(editFile, editRange, version, label))
     }
 }
 
+/**
+ * Versions in build scripts: `"group:artifact:version"` strings and `id("x") version "v"`. The version may be a variable,
+ * as in `"group:artifact:$x"`, `${property("x")}` or `version kotlinVersion`, set in the script, as an extra
+ * property of the root project or in `gradle.properties`. The fix then changes it where it is set.
+ */
 internal object GradleScripts {
     private const val Q = """["']"""
+    private const val REFERENCE = """\$(\w+)|\$\{\s*([\w.]+)\s*}|\$\{\s*(?:(?:project|rootProject)\.)?(?:property|findProperty|(?:extra|ext)\s*\[)\s*\(?\s*["'](\w+)["']\s*[)\]]\s*}"""
     private val coordinate = Regex("""$Q([\w.\-]+):([\w.\-]+):([^"':@$\s]+)$Q""")
-    private val pluginId = Regex("""\bid\s*\(?\s*$Q([\w.\-]+)$Q\s*\)?\s*version\s*\(?\s*$Q([^"'$\s]+)$Q""")
-    private val kotlinPlugin = Regex("""\bkotlin\s*\(\s*$Q([\w.\-]+)$Q\s*\)\s*version\s*\(?\s*$Q([^"'$\s]+)$Q""")
+    private val coordinateReference = Regex("""$Q([\w.\-]+):([\w.\-]+):($REFERENCE)$Q""")
+    private const val PLUGIN_VERSION = """\s*version\s*\(?\s*(?:$Q([^"'$\s]+)$Q|$Q($REFERENCE)$Q|([A-Za-z_]\w*)\b(?![.(]))"""
+    private val pluginId = Regex("""\bid\s*\(?\s*$Q([\w.\-]+)$Q\s*\)?$PLUGIN_VERSION""")
+    private val kotlinPlugin = Regex("""\bkotlin\s*\(\s*$Q([\w.\-]+)$Q\s*\)$PLUGIN_VERSION""")
+    private val qualified = Regex("""^(?:(?:project|rootProject)\.)?(?:(?:ext|extra)\.)?(\w+)$""")
 
-    fun collect(text: String, file: VirtualFile): List<Declaration> {
+    fun collect(text: String, file: VirtualFile, context: GradleContext = GradleContext()) = collect(ScriptText(text), file, context)
+
+    fun collect(script: ScriptText, file: VirtualFile, context: GradleContext): List<Declaration> {
+        val code = script.code
         val result = mutableListOf<Declaration>()
-        fun commented(offset: Int): Boolean {
-            val line = text.substring(text.lastIndexOf('\n', offset - 1) + 1, offset).trimStart()
-            return line.startsWith("//") || line.startsWith("*") || line.startsWith("/*")
-        }
+        val own by lazy { GradleVariables.definitions(script, file) }
         fun range(match: MatchResult, group: Int) = match.groups[group]!!.range.let { TextRange(it.first, it.last + 1) }
-        coordinate.findAll(text).forEach { match ->
-            val (group, artifact, version) = match.destructured
-            if (!commented(match.range.first) && GradleProvider.literal(version))
-                result += GradleProvider.declaration("$group:$artifact", version, range(match, 3), GradleProvider.library(group, artifact), file)
+        fun variable(match: MatchResult, first: Int): GradleVariable? {
+            val name = match.groups[first]?.value ?: match.groups[first + 2]?.value
+                ?: match.groups[first + 1]?.value?.let { qualified.matchEntire(it)?.groupValues?.get(1) } ?: return null
+            return own[name] ?: context.variable(name)
         }
-        pluginId.findAll(text).forEach { match ->
-            val (id, version) = match.destructured
-            if (!commented(match.range.first) && GradleProvider.literal(version))
-                result += GradleProvider.declaration("plugin $id", version, range(match, 2), GradleProvider.plugin(id), file)
+        /** A literal version in [literal], or a variable reference whose groups start at [reference]. */
+        fun add(name: String, match: MatchResult, literal: Int?, reference: Int?, lookup: () -> Lookup, bare: Int? = null) {
+            literal?.let { match.groups[it] }?.let { version ->
+                if (GradleProvider.literal(version.value)) result += GradleProvider.declaration(name, version.value, range(match, literal), lookup(), file)
+                return
+            }
+            val (group, variable) = when {
+                reference != null && match.groups[reference] != null -> reference to variable(match, reference + 1)
+                bare != null && match.groups[bare] != null -> bare to match.groups[bare]!!.value.let { own[it] ?: context.variable(it) }
+                else -> return
+            }
+            if (variable == null || !GradleProvider.literal(variable.value)) return
+            result += GradleProvider.declaration(name, variable.value, range(match, group), lookup(), file, variable.name, variable.range, variable.file)
         }
-        kotlinPlugin.findAll(text).forEach { match ->
-            val (name, version) = match.destructured
-            val id = "org.jetbrains.kotlin.$name"
-            if (!commented(match.range.first) && GradleProvider.literal(version))
-                result += GradleProvider.declaration("plugin $id", version, range(match, 2), GradleProvider.plugin(id), file)
+        fun libraries(offset: Int) = if (script.inside(offset, "buildscript")) context.buildscript else context.libraries
+        coordinate.findAll(code).forEach { match ->
+            val (group, artifact) = match.destructured
+            add("$group:$artifact", match, 3, null, { GradleProvider.library(group, artifact, libraries(match.range.first)) })
+        }
+        coordinateReference.findAll(code).forEach { match ->
+            val (group, artifact) = match.destructured
+            add("$group:$artifact", match, null, 3, { GradleProvider.library(group, artifact, libraries(match.range.first)) })
+        }
+        pluginId.findAll(code).forEach { match ->
+            val id = match.groupValues[1]
+            add("plugin $id", match, 2, 3, { GradleProvider.plugin(id, context.plugins) }, bare = 7)
+        }
+        kotlinPlugin.findAll(code).forEach { match ->
+            val id = "org.jetbrains.kotlin.${match.groupValues[1]}"
+            add("plugin $id", match, 2, 3, { GradleProvider.plugin(id, context.plugins) }, bare = 7)
         }
         return result.sortedBy { it.range.startOffset }
     }
@@ -85,7 +137,7 @@ internal object GradleCatalog {
     private class Line(val start: Int, val text: String)
     private class Value(val text: String, val range: TextRange)
 
-    fun collect(text: String, file: VirtualFile): List<Declaration> {
+    fun collect(text: String, file: VirtualFile, context: GradleContext = GradleContext()): List<Declaration> {
         val lines = mutableListOf<Pair<String, Line>>()
         var section = ""
         var offset = 0
@@ -126,13 +178,13 @@ internal object GradleCatalog {
                         if (shorthand.size == 3 && GradleProvider.literal(shorthand[2])) {
                             val start = line.start + raw.range.first + 1 + shorthand[0].length + shorthand[1].length + 2
                             result += GradleProvider.declaration("${shorthand[0]}:${shorthand[1]}", shorthand[2], TextRange.from(start, shorthand[2].length),
-                                GradleProvider.library(shorthand[0], shorthand[1]), file)
+                                GradleProvider.library(shorthand[0], shorthand[1], context.libraries), file)
                         }
                         continue
                     }
                     val module = value(line, field("module"))?.text?.split(':')?.takeIf { it.size == 2 }
                         ?: listOfNotNull(value(line, field("group"))?.text, value(line, field("name"))?.text).takeIf { it.size == 2 } ?: continue
-                    add("${module[0]}:${module[1]}", GradleProvider.library(module[0], module[1]), line)
+                    add("${module[0]}:${module[1]}", GradleProvider.library(module[0], module[1], context.libraries), line)
                 }
                 "plugins" -> {
                     val shorthand = quoted.matchEntire(raw.value)?.groupValues?.get(1)?.split(':')
@@ -140,12 +192,12 @@ internal object GradleCatalog {
                         if (shorthand.size == 2 && GradleProvider.literal(shorthand[1])) {
                             val start = line.start + raw.range.first + 1 + shorthand[0].length + 1
                             result += GradleProvider.declaration("plugin ${shorthand[0]}", shorthand[1], TextRange.from(start, shorthand[1].length),
-                                GradleProvider.plugin(shorthand[0]), file)
+                                GradleProvider.plugin(shorthand[0], context.plugins), file)
                         }
                         continue
                     }
                     val id = value(line, field("id"))?.text ?: continue
-                    add("plugin $id", GradleProvider.plugin(id), line)
+                    add("plugin $id", GradleProvider.plugin(id, context.plugins), line)
                 }
             }
         }
