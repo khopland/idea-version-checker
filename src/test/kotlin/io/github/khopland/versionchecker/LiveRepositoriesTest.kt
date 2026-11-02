@@ -50,6 +50,19 @@ class LiveRepositoriesTest : BasePlatformTestCase() {
         val gradle = GradleReleases().fetch()
         assertTrue("8.14" in gradle.versions)
         assertNotNull(gradle.publishedAt("8.14"))
+
+        val node = io.github.khopland.versionchecker.toolchain.NodeReleases("20.0.0").fetch()
+        assertTrue("20.11.0" in node.versions)
+        assertTrue("22.12.0" in node.versions)
+        assertFalse("Odd major versions are not LTS", node.versions.any { it.startsWith("21.") })
+        val java = io.github.khopland.versionchecker.toolchain.SdkmanLookup("java").fetch()
+        assertTrue(java.versions.toString(), java.versions.any { it.endsWith("-tem") })
+        val checkout = io.github.khopland.versionchecker.actions.GitHubTags("actions", "checkout", "v3").fetch()
+        assertTrue(checkout.versions.toString(), "v4" in checkout.versions && "v4.1.0" !in checkout.versions)
+
+        assertEquals("https://github.com/junit-team/junit4/releases",
+            MavenLookup("junit", "junit", listOf(MavenRepo.CENTRAL)).releaseNotes("4.13.2"))
+        assertEquals("https://github.com/facebook/react/releases", NpmLookup("react", Npmrc(emptyMap()).registry("react")).releaseNotes("18.2.0"))
     }
 }
 

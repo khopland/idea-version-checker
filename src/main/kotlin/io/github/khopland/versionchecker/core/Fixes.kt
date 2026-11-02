@@ -1,12 +1,16 @@
 package io.github.khopland.versionchecker.core
 
 import com.intellij.codeInsight.intention.IntentionAction
+import com.intellij.ide.BrowserUtil
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.codeInsight.intention.LowPriorityAction
 import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.psi.PsiFile
 
 /** Alt+Enter: write one new version. */
@@ -51,5 +55,34 @@ class UpdateFileFix : IntentionAction, LowPriorityAction {
             .setItemChosenCallback { Updater.getInstance(project).update(listOf(target), modes.getValue(it)) }
             .createPopup()
         if (editor != null) popup.showInBestPositionFor(editor) else popup.showCenteredInCurrentWindow(project)
+    }
+}
+
+/** Alt+Enter: open the release notes for the newest offered version. The page is looked up only when the user picks this. */
+class OpenReleaseNotesFix(private val name: String, private val lookup: Lookup, private val version: String) : IntentionAction, LowPriorityAction {
+    override fun getText() = "Open release notes for $name $version"
+    override fun getFamilyName() = "Open release notes"
+    override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?) = true
+    override fun startInWriteAction() = false
+    override fun generatePreview(project: Project, editor: Editor, file: PsiFile) = IntentionPreviewInfo.EMPTY
+
+    override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
+        val url = runWithModalProgressBlocking(project, "Finding release notes for $name") { runCatching { lookup.releaseNotes(version) }.getOrNull() }
+        if (url != null) BrowserUtil.browse(url)
+        else NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
+            .createNotification("No release notes found for $name $version", NotificationType.INFORMATION).notify(project)
+    }
+}
+
+/** Release notes on GitHub, from a repository or project URL in any of the usual spellings, or null for other hosts. */
+object ReleaseNotes {
+    private val github = Regex("""^(?:git\+|scm:git:)?(?:https?://|git://|ssh://git@|git@)(?:www\.)?github\.com[/:]([\w.\-]+)/([\w.\-]+?)(?:\.git)?(?:[/#?].*)?$""")
+
+    fun github(url: String): String? = github.matchEntire(url.trim())?.let { "https://github.com/${it.groupValues[1]}/${it.groupValues[2]}/releases" }
+
+    /** The GitHub releases page when the URL is on GitHub, otherwise the URL itself when it is a web page. */
+    fun page(url: String?): String? {
+        val text = url?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return github(text) ?: text.takeIf { it.startsWith("https://") || it.startsWith("http://") }
     }
 }

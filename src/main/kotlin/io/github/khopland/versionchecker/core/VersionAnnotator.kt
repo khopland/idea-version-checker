@@ -87,6 +87,8 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
                         register(UpdateVersionFix(edit, version, Versions.kind(declaration.current, version)))
                     }
                     register(UpdateFileFix())
+                    val newest = outcome.targets.major
+                    if (declaration.lookup.hasReleaseNotes && newest != null) register(OpenReleaseNotesFix(declaration.name, declaration.lookup, newest))
                     builder.create()
                 }
             }
