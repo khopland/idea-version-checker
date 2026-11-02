@@ -25,7 +25,7 @@ dependencies {
     integrationTestRuntimeOnly("org.junit.platform:junit-platform-launcher:1.13.4")
     // Starter brings an older Kotlin standard library than the compiler expects.
     integrationTestImplementation(kotlin("stdlib"))
-    integrationTestImplementation("org.kodein.di:kodein-di-jvm:7.20.2")
+    integrationTestImplementation("org.kodein.di:kodein-di-jvm:7.33.0")
     integrationTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.1")
 
     intellijPlatform {
