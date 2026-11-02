@@ -6,6 +6,7 @@ import io.github.khopland.versionchecker.core.HttpFailure
 import io.github.khopland.versionchecker.core.Lookup
 import io.github.khopland.versionchecker.core.Moved
 import io.github.khopland.versionchecker.core.PublishedTimes
+import io.github.khopland.versionchecker.core.ReleaseNotes
 import io.github.khopland.versionchecker.core.Releases
 import io.github.khopland.versionchecker.core.Versions
 import kotlinx.coroutines.async
@@ -52,6 +53,32 @@ class MavenLookup(val groupId: String, val artifactId: String, val repos: List<M
         val newest = listings.map { it.lastUpdated }.takeIf { null !in it }?.maxOf { it!! }
         Releases(owners.keys.toList(), allPublishedBefore = newest, publishedAt = { version -> owners[version]?.let { published(it, version) } },
             moved = moved(owners))
+    }
+
+    override val hasReleaseNotes get() = true
+
+    /**
+     * The Maven release notes for the Maven distribution, the Plugin Portal page for a Gradle plugin, and otherwise the
+     * `<scm>` or `<url>` of the POM or its parents, as GitHub releases when the project is on GitHub.
+     */
+    override suspend fun releaseNotes(version: String): String? {
+        if (groupId == "org.apache.maven" && artifactId == "apache-maven") return "https://maven.apache.org/docs/$version/release-notes.html"
+        if (artifactId == "$groupId.gradle.plugin") return "https://plugins.gradle.org/plugin/$groupId"
+        var coordinates = Triple(groupId, artifactId, version)
+        repeat(4) {
+            val (group, artifact, v) = coordinates
+            val root = repos.firstNotNullOfOrNull { repo ->
+                runCatching { http().get("${repo.base}/${path(group, artifact)}/$v/$artifact-$v.pom", repo.headers) }.getOrNull()
+                    ?.takeIf { it.ok }?.let { runCatching { JDOMUtil.load(it.body.inputStream()) }.getOrNull() }
+            } ?: return null
+            fun text(vararg names: String) = names.fold(root as org.jdom.Element?) { element, name -> element?.getChild(name, root.namespace) }
+                ?.textTrim?.takeIf { it.isNotEmpty() && '$' !in it }
+            ReleaseNotes.page(text("scm", "url") ?: text("scm", "connection") ?: text("url"))?.let { return it }
+            val parent = root.getChild("parent", root.namespace) ?: return null
+            fun field(name: String) = parent.getChildTextTrim(name, root.namespace)?.takeIf { it.isNotEmpty() && '$' !in it }
+            coordinates = Triple(field("groupId") ?: return null, field("artifactId") ?: return null, field("version") ?: return null)
+        }
+        return null
     }
 
     /** A move is extra information, so a failure to read it leaves it out. */

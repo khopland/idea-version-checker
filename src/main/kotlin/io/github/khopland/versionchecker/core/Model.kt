@@ -1,9 +1,12 @@
 package io.github.khopland.versionchecker.core
 
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
+import com.intellij.psi.search.FilenameIndex
+import com.intellij.psi.search.GlobalSearchScope
 
 /** The published versions of one package in one place. */
 class Releases(
@@ -29,6 +32,12 @@ data class Moved(val to: String, val newest: String? = null, val message: String
 interface Lookup {
     val key: String
     suspend fun fetch(): Releases
+
+    /** Whether [releaseNotes] can find a page, so the editor offers the action. */
+    val hasReleaseNotes: Boolean get() = false
+
+    /** A page with the changes in [version], such as the project's GitHub releases. Only called when the user asks. */
+    suspend fun releaseNotes(version: String): String? = null
 }
 
 /** Text to replace when the user updates a declaration. [label] names what changes, for example a property. */
@@ -55,6 +64,10 @@ class Declaration(
 interface DeclarationProvider {
     /** File names to scan for **Update All Files**. */
     val fileNames: Collection<String>
+
+    /** The files **Update All Files** scans. Runs in a read action. */
+    fun buildFiles(project: Project, scope: GlobalSearchScope): Collection<VirtualFile> =
+        fileNames.flatMap { FilenameIndex.getVirtualFilesByName(it, scope) }
 
     fun accepts(file: PsiFile): Boolean
 

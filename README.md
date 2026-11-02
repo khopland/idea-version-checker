@@ -13,6 +13,7 @@ Use IntelliJ IDEA 2026.1.4 through 2026.2.x. Open **Settings → Plugins → Mar
 | Task | Action |
 | --- | --- |
 | Update one version | Put the caret on the warning and press **Alt+Enter**. Pick the patch, minor or major update. |
+| Read what changed | **Alt+Enter** → **Open release notes**. It opens the GitHub releases of the project when its POM or `package.json` points to GitHub, otherwise its home page, or the release notes of Gradle, Maven, Node.js or the action. |
 | Update every version in a file | **Tools → Versions → Update This File → Patch / Minor / Major**, or the editor and Project view context menus. |
 | Update every build file in the project | **Tools → Versions → Update All Files → Patch / Minor / Major**. |
 | Check again now | **Tools → Versions → Check Now**. Results otherwise stay cached for 30 minutes. After that, and after a restart, the plugin asks the repository whether its stored copy is still current, so an unchanged document is not downloaded again. |
@@ -46,6 +47,8 @@ Versions that do not start with a number, like `r09`, are not suggested.
 | npm | `package.json`: `dependencies`, `devDependencies` and `optionalDependencies`, `overrides` (npm), `resolutions` (Yarn), `pnpm.overrides`, and Bun's `catalog` and `catalogs`. `packageManager`, such as `pnpm@9.12.0`, is checked too; with a `+sha512` hash it only warns, because the hash must change as well. `pnpm-workspace.yaml`: `catalog`, `catalogs` and `overrides`. Exact, `^` and `~` versions keep their operator. Works for npm, pnpm, Yarn and Bun projects. Registry deprecations show in the message. |
 | Gradle | Build scripts: `"group:artifact:version"` strings, `id("x") version "v"` and `kotlin("jvm") version "v"`. The version can be a variable, as in `"group:artifact:$x"`, `${property("x")}` or `version kotlinVersion`, set in the script (`val`, `def`, `ext`, `extra`), as an extra property of the root project or in `gradle.properties`. The fix changes it where it is set. `libs.versions.toml`: `[libraries]` and `[plugins]`, with literal versions or `version.ref`. |
 | Wrappers | `distributionUrl` in `.mvn/wrapper/maven-wrapper.properties` and `gradle/wrapper/gradle-wrapper.properties`. |
+| Toolchains | `.nvmrc` and `.node-version` with a full Node.js version. Major updates are LTS releases only. `.sdkmanrc` lines such as `java=21.0.2-tem`, from the SDKMAN! list for your platform; Java keeps its vendor suffix. `.tool-versions` (asdf, mise): `nodejs`, `maven` and `gradle`. |
+| GitHub Actions | `uses: owner/repo@v4` in `.github/workflows` and `action.yml`. A tag keeps its shape: `v4` is offered `v5`, `v4.1.2` is offered `v4.2.0`. Tags come from github.com without an API token. Commit hashes, branches, Docker and local actions are not checked. |
 
 A version that several declarations share, like a Maven property or a catalog `version.ref`, changes only when they all want the same version.
 
@@ -83,7 +86,7 @@ A suppress comment in the build file keeps one version. It lives in the file, so
 | Gradle scripts | `//noinspection OutdatedDependencyVersion` on the line above. |
 | `libs.versions.toml` | `#noinspection OutdatedDependencyVersion` on the line above. |
 | Wrapper properties | `# suppress inspection "OutdatedDependencyVersion"` on the line above. |
-| `pnpm-workspace.yaml` | `#noinspection OutdatedDependencyVersion` on the line above. |
+| `pnpm-workspace.yaml`, workflows, `.sdkmanrc`, `.tool-versions` | `#noinspection OutdatedDependencyVersion` on the line above. |
 
 To add the comment, press **Alt+Enter** on the warning, open the submenu of any fix with the right arrow, and pick **Suppress for tag**, **Suppress for statement** or **Suppress for line**. A comment where the version is set, on a Maven property or a catalog `[versions]` entry, keeps every declaration that uses it.
 Use `MovedDependency` the same way for moved packages. `package.json` cannot have comments, so there turn the inspection off for the file or project instead.

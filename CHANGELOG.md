@@ -4,6 +4,9 @@
 
 ### Added
 
+- **Alt+Enter → Open release notes**: the GitHub releases of the project, from the POM's `<scm>` or `<url>` (or a parent's) and the npm `repository`, or the release notes of Gradle, Maven, Node.js and GitHub Actions. The page is looked up only when you pick the action.
+- Toolchain files: `.nvmrc`, `.node-version`, `.sdkmanrc` and `.tool-versions` (Node.js, Maven, Gradle). Node.js major updates are LTS releases only.
+- GitHub Actions: `uses: owner/repo@v4` in workflows and `action.yml`, keeping the shape of the tag.
 - npm: `packageManager` in `package.json`, `overrides`, `resolutions` and `pnpm.overrides`, Bun catalogs, and the `catalog`, `catalogs` and `overrides` in `pnpm-workspace.yaml`.
 - Maven 4 encrypted passwords, `{[name=master,cipher=AES/GCM/NoPadding,…]…}`, decrypted with the master password source in `~/.m2/settings-security4.xml`: `env:`, `file:` or `system-property:`. A password that cannot be decrypted now says why, for example a missing environment variable.
 - Gradle checks use the repositories the build declares: `dependencyResolutionManagement`, `pluginManagement`, project, `allprojects`, `subprojects` and `buildscript` repositories, and init scripts in `~/.gradle`. Credentials come from `credentials { }` blocks, `credentials(PasswordCredentials::class)` and header credentials, with values from Gradle properties and environment variables. Before, only Maven Central, Google and the Plugin Portal were read.

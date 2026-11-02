@@ -13,7 +13,6 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiManager
-import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.openapi.util.text.StringUtil
 import kotlinx.coroutines.CoroutineScope
@@ -80,8 +79,7 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
 
         suspend fun buildFiles(project: Project): List<VirtualFile> = smartReadAction(project) {
             val scope = GlobalSearchScope.projectScope(project)
-            DeclarationProvider.EP.extensionList.flatMap { it.fileNames }.distinct()
-                .flatMap { FilenameIndex.getVirtualFilesByName(it, scope) }
+            DeclarationProvider.EP.extensionList.flatMap { it.buildFiles(project, scope) }
                 .filter { "/node_modules/" !in it.path }
                 .distinct()
         }

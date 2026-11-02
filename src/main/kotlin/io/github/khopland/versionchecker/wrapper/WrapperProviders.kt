@@ -68,6 +68,8 @@ class GradleWrapperProvider : DeclarationProvider {
 /** Every final Gradle release with its build time. */
 class GradleReleases(private val http: () -> Http = Http::getInstance) : Lookup {
     override val key = "gradle-distributions"
+    override val hasReleaseNotes get() = true
+    override suspend fun releaseNotes(version: String) = "https://docs.gradle.org/$version/release-notes.html"
 
     override suspend fun fetch(): Releases {
         val response = http().get(URL)
