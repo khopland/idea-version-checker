@@ -4,6 +4,7 @@
 
 ### Added
 
+- Maven 4 encrypted passwords, `{[name=master,cipher=AES/GCM/NoPadding,…]…}`, decrypted with the master password source in `~/.m2/settings-security4.xml`: `env:`, `file:` or `system-property:`. A password that cannot be decrypted now says why, for example a missing environment variable.
 - Gradle checks use the repositories the build declares: `dependencyResolutionManagement`, `pluginManagement`, project, `allprojects`, `subprojects` and `buildscript` repositories, and init scripts in `~/.gradle`. Credentials come from `credentials { }` blocks, `credentials(PasswordCredentials::class)` and header credentials, with values from Gradle properties and environment variables. Before, only Maven Central, Google and the Plugin Portal were read.
 - Gradle versions in variables: `"group:artifact:$x"`, `${property("x")}` and `version x`, set with `val`, `def`, `ext` or `extra` in the script or the root build script, or in `gradle.properties`. The fix changes the version where it is set, and a version that several scripts share changes only when they all want the same version.
 
