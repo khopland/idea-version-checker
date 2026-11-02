@@ -1,0 +1,8 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <externalAnnotator language="yaml" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
+    </extensions>
+    <extensions defaultExtensionNs="io.github.khopland.version-checker">
+        <declarationProvider implementation="io.github.khopland.versionchecker.npm.PnpmWorkspaceProvider"/>
+    </extensions>
+</idea-plugin>

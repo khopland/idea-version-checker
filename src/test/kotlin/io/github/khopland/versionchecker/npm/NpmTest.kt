@@ -73,6 +73,67 @@ class NpmTest : BasePlatformTestCase() {
         assertEquals("18.2.0", declarations[0].current)
     }
 
+    fun testPackageManagerOverridesAndCatalogs() {
+        val file = myFixture.configureByText("package.json", """
+            {
+              "packageManager": "yarn@4.5.0",
+              "overrides": {"semver": "7.5.2", "foo": {".": "^1.0.0", "bar": "~2.0.0"}, "baz": "${'$'}baz"},
+              "resolutions": {"**/minimist": "1.2.8", "@corp/a/@corp/b": "1.0.0", "lodash@^4.0.0": "4.17.21"},
+              "pnpm": {"overrides": {"parent>qs": "6.11.0"}},
+              "workspaces": {"packages": ["apps/*"], "catalog": {"react": "^18.2.0"}, "catalogs": {"legacy": {"react": "^17.0.2"}}}
+            }
+        """.trimIndent())
+        val declarations = NpmProvider().collect(file)
+        assertEquals(listOf("packageManager yarn", "semver (override)", "foo (override)", "bar (override)", "minimist (override)",
+            "@corp/b (override)", "lodash (override)", "qs (override)", "react", "react"), declarations.map { it.name })
+        assertEquals("4.5.0", declarations[0].range.substring(file.text))
+        assertEquals("@yarnpkg/cli-dist", (declarations[0].lookup as NpmLookup).packageName)
+        assertEquals("^1.0.0", declarations[2].range.substring(file.text))
+        assertEquals("~2.1.0", declarations[3].edit!!.format("2.1.0"))
+        assertEquals(listOf("18.2.0", "17.0.2"), declarations.takeLast(2).map { it.current })
+    }
+
+    fun testPackageManagerWithHashHasNoFix() {
+        val file = myFixture.configureByText("package.json", """{"packageManager": "pnpm@9.12.0+sha512.abc", "name": "x"}""")
+        val declaration = NpmProvider().collect(file).single()
+        assertEquals("pnpm", (declaration.lookup as NpmLookup).packageName)
+        assertEquals("9.12.0", declaration.current)
+        assertNull(declaration.edit)
+        assertEquals("The hash must match the version: run corepack use pnpm@<version>", declaration.note)
+    }
+
+    fun testOverrideTargets() {
+        assertEquals("foo", NpmPackages.target("foo@^1.0.0"))
+        assertEquals("@scope/foo", NpmPackages.target("@scope/foo@1"))
+        assertEquals("foo", NpmPackages.target("a>b>foo"))
+        assertEquals("@s/b", NpmPackages.target("**/@s/b"))
+        assertNull(NpmPackages.target("**"))
+    }
+
+    fun testPnpmWorkspace() {
+        val text = """
+            packages:
+              - 'apps/*'
+            catalog:
+              react: ^18.2.0
+              '@types/node': "20.11.0"   # pinned
+              local: workspace:*
+            catalogs:
+              legacy:
+                react: ~17.0.2
+            overrides:
+              "parent>qs": 6.11.0
+            onlyBuiltDependencies:
+              esbuild: 1.0.0
+        """.trimIndent()
+        val entries = PnpmWorkspace.entries(text)
+        assertEquals(listOf("catalog react", "catalog @types/node", "catalog local", "legacy react", "overrides parent>qs"),
+            entries.map { "${it.section} ${it.key}" })
+        assertEquals(listOf("^18.2.0", "20.11.0", "workspace:*", "~17.0.2", "6.11.0"), entries.map { it.range.substring(text) })
+        val file = myFixture.configureByText("pnpm-workspace.yaml", text)
+        assertEquals(listOf("react", "@types/node", "react", "qs (override)"), PnpmWorkspaceProvider().collect(file).map { it.name })
+    }
+
     fun testDuplicateDependencies() {
         myFixture.enableInspections(DuplicateDependencyInspection())
         myFixture.configureByText("package.json", """

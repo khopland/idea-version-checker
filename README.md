@@ -43,7 +43,7 @@ Versions that do not start with a number, like `r09`, are not suggested.
 | Build system | Declarations |
 | --- | --- |
 | Maven | `pom.xml`: dependencies, dependency management and BOMs, build plugins, plugin management, extensions, profiles and an external parent. Literal versions and `${property}` versions. The fix changes the property where it is set, also in a parent POM in the project. |
-| npm | `package.json`: `dependencies`, `devDependencies` and `optionalDependencies`. Exact, `^` and `~` versions keep their operator. Works for npm, pnpm, Yarn and Bun projects. Registry deprecations show in the message. |
+| npm | `package.json`: `dependencies`, `devDependencies` and `optionalDependencies`, `overrides` (npm), `resolutions` (Yarn), `pnpm.overrides`, and Bun's `catalog` and `catalogs`. `packageManager`, such as `pnpm@9.12.0`, is checked too; with a `+sha512` hash it only warns, because the hash must change as well. `pnpm-workspace.yaml`: `catalog`, `catalogs` and `overrides`. Exact, `^` and `~` versions keep their operator. Works for npm, pnpm, Yarn and Bun projects. Registry deprecations show in the message. |
 | Gradle | Build scripts: `"group:artifact:version"` strings, `id("x") version "v"` and `kotlin("jvm") version "v"`. The version can be a variable, as in `"group:artifact:$x"`, `${property("x")}` or `version kotlinVersion`, set in the script (`val`, `def`, `ext`, `extra`), as an extra property of the root project or in `gradle.properties`. The fix changes it where it is set. `libs.versions.toml`: `[libraries]` and `[plugins]`, with literal versions or `version.ref`. |
 | Wrappers | `distributionUrl` in `.mvn/wrapper/maven-wrapper.properties` and `gradle/wrapper/gradle-wrapper.properties`. |
 
@@ -83,6 +83,7 @@ A suppress comment in the build file keeps one version. It lives in the file, so
 | Gradle scripts | `//noinspection OutdatedDependencyVersion` on the line above. |
 | `libs.versions.toml` | `#noinspection OutdatedDependencyVersion` on the line above. |
 | Wrapper properties | `# suppress inspection "OutdatedDependencyVersion"` on the line above. |
+| `pnpm-workspace.yaml` | `#noinspection OutdatedDependencyVersion` on the line above. |
 
 To add the comment, press **Alt+Enter** on the warning, open the submenu of any fix with the right arrow, and pick **Suppress for tag**, **Suppress for statement** or **Suppress for line**. A comment where the version is set, on a Maven property or a catalog `[versions]` entry, keeps every declaration that uses it.
 Use `MovedDependency` the same way for moved packages. `package.json` cannot have comments, so there turn the inspection off for the file or project instead.
