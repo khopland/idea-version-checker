@@ -22,7 +22,7 @@ val integrationTestRuntimeOnly by configurations.getting
 dependencies {
     testImplementation(libs.junit)
     integrationTestImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
-    integrationTestRuntimeOnly("org.junit.platform:junit-platform-launcher:1.13.4")
+    integrationTestRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.3")
     // Starter brings an older Kotlin standard library than the compiler expects.
     integrationTestImplementation(kotlin("stdlib"))
     integrationTestImplementation("org.kodein.di:kodein-di-jvm:7.33.0")
