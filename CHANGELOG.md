@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.1.0]
+
 ### Added
 
 - Suppress comments keep a version on purpose: `<!--suppress OutdatedDependencyVersion -->` in a POM, `//noinspection OutdatedDependencyVersion` in a Gradle script, and `#noinspection` in `libs.versions.toml`. **Alt+Enter** adds them, and the update actions skip the version.
