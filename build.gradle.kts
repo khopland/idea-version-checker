@@ -26,7 +26,7 @@ dependencies {
     // Starter brings an older Kotlin standard library than the compiler expects.
     integrationTestImplementation(kotlin("stdlib"))
     integrationTestImplementation("org.kodein.di:kodein-di-jvm:7.20.2")
-    integrationTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.1")
+    integrationTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0")
 
     intellijPlatform {
         intellijIdea("2026.1.4")
