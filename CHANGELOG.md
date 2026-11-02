@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.2.0]
+
 ### Added
 
 - **Alt+Enter → Open release notes**: the GitHub releases of the project, from the POM's `<scm>` or `<url>` (or a parent's) and the npm `repository`, or the release notes of Gradle, Maven, Node.js and GitHub Actions. The page is looked up only when you pick the action.
