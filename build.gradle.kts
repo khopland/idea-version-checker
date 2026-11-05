@@ -56,7 +56,7 @@ intellijPlatform {
         }
         ideaVersion {
             sinceBuild = "261.26222.65"
-            untilBuild = "262.*"
+            untilBuild = "263.*"
         }
     }
     publishing {
@@ -71,8 +71,10 @@ intellijPlatform {
     pluginVerification {
         ides {
             create(IntelliJPlatformType.IntellijIdea, "2026.1.4")
-            create(IntelliJPlatformType.IntellijIdea, "2026.2.3")
+            create(IntelliJPlatformType.IntellijIdea, "2026.2.4")
+            create(IntelliJPlatformType.IntellijIdea, "2026.3")
         }
+        ignoredProblemsFile = layout.projectDirectory.file("gradle/verifier-ignored-problems.txt")
     }
 }
 

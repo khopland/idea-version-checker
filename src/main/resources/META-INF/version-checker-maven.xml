@@ -1,4 +1,6 @@
 <idea-plugin>
+    <!-- 2026.3 moved the XML PSI out of the platform into the XML plugin. -->
+    <depends>com.intellij.modules.xml</depends>
     <extensions defaultExtensionNs="com.intellij">
         <localInspection language="XML" shortName="RedundantMavenOverride" displayName="Redundant Maven override" groupName="Version Checker"
                          enabledByDefault="true" level="WEAK WARNING"

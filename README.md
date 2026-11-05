@@ -6,7 +6,7 @@ An IntelliJ IDEA plugin that highlights outdated dependency versions in build fi
 
 ## Install
 
-Use IntelliJ IDEA 2026.1.4 through 2026.2.x. Open **Settings → Plugins → Marketplace** and search for **Version Checker**.
+Use IntelliJ IDEA 2026.1.4 through 2026.3.x. Open **Settings → Plugins → Marketplace** and search for **Version Checker**.
 
 ## Use
 
