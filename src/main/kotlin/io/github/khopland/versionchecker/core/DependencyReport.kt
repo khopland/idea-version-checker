@@ -7,6 +7,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
@@ -36,8 +37,12 @@ fun interface VersionsChangedListener {
 /** Every outdated version in the project, for the **Dependency Updates** tool window. */
 @Service(Service.Level.PROJECT)
 class DependencyReport(private val project: Project, private val scope: CoroutineScope) {
-    /** One version to show: outdated, deprecated, or not checked. [line] counts from 1. */
-    class Row(val declaration: Declaration, val file: VirtualFile, val line: Int, val outcome: Outcome, val fixes: Map<UpdateKind, String>) {
+    /**
+     * One version to show: outdated, deprecated, or not checked. [line] counts from 1.
+     * [source] follows later edits to the file, so it still finds the declaration before the next check.
+     */
+    class Row(val declaration: Declaration, val file: VirtualFile, val line: Int, val outcome: Outcome, val fixes: Map<UpdateKind, String>,
+              val source: OpenFileDescriptor) {
         val updates get() = outcome as? Outcome.Updates
         val failure get() = (outcome as? Outcome.Failed)?.message
 
@@ -55,11 +60,11 @@ class DependencyReport(private val project: Project, private val scope: Coroutin
             failure?.let { "Could not check ${declaration.name}: $it" } ?: VersionAnnotator.message(declaration, updates!!, fixes).orEmpty()
     }
 
-    /** [checked] versions in [files] build files. [running] keeps the previous rows until the check finishes. */
+    /** [checked] versions in the build [files]. [running] keeps the previous rows until the check finishes. */
     data class State(
         val rows: List<Row> = emptyList(),
         val checked: Int = 0,
-        val files: Int = 0,
+        val files: Set<VirtualFile> = emptySet(),
         val running: Boolean = false,
         val done: Boolean = false,
         val disabled: Boolean = false,
@@ -105,10 +110,10 @@ class DependencyReport(private val project: Project, private val scope: Coroutin
                 val file = checked.files.getValue(declaration)
                 val line = FileDocumentManager.getInstance().getDocument(file)
                     ?.let { it.getLineNumber(declaration.range.startOffset.coerceIn(0, it.textLength)) + 1 } ?: 1
-                Row(declaration, file, line, outcome, checked.fixes[declaration].orEmpty())
+                Row(declaration, file, line, outcome, checked.fixes[declaration].orEmpty(), OpenFileDescriptor(project, file, declaration.range.startOffset))
             }
         }.sortedWith(compareBy<Row>({ it.failure != null }, { it.file.path }, { it.line }))
-        return State(rows, checked.declarations.size, checked.files.values.distinct().size, done = true)
+        return State(rows, checked.declarations.size, checked.scanned.toSet(), done = true)
     }
 
     /** Calls [listener] on the EDT with every new state, until [parent] is disposed. */

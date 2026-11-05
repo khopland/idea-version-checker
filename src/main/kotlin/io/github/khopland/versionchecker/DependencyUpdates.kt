@@ -15,7 +15,6 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
@@ -26,6 +25,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VfsUtilCore
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ToolWindowManager
@@ -100,7 +100,9 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
             row.failure?.let { append("  could not check: $it", SimpleTextAttributes.ERROR_ATTRIBUTES) }
             if (row.updates?.deprecated != null) append("  deprecated", SimpleTextAttributes.ERROR_ATTRIBUTES)
         },
-        Column("Current", width = "1.20.300-android") { append(it.declaration.current) },
+        Column("Current", width = "1.20.300-android", comparator = compareBy(Versions.comparator) { it.declaration.current }) {
+            append(it.declaration.current)
+        },
         version(UpdateKind.PATCH),
         version(UpdateKind.MINOR),
         version(UpdateKind.MAJOR),
@@ -150,7 +152,7 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
         EditorFactory.getInstance().eventMulticaster.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
                 val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
-                if (model.items.any { it.file == file || it.declaration.edit?.file == file }) {
+                if (watches(file)) {
                     alarm.cancelAllRequests()
                     alarm.addRequest(::refreshWhenShown, TYPING_DELAY)
                 }
@@ -163,6 +165,9 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
         }))
         report.watch(this, ::show)
     }
+
+    /** Any build file of the last check, so a file without outdated versions can get one, and a file that sets a listed version. */
+    internal fun watches(file: VirtualFile) = file in report.current.value.files || model.items.any { it.declaration.edit?.file == file }
 
     private fun refreshWhenShown() {
         if (isShowing) refresh() else stale = true
@@ -191,7 +196,7 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
             state.done && state.checked == 0 -> empty.text = "No versions found in build files"
             state.done -> {
                 empty.text = "All dependencies are up to date"
-                empty.appendLine("${count(state.checked, "version")} checked in ${count(state.files, "build file")}", SimpleTextAttributes.GRAYED_ATTRIBUTES, null)
+                empty.appendLine("${count(state.checked, "version")} checked in ${count(state.files.size, "build file")}", SimpleTextAttributes.GRAYED_ATTRIBUTES, null)
             }
             else -> empty.text = ""
         }
@@ -215,9 +220,7 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
     override fun uiDataSnapshot(sink: DataSink) {
         super.uiDataSnapshot(sink)
         val rows = table.selectedObjects
-        sink[CommonDataKeys.NAVIGATABLE_ARRAY] = rows.map { row ->
-            OpenFileDescriptor(project, row.file, row.declaration.range.startOffset) as Navigatable
-        }.toTypedArray().takeIf { it.isNotEmpty() }
+        sink[CommonDataKeys.NAVIGATABLE_ARRAY] = rows.map<Row, Navigatable> { it.source }.toTypedArray().takeIf { it.isNotEmpty() }
     }
 
     /** Writes the [mode] update of each selected row, or of every row when none is selected, as one undoable edit. */

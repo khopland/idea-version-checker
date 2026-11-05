@@ -56,10 +56,16 @@ class DependencyUpdatesTest : BasePlatformTestCase() {
               <lib name="shared-y" version="1.0.1"/>
             </libs>
         """.trimIndent())
+        myFixture.addFileToProject("kept/fake.xml", """
+            <libs>
+              <!--suppress OutdatedDependencyVersion -->
+              <lib name="a" version="1.0.0"/>
+            </libs>
+        """.trimIndent())
         val state = check()
         assertTrue(state.done)
-        assertEquals("The suppressed version is not counted", 4, state.checked)
-        assertEquals(2, state.files)
+        assertEquals("Suppressed versions are not counted", 4, state.checked)
+        assertEquals("A file with only suppressed versions was still checked", 3, state.files.size)
         // Up-to-date versions are left out, and versions that could not be checked come last.
         assertEquals(listOf("a app/fake.xml:4", "shared-y lib/fake.xml:4", "broken app/fake.xml:3"),
             state.rows.map { "${it.declaration.name} ${it.file.parent.name}/${it.file.name}:${it.line}" })
@@ -97,6 +103,34 @@ class DependencyUpdatesTest : BasePlatformTestCase() {
 
         UndoManager.getInstance(project).undo(null)
         assertEquals("""<libs><lib name="shared-y" version="1.0.0"/></libs>""", document(lib).text)
+    }
+
+    fun testCurrentColumnSortsByVersion() {
+        myFixture.addFileToProject("fake.xml", """<libs><lib name="shared-y" version="1.0.1"/><lib name="a" version="1.0.0"/><lib name="shared-x" version="1.0.10"/></libs>""")
+        val panel = DependencyUpdatesPanel(project, testRootDisposable)
+        check()
+        waitUntil { panel.table.items.size == 3 }
+        panel.table.rowSorter.toggleSortOrder(1)
+        assertEquals(listOf("1.0.0", "1.0.1", "1.0.10"), (0 until panel.table.rowCount).map { panel.table.getRow(it).declaration.current })
+    }
+
+    fun testEditingAnyCheckedBuildFileChecksAgain() {
+        val upToDate = myFixture.addFileToProject("app/fake.xml", """<libs><lib name="current" version="2.0.0"/></libs>""")
+        val other = myFixture.addFileToProject("other.txt", "text")
+        val panel = DependencyUpdatesPanel(project, testRootDisposable)
+        check()
+        waitUntil { DependencyReport.getInstance(project).current.value.done }
+        assertTrue("A build file without outdated versions", panel.watches(upToDate.virtualFile))
+        assertFalse(panel.watches(other.virtualFile))
+    }
+
+    fun testGoToDeclarationFollowsEditsBeforeTheNextCheck() {
+        val file = myFixture.addFileToProject("fake.xml", """<libs><lib name="a" version="1.0.0"/></libs>""")
+        val row = check().rows.single()
+        val offset = file.text.indexOf("1.0.0")
+        assertEquals(offset, row.source.offset)
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) { document(file).insertString(0, "<!-- x -->\n") }
+        assertEquals(offset + 11, row.source.offset)
     }
 
     fun testEmptyListSaysWhy() {

@@ -20,10 +20,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The result of [Updater.check]. [files] is the build file each declaration was found in. */
+/** The result of [Updater.check]. [files] is the build file each declaration was found in, and [scanned] every build file read. */
 class Checked(
     val declarations: List<Declaration>,
     val files: Map<Declaration, VirtualFile>,
+    val scanned: List<VirtualFile>,
     val outcomes: Map<Declaration, Outcome>,
     val fixes: Map<Declaration, Map<UpdateKind, String>>,
 )
@@ -89,7 +90,7 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
             }
             val outcomes = VersionService.getInstance().check(found.flatMap { it.declarations + it.related })
             val kept = found.flatMap { f -> f.declarations.filter { it !in f.suppressed }.map { it to f.file } }
-            return Checked(kept.map { it.first }, kept.toMap(), outcomes, VersionService.fixes(outcomes))
+            return Checked(kept.map { it.first }, kept.toMap(), found.map { it.file }, outcomes, VersionService.fixes(outcomes))
         }
 
         private class Found(val file: VirtualFile, val declarations: List<Declaration>, val related: List<Declaration>, val suppressed: Set<Declaration>)
