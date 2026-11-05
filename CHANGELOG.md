@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Dependency Updates** tool window: every outdated version in the project in one table, with its patch, minor and major update, where it is declared and why it could not be checked. Double-click goes to the declaration, and **Update → Patch / Minor / Major** updates the selected rows, or all of them, in one undoable edit. Also under **Tools → Versions → Show Dependency Updates**.
+
 ## [2.2.0]
 
 ### Added

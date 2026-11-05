@@ -20,6 +20,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** The result of [Updater.check]. [files] is the build file each declaration was found in. */
+class Checked(
+    val declarations: List<Declaration>,
+    val files: Map<Declaration, VirtualFile>,
+    val outcomes: Map<Declaration, Outcome>,
+    val fixes: Map<Declaration, Map<UpdateKind, String>>,
+)
+
 /** Updates many declarations at once: **Update This File** and **Update All Files**. */
 @Service(Service.Level.PROJECT)
 class Updater(private val project: Project, private val scope: CoroutineScope) {
@@ -32,30 +40,16 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
     }
 
     private suspend fun run(files: List<VirtualFile>?, mode: UpdateKind) {
-        withContext(Dispatchers.EDT) { PsiDocumentManager.getInstance(project).commitAllDocuments() }
-        val targets = files ?: buildFiles(project)
-        // Every build file already takes part when the whole project updates, so only a file scope needs related declarations.
-        val (declarations, related, suppressed) = readAction {
-            val found = targets.mapNotNull { file ->
-                val psi = PsiManager.getInstance(project).findFile(file) ?: return@mapNotNull null
-                val provider = DeclarationProvider.forFile(psi) ?: return@mapNotNull null
-                val own = provider.collect(psi)
-                Triple(own, if (files == null) emptyList() else provider.related(psi, own), Suppression.suppressed(psi, own, OutdatedVersionInspection()))
-            }
-            Triple(found.flatMap { it.first }, found.flatMap { it.second }, found.flatMapTo(HashSet()) { it.third })
-        }
-        val outcomes = VersionService.getInstance().check(declarations + related)
-        val fixes = VersionService.fixes(outcomes)
-        // A suppress comment keeps the version, but it still takes part in the agreement on a shared version.
-        val changes = declarations.filter { it !in suppressed }.mapNotNull { declaration ->
-            val version = fixes[declaration]?.get(mode) ?: return@mapNotNull null
+        val checked = check(project, files)
+        val changes = checked.declarations.mapNotNull { declaration ->
+            val version = checked.fixes[declaration]?.get(mode) ?: return@mapNotNull null
             declaration to Change(declaration.edit!!, declaration.edit.format(version))
         }.distinctBy { it.second.edit.key }
         val applied = withContext(Dispatchers.EDT) {
             Edits.apply(project, changes.map { it.second }, "Update ${mode.label} versions").toSet()
         }
-        val failed = declarations.filter { it !in suppressed }.associateWith { outcomes.getValue(it) }.filterValues { it is Outcome.Failed }
-        notify(changes.filter { it.second in applied }.map { it.first }, fixes, mode, failed)
+        val failed = checked.declarations.associateWith { checked.outcomes.getValue(it) }.filterValues { it is Outcome.Failed }
+        notify(changes.filter { it.second in applied }.map { it.first }, checked.fixes, mode, failed)
     }
 
     private fun notify(updated: List<Declaration>, fixes: Map<Declaration, Map<UpdateKind, String>>, mode: UpdateKind,
@@ -76,6 +70,29 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
         private const val LIST_LIMIT = 15
 
         fun getInstance(project: Project): Updater = project.service()
+
+        /**
+         * Checks [files], or every build file in the project when [files] is null. Versions kept by a suppress comment
+         * are left out of [Checked.declarations], but still take part in the agreement on a shared version.
+         */
+        suspend fun check(project: Project, files: List<VirtualFile>?): Checked {
+            withContext(Dispatchers.EDT) { PsiDocumentManager.getInstance(project).commitAllDocuments() }
+            val targets = files ?: buildFiles(project)
+            // Every build file already takes part when the whole project is checked, so only a file scope needs related declarations.
+            val found = readAction {
+                targets.mapNotNull { file ->
+                    val psi = PsiManager.getInstance(project).findFile(file) ?: return@mapNotNull null
+                    val provider = DeclarationProvider.forFile(psi) ?: return@mapNotNull null
+                    val own = provider.collect(psi)
+                    Found(file, own, if (files == null) emptyList() else provider.related(psi, own), Suppression.suppressed(psi, own, OutdatedVersionInspection()))
+                }
+            }
+            val outcomes = VersionService.getInstance().check(found.flatMap { it.declarations + it.related })
+            val kept = found.flatMap { f -> f.declarations.filter { it !in f.suppressed }.map { it to f.file } }
+            return Checked(kept.map { it.first }, kept.toMap(), outcomes, VersionService.fixes(outcomes))
+        }
+
+        private class Found(val file: VirtualFile, val declarations: List<Declaration>, val related: List<Declaration>, val suppressed: Set<Declaration>)
 
         suspend fun buildFiles(project: Project): List<VirtualFile> = smartReadAction(project) {
             val scope = GlobalSearchScope.projectScope(project)

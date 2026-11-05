@@ -6,6 +6,7 @@ import com.intellij.driver.sdk.getHighlights
 import com.intellij.driver.sdk.getNotifications
 import com.intellij.driver.sdk.invokeAction
 import com.intellij.driver.sdk.singleProject
+import com.intellij.driver.sdk.ui.components.common.ideFrame
 import com.intellij.driver.sdk.waitFor
 import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.minutes
@@ -47,6 +48,15 @@ class MarketplaceScreenshots {
 
         openDocument("orders-service/pom.xml")
         hideBalloons()
+        invokeAction("VersionChecker.ShowUpdates")
+        val summary = waitFor("the Dependency Updates list", 3.minutes, getter = {
+            ideFrame().getAllTexts { it.text.endsWith(" outdated") || " outdated · " in it.text }.map { it.text }
+        }, checker = { it.isNotEmpty() })
+        println("Dependency Updates: $summary")
+        Thread.sleep(1500)
+        saveScreenshot("7-dependency-updates")
+        hideToolWindow("Dependency Updates")
+
         invokeAction("VersionChecker.UpdateAll.Minor")
         waitFor("the update notification", 2.minutes, getter = {
             getNotifications(singleProject()).firstOrNull { it.getTitle().startsWith("Updated ") }

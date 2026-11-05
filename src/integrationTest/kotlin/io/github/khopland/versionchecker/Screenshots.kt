@@ -128,6 +128,11 @@ fun Driver.prepareWindow(width: Int = 1280, height: Int = 800) {
     Thread.sleep(1500)
 }
 
+fun Driver.hideToolWindow(id: String) {
+    withContext(OnDispatcher.EDT) { utility(ToolWindowManager::class).getInstance(singleProject()).getToolWindow(id)?.hide() }
+    Thread.sleep(500)
+}
+
 /** Hides the notification balloons, such as the IDE's own "Install dependencies", and "IDE error occurred". */
 fun Driver.hideBalloons() {
     withContext(OnDispatcher.EDT) {

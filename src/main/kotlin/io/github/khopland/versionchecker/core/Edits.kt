@@ -31,6 +31,7 @@ object Edits {
             }
             PsiDocumentManager.getInstance(project).commitAllDocuments()
         }
+        if (applied.isNotEmpty()) project.messageBus.syncPublisher(VersionsChangedListener.TOPIC).versionsChanged()
         return applied
     }
 }

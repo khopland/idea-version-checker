@@ -11,6 +11,7 @@ import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
 import io.github.khopland.versionchecker.core.VersionService
+import io.github.khopland.versionchecker.core.VersionsChangedListener
 
 @Service
 @State(name = "VersionChecker", storages = [Storage("version-checker.xml")])
@@ -45,8 +46,11 @@ class VersionCheckerConfigurable : BoundConfigurable("Version Checker") {
     }
 }
 
-/** Forget cached versions and highlight open build files again. */
+/** Forget cached versions, highlight open build files again and check the Dependency Updates list again. */
 fun refreshAll() {
     VersionService.getInstance().clear()
-    ProjectManager.getInstance().openProjects.forEach { DaemonCodeAnalyzer.getInstance(it).restart("Version Checker settings changed") }
+    ProjectManager.getInstance().openProjects.forEach {
+        DaemonCodeAnalyzer.getInstance(it).restart("Version Checker settings changed")
+        it.messageBus.syncPublisher(VersionsChangedListener.TOPIC).versionsChanged()
+    }
 }
