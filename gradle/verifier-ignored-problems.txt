@@ -1,0 +1,4 @@
+// IntelliJ IDEA 2026.3 moved com.intellij.psi.xml into the bundled XML plugin. The Maven support depends on it
+// through com.intellij.modules.xml, but Plugin Verifier 1.411 does not resolve that alias in 2026.3; it reports
+// the same for the IDE's own modules. MavenUiTest passes in 2026.3. Remove this line when the verifier catches up.
+io.github.khopland.version-checker::Package 'com.intellij.psi.xml' is not found.*
