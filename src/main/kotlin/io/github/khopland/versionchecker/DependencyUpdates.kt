@@ -156,11 +156,11 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
                 }
             }
         }, this)
-        UiNotifyConnector.installOn(this, object : Activatable {
+        Disposer.register(this, UiNotifyConnector.installOn(this, object : Activatable {
             override fun showNotify() {
                 if (stale) refresh()
             }
-        })
+        }))
         report.watch(this, ::show)
     }
 
