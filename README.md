@@ -12,11 +12,18 @@ Use IntelliJ IDEA 2026.1.4 through 2026.2.x. Open **Settings → Plugins → Mar
 
 | Task | Action |
 | --- | --- |
+| See every outdated version in the project | Open the **Dependency Updates** tool window, or **Tools → Versions → Show Dependency Updates**. |
 | Update one version | Put the caret on the warning and press **Alt+Enter**. Pick the patch, minor or major update. |
 | Read what changed | **Alt+Enter** → **Open release notes**. It opens the GitHub releases of the project when its POM or `package.json` points to GitHub, otherwise its home page, or the release notes of Gradle, Maven, Node.js or the action. |
 | Update every version in a file | **Tools → Versions → Update This File → Patch / Minor / Major**, or the editor and Project view context menus. |
 | Update every build file in the project | **Tools → Versions → Update All Files → Patch / Minor / Major**. |
 | Check again now | **Tools → Versions → Check Now**. Results otherwise stay cached for 30 minutes. After that, and after a restart, the plugin asks the repository whether its stored copy is still current, so an unchanged document is not downloaded again. |
+
+The **Dependency Updates** tool window lists every outdated version in the project, one row each, with the newest patch, minor and major update and where it is declared.
+Up-to-date versions and versions kept by a suppress comment are left out. Versions that could not be checked come last, with the reason.
+Double-click a row, or press **Enter** or **F4**, to go to the declaration. Select rows, or none for all of them, and pick **Update → Patch / Minor / Major** in the toolbar or the context menu.
+A grey version cannot be written, for example a shared property whose users need different versions. The tooltip says why.
+The list checks again after an update, after **Check Now** and when you edit a listed build file.
 
 Each mode picks the newest version in its branch. **Patch** finds the newest `1.2.x` even when `2.0` exists. **Minor** stays on the same major version.
 A bulk update is one edit, across all files. **Edit → Undo** reverts all of it.

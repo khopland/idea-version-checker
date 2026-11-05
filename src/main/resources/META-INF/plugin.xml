@@ -12,6 +12,7 @@
           <li>GitHub Actions in workflows and <code>action.yml</code>.</li>
         </ul>
         <p>Use <b>Alt+Enter</b> on a version to update it or open its release notes, or <b>Tools | Versions</b> to update a file or the whole project in one undoable edit.
+        The <b>Dependency Updates</b> tool window lists every outdated version in the project, with its patch, minor and major update.
         A minimum release age hides new Maven and Gradle releases, for example to match a Nexus quarantine.
         A suppress comment keeps a version on purpose.</p>
     ]]></description>
@@ -46,6 +47,8 @@
         <applicationConfigurable parentId="tools" id="version.checker" displayName="Version Checker"
                                  instance="io.github.khopland.versionchecker.VersionCheckerConfigurable"/>
         <notificationGroup id="Version Checker" displayType="BALLOON"/>
+        <toolWindow id="Dependency Updates" anchor="bottom" icon="io.github.khopland.versionchecker.VersionCheckerIcons.ToolWindow"
+                    factoryClass="io.github.khopland.versionchecker.DependencyUpdatesToolWindowFactory" doNotActivateOnStart="true"/>
         <errorHandler implementation="com.intellij.diagnostic.JetBrainsMarketplaceErrorReportSubmitter"/>
     </extensions>
 
@@ -72,6 +75,7 @@
                 <action id="VersionChecker.UpdateAll.Major" class="io.github.khopland.versionchecker.UpdateAllMajorAction" text="Major" description="Update each version in the project to the newest release"/>
             </group>
             <separator/>
+            <action id="VersionChecker.ShowUpdates" class="io.github.khopland.versionchecker.ShowDependencyUpdatesAction" text="Show Dependency Updates" description="List every outdated version in the project"/>
             <action id="VersionChecker.CheckNow" class="io.github.khopland.versionchecker.CheckNowAction" text="Check Now" description="Read repository metadata again and check the open build files"/>
         </group>
         <group id="VersionChecker.ContextMenu">

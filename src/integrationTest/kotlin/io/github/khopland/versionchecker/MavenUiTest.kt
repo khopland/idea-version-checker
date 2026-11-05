@@ -4,6 +4,7 @@ import com.intellij.driver.sdk.getNotifications
 import com.intellij.driver.sdk.invokeAction
 import com.intellij.driver.sdk.isPluginLoaded
 import com.intellij.driver.sdk.singleProject
+import com.intellij.driver.sdk.ui.components.common.ideFrame
 import com.intellij.driver.sdk.waitFor
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -61,6 +62,19 @@ class MavenUiTest {
         assertTrue(root.getText() != before.first && literal.getText() != before.second, "Both POMs changed")
         assertTrue("<version>4.12</version>" !in root.getText(), "JUnit moved to a newer 4.x")
         assertTrue("32.1.1-jre" !in literal.getText() && "-jre" in literal.getText(), "Guava stayed on -jre")
+    }
+
+    @Test
+    fun dependencyUpdatesListsEveryModule() = runWithDemo("maven-dependency-updates", "maven-demo") {
+        invokeAction("VersionChecker.ShowUpdates")
+        val summary = waitFor("the Dependency Updates list", 3.minutes, getter = {
+            ideFrame().getAllTexts { it.text.endsWith(" outdated") || " outdated · " in it.text }.map { it.text }
+        }, checker = { it.isNotEmpty() })
+        println("Dependency Updates: $summary")
+        val texts = ideFrame().getAllTexts().map { it.text }
+        // A literal version in one module and a property version in another.
+        assertTrue(texts.any { it.startsWith("com.google.guava:guava") } && texts.any { it.startsWith("com.fasterxml.jackson.core:jackson-core") }, texts.toString())
+        assertTrue(texts.any { it.startsWith("literal-dependencies/pom.xml:") } && texts.any { it.startsWith("property-dependencies/pom.xml:") }, texts.toString())
     }
 
     @Test
