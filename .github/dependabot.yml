@@ -1,15 +1,26 @@
 version: 2
 updates:
+  # Wait a week before proposing a new version, so a compromised release is usually pulled first.
   - package-ecosystem: "gradle"
     directory: "/"
     exclude-paths:
       - "src/test/resources/**"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      gradle:
+        update-types: [ "minor", "patch" ]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: [ "*" ]
 
   # The demo projects in src/test/resources use old versions on purpose.
   # Ignoring every dependency also stops security-update pull requests for them.

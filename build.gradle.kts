@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
@@ -7,6 +8,8 @@ plugins {
     id("org.jetbrains.changelog")
     id("org.jetbrains.intellij.platform")
 }
+
+version = providers.gradleProperty("pluginVersion").get()
 
 // UI integration tests: the Starter framework runs the sandbox IDE with the plugin, and the Driver controls it.
 sourceSets {
@@ -61,7 +64,10 @@ intellijPlatform {
     }
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
-        channels = providers.gradleProperty("marketplaceChannel").map { listOf(it) }.orElse(listOf("default"))
+        // 2.4.0-eap.1 publishes to the "eap" channel; plain versions go to "default".
+        channels = providers.gradleProperty("pluginVersion").map { pluginVersion ->
+            listOf(pluginVersion.substringAfter('-', "").substringBefore('.').ifEmpty { "default" })
+        }
     }
     signing {
         privateKey = providers.environmentVariable("PRIVATE_KEY")
@@ -75,6 +81,54 @@ intellijPlatform {
             create(IntelliJPlatformType.IntellijIdea, "2026.3")
         }
         ignoredProblemsFile = layout.projectDirectory.file("gradle/verifier-ignored-problems.txt")
+    }
+}
+
+val hasCertificate = providers.environmentVariable("CERTIFICATE_CHAIN").orNull?.isNotBlank() == true
+val hasPrivateKey = providers.environmentVariable("PRIVATE_KEY").orNull?.isNotBlank() == true
+val releaseDir = layout.buildDirectory.dir("release")
+
+// The release workflow tests the plugin in one job, then signs and publishes that same ZIP in a job with the
+// secrets. There, -PtestedArchive=<zip> takes the place of buildPlugin's output, so nothing is rebuilt.
+val testedArchive = providers.gradleProperty("testedArchive").orNull?.let { layout.projectDirectory.file(it) }
+if (testedArchive != null) {
+    tasks.signPlugin {
+        archiveFile = testedArchive
+    }
+    // Publishes the ZIP that prepareRelease staged, without building or signing again.
+    tasks.publishPlugin {
+        setDependsOn(emptyList<Any>())
+        archiveFiles.setFrom(fileTree(releaseDir) { include("*.zip") })
+    }
+}
+val unsignedArchive = testedArchive?.let { provider { it } } ?: tasks.buildPlugin.flatMap { it.archiveFile }
+val releaseArchive = if (hasCertificate && hasPrivateKey) {
+    tasks.signPlugin.flatMap { it.signedArchiveFile }
+} else {
+    unsignedArchive
+}
+
+tasks.verifyPluginSignature {
+    inputArchiveFile = tasks.signPlugin.flatMap { it.signedArchiveFile }
+}
+
+tasks.register<Sync>("prepareRelease") {
+    group = "distribution"
+    description = "Signs the plugin when configured and stages the release ZIP with a SHA-256 checksum."
+    inputs.property("signingConfigurationComplete", hasCertificate == hasPrivateKey)
+    if (hasCertificate && hasPrivateKey) dependsOn(tasks.verifyPluginSignature)
+    from(releaseArchive)
+    into(releaseDir)
+    doFirst {
+        require(hasCertificate == hasPrivateKey) {
+            "Provide both CERTIFICATE_CHAIN and PRIVATE_KEY, or leave both unset."
+        }
+    }
+    doLast {
+        val archive = destinationDir.resolve(releaseArchive.get().asFile.name)
+        val digest = MessageDigest.getInstance("SHA-256").digest(archive.readBytes())
+        val checksum = digest.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        destinationDir.resolve("SHA256SUMS").writeText("$checksum  ${archive.name}\n")
     }
 }
 

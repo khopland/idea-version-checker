@@ -177,6 +177,8 @@ The demo projects in `src/test/resources` have outdated versions on purpose. Cop
 | `repo` | The Maven-layout repository lookup used by Maven, Gradle and the Maven wrapper. |
 | `maven`, `npm`, `gradle`, `wrapper` | One `DeclarationProvider` each: find versions in a file, and say how to look them up and edit them. |
 
+To release a version, see [Releasing](docs/releasing.md).
+
 ## License
 
 Copyright 2026 Kristoffer Larsen Hopland. Licensed under the [Apache License, Version 2.0](LICENSE).

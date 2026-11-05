@@ -1,4 +1,5 @@
-# Build, test and verify the plugin. On main, prepare a draft GitHub release for a version with a changelog entry.
+# Lint, test, build and verify the plugin. "CI" is the single check to require on main.
+# On main, prepare a draft GitHub release for pluginVersion from the tested ZIP.
 name: Build
 on:
   push:
@@ -11,101 +12,143 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  JAVA_VERSION: '21'
+  PLUGIN_NAME: Version Checker
 
 jobs:
+  lint:
+    name: Lint workflows and release metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check version and changelog
+        run: bash .github/scripts/release_metadata.sh
+      - name: Lint workflows with actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl -fsSL -o "$archive" "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "$ACTIONLINT_SHA256  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color
+      - name: Audit workflows with zizmor
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          version: 1.31.1
+          advanced-security: false
+
   build:
     name: Build and test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
-          distribution: zulu
-          java-version: 21
-      - uses: gradle/actions/setup-gradle@v6
-      - name: Build and test
-        run: ./gradlew buildPlugin test --console=plain
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - name: Test and build
+        run: ./gradlew check verifyPluginProjectConfiguration verifyPluginStructure buildPlugin --console=plain
+      - name: Upload test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-reports
+          path: build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Upload plugin
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plugin-distribution
-          path: ./build/distributions/*.zip
+          path: build/distributions/*.zip
           if-no-files-found: error
-      - name: Upload test results
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: tests-result
-          path: build/reports/tests
-          if-no-files-found: ignore
+          retention-days: 14
 
   verify:
-    name: Verify plugin
+    name: Plugin Verifier
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      # Plugin Verifier unpacks several IDEs; remove preinstalled SDKs this job does not use.
+      - name: Free disk space
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
-          distribution: zulu
-          java-version: 21
-      - uses: gradle/actions/setup-gradle@v6
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
         with:
           cache-read-only: true
-      - name: Verify plugin
-        run: ./gradlew verifyPluginProjectConfiguration verifyPlugin --console=plain
-      - name: Upload Plugin Verifier result
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+      - name: Verify IDE compatibility
+        run: ./gradlew verifyPlugin --console=plain
+      - name: Upload Plugin Verifier reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: pluginVerifier-result
-          path: ${{ github.workspace }}/build/reports/pluginVerifier
+          name: plugin-verifier-reports
+          path: build/reports/pluginVerifier/
+          if-no-files-found: ignore
+          retention-days: 14
 
-  releaseDraft:
-    name: Release draft
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [ build, verify ]
+  ci:
+    name: CI
+    if: ${{ always() }}
+    needs: [ lint, build, verify ]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    steps:
+      - name: Check required jobs
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [[ "$result" != success ]]; then
+              echo "::error::A required job finished with '$result'."
+              exit 1
+            fi
+          done
+
+  release-draft:
+    name: Release draft
+    # Publishing the draft creates the tag and starts the release workflow.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [ ci ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: release-draft
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-java@v6
-        with:
-          distribution: zulu
-          java-version: 21
-      - uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-read-only: true
       - name: Read version
         id: metadata
-        run: |
-          version=$(sed -n 's/^version=//p' gradle.properties)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if grep -q "^## \[$version\]" CHANGELOG.md; then echo "releasable=true" >> "$GITHUB_OUTPUT"; fi
-          if [[ "$version" == *-* ]]; then echo "channel=eap" >> "$GITHUB_OUTPUT"; else echo "channel=default" >> "$GITHUB_OUTPUT"; fi
+        run: echo "version=$(bash .github/scripts/release_metadata.sh)" >> "$GITHUB_OUTPUT"
       - name: Download tested plugin
-        if: steps.metadata.outputs.releasable == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: plugin-distribution
           path: build/distributions
       - name: Prepare release draft
-        if: steps.metadata.outputs.releasable == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.metadata.outputs.version }}
-          CHANNEL: ${{ steps.metadata.outputs.channel }}
         run: bash .github/scripts/prepare_release_draft.sh
