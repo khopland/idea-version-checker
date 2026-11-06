@@ -7,6 +7,7 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
 import org.jetbrains.idea.maven.model.MavenId
+import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.project.MavenSettingsCache
 
@@ -18,6 +19,7 @@ internal class PomChain(val self: XmlFile, val ancestors: List<XmlFile>, val com
 internal data class PropertyValue(val file: XmlFile, val tag: XmlTag, val name: String, val value: String)
 
 internal object MavenPoms {
+    private val placeholder = Regex("""\$\{([^}]+)}""")
     private val propertyReference = Regex("""^\$\{([^}]+)}$""")
 
     fun child(tag: XmlTag?, vararg path: String): XmlTag? = path.fold(tag) { current, name -> current?.findFirstSubTag(name) }
@@ -41,6 +43,19 @@ internal object MavenPoms {
     }
 
     fun propertyName(raw: String): String? = propertyReference.matchEntire(raw)?.groupValues?.get(1)
+
+    /**
+     * `groupId:artifactId` of a dependency tag, with `${…}` resolved from the imported [project] where it knows the
+     * property, such as `${project.groupId}` for sibling modules or a group kept in a property.
+     */
+    fun coordinates(tag: XmlTag, project: MavenProject?): String? {
+        fun resolve(text: String) = placeholder.replace(text) { match ->
+            val name = match.groupValues[1]
+            (if (name == "project.groupId") project?.mavenId?.groupId else project?.properties?.getProperty(name)) ?: match.value
+        }
+        val group = text(child(tag, "groupId"))?.let(::resolve) ?: return null
+        return text(child(tag, "artifactId"))?.let { "$group:${resolve(it)}" }
+    }
 
     fun root(file: XmlFile): XmlTag? = file.rootTag?.takeIf { it.localName == "project" }
 

@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker.npm
 
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.VersionCheckerSettings
 import io.github.khopland.versionchecker.core.AffectedRange
@@ -362,6 +363,8 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         assertEquals("package.json", target("""{"packageManager": "pnpm@9.15.0", "dependencies": {"web": "^1.0.0"}}"""))
         assertEquals("package.json", target("""{"packageManager": "pnpm@10.5.0", "dependencies": {"web": "^1.0.0"}}"""))
         assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@10.5.1", "dependencies": {"web": "^1.0.0"}}"""))
+        // A prerelease of pnpm 11 reads only the workspace file, like pnpm 11.
+        assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@11.0.0-rc.1", "dependencies": {"web": "^1.0.0"}}"""))
         // A version too large for an Int is still a version.
         assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@99999999999.0.0", "dependencies": {"web": "^1.0.0"}}"""))
         // pnpm 11 ignores package.json, so a stale override there does not block the fix.
@@ -392,6 +395,22 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         intentions("\"web\"")
         val preview = myFixture.getIntentionPreviewText(myFixture.findSingleIntention("Override qs@^6 to ^6.2.4 in pnpm-workspace.yaml"))!!
         assertTrue(preview, "packages:" in preview && "'qs@^6': '^6.2.4'" in preview)
+    }
+
+    fun testFilesThatRecheckOpenPackageJsons() {
+        val root = myFixture.addFileToProject("package.json", "{}").virtualFile
+        val app = myFixture.addFileToProject("packages/app/package.json", "{}").virtualFile
+        val other = myFixture.addFileToProject("other/package.json", "{}").virtualFile
+        val readme = myFixture.addFileToProject("README.md", "").virtualFile
+        fun changed(path: String) = listOf(VFileContentChangeEvent(null, myFixture.addFileToProject(path, "").virtualFile, 0, 1))
+        val open = listOf(root, app, other, readme)
+        // A root lockfile or workspace file is shared by the workspace below it.
+        assertSameElements(LockfileListener.affected(changed("pnpm-lock.yaml"), open), root, app, other)
+        assertSameElements(LockfileListener.affected(changed("pnpm-workspace.yaml"), open), root, app, other)
+        assertSameElements(LockfileListener.affected(changed("packages/app/package-lock.json"), open), app)
+        // node_modules/.modules.yaml belongs to the package.json next to node_modules.
+        assertSameElements(LockfileListener.affected(changed("packages/app/node_modules/.modules.yaml"), open), app)
+        assertEmpty(LockfileListener.affected(changed("packages/app/index.js"), open))
     }
 
     fun testOverrideKeys() {

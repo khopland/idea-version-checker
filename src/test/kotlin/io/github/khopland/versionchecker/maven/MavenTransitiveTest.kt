@@ -90,7 +90,7 @@ class MavenTransitiveTest : BasePlatformTestCase() {
     }
 
     /** Writes the POM, registers it with [tree] as its resolved dependencies, and opens it in the editor. */
-    private fun pom(body: String, tree: List<MavenArtifactNode>): XmlFile {
+    private fun pom(body: String, tree: List<MavenArtifactNode>, properties: Map<String, String> = emptyMap()): XmlFile {
         val path = Files.createDirectories(directory.resolve("app")).resolve("pom.xml")
         val head = """
             <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -104,6 +104,7 @@ class MavenTransitiveTest : BasePlatformTestCase() {
         val model = MavenModel().apply {
             mavenId = MavenId("demo", "app", "1")
             dependencyTree = tree
+            setProperties(java.util.Properties().apply { putAll(properties) })
         }
         val imported = MavenProject(virtualFile).apply {
             updateState(model, emptyList(), "21", emptyList(), MavenExplicitProfiles(emptyList()), emptySet(), emptyMap(),
@@ -160,6 +161,20 @@ class MavenTransitiveTest : BasePlatformTestCase() {
             <dependencies>${dependency("web")}</dependencies>
         """, listOf(node("org.example:web:1.0", node("$DATABIND:2.9.0"), node("demo:app:1", node("org.example:util:1.0")))))
         assertEquals(listOf("org.example:util"), MavenProvider().transitive(file).map { it.pkg.name })
+    }
+
+    fun testGroupInAPropertyCountsAsManaged() {
+        val managed = """
+            <properties><jackson.group>com.fasterxml.jackson.core</jackson.group></properties>
+            <dependencyManagement><dependencies>
+                <dependency><groupId>${'$'}{jackson.group}</groupId><artifactId>jackson-databind</artifactId><version>2.9.10</version></dependency>
+            </dependencies></dependencyManagement>
+        """
+        val file = pom("$managed<dependencies>${dependency("web")}</dependencies>", listOf(node("org.example:web:1.0", node("$DATABIND:2.9.0"))),
+            mapOf("jackson.group" to "com.fasterxml.jackson.core"))
+        assertEmpty(MavenProvider().transitive(file))
+        // The pin is not offered again either, for example from a warning shown before the entry was added.
+        assertFalse(PinDependencyFix("com.fasterxml.jackson.core", "jackson-databind", "2.9.10").isAvailable(project, myFixture.editor, file))
     }
 
     fun testProjectGroupIdInADependency() {
