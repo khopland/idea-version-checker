@@ -17,6 +17,7 @@ import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
 import io.github.khopland.versionchecker.refreshAll
+import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -90,7 +91,8 @@ class NexusIqConfigurable(private val project: Project) : BoundConfigurable("Nex
             }
             row("Server URL:") {
                 serverField = textField().columns(COLUMNS_LARGE).comment("For example https://iq.example.com")
-                    .bindText({ settings.state.serverUrl.orEmpty() }, { settings.state.serverUrl = it.trim().ifEmpty { null } }).component
+                    .bindText({ settings.state.serverUrl.orEmpty() }, { settings.state.serverUrl = it.trim().ifEmpty { null } })
+                    .validationOnApply { field -> serverProblem(field.text)?.let { error(it) } }.component
             }
             row("Application ID:") {
                 applicationField = textField().columns(COLUMNS_LARGE).comment("The public ID of the application whose policies and waivers apply. Shared with the project.")
@@ -108,8 +110,9 @@ class NexusIqConfigurable(private val project: Project) : BoundConfigurable("Nex
     private fun testConnection() {
         val server = serverField.text.trim()
         val application = applicationField.text.trim()
-        if (server.isEmpty() || application.isEmpty()) {
-            Messages.showErrorDialog(project, "Enter the server URL and the application ID.", "Nexus IQ")
+        val problem = serverProblem(server) ?: "Enter the server URL and the application ID.".takeIf { server.isEmpty() || application.isEmpty() }
+        if (problem != null) {
+            Messages.showErrorDialog(project, problem, "Nexus IQ")
             return
         }
         val source = NexusIqSource(server, application, userField.text.trim(), String(passwordField.password))
@@ -117,6 +120,13 @@ class NexusIqConfigurable(private val project: Project) : BoundConfigurable("Nex
         result.fold(
             { Messages.showInfoMessage(project, "Connected. Nexus IQ has application $application.", "Nexus IQ") },
             { Messages.showErrorDialog(project, it.message ?: it.javaClass.simpleName, "Nexus IQ") })
+    }
+
+    /** Why [url] cannot be a server URL, or null when it can or is empty. */
+    private fun serverProblem(url: String): String? {
+        val text = url.trim().ifEmpty { return null }
+        val uri = runCatching { URI(text) }.getOrNull()
+        return if (uri?.scheme in setOf("http", "https") && !uri?.host.isNullOrEmpty()) null else "Enter a URL that starts with https:// or http://"
     }
 
     override fun apply() {
