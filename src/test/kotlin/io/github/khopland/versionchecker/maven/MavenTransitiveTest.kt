@@ -82,9 +82,10 @@ class MavenTransitiveTest : BasePlatformTestCase() {
     }
 
     /** A tree node: `"g:a:1.0"` with [children], in [state]. */
-    private fun node(coordinates: String, vararg children: MavenArtifactNode, state: MavenArtifactState = MavenArtifactState.ADDED): MavenArtifactNode {
+    private fun node(coordinates: String, vararg children: MavenArtifactNode, state: MavenArtifactState = MavenArtifactState.ADDED,
+                     classifier: String? = null): MavenArtifactNode {
         val (group, artifact, version) = coordinates.split(':')
-        val mavenArtifact = MavenArtifact(group, artifact, version, version, "jar", null, "compile", false, "jar", null, null, true, false)
+        val mavenArtifact = MavenArtifact(group, artifact, version, version, "jar", classifier, "compile", false, "jar", null, null, true, false)
         return MavenArtifactNode(null, mavenArtifact, state, null, "compile", null, null).apply { dependencies = children.toList() }
     }
 
@@ -141,12 +142,37 @@ class MavenTransitiveTest : BasePlatformTestCase() {
             "org.example:client > org.example:json > $DATABIND:2.9.0"), found)
     }
 
-    fun testPackagesThePomDeclaresAreNotRepeated() {
+    fun testTheWalkStopsAtDeclaredPackages() {
+        // json is declared too, so what it brings in shows under json only.
         val file = pom("<dependencies>${dependency("web")}${dependency("json")}</dependencies>", listOf(
             node("org.example:web:1.0", node("org.example:json:1.0", state = MavenArtifactState.DUPLICATE)),
             node("org.example:json:1.0", node("$DATABIND:2.9.0"))))
-        assertEquals(listOf("org.example:web > org.example:json > $DATABIND", "org.example:json >  > $DATABIND"),
+        assertEquals(listOf("org.example:json >  > $DATABIND"),
             MavenProvider().transitive(file).map { "${it.via} > ${it.path.joinToString("/")} > ${it.pkg.name}" })
+    }
+
+    fun testManagedPackagesAndModulesAreLeftOut() {
+        // demo:app is a module of this project; what it brings in still counts.
+        val file = pom("""
+            <dependencyManagement><dependencies>
+                <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>2.9.0</version></dependency>
+            </dependencies></dependencyManagement>
+            <dependencies>${dependency("web")}</dependencies>
+        """, listOf(node("org.example:web:1.0", node("$DATABIND:2.9.0"), node("demo:app:1", node("org.example:util:1.0")))))
+        assertEquals(listOf("org.example:util"), MavenProvider().transitive(file).map { it.pkg.name })
+    }
+
+    fun testProjectGroupIdInADependency() {
+        val file = pom("<dependencies><dependency><groupId>${'$'}{project.groupId}</groupId><artifactId>lib</artifactId><version>1</version></dependency></dependencies>",
+            listOf(node("demo:lib:1", node("$DATABIND:2.9.0"))))
+        assertEquals(listOf("demo:lib > $DATABIND"), MavenProvider().transitive(file).map { "${it.via} > ${it.pkg.name}" })
+    }
+
+    fun testNoPinForAClassifier() {
+        // A plain dependency management entry does not match an artifact with a classifier.
+        pom("<dependencies>${dependency("web")}</dependencies>", listOf(node("org.example:web:1.0", node("$DATABIND:2.9.0", classifier = "tests"))))
+        assertEquals(1, warnings().size)
+        assertTrue(intentions(">web<").none { it.startsWith("Pin ") })
     }
 
     fun testWarningOnTheDeclaredArtifactAndPinFix() {
@@ -194,15 +220,13 @@ class MavenTransitiveTest : BasePlatformTestCase() {
         assertEquals(1, Regex("<dependencyManagement>").findAll(myFixture.editor.document.text).count())
     }
 
-    fun testNoPinWhenThePomAlreadyManagesThePackage() {
-        pom("""
-            <dependencyManagement><dependencies>
-                <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>2.9.0</version></dependency>
-            </dependencies></dependencyManagement>
-            <dependencies>${dependency("web")}</dependencies>
-        """, listOf(node("org.example:web:1.0", node("$DATABIND:2.9.0"))))
-        assertEquals(1, warnings().size)
-        assertTrue(intentions(">web<").none { it.startsWith("Pin ") })
+    fun testAnAppliedPinIsNotOfferedAgain() {
+        // Two dependencies bring the package in; after one pin, the other warning's fix is gone until the next import.
+        pom("<dependencies>${dependency("web")}${dependency("client")}</dependencies>",
+            listOf(node("org.example:web:1.0", node("$DATABIND:2.9.0")), node("org.example:client:1.0", node("$DATABIND:2.9.0", state = MavenArtifactState.DUPLICATE))))
+        intentions(">web<")
+        myFixture.launchAction(myFixture.findSingleIntention("Pin $DATABIND to 2.9.9.1 in dependency management"))
+        assertTrue(intentions(">client<").none { it.startsWith("Pin ") })
     }
 
     fun testSeveralPackagesAreListedWorstFirst() {

@@ -5,7 +5,9 @@ import com.intellij.json.psi.JsonFile
 import com.intellij.json.psi.JsonObject
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.json.psi.JsonValue
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.core.Declaration
@@ -71,7 +73,8 @@ class NpmProvider : DeclarationProvider {
     /**
      * The packages that `package-lock.json` or `pnpm-lock.yaml` installs below each declared dependency, breadth first,
      * so each package gets its shortest path. Workspace packages are linked, not installed from the registry, so they are left out.
-     * The copy of a package that this file declares is checked by the vulnerable dependency inspection, so it is not repeated.
+     * The walk stops at a package this file declares: the vulnerable dependency inspection checks it, and its own
+     * dependencies show under it.
      */
     override fun transitive(file: PsiFile): List<Transitive> {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return emptyList()
@@ -79,7 +82,8 @@ class NpmProvider : DeclarationProvider {
         val (lock, workspace) = Lockfile.find(vfile) ?: return emptyList()
         val registries by lazy { NpmPackages.registries(vfile) }
         val declared = SECTIONS.flatMap { (root.findProperty(it)?.value as? JsonObject)?.propertyList.orEmpty() }.distinctBy { it.name }
-        val direct = declared.mapNotNullTo(hashSetOf()) { lock.direct(workspace, it.name)?.id }
+        // By name and version: pnpm tells copies with other peers apart.
+        val direct = declared.mapNotNullTo(hashSetOf()) { property -> lock.direct(workspace, property.name)?.let { it.name to it.version } }
         return declared.flatMap { property ->
             val key = property.nameElement
             val range = TextRange(key.textRange.startOffset + 1, key.textRange.endOffset - 1)
@@ -88,10 +92,11 @@ class NpmProvider : DeclarationProvider {
             val queue = ArrayDeque(listOf(top to emptyList<String>()))
             buildList {
                 while (queue.isNotEmpty()) {
+                    ProgressManager.checkCanceled()
                     val (node, path) = queue.removeFirst()
                     for (child in lock.dependencies(node)) {
-                        if (!seen.add(child.id)) continue
-                        if (child.id !in direct) add(Transitive(property.name, range, Pkg(Ecosystem.NPM, child.name, child.version), path, NpmLookup(child.name, registries.registry(child.name))))
+                        if (!seen.add(child.id) || (child.name to child.version) in direct) continue
+                        add(Transitive(property.name, range, Pkg(Ecosystem.NPM, child.name, child.version), path, NpmLookup(child.name, registries.registry(child.name))))
                         queue += child to path + child.name
                     }
                 }
@@ -100,21 +105,30 @@ class NpmProvider : DeclarationProvider {
     }
 
     /**
-     * npm `overrides` or `pnpm.overrides`, which only the root `package.json` of a lockfile may set. Not for a package
-     * that is already overridden, or that this file depends on directly, which npm refuses to override with another
-     * version. Not when `pnpm-workspace.yaml` has overrides, which pnpm 10 reads instead.
+     * An override in the root of the workspace, scoped to the vulnerable version's major, so other copies keep theirs:
+     * npm `overrides`, `pnpm.overrides` for pnpm 9 and older, or else `overrides` in `pnpm-workspace.yaml`, which pnpm 10
+     * reads and pnpm 11 requires. Not for a package that this file depends on directly, which npm refuses to override,
+     * nor for one that is already overridden.
      */
     override fun pin(file: PsiFile, transitive: Transitive, version: String): IntentionAction? {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return null
         val vfile = file.virtualFile ?: return null
         val (lock, workspace) = Lockfile.find(vfile) ?: return null
         val name = transitive.pkg.name
-        if (workspace.isNotEmpty() || SECTIONS.any { (root.findProperty(it)?.value as? JsonObject)?.findProperty(name) != null }) return null
-        if (lock is PnpmLock && vfile.parent?.findChild("pnpm-workspace.yaml")?.let { PnpmWorkspace.hasOverrides(it) } == true) return null
-        val overrides = lock.overrides.fold(root as JsonObject?) { owner, key -> owner?.findProperty(key)?.value as? JsonObject }
-        if (overrides != null && overrides.propertyList.any { NpmPackages.target(it.name) == name }) return null
-        return NpmOverrideFix(lock.overrides, name, version)
+        if (workspace.isNotEmpty() || (SECTIONS + "peerDependencies").any { (root.findProperty(it)?.value as? JsonObject)?.findProperty(name) != null }) return null
+        val key = NpmOverrides.key(name, transitive.pkg.version, version) ?: return null
+        val keys = if (lock is PackageLock) listOf("overrides") else listOf("pnpm", "overrides")
+        val inPackageJson = lock is PackageLock || pnpmMajor(root)?.let { it < 10 } ?: (NpmOverrides.find(root, keys) != null)
+        if (!inPackageJson) {
+            val text = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { runCatching { VfsUtilCore.loadText(it) }.getOrNull() ?: return null }
+            return if (text == null || PnpmWorkspace.canAddOverride(text, name, key)) PnpmWorkspaceOverrideFix(key, version) else null
+        }
+        return if (NpmOverrides.canAdd(root, keys, name, key)) NpmOverrideFix(keys.toTypedArray(), key, version) else null
     }
+
+    /** The major version in `"packageManager": "pnpm@9.12.0"`, or null when another or no package manager is set. */
+    private fun pnpmMajor(root: JsonObject): Int? =
+        (root.findProperty("packageManager")?.value as? JsonStringLiteral)?.value?.let { Regex("""^pnpm@(\d+)\.""").find(it) }?.groupValues?.get(1)?.toIntOrNull()
 
     /** `"pnpm@9.12.0"`. A `+sha512.…` hash must change with the version, so the plugin only warns. */
     private fun packageManager(literal: JsonStringLiteral, file: VirtualFile, registries: RegistryConfig): Declaration? {
