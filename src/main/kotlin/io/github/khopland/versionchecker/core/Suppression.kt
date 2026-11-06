@@ -29,7 +29,7 @@ internal object Suppression {
         return suppressedAt(target, edit.range.startOffset, tool)
     }
 
-    private fun suppressedAt(file: PsiFile, offset: Int, tool: LocalInspectionTool): Boolean {
+    fun suppressedAt(file: PsiFile, offset: Int, tool: LocalInspectionTool): Boolean {
         val element = file.findElementAt(offset) ?: return false
         // The platform handles XML, Groovy, Kotlin `@Suppress` and properties; TOML and Kotlin line comments need the text check.
         return tool.isSuppressedFor(element) || commentAbove(file.viewProvider.contents, offset, tool.shortName)

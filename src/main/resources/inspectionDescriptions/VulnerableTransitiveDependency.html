@@ -1,0 +1,12 @@
+<html>
+<body>
+Reports declared dependencies that bring in packages with known vulnerabilities from <a href="https://osv.dev">OSV.dev</a>.
+The warning is on the declared dependency, and names the vulnerable package and the path to it.
+<p>Only Maven projects are checked for now, from the dependency tree of the last import. The check is off until you turn on
+<b>Check for known vulnerabilities</b> in <b>Settings | Tools | Version Checker</b>. It sends the names and versions of the
+resolved packages to osv.dev.</p>
+<p>Use <b>Alt+Enter</b> to pin the package in <code>&lt;dependencyManagement&gt;</code> at the lowest stable version that
+fixes every reported vulnerability. To keep a dependency on purpose, add a suppress comment from the <b>Alt+Enter</b> menu,
+for example <code>&lt;!--suppress VulnerableTransitiveDependency --&gt;</code>.</p>
+</body>
+</html>

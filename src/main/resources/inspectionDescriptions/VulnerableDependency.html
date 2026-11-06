@@ -2,7 +2,8 @@
 <body>
 Reports declared Maven, Gradle and npm dependency versions with known vulnerabilities from <a href="https://osv.dev">OSV.dev</a>.
 <p>The check is off until you turn on <b>Check for known vulnerabilities</b> in <b>Settings | Tools | Version Checker</b>.
-It sends the names and versions of declared dependencies to osv.dev. Transitive dependencies are not checked.</p>
+It sends the names and versions of declared dependencies to osv.dev. In Maven projects, <b>Vulnerable transitive dependency</b>
+reports the packages they bring in.</p>
 <p>Critical and high severity show as errors at the default level. Use <b>Alt+Enter</b> to update to the lowest stable
 version that fixes every reported vulnerability.</p>
 <p>To keep a version on purpose, add a suppress comment from the <b>Alt+Enter</b> menu, for example

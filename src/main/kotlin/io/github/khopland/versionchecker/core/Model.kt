@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.core
 
+import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
@@ -64,6 +65,13 @@ class Declaration(
     val pkg get() = ecosystem?.let { Pkg(it, name, current) }
 }
 
+/**
+ * A package that a declared dependency brings in, at the version the build resolves. [via] names the declared dependency,
+ * [range] is where it is declared, and [path] lists the packages between it and [pkg]. [lookup] finds the package's
+ * releases, for a safe version to pin.
+ */
+class Transitive(val via: String, val range: TextRange, val pkg: Pkg, val path: List<String> = emptyList(), val lookup: Lookup? = null)
+
 /** Finds declarations in the build files of one ecosystem. */
 interface DeclarationProvider {
     /** File names to scan for **Update All Files**. */
@@ -83,6 +91,12 @@ interface DeclarationProvider {
      * a parent POM property. They take part in the agreement on a shared version but get no warning here.
      */
     fun related(file: PsiFile, declarations: List<Declaration>): List<Declaration> = emptyList()
+
+    /** The packages that the dependencies declared in [file] bring in, from what the IDE resolved. Runs in a read action. Must not do I/O. */
+    fun transitive(file: PsiFile): List<Transitive> = emptyList()
+
+    /** A fix that makes the build resolve [transitive] at [version] instead, or null when [file] cannot say so. Runs in a read action. */
+    fun pin(file: PsiFile, transitive: Transitive, version: String): IntentionAction? = null
 
     companion object {
         val EP = ExtensionPointName<DeclarationProvider>("io.github.khopland.version-checker.declarationProvider")
