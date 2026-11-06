@@ -120,9 +120,9 @@ class NpmProvider : DeclarationProvider {
         val keys = if (lock is PackageLock) listOf("overrides") else listOf("pnpm", "overrides")
         if (lock is PnpmLock) {
             val workspaceText = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { PnpmWorkspace.text(it) ?: return null }
-            if (workspaceText != null && !PnpmWorkspace.canAddOverride(workspaceText, name, key)) return null
-            // The workspace file is chosen only when pnpm reads no overrides from package.json, so those don't count then.
-            if (pnpmOverridesInWorkspaceFile(root, vfile, NpmOverrides.find(root, keys) != null, workspaceText)) return PnpmWorkspaceOverrideFix(name, key, version)
+            // pnpm reads overrides from one of the files, so only an override in the one the fix writes to counts.
+            if (pnpmOverridesInWorkspaceFile(root, vfile, NpmOverrides.find(root, keys) != null, workspaceText))
+                return if (workspaceText == null || PnpmWorkspace.canAddOverride(workspaceText, name, key)) PnpmWorkspaceOverrideFix(name, key, version) else null
         }
         return if (NpmOverrides.canAdd(root, keys, name, key)) NpmOverrideFix(keys.toTypedArray(), name, key, version) else null
     }
@@ -131,7 +131,7 @@ class NpmProvider : DeclarationProvider {
      * Whether the pnpm override goes to `pnpm-workspace.yaml` rather than to `pnpm.overrides` in `package.json`. The pnpm
      * version comes from `packageManager`, or else from the last install.
      * - pnpm 11 and later read only the workspace file.
-     * - pnpm before 10.5.2 read only `package.json`.
+     * - pnpm before 10.5.1 read only `package.json`.
      * - Between those, pnpm reads both, but ignores the workspace file's while `package.json` has overrides. So the new one
      *   goes where the project already keeps them, and without any, to `package.json`.
      * - With an unknown version the same, which never breaks an install: a workspace file without `packages` makes pnpm 9
@@ -142,10 +142,10 @@ class NpmProvider : DeclarationProvider {
         // pnpm writes the version it installed with to node_modules/.modules.yaml, as YAML before pnpm 11 and as JSON since.
         val installed = declared ?: packageJson.parent?.findChild("node_modules")?.findChild(".modules.yaml")
             ?.let { runCatching { VfsUtilCore.loadText(it) }.getOrNull() }?.let { installedPnpm.find(it) }
-        val version = (declared ?: installed)?.groupValues?.drop(1)?.map { it.toInt() }
+        val version = (declared ?: installed)?.let { "${it.groupValues[1]}.${it.groupValues[2]}.${it.groupValues[3]}" }
         return when {
-            version != null && version[0] >= 11 -> true
-            version != null && Versions.compare(version.joinToString("."), "10.5.2") < 0 -> false
+            version != null && Versions.compare(version, "11.0.0") >= 0 -> true
+            version != null && Versions.compare(version, "10.5.1") < 0 -> false
             inPackageJson -> false
             else -> workspaceText?.let(PnpmWorkspace::hasOverrides) == true
         }
