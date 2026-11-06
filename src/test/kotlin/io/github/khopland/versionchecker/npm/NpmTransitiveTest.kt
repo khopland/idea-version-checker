@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
 import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.VersionCheckerSettings
 import io.github.khopland.versionchecker.core.AffectedRange
@@ -141,7 +142,8 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         assertTrue(Pkg(Ecosystem.NPM, "qs", "6.0.0") in source.queried)
 
         intentions("\"web\"")
-        myFixture.launchAction(myFixture.findSingleIntention("Override qs to 6.2.4 in package.json"))
+        assertTrue(myFixture.getIntentionPreviewText(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in package.json"))!!.contains("\"qs@^6\": \"6.2.4\""))
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in package.json"))
         assertEquals("""
             {
               "name": "demo",
@@ -149,7 +151,7 @@ class NpmTransitiveTest : BasePlatformTestCase() {
                 "web": "^1.0.0"
               },
               "overrides": {
-                "qs": "6.2.4"
+                "qs@^6": "6.2.4"
               }
             }
         """.trimIndent(), myFixture.editor.document.text)
@@ -159,9 +161,9 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         lock("package-lock.json", "node_modules/web: 1.0.0 > qs", "node_modules/qs: 6.0.0")
         myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}, "overrides": {"left-pad": "1.3.0"}}""")
         intentions("\"web\"")
-        myFixture.launchAction(myFixture.findSingleIntention("Override qs to 6.2.4 in package.json"))
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in package.json"))
         val text = myFixture.editor.document.text
-        assertTrue(text, Regex(""""overrides": \{"left-pad": "1.3.0",\s*"qs": "6.2.4"\s*}""").containsMatchIn(text))
+        assertTrue(text, Regex(""""overrides": \{"left-pad": "1.3.0",\s*"qs@\^6": "6.2.4"\s*}""").containsMatchIn(text))
     }
 
     fun testNoOverrideWhereNpmWouldRefuseIt() {
@@ -270,31 +272,124 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         assertEquals(listOf("web >  > qs@6.2.4"), transitive("package.json"))
     }
 
-    fun testPnpmOverrideFix() {
+    fun testNoOverrideAcrossMajors() {
+        // The only safe semver is 7.5.2, and an override of semver@^5 to it would break the packages that need 5.
+        lock("package-lock.json", "node_modules/web: 1.0.0 > semver", "node_modules/semver: 5.7.1")
+        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
+        assertEquals(1, warnings().size)
+        assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
+    }
+
+    fun testNoOverrideWhereTheKeyIsNotAnObject() {
+        lock("package-lock.json", "node_modules/web: 1.0.0 > qs", "node_modules/qs: 6.0.0")
+        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}, "overrides": null}""")
+        assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
+    }
+
+    private fun pnpmLock() = myFixture.addFileToProject("pnpm-lock.yaml", """
+        lockfileVersion: '9.0'
+        importers:
+          .:
+            dependencies:
+              web:
+                specifier: ^1.0.0
+                version: 1.0.0
+        snapshots:
+          qs@6.0.0: {}
+          web@1.0.0:
+            dependencies:
+              qs: 6.0.0
+    """.trimIndent())
+
+    fun testPnpmOverrideGoesToTheWorkspaceFile() {
+        pnpmLock()
+        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
+        intentions("\"web\"")
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in pnpm-workspace.yaml"))
+        val yaml = FileDocumentManager.getInstance().getDocument(myFixture.findFileInTempDir("pnpm-workspace.yaml"))!!
+        assertEquals("overrides:\n  'qs@^6': 6.2.4\n", yaml.text)
+        assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
+    }
+
+    fun testPnpm9OverrideGoesToPackageJson() {
+        pnpmLock()
+        myFixture.configureByText("package.json", """{"packageManager": "pnpm@9.12.0", "dependencies": {"web": "^1.0.0"}}""")
+        intentions("\"web\"")
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in package.json"))
+        val text = myFixture.editor.document.text
+        assertTrue(text, Regex(""""pnpm": \{\s*"overrides": \{\s*"qs@\^6": "6.2.4"\s*}\s*}""").containsMatchIn(text))
+        // Without packageManager, overrides already in package.json say where the project keeps them.
+        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}, "pnpm": {"overrides": {"left-pad": "1.3.0"}}}""")
+        assertContainsElements(intentions("\"web\""), "Override qs@^6 to 6.2.4 in package.json")
+    }
+
+    fun testPnpmWorkspaceOverrides() {
+        assertEquals("overrides:\n  'a@^1': 1.0.1\n", PnpmWorkspace.withOverride("", "a@^1", "1.0.1"))
+        assertEquals("packages:\n  - app\n\noverrides:\n  'a@^1': 1.0.1\n", PnpmWorkspace.withOverride("packages:\n  - app\n", "a@^1", "1.0.1"))
+        assertEquals("overrides:\n    b: 2.0.0\n    'a@^1': 1.0.1\n\ncatalog:\n  c: 1.0.0\n",
+            PnpmWorkspace.withOverride("overrides:\n    b: 2.0.0\n\ncatalog:\n  c: 1.0.0\n", "a@^1", "1.0.1"))
+        assertFalse(PnpmWorkspace.canAddOverride("overrides:\n  a: 1.0.1\n", "a", "a@^1"))
+        assertFalse(PnpmWorkspace.canAddOverride("overrides:\n  'a@^1': 1.0.1\n", "a", "a@^1"))
+        assertFalse(PnpmWorkspace.canAddOverride("overrides: {}\n", "a", "a@^1"))
+        assertTrue(PnpmWorkspace.canAddOverride("overrides:\n  b: 1.0.1\n", "a", "a@^1"))
+    }
+
+    fun testPnpmReferencesWithoutARegistryVersion() {
+        val lock = PnpmLock.parse("""
+            lockfileVersion: '6.0'
+            dependencies:
+              web:
+                specifier: ^1.0.0
+                version: 1.0.0
+            packages:
+              /web@1.0.0:
+                dependencies:
+                  string-width-cjs: /string-width@4.2.3
+                  '@s/alias': /@s/real@2.0.0
+                  local: file:../local
+                  git: git+ssh://git@github.com/a/b.git
+                  tar: '@x/y@https://example.com/y.tgz'
+              /local@file:../local:
+                dependencies:
+                  phantom: 1.0.0
+              /string-width@4.2.3:
+                dependencies:
+                  ansi: 5.0.0
+        """.trimIndent())!!
+        val web = lock.direct("", "web")!!
+        // A key with a colon is read whole, so its dependencies do not end up under the package before it.
+        assertEquals(listOf("string-width@4.2.3", "@s/real@2.0.0"), lock.dependencies(web).map { "${it.name}@${it.version}" })
+        assertEquals(listOf("ansi@5.0.0"), lock.dependencies(lock.dependencies(web).first()).map { "${it.name}@${it.version}" })
+    }
+
+    fun testPnpmWorkspacePackage() {
         myFixture.addFileToProject("pnpm-lock.yaml", """
             lockfileVersion: '9.0'
             importers:
-              .:
+              .: {}
+              packages/app:
                 dependencies:
                   web:
                     specifier: ^1.0.0
-                    version: 1.0.0
+                    version: 1.0.0(react@18.2.0)
             snapshots:
               qs@6.0.0: {}
-              web@1.0.0:
+              web@1.0.0(react@18.2.0):
                 dependencies:
                   qs: 6.0.0
         """.trimIndent())
-        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
-        intentions("\"web\"")
-        myFixture.launchAction(myFixture.findSingleIntention("Override qs to 6.2.4 in package.json"))
-        val text = myFixture.editor.document.text
-        assertTrue(text, Regex(""""pnpm": \{\s*"overrides": \{\s*"qs": "6.2.4"\s*}\s*}""").containsMatchIn(text))
+        myFixture.addFileToProject("packages/app/package.json", """{"dependencies": {"web": "^1.0.0"}}""")
+        assertEquals(listOf("web >  > qs@6.0.0"), transitive("packages/app/package.json"))
+    }
 
-        // pnpm 10 reads overrides from pnpm-workspace.yaml when it has them.
-        myFixture.addFileToProject("pnpm-workspace.yaml", "overrides:\n  left-pad: 1.3.0\n")
-        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
-        assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
+    fun testPackageManagerPicksTheLockfile() {
+        myFixture.addFileToProject("package.json", """{"packageManager": "npm@10.0.0", "dependencies": {"web": "^1.0.0"}}""")
+        lock("package-lock.json", "node_modules/web: 1.0.0 > qs", "node_modules/qs: 6.0.0")
+        val pnpm = myFixture.addFileToProject("pnpm-lock.yaml", "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      web:\n        version: 1.0.0\n" +
+            "snapshots:\n  web@1.0.0:\n    dependencies:\n      qs: 6.2.4\n").virtualFile
+        val npm = myFixture.findFileInTempDir("package-lock.json")
+        WriteAction.runAndWait<Throwable> { pnpm.setBinaryContent(pnpm.contentsToByteArray(), -1, npm.timeStamp + 1000) }
+        assertEquals(listOf("web >  > qs@6.0.0"), transitive("package.json"))
     }
 
     fun testNothingIsSentWhenTheSettingIsOff() {
@@ -306,9 +401,11 @@ class NpmTransitiveTest : BasePlatformTestCase() {
     }
 
     companion object {
-        private val VERSIONS = mapOf("qs" to listOf("6.0.0", "6.2.3", "6.2.4", "6.11.0"))
+        private val VERSIONS = mapOf("qs" to listOf("6.0.0", "6.2.3", "6.2.4", "6.11.0"), "semver" to listOf("5.7.1", "7.5.2"))
         private val ADVISORIES = mapOf(
             "qs" to listOf(Advisory("GHSA-hrpp-h998-j3pp", listOf("CVE-2022-24999"), "HIGH", "Prototype pollution", listOf("6.2.4"),
-                listOf(AffectedRange("6.0.0", fixed = "6.2.4")))))
+                listOf(AffectedRange("6.0.0", fixed = "6.2.4")))),
+            "semver" to listOf(Advisory("GHSA-c2qf-rxjj-qqgw", listOf("CVE-2022-25883"), "MODERATE", "ReDoS", listOf("7.5.2"),
+                listOf(AffectedRange("0", fixed = "7.5.2")))))
     }
 }

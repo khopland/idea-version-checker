@@ -11,9 +11,6 @@ internal interface Lockfile {
     /** One installed package. [id] tells copies of the same version apart where the lockfile does. */
     class Node(val id: String, val name: String, val version: String)
 
-    /** The keys in `package.json` where this package manager reads overrides, such as `overrides` or `pnpm`, `overrides`. */
-    val overrides: List<String>
-
     /** Whether the lockfile installs the workspace at [path], relative to the lockfile's folder, or `""` for the root. */
     fun hasWorkspace(path: String): Boolean
 
@@ -28,6 +25,8 @@ internal interface Lockfile {
         private val READERS = listOf<Pair<String, (String) -> Lockfile?>>(
             PackageLock.FILE_NAME to { PackageLock.parse(JsonParser.parseString(it).asJsonObject) },
             PnpmLock.FILE_NAME to PnpmLock::parse)
+        private val packageManager = Regex(""""packageManager"\s*:\s*"(npm|pnpm)@""")
+        val FILE_NAMES = READERS.map { it.first }
 
         /**
          * The lockfile that installs the package in [packageJson], and the package's workspace in it: `""` in the same
@@ -38,9 +37,13 @@ internal interface Lockfile {
             var relative = ""
             repeat(MAX_DEPTH) {
                 val dir = directory ?: return null
-                // With lockfiles of two package managers, the newer one is from the one in use.
-                val lock = READERS.mapNotNull { (name, parse) -> dir.findChild(name)?.let { it to parse } }
-                    .sortedByDescending { it.first.timeStamp }.firstNotNullOfOrNull { (file, parse) -> read(file, parse) }
+                // With lockfiles of two package managers, `packageManager` says which one is in use, or else the newer lockfile.
+                val found = READERS.mapNotNull { (name, parse) -> dir.findChild(name)?.let { it to parse } }
+                val manager = if (found.size < 2) null else dir.findChild("package.json")
+                    ?.let { runCatching { packageManager.find(VfsUtilCore.loadText(it))?.groupValues?.get(1) }.getOrNull() }
+                val lock = found.sortedWith(compareByDescending<Pair<VirtualFile, (String) -> Lockfile?>> { (file, _) ->
+                    file.name == (if (manager == "pnpm") PnpmLock.FILE_NAME else PackageLock.FILE_NAME) && manager != null
+                }.thenByDescending { it.first.timeStamp }).firstNotNullOfOrNull { (file, parse) -> read(file, parse) }
                 if (lock != null) return if (lock.hasWorkspace(relative)) lock to relative else null
                 relative = if (relative.isEmpty()) dir.name else "${dir.name}/$relative"
                 directory = dir.parent
@@ -69,8 +72,6 @@ internal interface Lockfile {
 internal class PackageLock(private val packages: Map<String, Entry>) : Lockfile {
     /** [name] differs from the folder for an alias such as `"x": "npm:other@1.0.0"`. A [link] points at a workspace. */
     class Entry(val name: String?, val version: String?, val dependencies: Set<String>, val link: Boolean)
-
-    override val overrides = listOf("overrides")
 
     override fun hasWorkspace(path: String) = path in packages
 

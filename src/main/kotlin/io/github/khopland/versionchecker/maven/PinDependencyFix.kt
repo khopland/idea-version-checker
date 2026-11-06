@@ -16,7 +16,12 @@ import com.intellij.psi.xml.XmlTag
 class PinDependencyFix(private val groupId: String, private val artifactId: String, private val version: String) : IntentionAction, PriorityAction {
     override fun getText() = "Pin $groupId:$artifactId to $version in dependency management"
     override fun getFamilyName() = "Pin transitive dependency"
-    override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?) = file is XmlFile && MavenPoms.root(file) != null
+    override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean {
+        val root = (file as? XmlFile)?.let(MavenPoms::root) ?: return false
+        // Another warning's fix may have added it already.
+        return (listOf(root) + MavenPoms.profiles(root)).flatMap { MavenPoms.children(it, "dependencyManagement", "dependencies", "dependency") }
+            .none { MavenPoms.text(MavenPoms.child(it, "groupId")) == groupId && MavenPoms.text(MavenPoms.child(it, "artifactId")) == artifactId }
+    }
     override fun startInWriteAction() = true
     override fun getPriority() = PriorityAction.Priority.TOP
 

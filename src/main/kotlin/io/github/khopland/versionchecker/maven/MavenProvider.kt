@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.maven
 
 import com.intellij.codeInsight.intention.IntentionAction
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
@@ -98,21 +99,30 @@ class MavenProvider : DeclarationProvider {
     /**
      * The imported dependency tree, below each dependency this POM declares. Maven lists a package that two
      * dependencies share only once, and marks the other place as a duplicate, so duplicates are expanded from
-     * where Maven added them. Losing versions of a conflict are not used, so they are left out. A package this POM
-     * also declares gets the declared version, which the vulnerable dependency inspection checks, so it is not repeated.
+     * where Maven added them, even where an exclusion on this path would leave some out. Losing versions of a conflict
+     * are not used, so they are left out. The vulnerable dependency inspection checks the packages this POM declares
+     * or manages, so they are not repeated, and the walk stops at a declared one, whose own dependencies show under it.
+     * Modules of this project are not sent anywhere, but what they bring in is.
      */
     override fun transitive(file: PsiFile): List<Transitive> {
         val xml = file as? XmlFile ?: return emptyList()
         val root = MavenPoms.root(xml) ?: return emptyList()
         val pom = file.virtualFile ?: return emptyList()
         if (MavenRepos.offline(file.project)) return emptyList()
-        val tree = MavenProjectsManager.getInstance(file.project).findProject(pom)?.dependencyTree ?: return emptyList()
-        val declared = (listOf(root) + MavenPoms.profiles(root)).flatMap { MavenPoms.children(it, "dependencies", "dependency") }
-            .mapNotNull { tag ->
-                val group = MavenPoms.text(MavenPoms.child(tag, "groupId")) ?: return@mapNotNull null
-                val artifact = MavenPoms.child(tag, "artifactId")?.takeIf { MavenPoms.text(it) != null } ?: return@mapNotNull null
-                "$group:${MavenPoms.text(artifact)}" to MavenPoms.valueRange(artifact)
-            }.distinctBy { it.first }.toMap()
+        val manager = MavenProjectsManager.getInstance(file.project)
+        val project = manager.findProject(pom) ?: return emptyList()
+        val tree = project.dependencyTree
+        val modules = manager.projects.mapTo(hashSetOf()) { "${it.mavenId.groupId}:${it.mavenId.artifactId}" }
+        val sections = listOf(root) + MavenPoms.profiles(root)
+        fun key(tag: XmlTag): String? {
+            // Sibling modules often write the group as `${project.groupId}`.
+            val group = MavenPoms.text(MavenPoms.child(tag, "groupId"))?.replace("\${project.groupId}", project.mavenId.groupId.orEmpty()) ?: return null
+            return MavenPoms.text(MavenPoms.child(tag, "artifactId"))?.let { "$group:$it" }
+        }
+        val declared = sections.flatMap { MavenPoms.children(it, "dependencies", "dependency") }
+            .mapNotNull { tag -> key(tag)?.let { it to MavenPoms.valueRange(MavenPoms.child(tag, "artifactId")!!) } }
+            .distinctBy { it.first }.toMap()
+        val managed = sections.flatMap { MavenPoms.children(it, "dependencyManagement", "dependencies", "dependency") }.mapNotNullTo(hashSetOf(), ::key)
         val added = HashMap<String, MavenArtifactNode>()
         fun index(nodes: List<MavenArtifactNode>): Unit = nodes.forEach { node ->
             if (node.state == MavenArtifactState.ADDED && added.putIfAbsent(node.artifact.key, node) == null) index(node.dependencies)
@@ -126,13 +136,19 @@ class MavenProvider : DeclarationProvider {
             val queue = ArrayDeque(listOf(top to emptyList<String>()))
             buildList {
                 while (queue.isNotEmpty()) {
+                    ProgressManager.checkCanceled()
                     val (node, path) = queue.removeFirst()
                     val children = if (node.state == MavenArtifactState.DUPLICATE) added[node.artifact.key]?.dependencies.orEmpty() else node.dependencies
                     for (child in children) {
                         val artifact = child.artifact
                         if (child.state != MavenArtifactState.ADDED && child.state != MavenArtifactState.DUPLICATE || !seen.add(artifact.key)) continue
-                        if (artifact.key !in declared) add(Transitive(top.artifact.key, range, Pkg(Ecosystem.MAVEN, artifact.key, artifact.baseVersion), path,
-                            MavenLookup(artifact.groupId, artifact.artifactId, repos)))
+                        if (artifact.key in declared) continue
+                        if (artifact.key !in managed && artifact.key !in modules) {
+                            // Dependency management matches the type and classifier too, so only a plain jar can be pinned.
+                            val pinnable = artifact.classifier.isNullOrEmpty() && (artifact.type == null || artifact.type == "jar")
+                            add(Transitive(top.artifact.key, range, Pkg(Ecosystem.MAVEN, artifact.key, artifact.baseVersion), path,
+                                if (pinnable) MavenLookup(artifact.groupId, artifact.artifactId, repos) else null))
+                        }
                         queue += child to path + artifact.key
                     }
                 }
@@ -140,12 +156,9 @@ class MavenProvider : DeclarationProvider {
         }
     }
 
-    /** Dependency management in this POM, unless it already manages the package: then that entry is the one to update. */
+    /** Dependency management in this POM. A package it already manages is checked as a declaration instead. */
     override fun pin(file: PsiFile, transitive: Transitive, version: String): IntentionAction? {
-        val root = (file as? XmlFile)?.let(MavenPoms::root) ?: return null
         val (group, artifact) = transitive.pkg.name.split(':', limit = 2)
-        val managed = (listOf(root) + MavenPoms.profiles(root)).flatMap { MavenPoms.children(it, "dependencyManagement", "dependencies", "dependency") }
-        if (managed.any { MavenPoms.text(MavenPoms.child(it, "groupId")) == group && MavenPoms.text(MavenPoms.child(it, "artifactId")) == artifact }) return null
         return PinDependencyFix(group, artifact, version)
     }
 

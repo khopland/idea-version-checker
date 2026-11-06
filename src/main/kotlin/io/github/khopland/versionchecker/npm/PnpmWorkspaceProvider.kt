@@ -1,7 +1,6 @@
 package io.github.khopland.versionchecker.npm
 
 import com.intellij.openapi.util.TextRange
-import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.core.Declaration
@@ -40,13 +39,35 @@ internal object PnpmWorkspace {
 
     private val line = Regex("""^( *)(?:"([^"]+)"|'([^']+)'|([^\s:#'"][^:#]*?))\s*:(?:\s+(?:"([^"]*)"|'([^']*)'|([^\s#'"][^#]*?)))?\s*(?:#.*)?$""")
 
-    private val overrides = Regex("""(?m)^overrides\s*:""")
+    const val FILE_NAME = "pnpm-workspace.yaml"
+    private val overridesHeader = Regex("""^overrides\s*:\s*(?:#.*)?$""")
+    private val inlineOverrides = Regex("""(?m)^overrides[ \t]*:[ \t]*[^\s#]""")
 
-    /** Whether [file] has a top-level `overrides` section, which pnpm 10 reads instead of `pnpm.overrides` in `package.json`. */
-    fun hasOverrides(file: VirtualFile): Boolean = try {
-        overrides.containsMatchIn(VfsUtilCore.loadText(file))
-    } catch (_: java.io.IOException) {
-        false
+    /**
+     * Whether `overrides` in [text] can take [key]: neither it nor an override of every copy of [name] is there, and the
+     * section is not written inline, as in `overrides: {}`.
+     */
+    fun canAddOverride(text: String, name: String, key: String): Boolean =
+        !inlineOverrides.containsMatchIn(text) && entries(text).none { it.section == "overrides" && (it.key == name || it.key == key) }
+
+    /** [text] with `'key': version` at the end of its `overrides` section, which is added at the end when missing. */
+    fun withOverride(text: String, key: String, version: String): String {
+        val entry = "'$key': $version"
+        val lines = text.split('\n').toMutableList()
+        val header = lines.indexOfFirst { overridesHeader.matches(it.removeSuffix("\r")) }
+        if (header < 0) {
+            val head = text.trimEnd('\n', '\r')
+            return (if (head.isEmpty()) "" else "$head\n\n") + "overrides:\n  $entry\n"
+        }
+        var end = header + 1
+        var indent: String? = null
+        while (end < lines.size && (lines[end].isBlank() || lines[end].first().isWhitespace())) {
+            if (indent == null && lines[end].isNotBlank()) indent = lines[end].takeWhile { it == ' ' || it == '\t' }
+            end++
+        }
+        while (end > header + 1 && lines[end - 1].isBlank()) end--
+        lines.add(end, (indent ?: "  ") + entry)
+        return lines.joinToString("\n")
     }
 
     fun entries(text: String): List<Entry> {

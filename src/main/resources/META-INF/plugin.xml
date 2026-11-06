@@ -15,7 +15,8 @@
         The <b>Dependency Updates</b> tool window lists every outdated version in the project, with its patch, minor and major update.
         A minimum release age hides new Maven and Gradle releases, for example to match a Nexus quarantine.
         A suppress comment keeps a version on purpose.</p>
-        <p>Optionally, known vulnerabilities of declared Maven, Gradle and npm dependencies from OSV.dev, with a fix to the nearest safe version.</p>
+        <p>Optionally, known vulnerabilities of declared Maven, Gradle and npm dependencies from OSV.dev, with a fix to the nearest safe version,
+        and of the packages they bring in, in Maven, npm and pnpm projects.</p>
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
