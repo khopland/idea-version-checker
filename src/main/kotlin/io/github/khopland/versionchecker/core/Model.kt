@@ -92,7 +92,10 @@ interface DeclarationProvider {
      */
     fun related(file: PsiFile, declarations: List<Declaration>): List<Declaration> = emptyList()
 
-    /** The packages that the dependencies declared in [file] bring in, from what the IDE resolved. Runs in a read action. Must not do I/O. */
+    /**
+     * The packages that the dependencies declared in [file] bring in, as the IDE or a lockfile resolved them. Runs in a
+     * read action. May read files through the VFS, but must not use the network.
+     */
     fun transitive(file: PsiFile): List<Transitive> = emptyList()
 
     /** A fix that makes the build resolve [transitive] at [version] instead, or null when [file] cannot say so. Runs in a read action. */

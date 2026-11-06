@@ -117,16 +117,16 @@ For npm, the declared version is checked, which for `^1.2.3` is the lowest versi
 
 ### Transitive dependencies
 
-In Maven projects, the **Vulnerable transitive dependency** inspection warns on the artifact of a declared dependency that brings in a vulnerable package:
+The **Vulnerable transitive dependency** inspection warns on a declared dependency that brings in a vulnerable package, with the shortest path to it:
 
 > Brings in com.fasterxml.jackson.core:jackson-databind 2.9.0 via org.example:json: CVE-2019-12384 (high): Polymorphic typing. Fixed in 2.9.9.1
 
-- It reads the dependency tree of the last Maven import, so reload the project after changing dependencies. The resolved packages below the dependencies the POM declares go to `api.osv.dev` too. Dependencies inherited from a parent POM show in the parent.
-- It stays a warning at the default level, since the version is not set in the POM and the code may never reach the package.
-- **Alt+Enter** offers **Pin … to … in dependency management**: the lowest stable version above the resolved one that no reported advisory affects, added to `<dependencyManagement>` in this POM. It is not offered when the POM already manages the package; update that entry instead.
-- `<!--suppress VulnerableTransitiveDependency -->` above the `<artifactId>` keeps a dependency. **Alt+Enter → Suppress for tag** puts it there.
+The warning is on the artifact or package name, so an error on the dependency's own version does not hide it. It stays a warning at the default level, since the version is not set in the file and the code may never reach the package. The resolved packages go to `api.osv.dev` too, while the setting is on.
 
-Only declared dependencies are checked otherwise, including npm, Bun and pnpm catalog entries. Transitive dependencies of Gradle and npm projects, npm `overrides` and `resolutions`, `packageManager`, Gradle plugins, the wrappers, toolchain files and GitHub Actions are not, so this does not replace a full scan of the resolved dependencies, such as `npm audit`, OWASP Dependency-Check or a Nexus IQ or Snyk scan.
+- **Maven:** the dependency tree of the last Maven import, so reload the project after changing dependencies. Dependencies inherited from a parent POM show in the parent. **Alt+Enter** offers **Pin … to … in dependency management**: the lowest stable version above the resolved one that no reported advisory affects, added to `<dependencyManagement>` in this POM. It is not offered when the POM already manages the package; update that entry instead. `<!--suppress VulnerableTransitiveDependency -->` above the `<artifactId>` keeps a dependency, and **Alt+Enter → Suppress for tag** puts it there.
+- **npm and pnpm:** the packages that `package-lock.json` (lockfile version 2 or 3, from npm 7 and later) or `pnpm-lock.yaml` (version 6 or 9, from pnpm 8 and later) installs, so install after changing dependencies. With both lockfiles, the newer one is read. A workspace package uses the lockfile of the workspace root. **Alt+Enter** offers **Override … to … in package.json**, which adds the package to npm `overrides` or `pnpm.overrides`. It is offered only in the root `package.json`, and not for a package that is already overridden or that the file depends on directly, which npm refuses, nor when `pnpm-workspace.yaml` has `overrides`, which pnpm 10 reads instead. `package.json` cannot have comments, so turn the inspection off instead of suppressing it. `yarn.lock` and `bun.lock` are not read yet.
+
+Only declared dependencies are checked otherwise, including npm, Bun and pnpm catalog entries. Transitive dependencies of Gradle, Yarn and Bun projects, npm `overrides` and `resolutions`, `packageManager`, Gradle plugins, the wrappers, toolchain files and GitHub Actions are not, so this does not replace a full scan of the resolved dependencies, such as `npm audit`, OWASP Dependency-Check or a Nexus IQ or Snyk scan.
 IntelliJ IDEA Ultimate's built-in **Package Checker** plugin may report the same vulnerabilities; turn one of them off if you see both.
 
 ## Redundant Maven overrides
