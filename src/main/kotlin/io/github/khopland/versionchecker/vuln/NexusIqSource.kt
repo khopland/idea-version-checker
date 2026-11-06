@@ -74,7 +74,7 @@ class NexusIqSource(
         if (!response.ok) throw failure(response, "reading the reports")
         val reports = json(response.text()).takeIf(JsonElement::isJsonArray)?.asJsonArray?.toList().objects()
         val newest = reports.maxByOrNull { report -> report.string("evaluationDate")?.let { runCatching { OffsetDateTime.parse(it).toInstant() }.getOrNull() } ?: Instant.MIN }
-        return newest?.string("reportHtmlUrl")?.let { if (it.startsWith("http://") || it.startsWith("https://")) it else "$server/${it.trimStart('/')}" }
+        return (newest?.string("latestReportHtmlUrl") ?: newest?.string("reportHtmlUrl"))?.let { if (it.startsWith("http://") || it.startsWith("https://")) it else "$server/${it.trimStart('/')}" }
     }
 
     private suspend fun evaluate(app: String, packages: List<Pkg>): Map<Pkg, List<Advisory>> {
@@ -127,14 +127,17 @@ class NexusIqSource(
                 throw HttpFailure("Nexus IQ could not evaluate the dependencies: ${document.string("errorMessage") ?: "no reason given"}")
             val byPurl = packages.associateBy { normalize(purl(it)) }
             return document.array("results").objects().mapNotNull { result ->
-                val pkg = result.obj("component")?.string("packageUrl")?.let { byPurl[normalize(it)] } ?: return@mapNotNull null
+                // Nexus IQ may rewrite the package URL, and then keeps the one sent as `originalPurl`.
+                val component = result.obj("component")
+                val pkg = listOf("originalPurl", "packageUrl").firstNotNullOfOrNull { field -> component?.string(field)?.let { byPurl[normalize(it)] } }
+                    ?: return@mapNotNull null
                 pkg to advisories(result)
             }.toMap()
         }
 
         /**
          * The security issues of one component that an active policy violation names, by its reference or in its reason text.
-         * Issues that only waived or legacy violations name, and those marked not applicable, are left out.
+         * Issues that only waived, legacy or fixed violations name, and those marked not applicable, are left out.
          */
         internal fun advisories(result: JsonObject): List<Advisory> {
             val issues = result.obj("securityData")?.array("securityIssues").objects()
@@ -142,7 +145,7 @@ class NexusIqSource(
             // The policies that report each vulnerability.
             val active = mutableMapOf<String, MutableList<String>>()
             for (violation in result.obj("policyData")?.array("policyViolations").objects()) {
-                if (violation.string("waiveTime") != null || violation.string("legacyViolationTime") != null) continue
+                if (listOf("waiveTime", "legacyViolationTime", "fixTime").any { violation.string(it) != null }) continue
                 val reasons = violation.array("constraintViolations").objects().flatMap { it.array("reasons").objects() }
                 val named = reasons.mapNotNull { reason -> reason.obj("reference")?.takeIf { it.string("type") == "SECURITY_VULNERABILITY_REFID" }?.string("value") }
                 val text = reasons.mapNotNull { it.string("reason") }

@@ -202,6 +202,7 @@ A version without a known release time is hidden while the setting is above zero
 ./gradlew runIde                        # A sandbox IDE with the plugin.
 ./gradlew test                          # Unit and platform tests, with no network.
 ./gradlew test -Plive=true --tests '*LiveRepositoriesTest'   # Against the public registries.
+NEXUS_IQ_URL=… NEXUS_IQ_APP=… NEXUS_IQ_USER=… NEXUS_IQ_PASSWORD=… ./gradlew test -Plive=true --tests '*LiveNexusIqTest'   # Against your Nexus IQ server.
 ./gradlew buildPlugin verifyPlugin      # The ZIP in build/distributions, and binary compatibility.
 ./gradlew integrationTest               # The plugin in a real sandbox IDE, against the demo projects (about 5 minutes).
 ./gradlew marketplaceScreenshots        # The Marketplace screenshots, in build/marketplace-screenshots (about 3 minutes).
