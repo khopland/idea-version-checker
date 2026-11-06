@@ -6,6 +6,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
 import com.intellij.codeInsight.intention.IntentionAction
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import io.github.khopland.versionchecker.core.Advisory
 import io.github.khopland.versionchecker.core.Ecosystem
@@ -88,7 +89,13 @@ class NexusIqSource(
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000
         while (true) {
             val evaluation = http().get("$server/api/v2/evaluation/applications/$app/results/$result", headers, store = false)
-            if (evaluation.ok) return parseEvaluation(evaluation.text(), packages)
+            if (evaluation.ok) {
+                // Help → Diagnostic Tools → Debug Log Settings: #io.github.khopland.versionchecker.vuln.NexusIqSource
+                LOG.debug { "Evaluation of ${packages.size} packages in $applicationId: ${evaluation.text()}" }
+                return parseEvaluation(evaluation.text(), packages).also { found ->
+                    LOG.debug { "Reported: " + found.filterValues { it.isNotEmpty() }.entries.joinToString { (pkg, list) -> "${pkg.name} ${pkg.version} ${list.map { it.displayId }}" } }
+                }
+            }
             if (evaluation.status != 404) throw failure(evaluation, "reading the evaluation")
             if (System.nanoTime() > deadline) throw HttpFailure("Nexus IQ did not finish the evaluation in ${timeoutMillis / 1000} seconds")
             delay(pollMillis)
@@ -100,6 +107,7 @@ class NexusIqSource(
         val body = JsonObject().apply { addProperty("packageUrl", purl(pkg)) }.toString()
         val response = http().post("$server/api/v2/components/remediation/application/$app?stageId=develop", body, headers)
         if (!response.ok) throw failure(response, "finding a remediation")
+        LOG.debug { "Remediation of ${pkg.name} ${pkg.version}: ${response.text()}" }
         parseRemediation(response.text())
     } catch (e: CancellationException) {
         throw e
