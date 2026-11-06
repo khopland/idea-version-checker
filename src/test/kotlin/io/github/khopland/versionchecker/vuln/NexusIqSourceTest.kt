@@ -33,6 +33,7 @@ class NexusIqSourceTest {
             ${violation("v-waived", "Security-Critical", listOf("CVE-2021-45046"), extra = """, "waiveTime": "2026-10-01T10:00:00.000+0000"""")},
             ${violation("v-medium", "Security-Medium", listOf(), reason = "Found security vulnerability CVE-2021-44832 with severity >= 4")},
             ${violation("v-legacy", "Security-Medium", listOf("CVE-2021-45105"), extra = """, "legacyViolationTime": "2026-01-01T00:00:00.000+0000"""")},
+            ${violation("v-fixed", "Security-Critical", listOf("CVE-2021-45046"), extra = """, "fixTime": "2026-10-02T10:00:00.000+0000"""")},
             ${violation("v-license", "License-Banned", listOf())}]}}"""
 
     @Test
@@ -55,7 +56,9 @@ class NexusIqSourceTest {
 
     @Test
     fun evaluationMatchesResultsByPackageUrlAndFailsOnAnError() {
-        val text = """{"results": [{"component": {"packageUrl": "pkg:npm/@babel/traverse@7.22.0"}}, $log4jResult]}"""
+        // A rewritten package URL still matches by the one sent.
+        val text = """{"results": [{"component": {"packageUrl": "pkg:npm/%40babel/traverse@7.22.0?x=y", "originalPurl": "pkg:npm/%40babel/traverse@7.22.0"}},
+            {"component": {"packageUrl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1?classifier=&type=jar"}}, $log4jResult]}"""
         val found = NexusIqSource.parseEvaluation(text, listOf(log4j, babel, junit))
         assertEquals(setOf(log4j, babel), found.keys)
         assertEquals(emptyList<Any>(), found.getValue(babel))
@@ -89,8 +92,9 @@ class NexusIqSourceTest {
             // The newest report, where the user waives the violation.
             repository.routes["/api/v2/reports/applications/app-1"] = FakeRepository.Response(200, """[
                 {"stage": "build", "evaluationDate": "2026-11-01T10:00:00.000+01:00", "reportHtmlUrl": "ui/links/application/my-app/report/old"},
-                {"stage": "release", "evaluationDate": "2026-11-05T09:00:00.000Z", "reportHtmlUrl": "ui/links/application/my-app/report/new"}]""")
-            assertEquals("${repository.url}/ui/links/application/my-app/report/new", source.reportUrl())
+                {"stage": "release", "evaluationDate": "2026-11-05T09:00:00.000Z", "reportHtmlUrl": "ui/links/application/my-app/report/new",
+                 "latestReportHtmlUrl": "ui/links/application/my-app/latestReport/release"}]""")
+            assertEquals("${repository.url}/ui/links/application/my-app/latestReport/release", source.reportUrl())
             repository.routes["/api/v2/reports/applications/app-1"] = FakeRepository.Response(200, "[]")
             assertNull(source.reportUrl())
         }
