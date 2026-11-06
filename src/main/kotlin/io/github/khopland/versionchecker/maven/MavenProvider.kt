@@ -98,7 +98,8 @@ class MavenProvider : DeclarationProvider {
     /**
      * The imported dependency tree, below each dependency this POM declares. Maven lists a package that two
      * dependencies share only once, and marks the other place as a duplicate, so duplicates are expanded from
-     * where Maven added them. Losing versions of a conflict are not used, so they are left out.
+     * where Maven added them. Losing versions of a conflict are not used, so they are left out. A package this POM
+     * also declares gets the declared version, which the vulnerable dependency inspection checks, so it is not repeated.
      */
     override fun transitive(file: PsiFile): List<Transitive> {
         val xml = file as? XmlFile ?: return emptyList()
@@ -130,7 +131,7 @@ class MavenProvider : DeclarationProvider {
                     for (child in children) {
                         val artifact = child.artifact
                         if (child.state != MavenArtifactState.ADDED && child.state != MavenArtifactState.DUPLICATE || !seen.add(artifact.key)) continue
-                        add(Transitive(top.artifact.key, range, Pkg(Ecosystem.MAVEN, artifact.key, artifact.baseVersion), path,
+                        if (artifact.key !in declared) add(Transitive(top.artifact.key, range, Pkg(Ecosystem.MAVEN, artifact.key, artifact.baseVersion), path,
                             MavenLookup(artifact.groupId, artifact.artifactId, repos)))
                         queue += child to path + artifact.key
                     }

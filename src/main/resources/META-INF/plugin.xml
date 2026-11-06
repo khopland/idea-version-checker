@@ -50,6 +50,10 @@
         <localInspection shortName="VulnerableDependency" displayName="Vulnerable dependency version" groupName="Version Checker"
                          enabledByDefault="true" level="WARNING"
                          implementationClass="io.github.khopland.versionchecker.core.VulnerableDependencyInspection"/>
+        <!-- Its annotator runs where the build tool's resolved packages are known: Maven projects and npm and pnpm lockfiles. -->
+        <localInspection shortName="VulnerableTransitiveDependency" displayName="Vulnerable transitive dependency" groupName="Version Checker"
+                         enabledByDefault="true" level="WARNING"
+                         implementationClass="io.github.khopland.versionchecker.core.VulnerableTransitiveDependencyInspection"/>
         <localInspection language="TOML" shortName="UnusedCatalogEntry" displayName="Unused version catalog entry" groupName="Version Checker"
                          enabledByDefault="true" level="WEAK WARNING"
                          implementationClass="io.github.khopland.versionchecker.gradle.UnusedCatalogEntryInspection"/>

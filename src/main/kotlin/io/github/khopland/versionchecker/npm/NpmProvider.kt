@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.npm
 
+import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.json.psi.JsonFile
 import com.intellij.json.psi.JsonObject
 import com.intellij.json.psi.JsonStringLiteral
@@ -11,6 +12,8 @@ import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
+import io.github.khopland.versionchecker.core.Pkg
+import io.github.khopland.versionchecker.core.Transitive
 
 /**
  * `package.json`: `dependencies`, `devDependencies` and `optionalDependencies`, for any package manager, and also
@@ -63,6 +66,54 @@ class NpmProvider : DeclarationProvider {
             section(owner.findProperty("catalogs")?.value).forEach { dependencies(it.value) }
         }
         return result.sortedBy { it.range.startOffset }
+    }
+
+    /**
+     * The packages that `package-lock.json` or `pnpm-lock.yaml` installs below each declared dependency, breadth first,
+     * so each package gets its shortest path. Workspace packages are linked, not installed from the registry, so they are left out.
+     * The copy of a package that this file declares is checked by the vulnerable dependency inspection, so it is not repeated.
+     */
+    override fun transitive(file: PsiFile): List<Transitive> {
+        val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return emptyList()
+        val vfile = file.virtualFile ?: return emptyList()
+        val (lock, workspace) = Lockfile.find(vfile) ?: return emptyList()
+        val registries by lazy { NpmPackages.registries(vfile) }
+        val declared = SECTIONS.flatMap { (root.findProperty(it)?.value as? JsonObject)?.propertyList.orEmpty() }.distinctBy { it.name }
+        val direct = declared.mapNotNullTo(hashSetOf()) { lock.direct(workspace, it.name)?.id }
+        return declared.flatMap { property ->
+            val key = property.nameElement
+            val range = TextRange(key.textRange.startOffset + 1, key.textRange.endOffset - 1)
+            val top = lock.direct(workspace, property.name) ?: return@flatMap emptyList()
+            val seen = hashSetOf(top.id)
+            val queue = ArrayDeque(listOf(top to emptyList<String>()))
+            buildList {
+                while (queue.isNotEmpty()) {
+                    val (node, path) = queue.removeFirst()
+                    for (child in lock.dependencies(node)) {
+                        if (!seen.add(child.id)) continue
+                        if (child.id !in direct) add(Transitive(property.name, range, Pkg(Ecosystem.NPM, child.name, child.version), path, NpmLookup(child.name, registries.registry(child.name))))
+                        queue += child to path + child.name
+                    }
+                }
+            }.distinctBy { it.pkg }
+        }
+    }
+
+    /**
+     * npm `overrides` or `pnpm.overrides`, which only the root `package.json` of a lockfile may set. Not for a package
+     * that is already overridden, or that this file depends on directly, which npm refuses to override with another
+     * version. Not when `pnpm-workspace.yaml` has overrides, which pnpm 10 reads instead.
+     */
+    override fun pin(file: PsiFile, transitive: Transitive, version: String): IntentionAction? {
+        val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return null
+        val vfile = file.virtualFile ?: return null
+        val (lock, workspace) = Lockfile.find(vfile) ?: return null
+        val name = transitive.pkg.name
+        if (workspace.isNotEmpty() || SECTIONS.any { (root.findProperty(it)?.value as? JsonObject)?.findProperty(name) != null }) return null
+        if (lock is PnpmLock && vfile.parent?.findChild("pnpm-workspace.yaml")?.let { PnpmWorkspace.hasOverrides(it) } == true) return null
+        val overrides = lock.overrides.fold(root as JsonObject?) { owner, key -> owner?.findProperty(key)?.value as? JsonObject }
+        if (overrides != null && overrides.propertyList.any { NpmPackages.target(it.name) == name }) return null
+        return NpmOverrideFix(lock.overrides, name, version)
     }
 
     /** `"pnpm@9.12.0"`. A `+sha512.…` hash must change with the version, so the plugin only warns. */

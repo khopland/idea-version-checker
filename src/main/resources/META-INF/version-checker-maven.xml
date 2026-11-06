@@ -5,11 +5,7 @@
         <localInspection language="XML" shortName="RedundantMavenOverride" displayName="Redundant Maven override" groupName="Version Checker"
                          enabledByDefault="true" level="WEAK WARNING"
                          implementationClass="io.github.khopland.versionchecker.maven.RedundantOverrideInspection"/>
-        <!-- Only Maven knows the resolved dependency tree, so far. -->
         <externalAnnotator language="XML" implementationClass="io.github.khopland.versionchecker.core.TransitiveVulnerabilityAnnotator"/>
-        <localInspection shortName="VulnerableTransitiveDependency" displayName="Vulnerable transitive dependency" groupName="Version Checker"
-                         enabledByDefault="true" level="WARNING"
-                         implementationClass="io.github.khopland.versionchecker.core.VulnerableTransitiveDependencyInspection"/>
     </extensions>
     <extensions defaultExtensionNs="io.github.khopland.version-checker">
         <declarationProvider implementation="io.github.khopland.versionchecker.maven.MavenProvider"/>

@@ -141,6 +141,14 @@ class MavenTransitiveTest : BasePlatformTestCase() {
             "org.example:client > org.example:json > $DATABIND:2.9.0"), found)
     }
 
+    fun testPackagesThePomDeclaresAreNotRepeated() {
+        val file = pom("<dependencies>${dependency("web")}${dependency("json")}</dependencies>", listOf(
+            node("org.example:web:1.0", node("org.example:json:1.0", state = MavenArtifactState.DUPLICATE)),
+            node("org.example:json:1.0", node("$DATABIND:2.9.0"))))
+        assertEquals(listOf("org.example:web > org.example:json > $DATABIND", "org.example:json >  > $DATABIND"),
+            MavenProvider().transitive(file).map { "${it.via} > ${it.path.joinToString("/")} > ${it.pkg.name}" })
+    }
+
     fun testWarningOnTheDeclaredArtifactAndPinFix() {
         pom("""
             <dependencies>

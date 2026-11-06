@@ -3,6 +3,7 @@
         <localInspection language="JSON" shortName="DuplicateNpmDependency" displayName="Duplicate npm dependency" groupName="Version Checker"
                          enabledByDefault="true" level="WEAK WARNING"
                          implementationClass="io.github.khopland.versionchecker.npm.DuplicateDependencyInspection"/>
+        <externalAnnotator language="JSON" implementationClass="io.github.khopland.versionchecker.core.TransitiveVulnerabilityAnnotator"/>
     </extensions>
     <extensions defaultExtensionNs="io.github.khopland.version-checker">
         <declarationProvider implementation="io.github.khopland.versionchecker.npm.NpmProvider"/>

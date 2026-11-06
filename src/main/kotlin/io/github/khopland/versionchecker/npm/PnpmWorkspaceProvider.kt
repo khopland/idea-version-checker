@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.core.Declaration
@@ -38,6 +39,15 @@ internal object PnpmWorkspace {
     class Entry(val section: String, val key: String, val value: String, val range: TextRange)
 
     private val line = Regex("""^( *)(?:"([^"]+)"|'([^']+)'|([^\s:#'"][^:#]*?))\s*:(?:\s+(?:"([^"]*)"|'([^']*)'|([^\s#'"][^#]*?)))?\s*(?:#.*)?$""")
+
+    private val overrides = Regex("""(?m)^overrides\s*:""")
+
+    /** Whether [file] has a top-level `overrides` section, which pnpm 10 reads instead of `pnpm.overrides` in `package.json`. */
+    fun hasOverrides(file: VirtualFile): Boolean = try {
+        overrides.containsMatchIn(VfsUtilCore.loadText(file))
+    } catch (_: java.io.IOException) {
+        false
+    }
 
     fun entries(text: String): List<Entry> {
         val result = mutableListOf<Entry>()
