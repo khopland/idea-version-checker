@@ -7,7 +7,8 @@ The check is off until you turn on
 <b>Check for known vulnerabilities</b> in <b>Settings | Tools | Version Checker</b>. It sends the names and versions of the
 resolved packages to osv.dev.</p>
 <p>Use <b>Alt+Enter</b> to pin the package in <code>&lt;dependencyManagement&gt;</code>, npm <code>overrides</code> or pnpm overrides at the
-lowest stable version that fixes every reported vulnerability. To keep a dependency on purpose, add a suppress comment from the <b>Alt+Enter</b> menu,
+lowest stable version that fixes every reported vulnerability. An npm or pnpm override covers every copy in the
+vulnerable major, so it offers the highest version any of them needs. To keep a dependency on purpose, add a suppress comment from the <b>Alt+Enter</b> menu,
 for example <code>&lt;!--suppress VulnerableTransitiveDependency --&gt;</code> in a POM. <code>package.json</code> cannot have
 comments, so turn the inspection off there instead.</p>
 </body>
