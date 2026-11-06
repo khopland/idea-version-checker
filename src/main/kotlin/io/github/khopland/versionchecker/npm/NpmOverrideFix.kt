@@ -1,7 +1,6 @@
 package io.github.khopland.versionchecker.npm
 
 import com.intellij.codeInsight.FileModificationService
-import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
 import com.intellij.json.psi.JsonElementGenerator
@@ -18,6 +17,7 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.codeStyle.CodeStyleManager
+import io.github.khopland.versionchecker.core.PinFix
 
 internal object NpmOverrides {
     /**
@@ -50,8 +50,9 @@ internal object NpmOverrides {
  * Alt+Enter: add an override of [key], such as `qs@^6`, to the object at [keys] in `package.json`, such as `overrides` for
  * npm or `pnpm`, `overrides`. The value is a range from [version], so newer copies in the range keep their version.
  */
-class NpmOverrideFix(private val keys: Array<String>, private val name: String, private val key: String, private val version: String) :
-    IntentionAction, PriorityAction {
+class NpmOverrideFix(private val keys: Array<String>, private val name: String, private val key: String, override val version: String) :
+    PinFix, PriorityAction {
+    override val target get() = key
     override fun getText() = "Override $key to ^$version in package.json"
     override fun getFamilyName() = "Override transitive dependency"
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean {
@@ -81,7 +82,8 @@ class NpmOverrideFix(private val keys: Array<String>, private val name: String, 
  * Alt+Enter: add an override of [key] to `overrides` in `pnpm-workspace.yaml` next to `package.json`, creating the file
  * or the section when needed. The value is a range from [version], like [NpmOverrideFix].
  */
-class PnpmWorkspaceOverrideFix(private val name: String, private val key: String, private val version: String) : IntentionAction, PriorityAction {
+class PnpmWorkspaceOverrideFix(private val name: String, private val key: String, override val version: String) : PinFix, PriorityAction {
+    override val target get() = key
     override fun getText() = "Override $key to ^$version in ${PnpmWorkspace.FILE_NAME}"
     override fun getFamilyName() = "Override transitive dependency"
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean {

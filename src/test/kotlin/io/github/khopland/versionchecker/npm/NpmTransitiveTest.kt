@@ -350,9 +350,27 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         WriteAction.runAndWait<Throwable> { myFixture.findFileInTempDir("node_modules/.modules.yaml").setBinaryContent("packageManager: pnpm@9.15.9\n".toByteArray()) }
         assertEquals("package.json", target("""{"dependencies": {"web": "^1.0.0"}}"""))
         WriteAction.runAndWait<Throwable> { myFixture.findFileInTempDir("node_modules/.modules.yaml").delete(this) }
-        // A workspace file that already has overrides is where the project keeps them.
+        // A workspace file that already has overrides is where the project keeps them: pnpm 10 would ignore them all
+        // once package.json has some. Overrides in package.json win, since pnpm 10 reads those.
         myFixture.addFileToProject("pnpm-workspace.yaml", "packages:\n  - app\noverrides:\n  left-pad: 1.3.0\n")
         assertEquals("pnpm-workspace.yaml", target("""{"dependencies": {"web": "^1.0.0"}}"""))
+        assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@10.20.0", "dependencies": {"web": "^1.0.0"}}"""))
+        assertEquals("package.json", target("""{"packageManager": "pnpm@10.20.0", "dependencies": {"web": "^1.0.0"}, $overrides}"""))
+        // An override in either file counts.
+        WriteAction.runAndWait<Throwable> {
+            myFixture.findFileInTempDir("pnpm-workspace.yaml").setBinaryContent("packages:\n  - app\noverrides:\n  qs: 6.2.4\n".toByteArray())
+        }
+        assertNull(target("""{"packageManager": "pnpm@10.20.0", "dependencies": {"web": "^1.0.0"}, $overrides}"""))
+    }
+
+    fun testCopiesInOneRangeGetTheHighestOverride() {
+        // qs 6.0.0 is safe at 6.2.4 and the nested qs 6.3.0 at 6.3.3; ^6.2.4 would leave 6.3.0 vulnerable.
+        lock("package-lock.json", "node_modules/web: 1.0.0 > qs json", "node_modules/web/node_modules/qs: 6.3.0", "node_modules/json: 1.0.0 > qs",
+            "node_modules/qs: 6.0.0")
+        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0", "json": "^1.0.0"}}""")
+        val overrides = { at: String -> intentions(at).filter { it.startsWith("Override ") } }
+        assertEquals(listOf("Override qs@^6 to ^6.3.3 in package.json"), overrides("\"web\""))
+        assertEquals(listOf("Override qs@^6 to ^6.3.3 in package.json"), overrides("\"json\""))
     }
 
     fun testWorkspaceFilePreviewShowsTheExistingFile() {
@@ -451,10 +469,11 @@ class NpmTransitiveTest : BasePlatformTestCase() {
     }
 
     companion object {
-        private val VERSIONS = mapOf("qs" to listOf("6.0.0", "6.2.3", "6.2.4", "6.11.0"), "semver" to listOf("5.7.1", "7.5.2"))
+        private val VERSIONS = mapOf("qs" to listOf("6.0.0", "6.2.3", "6.2.4", "6.3.0", "6.3.3", "6.11.0"), "semver" to listOf("5.7.1", "7.5.2"))
         private val ADVISORIES = mapOf(
             "qs" to listOf(Advisory("GHSA-hrpp-h998-j3pp", listOf("CVE-2022-24999"), "HIGH", "Prototype pollution", listOf("6.2.4"),
-                listOf(AffectedRange("6.0.0", fixed = "6.2.4")))),
+                listOf(AffectedRange("6.0.0", fixed = "6.2.4"))),
+                Advisory("GHSA-qs-6-3", emptyList(), "HIGH", "Another qs bug", listOf("6.3.3"), listOf(AffectedRange("6.3.0", fixed = "6.3.3")))),
             "semver" to listOf(Advisory("GHSA-c2qf-rxjj-qqgw", listOf("CVE-2022-25883"), "MODERATE", "ReDoS", listOf("7.5.2"),
                 listOf(AffectedRange("0", fixed = "7.5.2")))))
     }

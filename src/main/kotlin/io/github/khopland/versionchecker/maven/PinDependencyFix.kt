@@ -1,6 +1,5 @@
 package io.github.khopland.versionchecker.maven
 
-import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
@@ -8,12 +7,14 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.codeStyle.CodeStyleManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
+import io.github.khopland.versionchecker.core.PinFix
 
 /**
  * Alt+Enter: add the package to `<dependencyManagement>` at [version]. Managed versions win over the ones
  * dependencies bring in, in this module and the modules that inherit from it.
  */
-class PinDependencyFix(private val groupId: String, private val artifactId: String, private val version: String) : IntentionAction, PriorityAction {
+class PinDependencyFix(private val groupId: String, private val artifactId: String, override val version: String) : PinFix, PriorityAction {
+    override val target get() = "$groupId:$artifactId"
     override fun getText() = "Pin $groupId:$artifactId to $version in dependency management"
     override fun getFamilyName() = "Pin transitive dependency"
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean {
