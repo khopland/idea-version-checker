@@ -5,7 +5,7 @@ The warning is on the declared dependency, and names the vulnerable package and 
 <p>Maven projects are checked from the dependency tree of the last import, and npm and pnpm projects from <code>package-lock.json</code> or <code>pnpm-lock.yaml</code>.
 The check is off until you turn on
 <b>Check for known vulnerabilities</b> in <b>Settings | Tools | Version Checker</b>. It sends the names and versions of the
-resolved packages to osv.dev.</p>
+resolved packages to osv.dev, or to the project's Nexus IQ server when it has one, as for <b>Vulnerable dependency version</b>.</p>
 <p>Use <b>Alt+Enter</b> to pin the package in <code>&lt;dependencyManagement&gt;</code>, npm <code>overrides</code> or pnpm overrides at the
 lowest stable version that fixes every reported vulnerability. An npm or pnpm override covers every copy in the
 vulnerable major, so it offers the highest version any of them needs. To keep a dependency on purpose, add a suppress comment from the <b>Alt+Enter</b> menu,

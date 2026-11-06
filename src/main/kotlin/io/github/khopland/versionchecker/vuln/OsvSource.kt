@@ -124,8 +124,5 @@ class OsvSource(private val http: () -> Http = Http::getInstance, private val ap
             open?.let { result += AffectedRange(it) }
             return result
         }
-
-        private fun JsonObject.string(name: String): String? = get(name)?.takeIf(JsonElement::isJsonPrimitive)?.asString
-        private fun JsonObject.array(name: String): List<JsonElement> = get(name)?.takeIf(JsonElement::isJsonArray)?.asJsonArray?.toList().orEmpty()
     }
 }

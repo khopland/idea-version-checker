@@ -104,12 +104,50 @@ class NexusIqSourceTest {
             assertEquals("Nexus IQ did not accept the user name and password (HTTP 401)", error(NexusIqSource(repository.url, "my-app", "me", "wrong", { repository.http })))
             repository.routes["/api/v2/applications"] = FakeRepository.Response(200, """{"applications": []}""")
             assertEquals("Nexus IQ has no application my-app, or this user cannot see it", error(NexusIqSource(repository.url, "my-app", null, null, { repository.http })))
+            // A wrong server URL: no API there, or a login page in its place.
+            repository.routes["/api/v2/applications"] = FakeRepository.Response(404)
+            assertEquals("No Nexus IQ API at ${repository.url}. Check the server URL", error(NexusIqSource(repository.url, "my-app", null, null, { repository.http })))
+            repository.routes["/api/v2/applications"] = FakeRepository.Response(200, "<html><body>Sign in</body></html>")
+            assertEquals("Nexus IQ did not answer with JSON. Check the server URL", error(NexusIqSource(repository.url, "my-app", null, null, { repository.http })))
             // A result that never gets ready times out.
             repository.routes["/api/v2/applications"] = FakeRepository.Response(200, """{"applications": [{"id": "app-1", "publicId": "my-app"}]}""")
             repository.routes["/api/v2/evaluation/applications/app-1"] = FakeRepository.Response(200, """{"resultId": "r-1"}""")
             val slow = NexusIqSource(repository.url, "my-app", null, null, { repository.http }, pollMillis = 10, timeoutMillis = 50)
             assertTrue(error(slow)!!.startsWith("Nexus IQ did not finish the evaluation"))
             assertNull(repository.authorizations.last())
+        }
+    }
+
+    @Test
+    fun anApplicationCreatedAgainIsLookedUpAgain() = runBlocking {
+        FakeRepository().use { repository ->
+            repository.routes["/api/v2/applications"] = FakeRepository.Response(200, """{"applications": [{"id": "app-1", "publicId": "my-app"}]}""")
+            val source = NexusIqSource(repository.url, "my-app", null, null, { repository.http })
+            assertEquals("Nexus IQ returned HTTP 404 while evaluating dependencies", runCatching { source.check(listOf(log4j)) }.exceptionOrNull()?.message)
+            repository.routes["/api/v2/applications"] = FakeRepository.Response(200, """{"applications": [{"id": "app-2", "publicId": "my-app"}]}""")
+            repository.routes["/api/v2/evaluation/applications/app-2"] = FakeRepository.Response(200, """{"resultId": "r-1"}""")
+            repository.routes["/api/v2/evaluation/applications/app-2/results/r-1"] = FakeRepository.Response(200, """{"results": []}""")
+            assertEquals(emptyMap<Pkg, Any>(), source.check(listOf(log4j)))
+            assertEquals(2, repository.requests.count { it == "GET /api/v2/applications" })
+        }
+    }
+
+    @Test
+    fun aVulnerabilityStaysWhileAnyViolationThatNamesItIsActive() {
+        val result = JsonParser.parseString("""
+            {"securityData": {"securityIssues": [${issue("CVE-2021-44228", 10.0)}]},
+             "policyData": {"policyViolations": [
+                ${violation("v-waived", "Security-Critical", listOf("CVE-2021-44228"), extra = """, "waiveTime": "2026-10-01T10:00:00.000+0000"""")},
+                ${violation("v-active", "Security-High", listOf("CVE-2021-44228"))}]}}""").asJsonObject
+        assertEquals(listOf("Security-High policy"), NexusIqSource.advisories(result).map { it.summary })
+    }
+
+    @Test
+    fun anAbsoluteReportUrlIsKept() = runBlocking {
+        FakeRepository().use { repository ->
+            repository.routes["/api/v2/applications"] = FakeRepository.Response(200, """{"applications": [{"id": "app-1", "publicId": "my-app"}]}""")
+            repository.routes["/api/v2/reports/applications/app-1"] = FakeRepository.Response(200, """[{"reportHtmlUrl": "https://iq.example.com/ui/links/application/my-app/report/1"}]""")
+            assertEquals("https://iq.example.com/ui/links/application/my-app/report/1", NexusIqSource(repository.url, "my-app", null, null, { repository.http }).reportUrl())
         }
     }
 }

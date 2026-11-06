@@ -3,6 +3,7 @@ package io.github.khopland.versionchecker.vuln
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.openapi.diagnostic.logger
@@ -48,6 +49,7 @@ class NexusIqSource(
     /** The internal ID of the application, which the other calls need. Checks the server, the credentials and the application. */
     suspend fun application(): String = internalId ?: run {
         val response = http().get("$server/api/v2/applications?publicId=${encode(applicationId)}", headers, store = false)
+        if (response.status == 404) throw HttpFailure("No Nexus IQ API at $server. Check the server URL")
         if (!response.ok) throw failure(response, "reading application $applicationId")
         val id = parse(response.text()).array("applications").objects().firstOrNull { it.string("publicId") == applicationId }?.string("id")
             ?: throw HttpFailure("Nexus IQ has no application $applicationId, or this user cannot see it")
@@ -70,14 +72,16 @@ class NexusIqSource(
     suspend fun reportUrl(): String? {
         val response = http().get("$server/api/v2/reports/applications/${application()}", headers, store = false)
         if (!response.ok) throw failure(response, "reading the reports")
-        val reports = JsonParser.parseString(response.text()).takeIf(JsonElement::isJsonArray)?.asJsonArray?.toList().objects()
+        val reports = json(response.text()).takeIf(JsonElement::isJsonArray)?.asJsonArray?.toList().objects()
         val newest = reports.maxByOrNull { report -> report.string("evaluationDate")?.let { runCatching { OffsetDateTime.parse(it).toInstant() }.getOrNull() } ?: Instant.MIN }
-        return newest?.string("reportHtmlUrl")?.let { "$server/${it.trimStart('/')}" }
+        return newest?.string("reportHtmlUrl")?.let { if (it.startsWith("http://") || it.startsWith("https://")) it else "$server/${it.trimStart('/')}" }
     }
 
     private suspend fun evaluate(app: String, packages: List<Pkg>): Map<Pkg, List<Advisory>> {
         val components = JsonArray().apply { packages.forEach { pkg -> add(JsonObject().apply { addProperty("packageUrl", purl(pkg)) }) } }
         val response = http().post("$server/api/v2/evaluation/applications/$app", JsonObject().apply { add("components", components) }.toString(), headers)
+        // The application may have been deleted and created again, so its ID is looked up again next time.
+        if (response.status == 404) internalId = null
         if (!response.ok) throw failure(response, "evaluating dependencies")
         val result = parse(response.text()).string("resultId") ?: throw HttpFailure("Nexus IQ returned no evaluation result")
         // The result is 404 until the evaluation is done.
@@ -172,10 +176,15 @@ class NexusIqSource(
         })
 
         private fun encode(text: String) = URLEncoder.encode(text, Charsets.UTF_8).replace("+", "%20")
-        private fun parse(text: String) = JsonParser.parseString(text).asJsonObject
-        private fun JsonObject.string(name: String): String? = get(name)?.takeIf(JsonElement::isJsonPrimitive)?.asString
-        private fun JsonObject.obj(name: String): JsonObject? = get(name)?.takeIf(JsonElement::isJsonObject)?.asJsonObject
-        private fun JsonObject.array(name: String): List<JsonElement> = get(name)?.takeIf(JsonElement::isJsonArray)?.asJsonArray?.toList().orEmpty()
-        private fun List<JsonElement>?.objects(): List<JsonObject> = orEmpty().mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
+
+        /** A JSON answer. A login or proxy page in its place usually means a wrong server URL. */
+        private fun json(text: String): JsonElement = try {
+            JsonParser.parseString(text)
+        } catch (e: JsonParseException) {
+            throw HttpFailure("Nexus IQ did not answer with JSON. Check the server URL")
+        }
+
+        private fun parse(text: String): JsonObject = json(text).takeIf(JsonElement::isJsonObject)?.asJsonObject
+            ?: throw HttpFailure("Nexus IQ did not answer with JSON. Check the server URL")
     }
 }
