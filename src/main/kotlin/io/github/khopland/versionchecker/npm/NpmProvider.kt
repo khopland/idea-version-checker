@@ -7,6 +7,7 @@ import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.json.psi.JsonValue
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.core.Declaration
@@ -116,23 +117,28 @@ class NpmProvider : DeclarationProvider {
         if (workspace.isNotEmpty() || (SECTIONS + "peerDependencies").any { (root.findProperty(it)?.value as? JsonObject)?.findProperty(name) != null }) return null
         val key = NpmOverrides.key(name, transitive.pkg.version, version) ?: return null
         val keys = if (lock is PackageLock) listOf("overrides") else listOf("pnpm", "overrides")
-        if (lock is PnpmLock && !pnpmOverridesInPackageJson(root, lock, NpmOverrides.find(root, keys) != null)) {
-            val text = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { PnpmWorkspace.text(it) ?: return null }
+        val workspaceFile = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)
+        if (lock is PnpmLock && pnpmOverridesInWorkspaceFile(root, vfile, workspaceFile)) {
+            val text = workspaceFile?.let { PnpmWorkspace.text(it) ?: return null }
             return if (text == null || PnpmWorkspace.canAddOverride(text, name, key)) PnpmWorkspaceOverrideFix(name, key, version) else null
         }
         return if (NpmOverrides.canAdd(root, keys, name, key)) NpmOverrideFix(keys.toTypedArray(), name, key, version) else null
     }
 
     /**
-     * Whether pnpm reads overrides from `pnpm.overrides` in `package.json` rather than from `pnpm-workspace.yaml`: pnpm 9
-     * and older read only `package.json`, pnpm 10 reads `package.json` when it has them, which then hide the workspace
-     * file's, and pnpm 11 reads only the workspace file. Without `packageManager`, a lockfile older than version 9 is
-     * from pnpm 8, and otherwise overrides already in `package.json` say where the project keeps them.
+     * Whether the pnpm override goes to `pnpm-workspace.yaml` rather than to `pnpm.overrides` in `package.json`. pnpm 11
+     * and later read only the workspace file. Every older pnpm reads `package.json`, while a workspace file without
+     * `packages` makes pnpm 9 and early pnpm 10 fail to install. The version comes from `packageManager`, or else from the
+     * last install. When it is unknown, `package.json` is used unless the workspace file already has overrides: pnpm 11
+     * then warns that it ignores them, which is better than an install that fails.
      */
-    private fun pnpmOverridesInPackageJson(root: JsonObject, lock: PnpmLock, hasOverrides: Boolean): Boolean {
-        val major = (root.findProperty("packageManager")?.value as? JsonStringLiteral)?.value
-            ?.let { Regex("""^pnpm@(\d+)\.""").find(it) }?.groupValues?.get(1)?.toIntOrNull()
-        return if (major != null) major <= 9 || major == 10 && hasOverrides else lock.version < 9 || hasOverrides
+    private fun pnpmOverridesInWorkspaceFile(root: JsonObject, packageJson: VirtualFile, workspaceFile: VirtualFile?): Boolean {
+        val declared = (root.findProperty("packageManager")?.value as? JsonStringLiteral)?.value?.let { pnpmMajor.find(it) }
+        // pnpm writes the version it installed with to node_modules/.modules.yaml, as YAML before pnpm 11 and as JSON since.
+        val installed = declared ?: packageJson.parent?.findChild("node_modules")?.findChild(".modules.yaml")
+            ?.let { runCatching { VfsUtilCore.loadText(it) }.getOrNull() }?.let { installedPnpm.find(it) }
+        val major = (declared ?: installed)?.groupValues?.get(1)?.toIntOrNull()
+        return if (major != null) major >= 11 else workspaceFile?.let(PnpmWorkspace::text)?.let(PnpmWorkspace::hasOverrides) == true
     }
 
     /** `"pnpm@9.12.0"`. A `+sha512.…` hash must change with the version, so the plugin only warns. */
@@ -151,6 +157,8 @@ class NpmProvider : DeclarationProvider {
 
     companion object {
         private val SECTIONS = listOf("dependencies", "devDependencies", "optionalDependencies")
+        private val pnpmMajor = Regex("""^pnpm@(\d+)\.""")
+        private val installedPnpm = Regex("""packageManager"?\s*:\s*"?pnpm@(\d+)\.""")
         private val packageManager = Regex("""^(npm|pnpm|yarn|bun)@(\d+\.\d+\.\d+)(\+.*)?$""")
     }
 }

@@ -308,7 +308,7 @@ class NpmTransitiveTest : BasePlatformTestCase() {
 
     fun testPnpmOverrideGoesToTheWorkspaceFile() {
         pnpmLock()
-        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
+        myFixture.configureByText("package.json", """{"packageManager": "pnpm@11.0.0", "dependencies": {"web": "^1.0.0"}}""")
         intentions("\"web\"")
         myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to ^6.2.4 in pnpm-workspace.yaml"))
         val yaml = FileDocumentManager.getInstance().getDocument(myFixture.findFileInTempDir("pnpm-workspace.yaml"))!!
@@ -337,14 +337,39 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         }
         val overrides = """"pnpm": {"overrides": {"left-pad": "1.3.0"}}"""
         assertEquals("package.json", target("""{"packageManager": "pnpm@9.12.0", "dependencies": {"web": "^1.0.0"}}"""))
-        // pnpm 10 reads package.json when it has overrides, and then ignores the workspace file's.
-        assertEquals("package.json", target("""{"packageManager": "pnpm@10.12.1", "dependencies": {"web": "^1.0.0"}, $overrides}"""))
-        assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@10.12.1", "dependencies": {"web": "^1.0.0"}}"""))
+        // Every pnpm 10 reads package.json, and a workspace file with only overrides breaks 10.0 to 10.4.
+        assertEquals("package.json", target("""{"packageManager": "pnpm@10.4.1", "dependencies": {"web": "^1.0.0"}}"""))
+        assertEquals("package.json", target("""{"packageManager": "pnpm@10.12.1", "dependencies": {"web": "^1.0.0"}}"""))
         assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@11.0.0", "dependencies": {"web": "^1.0.0"}, $overrides}"""))
-        // Without packageManager: lockfile version 6 is from pnpm 8, and otherwise existing overrides decide.
+        // Unknown version: package.json, which works up to pnpm 10 and only warns on 11, rather than a file that breaks pnpm 9.
+        assertEquals("package.json", target("""{"dependencies": {"web": "^1.0.0"}}"""))
         assertEquals("package.json", target("""{"dependencies": {"web": "^1.0.0"}}""", "6.0"))
-        assertEquals("package.json", target("""{"dependencies": {"web": "^1.0.0"}, $overrides}"""))
+        // The last install says which pnpm it was: YAML before pnpm 11, JSON since.
+        myFixture.addFileToProject("node_modules/.modules.yaml", "{\n  \"packageManager\": \"pnpm@11.28.9\"\n}\n")
         assertEquals("pnpm-workspace.yaml", target("""{"dependencies": {"web": "^1.0.0"}}"""))
+        WriteAction.runAndWait<Throwable> { myFixture.findFileInTempDir("node_modules/.modules.yaml").setBinaryContent("packageManager: pnpm@9.15.9\n".toByteArray()) }
+        assertEquals("package.json", target("""{"dependencies": {"web": "^1.0.0"}}"""))
+        WriteAction.runAndWait<Throwable> { myFixture.findFileInTempDir("node_modules/.modules.yaml").delete(this) }
+        // A workspace file that already has overrides is where the project keeps them.
+        myFixture.addFileToProject("pnpm-workspace.yaml", "packages:\n  - app\noverrides:\n  left-pad: 1.3.0\n")
+        assertEquals("pnpm-workspace.yaml", target("""{"dependencies": {"web": "^1.0.0"}}"""))
+    }
+
+    fun testWorkspaceFilePreviewShowsTheExistingFile() {
+        pnpmLock()
+        myFixture.addFileToProject("pnpm-workspace.yaml", "packages:\n  - app\n")
+        myFixture.configureByText("package.json", """{"packageManager": "pnpm@11.0.0", "dependencies": {"web": "^1.0.0"}}""")
+        intentions("\"web\"")
+        val preview = myFixture.getIntentionPreviewText(myFixture.findSingleIntention("Override qs@^6 to ^6.2.4 in pnpm-workspace.yaml"))!!
+        assertTrue(preview, "packages:" in preview && "'qs@^6': '^6.2.4'" in preview)
+    }
+
+    fun testOverrideKeys() {
+        assertEquals("qs@^6", NpmOverrides.key("qs", "6.0.0", "6.2.4"))
+        assertEquals("x@^0.3", NpmOverrides.key("x", "0.3.1", "0.3.4"))
+        assertNull(NpmOverrides.key("x", "0.3.1", "0.4.0"))
+        // Each 0.0.x is its own range, so a range value would move newer copies back.
+        assertNull(NpmOverrides.key("x", "0.0.3", "0.0.4"))
     }
 
     fun testPnpmWorkspaceOverrides() {
