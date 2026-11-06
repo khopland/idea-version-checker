@@ -142,8 +142,8 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         assertTrue(Pkg(Ecosystem.NPM, "qs", "6.0.0") in source.queried)
 
         intentions("\"web\"")
-        assertTrue(myFixture.getIntentionPreviewText(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in package.json"))!!.contains("\"qs@^6\": \"6.2.4\""))
-        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in package.json"))
+        assertTrue(myFixture.getIntentionPreviewText(myFixture.findSingleIntention("Override qs@^6 to ^6.2.4 in package.json"))!!.contains("\"qs@^6\": \"^6.2.4\""))
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to ^6.2.4 in package.json"))
         assertEquals("""
             {
               "name": "demo",
@@ -151,7 +151,7 @@ class NpmTransitiveTest : BasePlatformTestCase() {
                 "web": "^1.0.0"
               },
               "overrides": {
-                "qs@^6": "6.2.4"
+                "qs@^6": "^6.2.4"
               }
             }
         """.trimIndent(), myFixture.editor.document.text)
@@ -161,16 +161,21 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         lock("package-lock.json", "node_modules/web: 1.0.0 > qs", "node_modules/qs: 6.0.0")
         myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}, "overrides": {"left-pad": "1.3.0"}}""")
         intentions("\"web\"")
-        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in package.json"))
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to ^6.2.4 in package.json"))
         val text = myFixture.editor.document.text
-        assertTrue(text, Regex(""""overrides": \{"left-pad": "1.3.0",\s*"qs@\^6": "6.2.4"\s*}""").containsMatchIn(text))
+        assertTrue(text, Regex(""""overrides": \{"left-pad": "1.3.0",\s*"qs@\^6": "\^6.2.4"\s*}""").containsMatchIn(text))
     }
 
     fun testNoOverrideWhereNpmWouldRefuseIt() {
-        // Already overridden: the override is checked as a declaration.
+        // Already overridden for this major. A bare name overrides every copy, which counts too.
         lock("package-lock.json", "node_modules/web: 1.0.0 > qs", "node_modules/qs: 6.0.0")
         myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}, "overrides": {"qs@^6": "6.0.0"}}""")
         assertEquals(1, warnings().size)
+        assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
+        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}, "overrides": {"qs": "6.2.4"}}""")
+        assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
+        // npm refuses an override of a package the root depends on, peers included.
+        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}, "peerDependencies": {"qs": "^6.0.0"}}""")
         assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
     }
 
@@ -305,9 +310,9 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         pnpmLock()
         myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
         intentions("\"web\"")
-        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in pnpm-workspace.yaml"))
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to ^6.2.4 in pnpm-workspace.yaml"))
         val yaml = FileDocumentManager.getInstance().getDocument(myFixture.findFileInTempDir("pnpm-workspace.yaml"))!!
-        assertEquals("overrides:\n  'qs@^6': 6.2.4\n", yaml.text)
+        assertEquals("overrides:\n  'qs@^6': '^6.2.4'\n", yaml.text)
         assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
     }
 
@@ -315,19 +320,39 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         pnpmLock()
         myFixture.configureByText("package.json", """{"packageManager": "pnpm@9.12.0", "dependencies": {"web": "^1.0.0"}}""")
         intentions("\"web\"")
-        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to 6.2.4 in package.json"))
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs@^6 to ^6.2.4 in package.json"))
         val text = myFixture.editor.document.text
-        assertTrue(text, Regex(""""pnpm": \{\s*"overrides": \{\s*"qs@\^6": "6.2.4"\s*}\s*}""").containsMatchIn(text))
-        // Without packageManager, overrides already in package.json say where the project keeps them.
-        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}, "pnpm": {"overrides": {"left-pad": "1.3.0"}}}""")
-        assertContainsElements(intentions("\"web\""), "Override qs@^6 to 6.2.4 in package.json")
+        assertTrue(text, Regex(""""pnpm": \{\s*"overrides": \{\s*"qs@\^6": "\^6.2.4"\s*}\s*}""").containsMatchIn(text))
+    }
+
+    fun testWhereThePnpmOverrideGoes() {
+        fun target(packageJson: String, lockfileVersion: String = "9.0"): String? {
+            val text = "lockfileVersion: '$lockfileVersion'\nimporters:\n  .:\n    dependencies:\n      web:\n        version: 1.0.0\n" +
+                "snapshots:\n  qs@6.0.0: {}\n  web@1.0.0:\n    dependencies:\n      qs: 6.0.0\n"
+            val existing = myFixture.tempDirFixture.getFile("pnpm-lock.yaml")
+            if (existing == null) myFixture.addFileToProject("pnpm-lock.yaml", text)
+            else WriteAction.runAndWait<Throwable> { existing.setBinaryContent(text.toByteArray()) }
+            myFixture.configureByText("package.json", packageJson)
+            return intentions("\"web\"").firstOrNull { it.startsWith("Override ") }?.substringAfterLast(" in ")
+        }
+        val overrides = """"pnpm": {"overrides": {"left-pad": "1.3.0"}}"""
+        assertEquals("package.json", target("""{"packageManager": "pnpm@9.12.0", "dependencies": {"web": "^1.0.0"}}"""))
+        // pnpm 10 reads package.json when it has overrides, and then ignores the workspace file's.
+        assertEquals("package.json", target("""{"packageManager": "pnpm@10.12.1", "dependencies": {"web": "^1.0.0"}, $overrides}"""))
+        assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@10.12.1", "dependencies": {"web": "^1.0.0"}}"""))
+        assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@11.0.0", "dependencies": {"web": "^1.0.0"}, $overrides}"""))
+        // Without packageManager: lockfile version 6 is from pnpm 8, and otherwise existing overrides decide.
+        assertEquals("package.json", target("""{"dependencies": {"web": "^1.0.0"}}""", "6.0"))
+        assertEquals("package.json", target("""{"dependencies": {"web": "^1.0.0"}, $overrides}"""))
+        assertEquals("pnpm-workspace.yaml", target("""{"dependencies": {"web": "^1.0.0"}}"""))
     }
 
     fun testPnpmWorkspaceOverrides() {
-        assertEquals("overrides:\n  'a@^1': 1.0.1\n", PnpmWorkspace.withOverride("", "a@^1", "1.0.1"))
-        assertEquals("packages:\n  - app\n\noverrides:\n  'a@^1': 1.0.1\n", PnpmWorkspace.withOverride("packages:\n  - app\n", "a@^1", "1.0.1"))
-        assertEquals("overrides:\n    b: 2.0.0\n    'a@^1': 1.0.1\n\ncatalog:\n  c: 1.0.0\n",
-            PnpmWorkspace.withOverride("overrides:\n    b: 2.0.0\n\ncatalog:\n  c: 1.0.0\n", "a@^1", "1.0.1"))
+        assertEquals("overrides:\n  'a@^1': '^1.0.1'\n", PnpmWorkspace.withOverride("", "a@^1", "^1.0.1"))
+        assertEquals("packages:\n  - app\n\noverrides:\n  'a@^1': '^1.0.1'\n", PnpmWorkspace.withOverride("packages:\n  - app\n", "a@^1", "^1.0.1"))
+        assertEquals("overrides:\n    b: 2.0.0\n    'a@^1': '^1.0.1'\n\ncatalog:\n  c: 1.0.0\n",
+            PnpmWorkspace.withOverride("overrides:\n    b: 2.0.0\n\ncatalog:\n  c: 1.0.0\n", "a@^1", "^1.0.1"))
+        assertEquals("overrides:\r\n  b: 2.0.0\r\n  'a@^1': '^1.0.1'\r\n", PnpmWorkspace.withOverride("overrides:\r\n  b: 2.0.0\r\n", "a@^1", "^1.0.1"))
         assertFalse(PnpmWorkspace.canAddOverride("overrides:\n  a: 1.0.1\n", "a", "a@^1"))
         assertFalse(PnpmWorkspace.canAddOverride("overrides:\n  'a@^1': 1.0.1\n", "a", "a@^1"))
         assertFalse(PnpmWorkspace.canAddOverride("overrides: {}\n", "a", "a@^1"))

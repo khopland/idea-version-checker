@@ -1,6 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.core.Declaration
@@ -50,9 +51,16 @@ internal object PnpmWorkspace {
     fun canAddOverride(text: String, name: String, key: String): Boolean =
         !inlineOverrides.containsMatchIn(text) && entries(text).none { it.section == "overrides" && (it.key == name || it.key == key) }
 
-    /** [text] with `'key': version` at the end of its `overrides` section, which is added at the end when missing. */
+    /** The text of [file], unsaved edits included, or null when it cannot be read. */
+    fun text(file: VirtualFile): String? = FileDocumentManager.getInstance().getDocument(file)?.text
+
+    /**
+     * [text] with `'key': 'version'` at the end of its `overrides` section, which is added at the end when missing.
+     * Quoted, since a range such as `^1.2.3` is not a plain YAML value everywhere.
+     */
     fun withOverride(text: String, key: String, version: String): String {
-        val entry = "'$key': $version"
+        val entry = "'$key': '$version'"
+        if ("\r\n" in text) return withOverride(text.replace("\r\n", "\n"), key, version).replace("\n", "\r\n")
         val lines = text.split('\n').toMutableList()
         val header = lines.indexOfFirst { overridesHeader.matches(it.removeSuffix("\r")) }
         if (header < 0) {
