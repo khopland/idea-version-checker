@@ -137,6 +137,7 @@ The server and application are stored in `.idea/version-checker.xml`, so you can
 - The message names the policy, as in `CVE-2021-44228 (critical): Security-Critical policy. Fixed in 2.17.1`. The fix is the lowest version from or above the one Nexus IQ suggests without policy violations.
 - **Alt+Enter → Open … in Nexus IQ to waive** opens the application's newest scan report in the browser, where you can waive the violation. The report shows the last scan of the application, so a dependency changed since then may not be in it yet.
 - Results stay in memory for 30 minutes, as for OSV.dev. **Check Now** asks again, for example after you waive a violation.
+- To see what Nexus IQ answers, add `#io.github.khopland.versionchecker.vuln.NexusIqSource` in **Help → Diagnostic Tools → Debug Log Settings** and look in `idea.log`. Credentials are not logged.
 
 Only declared dependencies are checked otherwise, including npm, Bun and pnpm catalog entries. Transitive dependencies of Gradle, Yarn and Bun projects, npm `overrides` and `resolutions`, `packageManager`, Gradle plugins, the wrappers, toolchain files and GitHub Actions are not, so this does not replace a full scan of the resolved dependencies, such as `npm audit`, OWASP Dependency-Check or a Nexus IQ or Snyk scan.
 IntelliJ IDEA Ultimate's built-in **Package Checker** plugin may report the same vulnerabilities; turn one of them off if you see both.
