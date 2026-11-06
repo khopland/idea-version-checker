@@ -7,7 +7,6 @@ import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.json.psi.JsonValue
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.TextRange
-import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.core.Declaration
@@ -106,9 +105,8 @@ class NpmProvider : DeclarationProvider {
 
     /**
      * An override in the root of the workspace, scoped to the vulnerable version's major, so other copies keep theirs:
-     * npm `overrides`, `pnpm.overrides` for pnpm 9 and older, or else `overrides` in `pnpm-workspace.yaml`, which pnpm 10
-     * reads and pnpm 11 requires. Not for a package that this file depends on directly, which npm refuses to override,
-     * nor for one that is already overridden.
+     * npm `overrides`, or for pnpm see [pnpmOverridesInPackageJson]. Not for a package that this file depends on directly,
+     * which npm refuses to override, nor for one that is already overridden.
      */
     override fun pin(file: PsiFile, transitive: Transitive, version: String): IntentionAction? {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return null
@@ -118,17 +116,24 @@ class NpmProvider : DeclarationProvider {
         if (workspace.isNotEmpty() || (SECTIONS + "peerDependencies").any { (root.findProperty(it)?.value as? JsonObject)?.findProperty(name) != null }) return null
         val key = NpmOverrides.key(name, transitive.pkg.version, version) ?: return null
         val keys = if (lock is PackageLock) listOf("overrides") else listOf("pnpm", "overrides")
-        val inPackageJson = lock is PackageLock || pnpmMajor(root)?.let { it < 10 } ?: (NpmOverrides.find(root, keys) != null)
-        if (!inPackageJson) {
-            val text = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { runCatching { VfsUtilCore.loadText(it) }.getOrNull() ?: return null }
-            return if (text == null || PnpmWorkspace.canAddOverride(text, name, key)) PnpmWorkspaceOverrideFix(key, version) else null
+        if (lock is PnpmLock && !pnpmOverridesInPackageJson(root, lock, NpmOverrides.find(root, keys) != null)) {
+            val text = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { PnpmWorkspace.text(it) ?: return null }
+            return if (text == null || PnpmWorkspace.canAddOverride(text, name, key)) PnpmWorkspaceOverrideFix(name, key, version) else null
         }
-        return if (NpmOverrides.canAdd(root, keys, name, key)) NpmOverrideFix(keys.toTypedArray(), key, version) else null
+        return if (NpmOverrides.canAdd(root, keys, name, key)) NpmOverrideFix(keys.toTypedArray(), name, key, version) else null
     }
 
-    /** The major version in `"packageManager": "pnpm@9.12.0"`, or null when another or no package manager is set. */
-    private fun pnpmMajor(root: JsonObject): Int? =
-        (root.findProperty("packageManager")?.value as? JsonStringLiteral)?.value?.let { Regex("""^pnpm@(\d+)\.""").find(it) }?.groupValues?.get(1)?.toIntOrNull()
+    /**
+     * Whether pnpm reads overrides from `pnpm.overrides` in `package.json` rather than from `pnpm-workspace.yaml`: pnpm 9
+     * and older read only `package.json`, pnpm 10 reads `package.json` when it has them, which then hide the workspace
+     * file's, and pnpm 11 reads only the workspace file. Without `packageManager`, a lockfile older than version 9 is
+     * from pnpm 8, and otherwise overrides already in `package.json` say where the project keeps them.
+     */
+    private fun pnpmOverridesInPackageJson(root: JsonObject, lock: PnpmLock, hasOverrides: Boolean): Boolean {
+        val major = (root.findProperty("packageManager")?.value as? JsonStringLiteral)?.value
+            ?.let { Regex("""^pnpm@(\d+)\.""").find(it) }?.groupValues?.get(1)?.toIntOrNull()
+        return if (major != null) major <= 9 || major == 10 && hasOverrides else lock.version < 9 || hasOverrides
+    }
 
     /** `"pnpm@9.12.0"`. A `+sha512.…` hash must change with the version, so the plugin only warns. */
     private fun packageManager(literal: JsonStringLiteral, file: VirtualFile, registries: RegistryConfig): Declaration? {

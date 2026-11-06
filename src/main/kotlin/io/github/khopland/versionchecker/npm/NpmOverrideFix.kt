@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.npm
 
+import com.intellij.codeInsight.FileModificationService
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
@@ -13,7 +14,6 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -45,15 +45,16 @@ internal object NpmOverrides {
 }
 
 /**
- * Alt+Enter: add an override of [key], such as `qs@^6`, at [version] to the object at [keys] in `package.json`, such as
- * `overrides` for npm or `pnpm`, `overrides`. The next install moves the matching copies.
+ * Alt+Enter: add an override of [key], such as `qs@^6`, to the object at [keys] in `package.json`, such as `overrides` for
+ * npm or `pnpm`, `overrides`. The value is a range from [version], so newer copies in the range keep their version.
  */
-class NpmOverrideFix(private val keys: Array<String>, private val key: String, private val version: String) : IntentionAction, PriorityAction {
-    override fun getText() = "Override $key to $version in package.json"
+class NpmOverrideFix(private val keys: Array<String>, private val name: String, private val key: String, private val version: String) :
+    IntentionAction, PriorityAction {
+    override fun getText() = "Override $key to ^$version in package.json"
     override fun getFamilyName() = "Override transitive dependency"
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return false
-        return NpmOverrides.canAdd(root, keys.toList(), key, key)
+        return NpmOverrides.canAdd(root, keys.toList(), name, key)
     }
     override fun startInWriteAction() = true
     override fun getPriority() = PriorityAction.Priority.TOP
@@ -67,7 +68,7 @@ class NpmOverrideFix(private val keys: Array<String>, private val key: String, p
             owner.findProperty(k)?.value as? JsonObject
                 ?: (JsonPsiUtil.addProperty(owner, generator.createProperty(k, "{}"), false) as JsonProperty).also { created = created ?: it }.value as JsonObject
         }
-        val added = JsonPsiUtil.addProperty(overrides, generator.createProperty(key, "\"$version\""), false)
+        val added = JsonPsiUtil.addProperty(overrides, generator.createProperty(key, "\"^$version\""), false)
         // The JSON formatter builds its blocks from the file, so it formats a range rather than the new element.
         val range = (created ?: added).textRange
         CodeStyleManager.getInstance(project).reformatRange(file, range.startOffset, range.endOffset)
@@ -75,32 +76,34 @@ class NpmOverrideFix(private val keys: Array<String>, private val key: String, p
 }
 
 /**
- * Alt+Enter: add an override of [key] at [version] to `overrides` in `pnpm-workspace.yaml` next to `package.json`,
- * creating the file or the section when needed.
+ * Alt+Enter: add an override of [key] to `overrides` in `pnpm-workspace.yaml` next to `package.json`, creating the file
+ * or the section when needed. The value is a range from [version], like [NpmOverrideFix].
  */
-class PnpmWorkspaceOverrideFix(private val key: String, private val version: String) : IntentionAction, PriorityAction {
-    override fun getText() = "Override $key to $version in ${PnpmWorkspace.FILE_NAME}"
+class PnpmWorkspaceOverrideFix(private val name: String, private val key: String, private val version: String) : IntentionAction, PriorityAction {
+    override fun getText() = "Override $key to ^$version in ${PnpmWorkspace.FILE_NAME}"
     override fun getFamilyName() = "Override transitive dependency"
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean {
         val dir = file?.virtualFile?.parent ?: return false
-        val text = dir.findChild(PnpmWorkspace.FILE_NAME)?.let { FileDocumentManager.getInstance().getDocument(it)?.text } ?: return true
-        return PnpmWorkspace.canAddOverride(text, key, key)
+        val yaml = dir.findChild(PnpmWorkspace.FILE_NAME) ?: return true
+        return PnpmWorkspace.text(yaml)?.let { PnpmWorkspace.canAddOverride(it, name, key) } == true
     }
     override fun startInWriteAction() = false
     override fun getPriority() = PriorityAction.Priority.TOP
 
     override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
         val dir = file?.virtualFile?.parent ?: return
+        // Another file than the one in the editor, so the platform does not make it writable.
+        dir.findChild(PnpmWorkspace.FILE_NAME)?.let { if (!FileModificationService.getInstance().prepareVirtualFilesForWrite(project, listOf(it))) return }
         WriteCommandAction.writeCommandAction(project).withName(text).withGlobalUndo().run<RuntimeException> {
             val yaml = dir.findChild(PnpmWorkspace.FILE_NAME) ?: dir.createChildData(this, PnpmWorkspace.FILE_NAME)
             val document = FileDocumentManager.getInstance().getDocument(yaml) ?: return@run
-            document.setText(PnpmWorkspace.withOverride(document.text, key, version))
+            document.setText(PnpmWorkspace.withOverride(document.text, key, "^$version"))
             PsiDocumentManager.getInstance(project).commitDocument(document)
         }
     }
 
     override fun generatePreview(project: Project, editor: Editor, file: PsiFile): IntentionPreviewInfo {
-        val before = file.virtualFile?.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { runCatching { VfsUtilCore.loadText(it) }.getOrNull() } ?: ""
-        return IntentionPreviewInfo.CustomDiff(PlainTextFileType.INSTANCE, PnpmWorkspace.FILE_NAME, before, PnpmWorkspace.withOverride(before, key, version))
+        val before = file.virtualFile?.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let(PnpmWorkspace::text) ?: ""
+        return IntentionPreviewInfo.CustomDiff(PlainTextFileType.INSTANCE, PnpmWorkspace.FILE_NAME, before, PnpmWorkspace.withOverride(before, key, "^$version"))
     }
 }
