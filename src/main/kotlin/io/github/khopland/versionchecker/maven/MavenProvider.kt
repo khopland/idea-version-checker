@@ -1,6 +1,5 @@
 package io.github.khopland.versionchecker.maven
 
-import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.psi.PsiFile
@@ -11,6 +10,7 @@ import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
+import io.github.khopland.versionchecker.core.PinFix
 import io.github.khopland.versionchecker.core.Pkg
 import io.github.khopland.versionchecker.core.Transitive
 import io.github.khopland.versionchecker.repo.MavenLookup
@@ -157,7 +157,7 @@ class MavenProvider : DeclarationProvider {
     }
 
     /** Dependency management in this POM. A package it already manages is checked as a declaration instead. */
-    override fun pin(file: PsiFile, transitive: Transitive, version: String): IntentionAction? {
+    override fun pin(file: PsiFile, transitive: Transitive, version: String): PinFix? {
         val (group, artifact) = transitive.pkg.name.split(':', limit = 2)
         return PinDependencyFix(group, artifact, version)
     }

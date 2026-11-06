@@ -72,6 +72,15 @@ class Declaration(
  */
 class Transitive(val via: String, val range: TextRange, val pkg: Pkg, val path: List<String> = emptyList(), val lookup: Lookup? = null)
 
+/**
+ * A fix that pins a package. Fixes with the same [target], such as `qs@^6` or `group:artifact`, write the same entry,
+ * so only the one with the highest [version] is offered.
+ */
+interface PinFix : IntentionAction {
+    val target: String
+    val version: String
+}
+
 /** Finds declarations in the build files of one ecosystem. */
 interface DeclarationProvider {
     /** File names to scan for **Update All Files**. */
@@ -99,7 +108,7 @@ interface DeclarationProvider {
     fun transitive(file: PsiFile): List<Transitive> = emptyList()
 
     /** A fix that makes the build resolve [transitive] at [version] instead, or null when [file] cannot say so. Runs in a read action. */
-    fun pin(file: PsiFile, transitive: Transitive, version: String): IntentionAction? = null
+    fun pin(file: PsiFile, transitive: Transitive, version: String): PinFix? = null
 
     companion object {
         val EP = ExtensionPointName<DeclarationProvider>("io.github.khopland.version-checker.declarationProvider")
