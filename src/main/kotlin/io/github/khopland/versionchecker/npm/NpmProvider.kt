@@ -121,8 +121,8 @@ class NpmProvider : DeclarationProvider {
         if (lock is PnpmLock) {
             val workspaceText = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { PnpmWorkspace.text(it) ?: return null }
             // pnpm reads overrides from one of the files, so only an override in the one the fix writes to counts.
-            // An empty `pnpm.overrides` does not hide the workspace file's.
-            val inPackageJson = NpmOverrides.find(root, keys)?.propertyList?.isNotEmpty() == true
+            // pnpm reads root `resolutions` like `pnpm.overrides`; either one, when not empty, hides the workspace file's.
+            val inPackageJson = listOf(keys, listOf("resolutions")).any { NpmOverrides.find(root, it)?.propertyList?.isNotEmpty() == true }
             if (pnpmOverridesInWorkspaceFile(root, vfile, inPackageJson, workspaceText))
                 return if (workspaceText == null || PnpmWorkspace.canAddOverride(workspaceText, name, key)) PnpmWorkspaceOverrideFix(name, key, version) else null
         }

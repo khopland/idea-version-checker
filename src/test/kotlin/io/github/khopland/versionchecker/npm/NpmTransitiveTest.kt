@@ -357,6 +357,7 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@10.20.0", "dependencies": {"web": "^1.0.0"}}"""))
         assertEquals("package.json", target("""{"packageManager": "pnpm@10.20.0", "dependencies": {"web": "^1.0.0"}, $overrides}"""))
         assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@10.20.0", "dependencies": {"web": "^1.0.0"}, "pnpm": {"overrides": {}}}"""))
+        assertEquals("package.json", target("""{"packageManager": "pnpm@10.20.0", "dependencies": {"web": "^1.0.0"}, "resolutions": {"left-pad": "1.3.0"}}"""))
         // pnpm before 10.5.1 ignore the workspace file's overrides, even beside packages.
         assertEquals("package.json", target("""{"packageManager": "pnpm@9.15.0", "dependencies": {"web": "^1.0.0"}}"""))
         assertEquals("package.json", target("""{"packageManager": "pnpm@10.5.0", "dependencies": {"web": "^1.0.0"}}"""))
