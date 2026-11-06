@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.maven
 
+import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
@@ -9,8 +10,13 @@ import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
+import io.github.khopland.versionchecker.core.Pkg
+import io.github.khopland.versionchecker.core.Transitive
 import io.github.khopland.versionchecker.repo.MavenLookup
 import io.github.khopland.versionchecker.repo.MavenRepo
+import org.jetbrains.idea.maven.model.MavenArtifact
+import org.jetbrains.idea.maven.model.MavenArtifactNode
+import org.jetbrains.idea.maven.model.MavenArtifactState
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 
@@ -88,4 +94,59 @@ class MavenProvider : DeclarationProvider {
         }
         return result
     }
+
+    /**
+     * The imported dependency tree, below each dependency this POM declares. Maven lists a package that two
+     * dependencies share only once, and marks the other place as a duplicate, so duplicates are expanded from
+     * where Maven added them. Losing versions of a conflict are not used, so they are left out.
+     */
+    override fun transitive(file: PsiFile): List<Transitive> {
+        val xml = file as? XmlFile ?: return emptyList()
+        val root = MavenPoms.root(xml) ?: return emptyList()
+        val pom = file.virtualFile ?: return emptyList()
+        if (MavenRepos.offline(file.project)) return emptyList()
+        val tree = MavenProjectsManager.getInstance(file.project).findProject(pom)?.dependencyTree ?: return emptyList()
+        val declared = (listOf(root) + MavenPoms.profiles(root)).flatMap { MavenPoms.children(it, "dependencies", "dependency") }
+            .mapNotNull { tag ->
+                val group = MavenPoms.text(MavenPoms.child(tag, "groupId")) ?: return@mapNotNull null
+                val artifact = MavenPoms.child(tag, "artifactId")?.takeIf { MavenPoms.text(it) != null } ?: return@mapNotNull null
+                "$group:${MavenPoms.text(artifact)}" to MavenPoms.valueRange(artifact)
+            }.distinctBy { it.first }.toMap()
+        val added = HashMap<String, MavenArtifactNode>()
+        fun index(nodes: List<MavenArtifactNode>): Unit = nodes.forEach { node ->
+            if (node.state == MavenArtifactState.ADDED && added.putIfAbsent(node.artifact.key, node) == null) index(node.dependencies)
+        }
+        index(tree)
+        val repos by lazy { MavenRepos.forPom(file.project, pom, plugins = false) }
+        return tree.flatMap { top ->
+            val range = declared[top.artifact.key] ?: return@flatMap emptyList()
+            // Breadth first, so each package gets its shortest path.
+            val seen = hashSetOf(top.artifact.key)
+            val queue = ArrayDeque(listOf(top to emptyList<String>()))
+            buildList {
+                while (queue.isNotEmpty()) {
+                    val (node, path) = queue.removeFirst()
+                    val children = if (node.state == MavenArtifactState.DUPLICATE) added[node.artifact.key]?.dependencies.orEmpty() else node.dependencies
+                    for (child in children) {
+                        val artifact = child.artifact
+                        if (child.state != MavenArtifactState.ADDED && child.state != MavenArtifactState.DUPLICATE || !seen.add(artifact.key)) continue
+                        add(Transitive(top.artifact.key, range, Pkg(Ecosystem.MAVEN, artifact.key, artifact.baseVersion), path,
+                            MavenLookup(artifact.groupId, artifact.artifactId, repos)))
+                        queue += child to path + artifact.key
+                    }
+                }
+            }
+        }
+    }
+
+    /** Dependency management in this POM, unless it already manages the package: then that entry is the one to update. */
+    override fun pin(file: PsiFile, transitive: Transitive, version: String): IntentionAction? {
+        val root = (file as? XmlFile)?.let(MavenPoms::root) ?: return null
+        val (group, artifact) = transitive.pkg.name.split(':', limit = 2)
+        val managed = (listOf(root) + MavenPoms.profiles(root)).flatMap { MavenPoms.children(it, "dependencyManagement", "dependencies", "dependency") }
+        if (managed.any { MavenPoms.text(MavenPoms.child(it, "groupId")) == group && MavenPoms.text(MavenPoms.child(it, "artifactId")) == artifact }) return null
+        return PinDependencyFix(group, artifact, version)
+    }
+
+    private val MavenArtifact.key get() = "$groupId:$artifactId"
 }

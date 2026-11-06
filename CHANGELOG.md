@@ -5,6 +5,7 @@
 ### Added
 
 - **Vulnerable dependency version** inspection: known vulnerabilities of declared Maven, Gradle and npm dependencies from OSV.dev, with a fix to the lowest stable version that fixes all of them. Off by default: turn on **Check for known vulnerabilities** in **Settings → Tools → Version Checker**. The patch, minor and major fixes say when the new version is still vulnerable.
+- **Vulnerable transitive dependency** inspection: in Maven projects, a warning on a declared dependency that brings in a vulnerable package, with the path to it, from the dependency tree of the last import. **Alt+Enter** pins the package to the nearest safe version in `<dependencyManagement>`.
 
 ## [2.3.0]
 

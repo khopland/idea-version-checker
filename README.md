@@ -115,7 +115,18 @@ For npm, the declared version is checked, which for `^1.2.3` is the lowest versi
 - `<!--suppress VulnerableDependency -->`, `//noinspection VulnerableDependency` or `#noinspection VulnerableDependency` keeps a version, as for outdated versions.
 - Results stay in memory for 30 minutes. **Check Now** asks again. Advisory details stay on disk until OSV.dev reports a change, or for 30 days unused. An advisory that could not be read shows by its ID, without a fix, and is asked for again after a minute.
 
-Only declared dependencies are checked, including npm, Bun and pnpm catalog entries. Transitive dependencies, npm `overrides` and `resolutions`, `packageManager`, Gradle plugins, the wrappers, toolchain files and GitHub Actions are not, so this does not replace a full scan of the resolved dependencies, such as `npm audit`, OWASP Dependency-Check or a Nexus IQ or Snyk scan.
+### Transitive dependencies
+
+In Maven projects, the **Vulnerable transitive dependency** inspection warns on the artifact of a declared dependency that brings in a vulnerable package:
+
+> Brings in com.fasterxml.jackson.core:jackson-databind 2.9.0 via org.example:json: CVE-2019-12384 (high): Polymorphic typing. Fixed in 2.9.9.1
+
+- It reads the dependency tree of the last Maven import, so reload the project after changing dependencies. The resolved packages below the dependencies the POM declares go to `api.osv.dev` too. Dependencies inherited from a parent POM show in the parent.
+- It stays a warning at the default level, since the version is not set in the POM and the code may never reach the package.
+- **Alt+Enter** offers **Pin … to … in dependency management**: the lowest stable version above the resolved one that no reported advisory affects, added to `<dependencyManagement>` in this POM. It is not offered when the POM already manages the package; update that entry instead.
+- `<!--suppress VulnerableTransitiveDependency -->` above the `<artifactId>` keeps a dependency. **Alt+Enter → Suppress for tag** puts it there.
+
+Only declared dependencies are checked otherwise, including npm, Bun and pnpm catalog entries. Transitive dependencies of Gradle and npm projects, npm `overrides` and `resolutions`, `packageManager`, Gradle plugins, the wrappers, toolchain files and GitHub Actions are not, so this does not replace a full scan of the resolved dependencies, such as `npm audit`, OWASP Dependency-Check or a Nexus IQ or Snyk scan.
 IntelliJ IDEA Ultimate's built-in **Package Checker** plugin may report the same vulnerabilities; turn one of them off if you see both.
 
 ## Redundant Maven overrides
