@@ -114,11 +114,7 @@ class MavenProvider : DeclarationProvider {
         val tree = project.dependencyTree
         val modules = manager.projects.mapTo(hashSetOf()) { "${it.mavenId.groupId}:${it.mavenId.artifactId}" }
         val sections = listOf(root) + MavenPoms.profiles(root)
-        fun key(tag: XmlTag): String? {
-            // Sibling modules often write the group as `${project.groupId}`.
-            val group = MavenPoms.text(MavenPoms.child(tag, "groupId"))?.replace("\${project.groupId}", project.mavenId.groupId.orEmpty()) ?: return null
-            return MavenPoms.text(MavenPoms.child(tag, "artifactId"))?.let { "$group:$it" }
-        }
+        fun key(tag: XmlTag) = MavenPoms.coordinates(tag, project)
         val declared = sections.flatMap { MavenPoms.children(it, "dependencies", "dependency") }
             .mapNotNull { tag -> key(tag)?.let { it to MavenPoms.valueRange(MavenPoms.child(tag, "artifactId")!!) } }
             .distinctBy { it.first }.toMap()

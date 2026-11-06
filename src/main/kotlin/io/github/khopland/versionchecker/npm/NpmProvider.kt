@@ -5,6 +5,7 @@ import com.intellij.json.psi.JsonObject
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.json.psi.JsonValue
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
@@ -141,10 +142,8 @@ class NpmProvider : DeclarationProvider {
      */
     private fun pnpmOverridesInWorkspaceFile(root: JsonObject, packageJson: VirtualFile, inPackageJson: Boolean, workspaceText: String?): Boolean {
         val declared = (root.findProperty("packageManager")?.value as? JsonStringLiteral)?.value?.let { pnpmVersion.find(it) }
-        // pnpm writes the version it installed with to node_modules/.modules.yaml, as YAML before pnpm 11 and as JSON since.
-        val installed = declared ?: packageJson.parent?.findChild("node_modules")?.findChild(".modules.yaml")
-            ?.let { runCatching { VfsUtilCore.loadText(it) }.getOrNull() }?.let { installedPnpm.find(it) }
-        val version = (declared ?: installed)?.let { "${it.groupValues[1]}.${it.groupValues[2]}.${it.groupValues[3]}" }
+        val version = declared?.let { "${it.groupValues[1]}.${it.groupValues[2]}.${it.groupValues[3]}" }
+            ?: packageJson.parent?.findChild("node_modules")?.findChild(MODULES_FILE)?.let(::installedPnpm)
         return when {
             version != null && Versions.compare(version, "11.0.0") >= 0 -> true
             version != null && Versions.compare(version, "10.5.1") < 0 -> false
@@ -170,7 +169,20 @@ class NpmProvider : DeclarationProvider {
     companion object {
         private val SECTIONS = listOf("dependencies", "devDependencies", "optionalDependencies")
         private val pnpmVersion = Regex("""^pnpm@(\d+)\.(\d+)\.(\d+)""")
-        private val installedPnpm = Regex("""packageManager"?\s*:\s*"?pnpm@(\d+)\.(\d+)\.(\d+)""")
+        private val installedPnpmVersion = Regex("""packageManager"?\s*:\s*"?pnpm@(\d+)\.(\d+)\.(\d+)""")
+        private val INSTALLED_PNPM = Key.create<Pair<Long, String?>>("version-checker.installed-pnpm")
+
+        /** The file where pnpm records the version it installed with, as YAML before pnpm 11 and as JSON since. */
+        const val MODULES_FILE = ".modules.yaml"
+
+        /** The pnpm version in [modules], read once per change of the file, since every vulnerable package asks. */
+        private fun installedPnpm(modules: VirtualFile): String? {
+            modules.getUserData(INSTALLED_PNPM)?.takeIf { it.first == modules.modificationStamp }?.let { return it.second }
+            val version = runCatching { VfsUtilCore.loadText(modules) }.getOrNull()?.let { installedPnpmVersion.find(it) }
+                ?.let { "${it.groupValues[1]}.${it.groupValues[2]}.${it.groupValues[3]}" }
+            modules.putUserData(INSTALLED_PNPM, modules.modificationStamp to version)
+            return version
+        }
         private val packageManager = Regex("""^(npm|pnpm|yarn|bun)@(\d+\.\d+\.\d+)(\+.*)?$""")
     }
 }

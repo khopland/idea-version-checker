@@ -8,6 +8,7 @@ import com.intellij.psi.codeStyle.CodeStyleManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
 import io.github.khopland.versionchecker.core.PinFix
+import org.jetbrains.idea.maven.project.MavenProjectsManager
 
 /**
  * Alt+Enter: add the package to `<dependencyManagement>` at [version]. Managed versions win over the ones
@@ -19,9 +20,10 @@ class PinDependencyFix(private val groupId: String, private val artifactId: Stri
     override fun getFamilyName() = "Pin transitive dependency"
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean {
         val root = (file as? XmlFile)?.let(MavenPoms::root) ?: return false
-        // Another warning's fix may have added it already.
+        val imported = file.virtualFile?.let { MavenProjectsManager.getInstance(project).findProject(it) }
+        // Another warning's fix, or the user, may have added it already, perhaps with the group in a property.
         return (listOf(root) + MavenPoms.profiles(root)).flatMap { MavenPoms.children(it, "dependencyManagement", "dependencies", "dependency") }
-            .none { MavenPoms.text(MavenPoms.child(it, "groupId")) == groupId && MavenPoms.text(MavenPoms.child(it, "artifactId")) == artifactId }
+            .none { MavenPoms.coordinates(it, imported) == target }
     }
     override fun startInWriteAction() = true
     override fun getPriority() = PriorityAction.Priority.TOP
