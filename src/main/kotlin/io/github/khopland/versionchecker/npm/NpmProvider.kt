@@ -16,6 +16,7 @@ import io.github.khopland.versionchecker.core.Edit
 import io.github.khopland.versionchecker.core.PinFix
 import io.github.khopland.versionchecker.core.Pkg
 import io.github.khopland.versionchecker.core.Transitive
+import io.github.khopland.versionchecker.core.Versions
 
 /**
  * `package.json`: `dependencies`, `devDependencies` and `optionalDependencies`, for any package manager, and also
@@ -107,7 +108,7 @@ class NpmProvider : DeclarationProvider {
     /**
      * An override in the root of the workspace, scoped to the vulnerable version's major, so other copies keep theirs:
      * npm `overrides`, or for pnpm see [pnpmOverridesInWorkspaceFile]. Not for a package that this file depends on directly,
-     * which npm refuses to override, nor for one that is already overridden, in either file for pnpm.
+     * which npm refuses to override, nor for one that is already overridden where the package manager reads it.
      */
     override fun pin(file: PsiFile, transitive: Transitive, version: String): PinFix? {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return null
@@ -117,31 +118,34 @@ class NpmProvider : DeclarationProvider {
         if (workspace.isNotEmpty() || (SECTIONS + "peerDependencies").any { (root.findProperty(it)?.value as? JsonObject)?.findProperty(name) != null }) return null
         val key = NpmOverrides.key(name, transitive.pkg.version, version) ?: return null
         val keys = if (lock is PackageLock) listOf("overrides") else listOf("pnpm", "overrides")
-        if (!NpmOverrides.canAdd(root, keys, name, key)) return null
         if (lock is PnpmLock) {
             val workspaceText = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { PnpmWorkspace.text(it) ?: return null }
             if (workspaceText != null && !PnpmWorkspace.canAddOverride(workspaceText, name, key)) return null
+            // The workspace file is chosen only when pnpm reads no overrides from package.json, so those don't count then.
             if (pnpmOverridesInWorkspaceFile(root, vfile, NpmOverrides.find(root, keys) != null, workspaceText)) return PnpmWorkspaceOverrideFix(name, key, version)
         }
-        return NpmOverrideFix(keys.toTypedArray(), name, key, version)
+        return if (NpmOverrides.canAdd(root, keys, name, key)) NpmOverrideFix(keys.toTypedArray(), name, key, version) else null
     }
 
     /**
-     * Whether the pnpm override goes to `pnpm-workspace.yaml` rather than to `pnpm.overrides` in `package.json`:
-     * - pnpm 11 and later read only the workspace file. The version comes from `packageManager`, or else from the last install.
-     * - Older pnpm read `package.json`, and while it has overrides, pnpm 10 ignores the workspace file's. So overrides
-     *   already in `package.json` keep the new one there, and overrides already in the workspace file keep it there.
-     * - Otherwise `package.json`: a workspace file without `packages` makes pnpm 9 and early pnpm 10 fail to install,
-     *   while pnpm 11 only warns that it ignores `package.json`.
+     * Whether the pnpm override goes to `pnpm-workspace.yaml` rather than to `pnpm.overrides` in `package.json`. The pnpm
+     * version comes from `packageManager`, or else from the last install.
+     * - pnpm 11 and later read only the workspace file.
+     * - pnpm before 10.5.2 read only `package.json`.
+     * - Between those, pnpm reads both, but ignores the workspace file's while `package.json` has overrides. So the new one
+     *   goes where the project already keeps them, and without any, to `package.json`.
+     * - With an unknown version the same, which never breaks an install: a workspace file without `packages` makes pnpm 9
+     *   fail, while pnpm 11 only warns that it ignores `package.json`.
      */
     private fun pnpmOverridesInWorkspaceFile(root: JsonObject, packageJson: VirtualFile, inPackageJson: Boolean, workspaceText: String?): Boolean {
-        val declared = (root.findProperty("packageManager")?.value as? JsonStringLiteral)?.value?.let { pnpmMajor.find(it) }
+        val declared = (root.findProperty("packageManager")?.value as? JsonStringLiteral)?.value?.let { pnpmVersion.find(it) }
         // pnpm writes the version it installed with to node_modules/.modules.yaml, as YAML before pnpm 11 and as JSON since.
         val installed = declared ?: packageJson.parent?.findChild("node_modules")?.findChild(".modules.yaml")
             ?.let { runCatching { VfsUtilCore.loadText(it) }.getOrNull() }?.let { installedPnpm.find(it) }
-        val major = (declared ?: installed)?.groupValues?.get(1)?.toIntOrNull()
+        val version = (declared ?: installed)?.groupValues?.drop(1)?.map { it.toInt() }
         return when {
-            major != null && major >= 11 -> true
+            version != null && version[0] >= 11 -> true
+            version != null && Versions.compare(version.joinToString("."), "10.5.2") < 0 -> false
             inPackageJson -> false
             else -> workspaceText?.let(PnpmWorkspace::hasOverrides) == true
         }
@@ -163,8 +167,8 @@ class NpmProvider : DeclarationProvider {
 
     companion object {
         private val SECTIONS = listOf("dependencies", "devDependencies", "optionalDependencies")
-        private val pnpmMajor = Regex("""^pnpm@(\d+)\.""")
-        private val installedPnpm = Regex("""packageManager"?\s*:\s*"?pnpm@(\d+)\.""")
+        private val pnpmVersion = Regex("""^pnpm@(\d+)\.(\d+)\.(\d+)""")
+        private val installedPnpm = Regex("""packageManager"?\s*:\s*"?pnpm@(\d+)\.(\d+)\.(\d+)""")
         private val packageManager = Regex("""^(npm|pnpm|yarn|bun)@(\d+\.\d+\.\d+)(\+.*)?$""")
     }
 }

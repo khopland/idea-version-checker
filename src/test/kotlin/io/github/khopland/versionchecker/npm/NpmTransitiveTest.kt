@@ -356,6 +356,11 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         assertEquals("pnpm-workspace.yaml", target("""{"dependencies": {"web": "^1.0.0"}}"""))
         assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@10.20.0", "dependencies": {"web": "^1.0.0"}}"""))
         assertEquals("package.json", target("""{"packageManager": "pnpm@10.20.0", "dependencies": {"web": "^1.0.0"}, $overrides}"""))
+        // pnpm before 10.5.2 ignore the workspace file's overrides, even beside packages.
+        assertEquals("package.json", target("""{"packageManager": "pnpm@9.15.0", "dependencies": {"web": "^1.0.0"}}"""))
+        assertEquals("package.json", target("""{"packageManager": "pnpm@10.5.1", "dependencies": {"web": "^1.0.0"}}"""))
+        // pnpm 11 ignores package.json, so a stale override there does not block the fix.
+        assertEquals("pnpm-workspace.yaml", target("""{"packageManager": "pnpm@11.0.0", "dependencies": {"web": "^1.0.0"}, "pnpm": {"overrides": {"qs": "6.2.4"}}}"""))
         // An override in either file counts.
         WriteAction.runAndWait<Throwable> {
             myFixture.findFileInTempDir("pnpm-workspace.yaml").setBinaryContent("packages:\n  - app\noverrides:\n  qs: 6.2.4\n".toByteArray())
