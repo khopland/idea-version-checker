@@ -96,7 +96,27 @@ A suppress comment in the build file keeps one version. It lives in the file, so
 | `pnpm-workspace.yaml`, workflows, `.sdkmanrc`, `.tool-versions` | `#noinspection OutdatedDependencyVersion` on the line above. |
 
 To add the comment, press **Alt+Enter** on the warning, open the submenu of any fix with the right arrow, and pick **Suppress for tag**, **Suppress for statement** or **Suppress for line**. A comment where the version is set, on a Maven property or a catalog `[versions]` entry, keeps every declaration that uses it.
-Use `MovedDependency` the same way for moved packages. `package.json` cannot have comments, so there turn the inspection off for the file or project instead.
+Use `MovedDependency` the same way for moved packages, and `VulnerableDependency` for vulnerable versions. `package.json` cannot have comments, so there turn the inspection off for the file or project instead.
+
+## Vulnerabilities
+
+The **Vulnerable dependency version** inspection reports declared versions with known vulnerabilities from [OSV.dev](https://osv.dev), which includes the GitHub Advisory Database.
+
+> CVE-2021-44228 (critical): Remote code injection in Log4j. Fixed in 2.15.0
+
+It is off by default. Turn on **Check for known vulnerabilities** in **Settings → Tools → Version Checker**.
+The check then sends the names and versions of the declared Maven, Gradle and npm dependencies to `api.osv.dev`: those in open build files, and in other build files that share a version with them, such as a parent POM property. Credentials, file names and repository URLs are not sent. Nothing is sent while the setting or the inspection is off.
+For npm, the declared version is checked, which for `^1.2.3` is the lowest version it allows, not the one in the lockfile.
+
+- Several advisories show as one warning with their IDs and the highest severity. The ID is the CVE when there is one, otherwise the GitHub (`GHSA-…`) or OSV ID.
+- The severity is GitHub's rating, or else computed from a CVSS 3 vector. An advisory with only a CVSS 4 vector shows no severity.
+- Critical and high severity show as errors, unless you set another level for the inspection. The error also offers the patch, minor and major updates, because it hides the outdated warning, its deprecation note and a moved-dependency notice on the same version.
+- **Alt+Enter** offers **Update to … (fixes N vulnerabilities)**: the lowest stable version above the current one, with the same variant, that no reported advisory affects. Like the other fixes, it changes a shared Maven property or catalog `version.ref`, and only to a version that every user of it has and that fixes all of them. The patch, minor and major fixes say `still vulnerable` when the new version is affected too.
+- `<!--suppress VulnerableDependency -->`, `//noinspection VulnerableDependency` or `#noinspection VulnerableDependency` keeps a version, as for outdated versions.
+- Results stay in memory for 30 minutes. **Check Now** asks again. Advisory details stay on disk until OSV.dev reports a change, or for 30 days unused. An advisory that could not be read shows by its ID, without a fix, and is asked for again after a minute.
+
+Only declared dependencies are checked, including npm, Bun and pnpm catalog entries. Transitive dependencies, npm `overrides` and `resolutions`, `packageManager`, Gradle plugins, the wrappers, toolchain files and GitHub Actions are not, so this does not replace a full scan of the resolved dependencies, such as `npm audit`, OWASP Dependency-Check or a Nexus IQ or Snyk scan.
+IntelliJ IDEA Ultimate's built-in **Package Checker** plugin may report the same vulnerabilities; turn one of them off if you see both.
 
 ## Redundant Maven overrides
 
@@ -132,7 +152,8 @@ Build scripts, `buildSrc` and included builds that import the catalog are search
 **Settings → Tools → Version Checker**:
 
 - **Check versions in build files**: turn the checks on or off.
-- **Minimum release age (hours)**: hide Maven, Gradle and wrapper versions published less recently than this, for example `24` to match a Nexus quarantine. It does not apply to npm: a Nexus quarantine already leaves held-back versions out of the npm metadata, while Maven metadata still lists them.
+- **Minimum release age (hours)**: hide Maven, Gradle and wrapper versions published less recently than this, for example `24` to match a Nexus quarantine. It does not apply to npm: a Nexus quarantine already leaves held-back versions out of the npm metadata, while Maven metadata still lists them. The fix for a vulnerability follows it too.
+- **Check for known vulnerabilities**: off by default. See [Vulnerabilities](#vulnerabilities).
 
 Severity and per-inspection on/off are under **Settings → Editor → Inspections → Version Checker**.
 
@@ -173,8 +194,9 @@ The demo projects in `src/test/resources` have outdated versions on purpose. Cop
 
 | Package | Contents |
 | --- | --- |
-| `core` | Version ordering and targets, the HTTP client, the cached checker, the annotator and inspections, quick fixes and bulk updates. |
+| `core` | Version ordering and targets, the HTTP client, the cached checkers for versions and vulnerabilities, the annotator and inspections, quick fixes and bulk updates. |
 | `repo` | The Maven-layout repository lookup used by Maven, Gradle and the Maven wrapper. |
+| `vuln` | The OSV.dev `VulnerabilitySource`. |
 | `maven`, `npm`, `gradle`, `wrapper` | One `DeclarationProvider` each: find versions in a file, and say how to look them up and edit them. |
 
 To release a version, see [Releasing](docs/releasing.md).

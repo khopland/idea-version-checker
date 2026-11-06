@@ -45,11 +45,29 @@ class Http internal constructor(private val client: HttpClient, private val cach
         return response
     }
 
+    /**
+     * A GET whose response changes only with [version], such as an advisory and its modification time.
+     * A cached copy of the same version is used without a request.
+     */
+    suspend fun getVersioned(url: String, version: String): HttpResult {
+        val cache = cache ?: return send(url, "GET", emptyMap())
+        val key = cache.key(url, mapOf("version" to version))
+        cache.get(key)?.let { return HttpResult(200, it.body, emptyMap()) }
+        val response = send(url, "GET", emptyMap())
+        if (response.status == 200) cache.put(key, HttpCache.Entry(response.body, version, null))
+        return response
+    }
+
     suspend fun head(url: String, headers: Map<String, String> = emptyMap()) = send(url, "HEAD", headers)
 
-    private suspend fun send(url: String, method: String, headers: Map<String, String>): HttpResult {
+    /** A POST with a JSON body. It is not cached. */
+    suspend fun post(url: String, json: String, headers: Map<String, String> = emptyMap()) =
+        send(url, "POST", headers + ("Content-Type" to "application/json"), HttpRequest.BodyPublishers.ofString(json))
+
+    private suspend fun send(url: String, method: String, headers: Map<String, String>,
+                             body: HttpRequest.BodyPublisher = HttpRequest.BodyPublishers.noBody()): HttpResult {
         val uri = URI(url)
-        val request = HttpRequest.newBuilder(uri).timeout(TIMEOUT).method(method, HttpRequest.BodyPublishers.noBody())
+        val request = HttpRequest.newBuilder(uri).timeout(TIMEOUT).method(method, body)
             .header("User-Agent", "IntelliJ-Version-Checker")
             .apply { headers.forEach { (name, value) -> header(name, value) } }
             .build()

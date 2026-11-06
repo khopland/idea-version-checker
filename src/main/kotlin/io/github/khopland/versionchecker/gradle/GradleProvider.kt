@@ -6,6 +6,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
+import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
 import io.github.khopland.versionchecker.core.Lookup
 import io.github.khopland.versionchecker.repo.MavenLookup
@@ -59,9 +60,10 @@ class GradleProvider internal constructor(private val environment: () -> GradleE
 
         fun literal(version: String) = version.isNotEmpty() && version[0].isDigit() && version.none { it in "$[]()*+, " }
 
+        /** Libraries are Maven packages. Plugins pass a null [ecosystem]: vulnerability databases do not know plugin marker artifacts. */
         fun declaration(name: String, version: String, range: TextRange, lookup: Lookup, file: VirtualFile, label: String? = null,
-                        editRange: TextRange = range, editFile: VirtualFile = file) =
-            Declaration(name, range, version, lookup, Edit(editFile, editRange, version, label))
+                        editRange: TextRange = range, editFile: VirtualFile = file, ecosystem: Ecosystem? = Ecosystem.MAVEN) =
+            Declaration(name, range, version, lookup, Edit(editFile, editRange, version, label), ecosystem = ecosystem)
     }
 }
 
@@ -93,9 +95,11 @@ internal object GradleScripts {
             return own[name] ?: context.variable(name)
         }
         /** A literal version in [literal], or a variable reference whose groups start at [reference]. */
-        fun add(name: String, match: MatchResult, literal: Int?, reference: Int?, lookup: () -> Lookup, bare: Int? = null) {
+        fun add(name: String, match: MatchResult, literal: Int?, reference: Int?, lookup: () -> Lookup, bare: Int? = null,
+                ecosystem: Ecosystem? = Ecosystem.MAVEN) {
             literal?.let { match.groups[it] }?.let { version ->
-                if (GradleProvider.literal(version.value)) result += GradleProvider.declaration(name, version.value, range(match, literal), lookup(), file)
+                if (GradleProvider.literal(version.value))
+                    result += GradleProvider.declaration(name, version.value, range(match, literal), lookup(), file, ecosystem = ecosystem)
                 return
             }
             val (group, variable) = when {
@@ -104,7 +108,7 @@ internal object GradleScripts {
                 else -> return
             }
             if (variable == null || !GradleProvider.literal(variable.value)) return
-            result += GradleProvider.declaration(name, variable.value, range(match, group), lookup(), file, variable.name, variable.range, variable.file)
+            result += GradleProvider.declaration(name, variable.value, range(match, group), lookup(), file, variable.name, variable.range, variable.file, ecosystem)
         }
         fun libraries(offset: Int) = if (script.inside(offset, "buildscript")) context.buildscript else context.libraries
         coordinate.findAll(code).forEach { match ->
@@ -117,11 +121,11 @@ internal object GradleScripts {
         }
         pluginId.findAll(code).forEach { match ->
             val id = match.groupValues[1]
-            add("plugin $id", match, 2, 3, { GradleProvider.plugin(id, context.plugins) }, bare = 7)
+            add("plugin $id", match, 2, 3, { GradleProvider.plugin(id, context.plugins) }, bare = 7, ecosystem = null)
         }
         kotlinPlugin.findAll(code).forEach { match ->
             val id = "org.jetbrains.kotlin.${match.groupValues[1]}"
-            add("plugin $id", match, 2, 3, { GradleProvider.plugin(id, context.plugins) }, bare = 7)
+            add("plugin $id", match, 2, 3, { GradleProvider.plugin(id, context.plugins) }, bare = 7, ecosystem = null)
         }
         return result.sortedBy { it.range.startOffset }
     }
@@ -156,16 +160,16 @@ internal object GradleCatalog {
         }.toMap()
 
         val result = mutableListOf<Declaration>()
-        fun add(name: String, lookup: Lookup, line: Line) {
+        fun add(name: String, lookup: Lookup, line: Line, ecosystem: Ecosystem? = Ecosystem.MAVEN) {
             val reference = value(line, field("version.ref")) ?: value(line, Regex("""version\s*=\s*\{\s*ref\s*=\s*"([^"]*)""""))
             if (reference != null) {
                 val target = versions[reference.text] ?: return
                 if (GradleProvider.literal(target.text))
-                    result += GradleProvider.declaration(name, target.text, reference.range, lookup, file, reference.text, target.range)
+                    result += GradleProvider.declaration(name, target.text, reference.range, lookup, file, reference.text, target.range, ecosystem = ecosystem)
                 return
             }
             val version = value(line, field("version")) ?: return
-            if (GradleProvider.literal(version.text)) result += GradleProvider.declaration(name, version.text, version.range, lookup, file)
+            if (GradleProvider.literal(version.text)) result += GradleProvider.declaration(name, version.text, version.range, lookup, file, ecosystem = ecosystem)
         }
         for ((section, line) in lines) {
             val match = entry.matchEntire(line.text) ?: continue
@@ -192,12 +196,12 @@ internal object GradleCatalog {
                         if (shorthand.size == 2 && GradleProvider.literal(shorthand[1])) {
                             val start = line.start + raw.range.first + 1 + shorthand[0].length + 1
                             result += GradleProvider.declaration("plugin ${shorthand[0]}", shorthand[1], TextRange.from(start, shorthand[1].length),
-                                GradleProvider.plugin(shorthand[0], context.plugins), file)
+                                GradleProvider.plugin(shorthand[0], context.plugins), file, ecosystem = null)
                         }
                         continue
                     }
                     val id = value(line, field("id"))?.text ?: continue
-                    add("plugin $id", GradleProvider.plugin(id, context.plugins), line)
+                    add("plugin $id", GradleProvider.plugin(id, context.plugins), line, null)
                 }
             }
         }

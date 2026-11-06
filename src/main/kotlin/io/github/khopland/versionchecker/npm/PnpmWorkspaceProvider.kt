@@ -5,6 +5,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
+import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
 
 /**
@@ -27,7 +28,8 @@ class PnpmWorkspaceProvider : DeclarationProvider {
         name ?: return null
         val spec = NpmSpec.parse(entry.value) ?: return null
         val label = if (entry.section == "overrides") "$name (override)" else name
-        return Declaration(label, entry.range, spec.version, NpmLookup(name, registries().registry(name)), Edit(file, entry.range, entry.value) { spec.prefix + it })
+        return Declaration(label, entry.range, spec.version, NpmLookup(name, registries().registry(name)), Edit(file, entry.range, entry.value) { spec.prefix + it },
+            ecosystem = Ecosystem.NPM.takeUnless { entry.section == "overrides" })
     }
 }
 

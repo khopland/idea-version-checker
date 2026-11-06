@@ -13,9 +13,10 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.psi.PsiFile
 
-/** Alt+Enter: write one new version. */
-class UpdateVersionFix(private val edit: Edit, private val version: String, private val kind: UpdateKind) : IntentionAction, PriorityAction {
-    override fun getText() = "Update ${edit.label?.let { "$it " } ?: ""}to $version (${kind.label})"
+/** Alt+Enter: write one new version. [detail] goes in parentheses after it. */
+class UpdateVersionFix(private val edit: Edit, private val version: String, private val kind: UpdateKind,
+                       private val detail: String = kind.label) : IntentionAction, PriorityAction {
+    override fun getText() = "Update ${edit.label?.let { "$it " } ?: ""}to $version ($detail)"
     override fun getFamilyName() = "Update version"
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?) = edit.file.isValid
     override fun startInWriteAction() = false
