@@ -23,14 +23,14 @@ internal object Cvss {
     }
 
     /** The GitHub advisory names for the CVSS ratings. */
-    fun rating(vector: String): String? = score(vector)?.let {
-        when {
-            it >= 9.0 -> "CRITICAL"
-            it >= 7.0 -> "HIGH"
-            it >= 4.0 -> "MODERATE"
-            it > 0.0 -> "LOW"
-            else -> null
-        }
+    fun rating(vector: String): String? = score(vector)?.let(::rating)
+
+    fun rating(score: Double): String? = when {
+        score >= 9.0 -> "CRITICAL"
+        score >= 7.0 -> "HIGH"
+        score >= 4.0 -> "MODERATE"
+        score > 0.0 -> "LOW"
+        else -> null
     }
 
     /** Round up to one decimal, as the CVSS 3.1 specification does, without floating point surprises. */

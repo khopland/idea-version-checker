@@ -16,7 +16,8 @@
         A minimum release age hides new Maven and Gradle releases, for example to match a Nexus quarantine.
         A suppress comment keeps a version on purpose.</p>
         <p>Optionally, known vulnerabilities of declared Maven, Gradle and npm dependencies from OSV.dev, with a fix to the nearest safe version,
-        and of the packages they bring in, in Maven, npm and pnpm projects.</p>
+        and of the packages they bring in, in Maven, npm and pnpm projects.
+        With a Nexus IQ server, the vulnerabilities your application's policies flag and that are not waived, and Alt+Enter to open the report where you waive them.</p>
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
@@ -60,6 +61,8 @@
                          implementationClass="io.github.khopland.versionchecker.gradle.UnusedCatalogEntryInspection"/>
         <applicationConfigurable parentId="tools" id="version.checker" displayName="Version Checker"
                                  instance="io.github.khopland.versionchecker.VersionCheckerConfigurable"/>
+        <projectConfigurable parentId="version.checker" id="version.checker.nexus.iq" displayName="Nexus IQ"
+                             instance="io.github.khopland.versionchecker.vuln.NexusIqConfigurable"/>
         <notificationGroup id="Version Checker" displayType="BALLOON"/>
         <toolWindow id="Dependency Updates" anchor="bottom" icon="io.github.khopland.versionchecker.VersionCheckerIcons.ToolWindow"
                     factoryClass="io.github.khopland.versionchecker.DependencyUpdatesToolWindowFactory" doNotActivateOnStart="true"/>
