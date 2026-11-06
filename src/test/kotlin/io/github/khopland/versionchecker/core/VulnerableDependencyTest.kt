@@ -1,6 +1,10 @@
 package io.github.khopland.versionchecker.core
 
 import com.intellij.codeInsight.daemon.ProblemHighlightFilter
+import com.intellij.codeInsight.intention.IntentionAction
+import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiFile
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -16,6 +20,17 @@ class VulnerableDependencyTest : BasePlatformTestCase() {
             synchronized(queried) { queried += packages }
             return packages.associateWith { pkg -> ADVISORIES[pkg.name].orEmpty().filter { it.affects(pkg.version) } }
         }
+
+        override fun actions(pkg: Pkg, advisories: List<Advisory>): List<IntentionAction> =
+            if (pkg.name == "lodash") listOf(WaiveAction(advisories.single().displayId)) else emptyList()
+    }
+
+    private class WaiveAction(private val id: String) : IntentionAction {
+        override fun getText() = "Waive $id"
+        override fun getFamilyName() = text
+        override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?) = true
+        override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {}
+        override fun startInWriteAction() = false
     }
 
     private val source = FakeSource()
@@ -121,7 +136,8 @@ class VulnerableDependencyTest : BasePlatformTestCase() {
 
         // The error hides the outdated warning, so it carries the update actions, without a second update to the same version.
         val texts = intentions("^4.17.20")
-        assertContainsElements(texts, "Update all versions in this file…")
+        // The source's own actions, such as a Nexus IQ waiver, are offered too.
+        assertContainsElements(texts, "Update all versions in this file…", "Waive CVE-2021-23337")
         assertDoesntContain(texts, "Update to 4.17.21 (patch)")
         myFixture.launchAction(myFixture.findSingleIntention("Update to 4.17.21 (fixes 1 vulnerability)"))
         assertTrue(myFixture.editor.document.text.contains("\"lodash\": \"^4.17.21\""))

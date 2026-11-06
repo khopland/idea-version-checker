@@ -30,9 +30,12 @@ class Http internal constructor(private val client: HttpClient, private val cach
 
     private val hosts = ConcurrentHashMap<String, Semaphore>()
 
-    /** A GET that revalidates a cached copy with `If-None-Match` or `If-Modified-Since`. A `304` returns the cached body as `200`. */
-    suspend fun get(url: String, headers: Map<String, String> = emptyMap()): HttpResult {
-        val cache = cache ?: return send(url, "GET", headers)
+    /**
+     * A GET that revalidates a cached copy with `If-None-Match` or `If-Modified-Since`. A `304` returns the cached body as `200`.
+     * Without [store], nothing is cached, for answers that only matter once.
+     */
+    suspend fun get(url: String, headers: Map<String, String> = emptyMap(), store: Boolean = true): HttpResult {
+        val cache = cache?.takeIf { store } ?: return send(url, "GET", headers)
         val key = cache.key(url, headers)
         val cached = cache.get(key)
         val conditions = buildMap {

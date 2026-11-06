@@ -105,7 +105,7 @@ The **Vulnerable dependency version** inspection reports declared versions with 
 > CVE-2021-44228 (critical): Remote code injection in Log4j. Fixed in 2.15.0
 
 It is off by default. Turn on **Check for known vulnerabilities** in **Settings → Tools → Version Checker**.
-The check then sends the names and versions of the declared Maven, Gradle and npm dependencies to `api.osv.dev`: those in open build files, and in other build files that share a version with them, such as a parent POM property. In Maven, npm and pnpm projects it also sends the packages they bring in, as resolved by the last Maven import or the lockfile, which can include internal packages from private repositories. Modules of the Maven project are not sent. Credentials, file names and repository URLs are not sent. Nothing is sent while the setting or the inspection is off.
+The check then sends the names and versions of the declared Maven, Gradle and npm dependencies to `api.osv.dev`: those in open build files, and in other build files that share a version with them, such as a parent POM property. In Maven, npm and pnpm projects it also sends the packages they bring in, as resolved by the last Maven import or the lockfile, which can include internal packages from private repositories. Modules of the Maven project are not sent. Credentials, file names and repository URLs are not sent. A project set up for [Nexus IQ](#nexus-iq) sends them to its Nexus IQ server instead, and nothing to osv.dev. Nothing is sent while the setting or the inspection is off.
 For npm, the declared version is checked, which for `^1.2.3` is the lowest version it allows, not the one in the lockfile.
 
 - Several advisories show as one warning with their IDs and the highest severity. The ID is the CVE when there is one, otherwise the GitHub (`GHSA-…`) or OSV ID.
@@ -125,6 +125,18 @@ The warning is on the artifact or package name, so an error on the dependency's 
 
 - **Maven:** the dependency tree of the last Maven import, so reload the project after changing dependencies. Dependencies inherited from a parent POM show in the parent. **Alt+Enter** offers **Pin … to … in dependency management**: the lowest stable version above the resolved one that no reported advisory affects, added to `<dependencyManagement>` in this POM. It is not offered for an artifact with a classifier or a type other than `jar`, which a plain entry does not match. `<!--suppress VulnerableTransitiveDependency -->` above the `<artifactId>` keeps a dependency, and **Alt+Enter → Suppress for tag** puts it there.
 - **npm and pnpm:** the packages that `package-lock.json` (lockfile version 2 or 3, from npm 7 and later) or `pnpm-lock.yaml` (version 6 or 9, from pnpm 8 and later) installs, so install after changing dependencies. With both lockfiles, `packageManager` in `package.json` says which one is read, or else the newer one. Open `package.json` files are checked again when the lockfile changes. A workspace package uses the lockfile of the workspace root. **Alt+Enter** offers **Override …**: an override in the root of the workspace, scoped to the vulnerable version's major, such as `"qs@^6": "^6.2.4"`, so copies of other majors keep their version. It is offered only when the safe version has the same major. The value is a range from the safe version, so newer copies in the range keep their version. npm writes it to `overrides` in `package.json`. pnpm writes it to `overrides` in `pnpm-workspace.yaml` for pnpm 11 and later, which read only that file, with the version from `packageManager` or else from the last install in `node_modules`. pnpm before 10.5.1 get it in `pnpm.overrides` in `package.json`, the only place they read. pnpm in between, or of an unknown version, get it where the project already keeps overrides, since pnpm 10 ignores the workspace file's while `package.json` has some, and otherwise in `package.json`, since a workspace file with only overrides makes pnpm 9 fail to install. When copies of one package need different safe versions, the override offers the highest. Not for `0.0.x` versions, where each patch is its own range. It is not offered for a package that is already overridden in the file it would write to, or that the root `package.json` depends on directly, which npm refuses. `package.json` cannot have comments, so turn the inspection off instead of suppressing it. `yarn.lock` and `bun.lock` are not read yet.
+
+### Nexus IQ
+
+With a [Nexus IQ server](https://help.sonatype.com/en/iq-server.html) (Sonatype Lifecycle), the check can follow your organization's policies and waivers instead of OSV.dev, so the editor shows only the vulnerable dependencies that still need attention.
+Open **Settings → Tools → Version Checker → Nexus IQ** and enter the server URL, the public ID of the application and your user name and password or user token. **Test Connection** checks all three.
+The server and application are stored in `.idea/version-checker.xml`, so you can share them with the team. The user name and password stay in the IDE password safe.
+
+- The declared dependencies, and the [transitive](#transitive-dependencies) packages they bring in, are evaluated against the policies of the application, through the component evaluation API. **Check for known vulnerabilities** must be on.
+- A vulnerability shows when a policy violation names it and the violation is neither waived nor legacy. Vulnerabilities that no policy flags, and those Nexus IQ marks as not applicable, are left out.
+- The message names the policy, as in `CVE-2021-44228 (critical): Security-Critical policy. Fixed in 2.17.1`. The fix is the lowest version from or above the one Nexus IQ suggests without policy violations.
+- **Alt+Enter → Open … in Nexus IQ to waive** opens the application's newest scan report in the browser, where you can waive the violation. The report shows the last scan of the application, so a dependency changed since then may not be in it yet.
+- Results stay in memory for 30 minutes, as for OSV.dev. **Check Now** asks again, for example after you waive a violation.
 
 Only declared dependencies are checked otherwise, including npm, Bun and pnpm catalog entries. Transitive dependencies of Gradle, Yarn and Bun projects, npm `overrides` and `resolutions`, `packageManager`, Gradle plugins, the wrappers, toolchain files and GitHub Actions are not, so this does not replace a full scan of the resolved dependencies, such as `npm audit`, OWASP Dependency-Check or a Nexus IQ or Snyk scan.
 IntelliJ IDEA Ultimate's built-in **Package Checker** plugin may report the same vulnerabilities; turn one of them off if you see both.
@@ -165,6 +177,7 @@ Build scripts, `buildSrc` and included builds that import the catalog are search
 - **Check versions in build files**: turn the checks on or off.
 - **Minimum release age (hours)**: hide Maven, Gradle and wrapper versions published less recently than this, for example `24` to match a Nexus quarantine. It does not apply to npm: a Nexus quarantine already leaves held-back versions out of the npm metadata, while Maven metadata still lists them. The fix for a vulnerability follows it too.
 - **Check for known vulnerabilities**: off by default. See [Vulnerabilities](#vulnerabilities).
+- **Nexus IQ**, per project: the server, application and credentials for [Nexus IQ](#nexus-iq).
 
 Severity and per-inspection on/off are under **Settings → Editor → Inspections → Version Checker**.
 
@@ -207,7 +220,7 @@ The demo projects in `src/test/resources` have outdated versions on purpose. Cop
 | --- | --- |
 | `core` | Version ordering and targets, the HTTP client, the cached checkers for versions and vulnerabilities, the annotator and inspections, quick fixes and bulk updates. |
 | `repo` | The Maven-layout repository lookup used by Maven, Gradle and the Maven wrapper. |
-| `vuln` | The OSV.dev `VulnerabilitySource`. |
+| `vuln` | The OSV.dev and Nexus IQ `VulnerabilitySource`s, the Nexus IQ settings and the action that opens a report. |
 | `maven`, `npm`, `gradle`, `wrapper` | One `DeclarationProvider` each: find versions in a file, and say how to look them up and edit them. |
 
 To release a version, see [Releasing](docs/releasing.md).

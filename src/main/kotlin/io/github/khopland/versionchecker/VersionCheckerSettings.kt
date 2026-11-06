@@ -25,7 +25,7 @@ class VersionCheckerSettings : SimplePersistentStateComponent<VersionCheckerSett
 
     val enabled get() = state.enabled
     val minReleaseAgeHours get() = state.minReleaseAgeHours.coerceAtLeast(0)
-    /** Off by default: the check sends dependency names and versions to osv.dev. */
+    /** Off by default: the check sends dependency names and versions to osv.dev, or the project's Nexus IQ server. */
     val checkVulnerabilities get() = state.checkVulnerabilities
 
     companion object {
@@ -43,7 +43,7 @@ class VersionCheckerConfigurable : BoundConfigurable("Version Checker") {
             label("hours")
         }.rowComment("Hide Maven, Gradle and wrapper versions published less than this long ago, for example to match a Nexus quarantine. npm is not affected: the registry already hides quarantined versions. 0 shows the newest version.")
         row { checkBox("Check for known vulnerabilities (sends dependency names and versions to osv.dev)").bindSelected(state::checkVulnerabilities) }
-            .rowComment("Declared Maven, Gradle and npm dependencies, and in Maven, npm and pnpm projects the packages they bring in, as the last Maven import or the lockfile resolved them.")
+            .rowComment("Declared Maven, Gradle and npm dependencies, and in Maven, npm and pnpm projects the packages they bring in, as the last Maven import or the lockfile resolved them. A project with a Nexus IQ server under <b>Nexus IQ</b> sends them there instead.")
     }
 
     override fun apply() {

@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.core
 
+import com.intellij.codeInsight.intention.IntentionAction
+
 /** Package ecosystems that vulnerability databases know. Gradle libraries are Maven packages. */
 enum class Ecosystem { MAVEN, NPM }
 
@@ -49,14 +51,20 @@ data class Advisory(
             ?: fixed.filter { Versions.compare(it, version) > 0 }.minWithOrNull(Versions.comparator)
 }
 
-/** A vulnerability database, such as OSV.dev. */
+/** A vulnerability database, such as OSV.dev or a Nexus IQ server. */
 interface VulnerabilitySource {
+    /** Sources with the same key give the same answers, so they share cached results. */
+    val key: String get() = javaClass.name
+
     /** The advisories that affect each package. Packages without any may be left out. */
     suspend fun check(packages: List<Pkg>): Map<Pkg, List<Advisory>>
+
+    /** More Alt+Enter actions for a vulnerable package, such as opening it in Nexus IQ to waive it. */
+    fun actions(pkg: Pkg, advisories: List<Advisory>): List<IntentionAction> = emptyList()
 }
 
-/** The advisories for one declaration, and the version a fix writes. */
-class Vulnerable(val advisories: List<Advisory>, val fix: String?)
+/** The advisories for one declaration, the version a fix writes, and the source's [actions]. */
+class Vulnerable(val advisories: List<Advisory>, val fix: String?, val actions: List<IntentionAction> = emptyList())
 
 object Vulnerabilities {
     /** The lowest stable version above [current], with the same variant, that no advisory affects and [allowed] accepts. */

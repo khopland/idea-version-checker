@@ -12,6 +12,8 @@ class FakeRepository : AutoCloseable {
     val routes = mutableMapOf<String, Response>()
     val requests = mutableListOf<String>()
     val authorizations = mutableListOf<String?>()
+    /** The body of each request, empty for none. */
+    val bodies = mutableListOf<String>()
     /** The status code sent for each request. */
     val statuses = mutableListOf<Int>()
     private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
@@ -19,6 +21,7 @@ class FakeRepository : AutoCloseable {
             synchronized(requests) {
                 requests += "${exchange.requestMethod} ${exchange.requestURI.path}"
                 authorizations += exchange.requestHeaders.getFirst("Authorization")
+                bodies += exchange.requestBody.readAllBytes().toString(Charsets.UTF_8)
             }
             val route = routes[exchange.requestURI.path] ?: Response(404)
             val etag = route.headers["ETag"]

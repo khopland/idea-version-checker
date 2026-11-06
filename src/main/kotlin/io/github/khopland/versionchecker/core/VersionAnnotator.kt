@@ -12,6 +12,7 @@ import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager
+import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.VersionCheckerSettings
 import kotlinx.coroutines.CancellationException
@@ -25,7 +26,7 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
      */
     class Info(val declarations: List<Declaration>, val related: List<Declaration>,
                val suppressed: Set<Declaration> = emptySet(), val movedSuppressed: Set<Declaration> = emptySet(),
-               val checkVulnerabilities: Boolean = false)
+               val checkVulnerabilities: Boolean = false, val project: Project? = null)
     class Result(val info: Info, val outcomes: Map<Declaration, Outcome>, val vulnerabilities: Map<Declaration, Vulnerable> = emptyMap()) {
         val declarations get() = info.declarations
     }
@@ -39,13 +40,13 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
         if (declarations.isEmpty()) return null
         return Info(declarations, provider.related(file, declarations), Suppression.suppressed(file, declarations, OutdatedVersionInspection()),
             Suppression.suppressed(file, declarations, MovedDependencyInspection()),
-            VersionCheckerSettings.getInstance().checkVulnerabilities && VulnerableDependencyInspection.enabled(file))
+            VersionCheckerSettings.getInstance().checkVulnerabilities && VulnerableDependencyInspection.enabled(file), file.project)
     }
 
     override fun doAnnotate(info: Info): Result = runBlockingCancellable {
         val declarations = info.declarations + info.related
-        // The lookups VulnerabilityAnnotator shares, so this waits for osv.dev but sends nothing twice. That annotator reports a failure.
-        val vulnerabilities = if (info.checkVulnerabilities) async { runCatching { VulnerabilityService.getInstance().check(declarations) } } else null
+        // The lookups VulnerabilityAnnotator shares, so this waits for osv.dev or Nexus IQ but sends nothing twice. That annotator reports a failure.
+        val vulnerabilities = if (info.checkVulnerabilities) async { runCatching { VulnerabilityService.getInstance().check(declarations, info.project) } } else null
         val outcomes = VersionService.getInstance().check(declarations)
         val found = vulnerabilities?.await()
         found?.exceptionOrNull()?.let { if (it is CancellationException) throw it }
