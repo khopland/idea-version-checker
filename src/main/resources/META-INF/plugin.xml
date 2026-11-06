@@ -15,6 +15,7 @@
         The <b>Dependency Updates</b> tool window lists every outdated version in the project, with its patch, minor and major update.
         A minimum release age hides new Maven and Gradle releases, for example to match a Nexus quarantine.
         A suppress comment keeps a version on purpose.</p>
+        <p>Optionally, known vulnerabilities of declared Maven, Gradle and npm dependencies from OSV.dev, with a fix to the nearest safe version.</p>
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
@@ -34,6 +35,11 @@
         <externalAnnotator language="Properties" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
         <externalAnnotator language="TEXT" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
         <fileType name="PLAIN_TEXT" fileNames=".nvmrc;.node-version;.sdkmanrc;.tool-versions"/>
+        <externalAnnotator language="XML" implementationClass="io.github.khopland.versionchecker.core.VulnerabilityAnnotator"/>
+        <externalAnnotator language="JSON" implementationClass="io.github.khopland.versionchecker.core.VulnerabilityAnnotator"/>
+        <externalAnnotator language="kotlin" implementationClass="io.github.khopland.versionchecker.core.VulnerabilityAnnotator"/>
+        <externalAnnotator language="Groovy" implementationClass="io.github.khopland.versionchecker.core.VulnerabilityAnnotator"/>
+        <externalAnnotator language="TOML" implementationClass="io.github.khopland.versionchecker.core.VulnerabilityAnnotator"/>
         <localInspection shortName="OutdatedDependencyVersion" displayName="Outdated dependency version" groupName="Version Checker"
                          enabledByDefault="true" level="WARNING"
                          implementationClass="io.github.khopland.versionchecker.core.OutdatedVersionInspection"/>
@@ -41,6 +47,9 @@
         <localInspection shortName="MovedDependency" displayName="Moved dependency" groupName="Version Checker"
                          enabledByDefault="true" level="WEAK WARNING"
                          implementationClass="io.github.khopland.versionchecker.core.MovedDependencyInspection"/>
+        <localInspection shortName="VulnerableDependency" displayName="Vulnerable dependency version" groupName="Version Checker"
+                         enabledByDefault="true" level="WARNING"
+                         implementationClass="io.github.khopland.versionchecker.core.VulnerableDependencyInspection"/>
         <localInspection language="TOML" shortName="UnusedCatalogEntry" displayName="Unused version catalog entry" groupName="Version Checker"
                          enabledByDefault="true" level="WEAK WARNING"
                          implementationClass="io.github.khopland.versionchecker.gradle.UnusedCatalogEntryInspection"/>

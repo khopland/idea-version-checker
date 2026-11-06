@@ -49,7 +49,8 @@ class Edit(val file: VirtualFile, val range: TextRange, val expected: String, va
 /**
  * One version in a build file.
  * [range] is where the warning shows, in the file that was scanned. A null [edit] means the plugin
- * can check the version but not change it, and [note] says why.
+ * can check the version but not change it, and [note] says why. [ecosystem] is where vulnerability databases
+ * list the package, or null when they do not, as for Gradle plugins and wrappers.
  */
 class Declaration(
     val name: String,
@@ -58,7 +59,10 @@ class Declaration(
     val lookup: Lookup,
     val edit: Edit?,
     val note: String? = null,
-)
+    val ecosystem: Ecosystem? = null,
+) {
+    val pkg get() = ecosystem?.let { Pkg(it, name, current) }
+}
 
 /** Finds declarations in the build files of one ecosystem. */
 interface DeclarationProvider {

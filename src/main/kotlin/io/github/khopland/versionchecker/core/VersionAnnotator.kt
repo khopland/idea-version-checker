@@ -14,13 +14,19 @@ import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.VersionCheckerSettings
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 
 /** Shows outdated versions. Lookups run on the annotator's background thread, not in the highlighting pass. */
 class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotator.Result>() {
-    /** [suppressed] and [movedSuppressed] are kept by a suppress comment. They still take part in the agreement on a shared version. */
+    /**
+     * [suppressed] and [movedSuppressed] are kept by a suppress comment. They still take part in the agreement on a shared version.
+     * With [checkVulnerabilities], the updates say when the new version is still vulnerable.
+     */
     class Info(val declarations: List<Declaration>, val related: List<Declaration>,
-               val suppressed: Set<Declaration> = emptySet(), val movedSuppressed: Set<Declaration> = emptySet())
-    class Result(val info: Info, val outcomes: Map<Declaration, Outcome>) {
+               val suppressed: Set<Declaration> = emptySet(), val movedSuppressed: Set<Declaration> = emptySet(),
+               val checkVulnerabilities: Boolean = false)
+    class Result(val info: Info, val outcomes: Map<Declaration, Outcome>, val vulnerabilities: Map<Declaration, Vulnerable> = emptyMap()) {
         val declarations get() = info.declarations
     }
 
@@ -32,11 +38,19 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
         val declarations = provider.collect(file)
         if (declarations.isEmpty()) return null
         return Info(declarations, provider.related(file, declarations), Suppression.suppressed(file, declarations, OutdatedVersionInspection()),
-            Suppression.suppressed(file, declarations, MovedDependencyInspection()))
+            Suppression.suppressed(file, declarations, MovedDependencyInspection()),
+            VersionCheckerSettings.getInstance().checkVulnerabilities && VulnerableDependencyInspection.enabled(file))
     }
 
-    override fun doAnnotate(info: Info): Result =
-        Result(info, runBlockingCancellable { VersionService.getInstance().check(info.declarations + info.related) })
+    override fun doAnnotate(info: Info): Result = runBlockingCancellable {
+        val declarations = info.declarations + info.related
+        // The lookups VulnerabilityAnnotator shares, so this waits for osv.dev but sends nothing twice. That annotator reports a failure.
+        val vulnerabilities = if (info.checkVulnerabilities) async { runCatching { VulnerabilityService.getInstance().check(declarations) } } else null
+        val outcomes = VersionService.getInstance().check(declarations)
+        val found = vulnerabilities?.await()
+        found?.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        Result(info, outcomes, found?.getOrNull().orEmpty())
+    }
 
     override fun apply(file: PsiFile, result: Result, holder: AnnotationHolder) {
         val outcomes = result.outcomes
@@ -82,10 +96,7 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
                     fun register(fix: IntentionAction) {
                         builder = if (key == null) builder.withFix(fix) else builder.newFix(fix).key(key).registerFix()
                     }
-                    val edit = declaration.edit
-                    if (edit != null) fixes[declaration].orEmpty().values.distinct().forEach { version ->
-                        register(UpdateVersionFix(edit, version, Versions.kind(declaration.current, version)))
-                    }
+                    VulnerabilityAnnotator.updateFixes(declaration, fixes[declaration].orEmpty().values, result.vulnerabilities).forEach(::register)
                     register(UpdateFileFix())
                     val newest = outcome.targets.major
                     if (declaration.lookup.hasReleaseNotes && newest != null) register(OpenReleaseNotesFix(declaration.name, declaration.lookup, newest))

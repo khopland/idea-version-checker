@@ -7,6 +7,7 @@ import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
 import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
+import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
 import io.github.khopland.versionchecker.repo.MavenLookup
 import io.github.khopland.versionchecker.repo.MavenRepo
@@ -66,9 +67,9 @@ class MavenProvider : DeclarationProvider {
                     else -> null
                 }
                 val edit = if (note == null) Edit(target!!, MavenPoms.valueRange(value.tag), value.value, value.name) else null
-                result += Declaration(name, range, value.value, lookup, edit, note)
+                result += Declaration(name, range, value.value, lookup, edit, note, Ecosystem.MAVEN)
             } else if ('$' !in raw && raw.first() !in "[(" && raw !in setOf("LATEST", "RELEASE")) {
-                result += Declaration(name, range, raw, lookup, Edit(pom, range, raw))
+                result += Declaration(name, range, raw, lookup, Edit(pom, range, raw), ecosystem = Ecosystem.MAVEN)
             }
         }
 

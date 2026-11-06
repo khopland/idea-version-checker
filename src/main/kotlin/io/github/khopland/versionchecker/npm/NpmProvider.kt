@@ -9,6 +9,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
+import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
 
 /**
@@ -27,11 +28,13 @@ class NpmProvider : DeclarationProvider {
         val vfile = file.virtualFile ?: return emptyList()
         val registries by lazy { NpmPackages.registries(vfile) }
         val result = mutableListOf<Declaration>()
-        fun add(name: String, literal: JsonStringLiteral, label: String = name) {
+        // Overrides pin packages deeper in the tree, which the vulnerability check leaves out.
+        fun add(name: String, literal: JsonStringLiteral, label: String = name, ecosystem: Ecosystem? = Ecosystem.NPM) {
             val spec = NpmSpec.parse(literal.value) ?: return
             val raw = literal.value
             val range = TextRange.from(literal.textRange.startOffset + 1, raw.length).takeIf { literal.text.length == raw.length + 2 } ?: return
-            result += Declaration(label, range, spec.version, NpmLookup(name, registries.registry(name)), Edit(vfile, range, raw) { spec.prefix + it })
+            result += Declaration(label, range, spec.version, NpmLookup(name, registries.registry(name)), Edit(vfile, range, raw) { spec.prefix + it },
+                ecosystem = ecosystem)
         }
         fun section(value: JsonValue?) = (value as? JsonObject)?.propertyList.orEmpty()
         fun dependencies(value: JsonValue?) = section(value).forEach { property -> (property.value as? JsonStringLiteral)?.let { add(property.name, it) } }
@@ -44,7 +47,7 @@ class NpmProvider : DeclarationProvider {
             for (property in section(value)) {
                 val name = if (property.name == ".") parent else NpmPackages.target(property.name)
                 when (val child = property.value) {
-                    is JsonStringLiteral -> name?.let { add(it, child, "$it (override)") }
+                    is JsonStringLiteral -> name?.let { add(it, child, "$it (override)", null) }
                     is JsonObject -> overrides(child, name)
                     else -> {}
                 }

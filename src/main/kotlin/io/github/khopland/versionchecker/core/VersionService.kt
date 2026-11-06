@@ -19,6 +19,10 @@ class VersionService(private val scope: CoroutineScope) {
 
     private val entries = ConcurrentHashMap<String, Entry>()
 
+    /** Replaced in tests, so they need no network. */
+    @Volatile
+    internal var fetch: suspend (Lookup) -> Releases = { it.fetch() }
+
     /** Forget every cached version list, for example after the user asks to check again. */
     fun clear() = entries.clear()
 
@@ -26,7 +30,7 @@ class VersionService(private val scope: CoroutineScope) {
         val now = System.currentTimeMillis()
         val entry = entries.compute(lookup.key) { _, old ->
             if (old != null && !expired(old, now)) old
-            else Entry(scope.async(Dispatchers.IO) { lookup.fetch() }, now)
+            else Entry(scope.async(Dispatchers.IO) { fetch(lookup) }, now)
         }!!
         return entry.result.await()
     }
@@ -38,7 +42,7 @@ class VersionService(private val scope: CoroutineScope) {
     }
 
     suspend fun check(declarations: List<Declaration>, minAgeHours: Int = VersionCheckerSettings.getInstance().minReleaseAgeHours): Map<Declaration, Outcome> = coroutineScope {
-        val cutoff = if (minAgeHours > 0) System.currentTimeMillis() - TimeUnit.HOURS.toMillis(minAgeHours.toLong()) else null
+        val cutoff = cutoff(minAgeHours)
         val lookups = declarations.map { it.lookup }.distinctBy { it.key }
             .associate { lookup -> lookup.key to async { runCatching { releases(lookup) } } }
         declarations.associateWith { declaration ->
@@ -61,12 +65,16 @@ class VersionService(private val scope: CoroutineScope) {
 
         fun getInstance(): VersionService = ApplicationManager.getApplication().getService(VersionService::class.java)
 
+        /** The newest publication time the minimum release age allows, or null when it is off. */
+        fun cutoff(minAgeHours: Int): Long? = if (minAgeHours > 0) System.currentTimeMillis() - TimeUnit.HOURS.toMillis(minAgeHours.toLong()) else null
+
+        suspend fun oldEnough(releases: Releases, minimumAgeCutoff: Long?, version: String): Boolean {
+            val cutoff = minimumAgeCutoff.takeUnless { releases.ignoresMinimumAge } ?: return true
+            return releases.allPublishedBefore?.let { it <= cutoff } == true || releases.publishedAt(version)?.let { it <= cutoff } == true
+        }
+
         suspend fun outcome(current: String, releases: Releases, minimumAgeCutoff: Long?): Outcome.Updates {
-            val cutoff = minimumAgeCutoff.takeUnless { releases.ignoresMinimumAge }
-            val targets = Targets.pick(current, releases.versions) { version ->
-                cutoff == null || releases.allPublishedBefore?.let { it <= cutoff } == true ||
-                    releases.publishedAt(version)?.let { it <= cutoff } == true
-            }
+            val targets = Targets.pick(current, releases.versions) { oldEnough(releases, minimumAgeCutoff, it) }
             return Outcome.Updates(targets, releases.deprecated[current], releases.moved)
         }
 
