@@ -6,8 +6,7 @@ package io.github.khopland.versionchecker.npm
  * `other@1.0.0` for an alias, or `link:../shared` for a workspace. [snapshots] maps `name@version(peers)` to the same for
  * the package's own dependencies. The file is read as text, one entry per line, like `pnpm-workspace.yaml`.
  */
-internal class PnpmLock(val version: Double, private val importers: Map<String, Map<String, String>>,
-                        private val snapshots: Map<String, Map<String, String>>) : Lockfile {
+internal class PnpmLock(private val importers: Map<String, Map<String, String>>, private val snapshots: Map<String, Map<String, String>>) : Lockfile {
     override fun hasWorkspace(path: String) = path.ifEmpty { "." } in importers
 
     override fun direct(workspace: String, name: String) = importers[workspace.ifEmpty { "." }]?.get(name)?.let { node(name, it) }
@@ -83,7 +82,7 @@ internal class PnpmLock(val version: Double, private val importers: Map<String, 
                 }
             }
             if ((version ?: return null) < 6) return null
-            return PnpmLock(version, importers, snapshots)
+            return PnpmLock(importers, snapshots)
         }
 
         private fun MatchResult.name() = groupValues[2].ifEmpty { groupValues[3] }.ifEmpty { groupValues[4] }

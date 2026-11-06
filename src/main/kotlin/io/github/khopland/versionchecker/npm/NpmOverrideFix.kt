@@ -22,10 +22,12 @@ import com.intellij.psi.codeStyle.CodeStyleManager
 internal object NpmOverrides {
     /**
      * `name@^2` for a vulnerable 2.x, or `name@^0.3` for 0.3.x: an override for the copies in that range only, since an
-     * override of the bare name would move copies of other majors too. Null when [fix] is outside that range.
+     * override of the bare name would move copies of other majors too. Null when [fix] is outside that range, or for
+     * 0.0.x, where each patch is its own range and a range value would move newer copies back.
      */
     fun key(name: String, current: String, fix: String): String? {
         val (major, minor) = current.split('.').let { (it.getOrNull(0) ?: return null) to (it.getOrNull(1) ?: return null) }
+        if (major == "0" && minor == "0") return null
         val base = if (major == "0") "0.$minor" else major
         return if (fix.startsWith("$base.")) "$name@^$base" else null
     }
@@ -103,7 +105,8 @@ class PnpmWorkspaceOverrideFix(private val name: String, private val key: String
     }
 
     override fun generatePreview(project: Project, editor: Editor, file: PsiFile): IntentionPreviewInfo {
-        val before = file.virtualFile?.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let(PnpmWorkspace::text) ?: ""
+        // The preview runs on a copy of package.json, which has no folder of its own.
+        val before = file.originalFile.virtualFile?.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let(PnpmWorkspace::text) ?: ""
         return IntentionPreviewInfo.CustomDiff(PlainTextFileType.INSTANCE, PnpmWorkspace.FILE_NAME, before, PnpmWorkspace.withOverride(before, key, "^$version"))
     }
 }

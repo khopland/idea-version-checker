@@ -51,6 +51,9 @@ internal object PnpmWorkspace {
     fun canAddOverride(text: String, name: String, key: String): Boolean =
         !inlineOverrides.containsMatchIn(text) && entries(text).none { it.section == "overrides" && (it.key == name || it.key == key) }
 
+    /** Whether [text] has an `overrides` section. */
+    fun hasOverrides(text: String) = text.lineSequence().any { overridesHeader.matches(it.removeSuffix("\r")) } || inlineOverrides.containsMatchIn(text)
+
     /** The text of [file], unsaved edits included, or null when it cannot be read. */
     fun text(file: VirtualFile): String? = FileDocumentManager.getInstance().getDocument(file)?.text
 
