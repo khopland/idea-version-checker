@@ -63,6 +63,13 @@ interface VulnerabilitySource {
     fun actions(pkg: Pkg, advisories: List<Advisory>): List<IntentionAction> = emptyList()
 }
 
+/**
+ * What a build file says about the Nexus IQ application it belongs to: the public ID it [declared], such as
+ * `clm.applicationId` in a POM, and [names] the application may have, nearest first, such as its artifact ID. [where] tells
+ * the user where the file can declare one.
+ */
+data class ApplicationHint(val declared: String? = null, val names: List<String> = emptyList(), val where: String? = null)
+
 /** The advisories for one declaration, the version a fix writes, and the source's [actions]. */
 class Vulnerable(val advisories: List<Advisory>, val fix: String?, val actions: List<IntentionAction> = emptyList())
 

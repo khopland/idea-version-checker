@@ -16,13 +16,16 @@ import com.intellij.ui.dsl.builder.COLUMNS_LARGE
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
+import io.github.khopland.versionchecker.core.ApplicationHint
+import io.github.khopland.versionchecker.core.Http
+import io.github.khopland.versionchecker.core.HttpFailure
 import io.github.khopland.versionchecker.refreshAll
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * The Nexus IQ server and application of one project. They are stored in `.idea/version-checker.xml`, so the team shares
- * them. The user name and password are each user's own, in the IDE password safe.
+ * The Nexus IQ server of one project, and optionally its application. They are stored in `.idea/version-checker.xml`, so
+ * the team shares them. The user name and password are each user's own, in the IDE password safe.
  */
 @Service(Service.Level.PROJECT)
 @State(name = "VersionCheckerNexusIq", storages = [Storage("version-checker.xml")])
@@ -35,20 +38,35 @@ class NexusIqSettings : SimplePersistentStateComponent<NexusIqSettings.State>(St
     val serverUrl get() = state.serverUrl?.trim()?.trimEnd('/')?.ifEmpty { null }
     val applicationId get() = state.applicationId?.trim()?.ifEmpty { null }
 
-    @Volatile
-    private var cached: Pair<List<String?>, NexusIqSource>? = null
+    /** By server, application and credentials, so each keeps its application's internal ID. */
+    private val sources = ConcurrentHashMap<List<String?>, NexusIqSource>()
 
-    /** The source when the project names a server and an application, otherwise null. Reads the password safe once per server. */
-    fun source(): NexusIqSource? {
+    /** Replaced in tests. */
+    internal var http: () -> Http = Http::getInstance
+
+    fun clear() = sources.clear()
+
+    /**
+     * The source for a build file when the project names a server, otherwise null. Its application is the one the file
+     * declared, else the one in the settings, else the first of the file's names that the server has. Reads the password
+     * safe once per server, and may ask the server, so it runs in the background.
+     */
+    suspend fun source(hint: ApplicationHint? = null): NexusIqSource? {
         val server = serverUrl ?: return null
-        val application = applicationId ?: return null
         val credentials = NexusIqCredentials.get(server)
-        val key = listOf(server, application, credentials?.userName, credentials?.getPasswordAsString())
-        cached?.takeIf { it.first == key }?.let { return it.second }
-        return NexusIqSource(server, application, credentials?.userName, credentials?.getPasswordAsString()).also { cached = key to it }
+        val user = credentials?.userName
+        val password = credentials?.getPasswordAsString()
+        fun source(application: String) = sources.getOrPut(listOf(server, application, user, password)) { NexusIqSource(server, application, user, password, http) }
+        (hint?.declared ?: applicationId)?.let { return source(it) }
+        val names = hint?.names.orEmpty()
+        names.firstOrNull { source(it).exists() }?.let { return source(it) }
+        val where = listOfNotNull(hint?.where, "the application ID in $SETTINGS").joinToString(", or ")
+        throw HttpFailure((if (names.isEmpty()) "No Nexus IQ application" else "Nexus IQ has no application ${names.joinToString(" or ")}") + ". Set $where")
     }
 
     companion object {
+        const val SETTINGS = "Settings | Tools | Version Checker | Nexus IQ"
+
         fun getInstance(project: Project): NexusIqSettings = project.service()
     }
 }
@@ -86,7 +104,7 @@ class NexusIqConfigurable(private val project: Project) : BoundConfigurable("Nex
         password = credentials?.getPasswordAsString().orEmpty()
         return panel {
             row {
-                comment("With a server and an application, <b>Check for known vulnerabilities</b> asks Nexus IQ instead of osv.dev. " +
+                comment("With a server, <b>Check for known vulnerabilities</b> asks Nexus IQ instead of osv.dev. " +
                     "It reports the vulnerabilities that the application's policies flag and that are not waived, and Alt+Enter opens the application's report to waive them.")
             }
             row("Server URL:") {
@@ -95,7 +113,9 @@ class NexusIqConfigurable(private val project: Project) : BoundConfigurable("Nex
                     .validationOnApply { field -> serverProblem(field.text)?.let { error(it) } }.component
             }
             row("Application ID:") {
-                applicationField = textField().columns(COLUMNS_LARGE).comment("The public ID of the application whose policies and waivers apply. Shared with the project.")
+                applicationField = textField().columns(COLUMNS_LARGE)
+                    .comment("Optional. The public ID of the application whose policies and waivers apply. A <code>clm.applicationId</code> in a POM comes first. " +
+                        "Without either, a build file uses the application named after its artifact ID or package name.")
                     .bindText({ settings.state.applicationId.orEmpty() }, { settings.state.applicationId = it.trim().ifEmpty { null } }).component
             }
             row("User name:") { userField = textField().columns(COLUMNS_LARGE).bindText(::user).component }
@@ -110,15 +130,24 @@ class NexusIqConfigurable(private val project: Project) : BoundConfigurable("Nex
     private fun testConnection() {
         val server = serverField.text.trim()
         val application = applicationField.text.trim()
-        val problem = serverProblem(server) ?: "Enter the server URL and the application ID.".takeIf { server.isEmpty() || application.isEmpty() }
+        val problem = serverProblem(server) ?: "Enter the server URL.".takeIf { server.isEmpty() }
         if (problem != null) {
             Messages.showErrorDialog(project, problem, "Nexus IQ")
             return
         }
-        val source = NexusIqSource(server, application, userField.text.trim(), String(passwordField.password))
-        val result = runWithModalProgressBlocking(project, "Connecting to Nexus IQ") { runCatching { source.application() } }
+        // Without an application, the project's name is looked up, which checks the server and the credentials too.
+        val name = application.ifEmpty { project.name }
+        val source = NexusIqSource(server, name, userField.text.trim(), String(passwordField.password))
+        val result = runWithModalProgressBlocking(project, "Connecting to Nexus IQ") { runCatching { source.exists() } }
         result.fold(
-            { Messages.showInfoMessage(project, "Connected. Nexus IQ has application $application.", "Nexus IQ") },
+            { exists ->
+                when {
+                    exists -> Messages.showInfoMessage(project, "Connected. Nexus IQ has application $name.", "Nexus IQ")
+                    application.isEmpty() -> Messages.showInfoMessage(project, "Connected. Each build file uses its clm.applicationId, " +
+                        "or the application named after its artifact ID or package name.", "Nexus IQ")
+                    else -> Messages.showErrorDialog(project, "Connected, but Nexus IQ has no application $name, or this user cannot see it.", "Nexus IQ")
+                }
+            },
             { Messages.showErrorDialog(project, it.message ?: it.javaClass.simpleName, "Nexus IQ") })
     }
 

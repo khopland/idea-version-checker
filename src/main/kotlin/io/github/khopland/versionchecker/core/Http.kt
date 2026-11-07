@@ -20,7 +20,7 @@ class HttpResult(val status: Int, val body: ByteArray, private val headers: Map<
     fun text() = String(body, Charsets.UTF_8)
 }
 
-class HttpFailure(message: String) : IOException(message)
+open class HttpFailure(message: String) : IOException(message)
 
 /** One HTTP/2 client for every repository, limited per host. It uses the IDE proxy settings. */
 @Service

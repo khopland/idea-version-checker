@@ -5,11 +5,14 @@ import com.intellij.json.psi.JsonObject
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.json.psi.JsonValue
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiManager
+import io.github.khopland.versionchecker.core.ApplicationHint
 import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Ecosystem
@@ -29,6 +32,21 @@ class NpmProvider : DeclarationProvider {
     override val fileNames = listOf("package.json")
 
     override fun accepts(file: PsiFile) = file is JsonFile && file.name == "package.json" && "/node_modules/" !in file.virtualFile?.path.orEmpty()
+
+    /**
+     * The Nexus IQ application named after this package or a package.json above it in the project, nearest first, such
+     * as the root of a workspace. A scoped name is also tried without its scope.
+     */
+    override fun application(file: PsiFile): ApplicationHint? {
+        val vfile = file.virtualFile ?: return null
+        val index = ProjectFileIndex.getInstance(file.project)
+        val psi = PsiManager.getInstance(file.project)
+        val names = generateSequence(vfile.parent) { it.parent }.takeWhile { index.isInContent(it) }
+            .mapNotNull { it.findChild("package.json")?.let(psi::findFile) as? JsonFile }
+            .mapNotNull { ((it.topLevelValue as? JsonObject)?.findProperty("name")?.value as? JsonStringLiteral)?.value?.takeIf(String::isNotBlank) }
+            .flatMap { listOf(it, it.substringAfter('/')) }
+        return ApplicationHint(names = names.distinct().toList())
+    }
 
     override fun collect(file: PsiFile): List<Declaration> {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return emptyList()

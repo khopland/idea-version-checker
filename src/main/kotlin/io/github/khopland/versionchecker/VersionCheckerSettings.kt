@@ -13,6 +13,7 @@ import com.intellij.ui.dsl.builder.panel
 import io.github.khopland.versionchecker.core.VersionService
 import io.github.khopland.versionchecker.core.VersionsChangedListener
 import io.github.khopland.versionchecker.core.VulnerabilityService
+import io.github.khopland.versionchecker.vuln.NexusIqSettings
 
 @Service
 @State(name = "VersionChecker", storages = [Storage("version-checker.xml")])
@@ -57,6 +58,7 @@ fun refreshAll() {
     VersionService.getInstance().clear()
     VulnerabilityService.getInstance().clear()
     ProjectManager.getInstance().openProjects.forEach {
+        NexusIqSettings.getInstance(it).clear()
         DaemonCodeAnalyzer.getInstance(it).restart("Version Checker settings changed")
         it.messageBus.syncPublisher(VersionsChangedListener.TOPIC).versionsChanged()
     }

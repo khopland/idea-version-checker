@@ -47,14 +47,28 @@ class NexusIqSource(
     @Volatile
     private var internalId: String? = null
 
+    /** When the server last said it has no such application, so a guessed name is not asked for on every edit. */
+    @Volatile
+    private var missingAt = 0L
+
     /** The internal ID of the application, which the other calls need. Checks the server, the credentials and the application. */
     suspend fun application(): String = internalId ?: run {
+        val missing = NoApplication("Nexus IQ has no application $applicationId, or this user cannot see it")
+        if (System.currentTimeMillis() - missingAt < MISSING_TTL) throw missing
         val response = http().get("$server/api/v2/applications?publicId=${encode(applicationId)}", headers, store = false)
         if (response.status == 404) throw HttpFailure("No Nexus IQ API at $server. Check the server URL")
         if (!response.ok) throw failure(response, "reading application $applicationId")
         val id = parse(response.text()).array("applications").objects().firstOrNull { it.string("publicId") == applicationId }?.string("id")
-            ?: throw HttpFailure("Nexus IQ has no application $applicationId, or this user cannot see it")
+            ?: throw missing.also { missingAt = System.currentTimeMillis() }
         id.also { internalId = it }
+    }
+
+    /** Whether the server has the application. Fails when the server or the credentials do. */
+    suspend fun exists(): Boolean = try {
+        application()
+        true
+    } catch (e: NoApplication) {
+        false
     }
 
     override suspend fun check(packages: List<Pkg>): Map<Pkg, List<Advisory>> = coroutineScope {
@@ -119,6 +133,7 @@ class NexusIqSource(
     companion object {
         private val LOG = logger<NexusIqSource>()
         private const val BATCH = 500
+        private const val MISSING_TTL = 60_000L
 
         fun purl(pkg: Pkg): String = when (pkg.ecosystem) {
             Ecosystem.MAVEN -> "pkg:maven/${pkg.name.split(':').joinToString("/") { encode(it) }}@${encode(pkg.version)}?type=jar"
@@ -199,3 +214,6 @@ class NexusIqSource(
             ?: throw HttpFailure("Nexus IQ did not answer with JSON. Check the server URL")
     }
 }
+
+/** The server has no application with the public ID, or the user cannot see it. */
+class NoApplication(message: String) : HttpFailure(message)

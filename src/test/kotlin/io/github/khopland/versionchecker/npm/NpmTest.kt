@@ -60,6 +60,13 @@ class NpmTest : BasePlatformTestCase() {
         }
     }
 
+    fun testNexusIqApplicationIsNamedAfterThePackageOrTheWorkspace() {
+        myFixture.addFileToProject("package.json", """{"name": "shop", "workspaces": ["packages/*"]}""")
+        val web = myFixture.addFileToProject("packages/web/package.json", """{"name": "@shop/web"}""")
+        assertEquals(listOf("@shop/web", "web", "shop"), NpmProvider().application(web)?.names)
+        assertNull(NpmProvider().application(web)?.declared)
+    }
+
     fun testProviderKeepsTheOperator() {
         val file = myFixture.configureByText("package.json", """
             {"name": "app", "dependencies": {"react": "^18.2.0", "left-pad": "1.3.0", "lodash": "4.x"},

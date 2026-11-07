@@ -3,6 +3,7 @@ package io.github.khopland.versionchecker.maven
 import com.intellij.codeInspection.InspectionManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import io.github.khopland.versionchecker.core.ApplicationHint
 import org.jetbrains.idea.maven.model.MavenArtifactInfo
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import org.jetbrains.idea.maven.model.MavenId
@@ -176,5 +177,21 @@ class MavenImportedTest : BasePlatformTestCase() {
         val related = MavenProvider().related(core, own)
         assertEquals(listOf("com.fasterxml.jackson.core:jackson-databind"), related.map { it.name })
         assertEquals(own.single().edit!!.key, related.single().edit!!.key)
+    }
+
+    fun testNexusIqApplicationFromTheClmPluginOrTheArtifactIds() {
+        pom("root", """<build><pluginManagement><plugins><plugin>
+            <groupId>com.sonatype.clm</groupId><artifactId>clm-maven-plugin</artifactId>
+            <configuration><applicationId>${'$'}{iq.app}</applicationId></configuration>
+        </plugin></plugins></pluginManagement></build><properties><iq.app>shop</iq.app></properties>""")
+        val web = pom("web", "", parent = "root")
+        assertEquals(ApplicationHint("shop", listOf("web", "root"), "clm.applicationId in the POM"), MavenProvider().application(web))
+        // The property comes first, as the plugin reads it.
+        val api = pom("api", "<properties><clm.applicationId>shop-api</clm.applicationId></properties>", parent = "root")
+        assertEquals("shop-api", MavenProvider().application(api)?.declared)
+        // Without either, the artifact IDs of the POM and its parents in the project.
+        pom("plain", "")
+        val module = pom("module", "", parent = "plain")
+        assertEquals(ApplicationHint(null, listOf("module", "plain"), "clm.applicationId in the POM"), MavenProvider().application(module))
     }
 }

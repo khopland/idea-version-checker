@@ -26,7 +26,7 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
      */
     class Info(val declarations: List<Declaration>, val related: List<Declaration>,
                val suppressed: Set<Declaration> = emptySet(), val movedSuppressed: Set<Declaration> = emptySet(),
-               val checkVulnerabilities: Boolean = false, val project: Project? = null)
+               val checkVulnerabilities: Boolean = false, val project: Project? = null, val application: ApplicationHint? = null)
     class Result(val info: Info, val outcomes: Map<Declaration, Outcome>, val vulnerabilities: Map<Declaration, Vulnerable> = emptyMap()) {
         val declarations get() = info.declarations
     }
@@ -38,15 +38,16 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
         val provider = DeclarationProvider.forFile(file) ?: return null
         val declarations = provider.collect(file)
         if (declarations.isEmpty()) return null
+        val vulnerabilities = VersionCheckerSettings.getInstance().checkVulnerabilities && VulnerableDependencyInspection.enabled(file)
         return Info(declarations, provider.related(file, declarations), Suppression.suppressed(file, declarations, OutdatedVersionInspection()),
-            Suppression.suppressed(file, declarations, MovedDependencyInspection()),
-            VersionCheckerSettings.getInstance().checkVulnerabilities && VulnerableDependencyInspection.enabled(file), file.project)
+            Suppression.suppressed(file, declarations, MovedDependencyInspection()), vulnerabilities, file.project,
+            if (vulnerabilities) VulnerabilityService.application(provider, file) else null)
     }
 
     override fun doAnnotate(info: Info): Result = runBlockingCancellable {
         val declarations = info.declarations + info.related
         // The lookups VulnerabilityAnnotator shares, so this waits for osv.dev or Nexus IQ but sends nothing twice. That annotator reports a failure.
-        val vulnerabilities = if (info.checkVulnerabilities) async { runCatching { VulnerabilityService.getInstance().check(declarations, info.project) } } else null
+        val vulnerabilities = if (info.checkVulnerabilities) async { runCatching { VulnerabilityService.getInstance().check(declarations, info.project, info.application) } } else null
         val outcomes = VersionService.getInstance().check(declarations)
         val found = vulnerabilities?.await()
         found?.exceptionOrNull()?.let { if (it is CancellationException) throw it }
