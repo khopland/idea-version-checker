@@ -6,6 +6,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
+import io.github.khopland.versionchecker.core.ApplicationHint
 import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Ecosystem
@@ -39,6 +40,29 @@ class MavenProvider : DeclarationProvider {
             .flatMap { collect(it) }
             .filter { it.edit?.key in shared }
             .toList()
+    }
+
+    /**
+     * The Nexus IQ application in `clm.applicationId`, or in the configuration of the Sonatype CLM plugin, as the
+     * `clm-maven-plugin` reads it, in this POM or a parent. Otherwise the artifact IDs of this POM and its parents in the
+     * project, since an application is often named after the project's root artifact.
+     */
+    override fun application(file: PsiFile): ApplicationHint? {
+        val xml = file as? XmlFile ?: return null
+        MavenPoms.root(xml) ?: return null
+        val chain = MavenPoms.chain(file.project, xml)
+        fun literal(text: String?) = text?.let { MavenPoms.propertyName(it)?.let { name -> MavenPoms.property(chain, name)?.value } ?: it }?.takeIf { '$' !in it }
+        val declared = MavenPoms.property(chain, "clm.applicationId")?.value ?: chain.all.firstNotNullOfOrNull { pom ->
+            val build = MavenPoms.root(pom)?.let { MavenPoms.child(it, "build") }
+            (MavenPoms.children(build, "plugins", "plugin") + MavenPoms.children(build, "pluginManagement", "plugins", "plugin"))
+                .filter { MavenPoms.text(MavenPoms.child(it, "artifactId")) == "clm-maven-plugin" }
+                .flatMap { listOf(it) + MavenPoms.children(it, "executions", "execution") }
+                .firstNotNullOfOrNull { literal(MavenPoms.text(MavenPoms.child(it, "configuration", "applicationId"))) }
+        }
+        val index = ProjectFileIndex.getInstance(file.project)
+        val names = chain.all.filter { pom -> pom.virtualFile?.let { index.isInContent(it) } == true }
+            .mapNotNull { pom -> MavenPoms.root(pom)?.let { MavenPoms.text(MavenPoms.child(it, "artifactId")) }?.takeIf { '$' !in it } }
+        return ApplicationHint(declared, names.distinct(), "clm.applicationId in the POM")
     }
 
     override fun collect(file: PsiFile): List<Declaration> {

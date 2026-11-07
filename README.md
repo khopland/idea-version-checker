@@ -129,8 +129,16 @@ The warning is on the artifact or package name, so an error on the dependency's 
 ### Nexus IQ
 
 With a [Nexus IQ server](https://help.sonatype.com/en/iq-server.html) (Sonatype Lifecycle), the check can follow your organization's policies and waivers instead of OSV.dev, so the editor shows only the vulnerable dependencies that still need attention.
-Open **Settings → Tools → Version Checker → Nexus IQ** and enter the server URL, the public ID of the application and your user name and password or user token. **Test Connection** checks all three.
-The server and application are stored in `.idea/version-checker.xml`, so you can share them with the team. The user name and password stay in the IDE password safe.
+Open **Settings → Tools → Version Checker → Nexus IQ** and enter the server URL and your user name and password or user token. **Test Connection** checks them.
+The server is stored in `.idea/version-checker.xml`, so you can share it with the team. The user name and password stay in the IDE password safe.
+
+Each build file finds its application, the first of:
+
+1. `clm.applicationId` in the POM or a parent POM, or `<applicationId>` in the configuration of `clm-maven-plugin`, as the [Sonatype CLM for Maven](https://help.sonatype.com/en/sonatype-clm-for-maven.html) plugin reads them.
+2. The **Application ID** in the settings, for the whole project.
+3. The first of these that Nexus IQ has an application for: the artifact ID of the POM and of its parents in the project, or the `name` of the `package.json` and those above it in the project, with and without the `@scope/`.
+
+Without one, the file shows which names were tried.
 
 - The declared dependencies, and the [transitive](#transitive-dependencies) packages they bring in, are evaluated against the policies of the application, through the component evaluation API. **Check for known vulnerabilities** must be on.
 - A vulnerability shows when a policy violation names it and the violation is neither waived nor legacy. Vulnerabilities that no policy flags, and those Nexus IQ marks as not applicable, are left out.
@@ -178,7 +186,7 @@ Build scripts, `buildSrc` and included builds that import the catalog are search
 - **Check versions in build files**: turn the checks on or off.
 - **Minimum release age (hours)**: hide Maven, Gradle and wrapper versions published less recently than this, for example `24` to match a Nexus quarantine. It does not apply to npm: a Nexus quarantine already leaves held-back versions out of the npm metadata, while Maven metadata still lists them. The fix for a vulnerability follows it too.
 - **Check for known vulnerabilities**: off by default. See [Vulnerabilities](#vulnerabilities).
-- **Nexus IQ**, per project: the server, application and credentials for [Nexus IQ](#nexus-iq).
+- **Nexus IQ**, per project: the server, credentials and optional application for [Nexus IQ](#nexus-iq).
 
 Severity and per-inspection on/off are under **Settings → Editor → Inspections → Version Checker**.
 

@@ -6,7 +6,7 @@
 
 - **Vulnerable dependency version** inspection: known vulnerabilities of declared Maven, Gradle and npm dependencies from OSV.dev, with a fix to the lowest stable version that fixes all of them. Off by default: turn on **Check for known vulnerabilities** in **Settings → Tools → Version Checker**. The patch, minor and major fixes say when the new version is still vulnerable.
 - **Vulnerable transitive dependency** inspection: a warning on a declared dependency that brings in a vulnerable package, with the path to it. Maven projects use the dependency tree of the last import, and npm and pnpm projects their lockfile. **Alt+Enter** pins the package to the nearest safe version in `<dependencyManagement>`, npm `overrides` or pnpm overrides. While **Check for known vulnerabilities** is on, these resolved packages are sent to OSV.dev too, or to Nexus IQ.
-- Nexus IQ: in **Settings → Tools → Version Checker → Nexus IQ**, a project can check its dependencies against the policies of a Nexus IQ application instead of OSV.dev. Only vulnerabilities that a policy violation names and that are not waived show, and **Alt+Enter** opens the application's report in Nexus IQ to waive them.
+- Nexus IQ: in **Settings → Tools → Version Checker → Nexus IQ**, a project can check its dependencies against the policies of a Nexus IQ application instead of OSV.dev. Only vulnerabilities that a policy violation names and that are not waived show, and **Alt+Enter** opens the application's report in Nexus IQ to waive them. Each build file finds its application from `clm.applicationId` or the `clm-maven-plugin` configuration in the POM, the project setting, or else an application named after its artifact ID or package name.
 
 ## [2.3.0]
 

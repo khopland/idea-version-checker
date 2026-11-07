@@ -110,6 +110,9 @@ interface DeclarationProvider {
     /** A fix that makes the build resolve [transitive] at [version] instead, or null when [file] cannot say so. Runs in a read action. */
     fun pin(file: PsiFile, transitive: Transitive, version: String): PinFix? = null
 
+    /** What [file] says about its Nexus IQ application, or null when it says nothing. Runs in a read action. Must not do I/O. */
+    fun application(file: PsiFile): ApplicationHint? = null
+
     companion object {
         val EP = ExtensionPointName<DeclarationProvider>("io.github.khopland.version-checker.declarationProvider")
 
