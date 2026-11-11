@@ -2,13 +2,13 @@
 <body>
 Reports declared dependencies that bring in packages with known vulnerabilities from <a href="https://osv.dev">OSV.dev</a>.
 The warning is on the declared dependency, and names the vulnerable package and the path to it.
-<p>Maven projects are checked from the dependency tree of the last import, and npm and pnpm projects from <code>package-lock.json</code> or <code>pnpm-lock.yaml</code>.
+<p>Maven projects are checked from the dependency tree of the last import, and npm, pnpm, Yarn and Bun projects from <code>package-lock.json</code>, <code>pnpm-lock.yaml</code>, <code>yarn.lock</code> or <code>bun.lock</code>.
 The check is off until you turn on
 <b>Check for known vulnerabilities</b> in <b>Settings | Tools | Version Checker</b>. It sends the names and versions of the
 resolved packages to osv.dev, or to the project's Nexus IQ server when it has one, as for <b>Vulnerable dependency version</b>.</p>
 <p>Use <b>Alt+Enter</b> to pin the package in <code>&lt;dependencyManagement&gt;</code>, npm <code>overrides</code> or pnpm overrides at the
 lowest stable version that fixes every reported vulnerability. An npm or pnpm override covers every copy in the
-vulnerable major, so it offers the highest version any of them needs. To keep a dependency on purpose, add a suppress comment from the <b>Alt+Enter</b> menu,
+vulnerable major, so it offers the highest version any of them needs. Yarn and Bun projects get the warning without a fix. To keep a dependency on purpose, add a suppress comment from the <b>Alt+Enter</b> menu,
 for example <code>&lt;!--suppress VulnerableTransitiveDependency --&gt;</code> in a POM. <code>package.json</code> cannot have
 comments, so turn the inspection off there instead.</p>
 </body>

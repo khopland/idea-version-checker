@@ -1,9 +1,6 @@
 package io.github.khopland.versionchecker.core
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel
-import com.intellij.codeInsight.daemon.HighlightDisplayKey
-import com.intellij.codeInsight.intention.EmptyIntentionAction
-import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.ex.ExternalAnnotatorBatchInspection
 import com.intellij.lang.annotation.AnnotationHolder
@@ -11,11 +8,9 @@ import com.intellij.lang.annotation.ExternalAnnotator
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.progress.runBlockingCancellable
-import com.intellij.profile.codeInspection.InspectionProjectProfileManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 import io.github.khopland.versionchecker.VersionCheckerSettings
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 
 /** Shows outdated versions. Lookups run on the annotator's background thread, not in the highlighting pass. */
@@ -34,7 +29,6 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
     override fun collectInformation(file: PsiFile, editor: Editor, hasErrors: Boolean): Info? = collectInformation(file)
 
     override fun collectInformation(file: PsiFile): Info? {
-        if (!VersionCheckerSettings.getInstance().enabled) return null
         val provider = DeclarationProvider.forFile(file) ?: return null
         val declarations = provider.collect(file)
         if (declarations.isEmpty()) return null
@@ -47,32 +41,22 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
     override fun doAnnotate(info: Info): Result = runBlockingCancellable {
         val declarations = info.declarations + info.related
         // The lookups VulnerabilityAnnotator shares, so this waits for osv.dev or Nexus IQ but sends nothing twice. That annotator reports a failure.
-        val vulnerabilities = if (info.checkVulnerabilities) async { runCatching { VulnerabilityService.getInstance().check(declarations, info.project, info.application) } } else null
+        val vulnerabilities = if (info.checkVulnerabilities) async {
+            Highlights.attempt("check for vulnerabilities") { VulnerabilityService.getInstance().check(declarations, info.project, info.application) }.first
+        } else null
         val outcomes = VersionService.getInstance().check(declarations)
-        val found = vulnerabilities?.await()
-        found?.exceptionOrNull()?.let { if (it is CancellationException) throw it }
-        Result(info, outcomes, found?.getOrNull().orEmpty())
+        Result(info, outcomes, vulnerabilities?.await().orEmpty())
     }
 
     override fun apply(file: PsiFile, result: Result, holder: AnnotationHolder) {
         val outcomes = result.outcomes
-        val profile = InspectionProjectProfileManager.getInstance(file.project).currentProfile
-        fun severity(shortName: String, default: HighlightDisplayLevel): HighlightSeverity? {
-            val key = HighlightDisplayKey.find(shortName) ?: return default.severity
-            return if (profile.isToolEnabled(key, file)) profile.getErrorLevel(key, file).severity else null
-        }
-        val movedSeverity = severity(MovedDependencyInspection.SHORT_NAME, HighlightDisplayLevel.WEAK_WARNING)
-        val movedKey = HighlightDisplayKey.find(MovedDependencyInspection.SHORT_NAME)
-        for (declaration in result.declarations) {
+        val moves = Highlights(file, MovedDependencyInspection.SHORT_NAME, "Moved dependency", HighlightDisplayLevel.WEAK_WARNING)
+        if (moves.enabled) for (declaration in result.declarations) {
             val moved = (outcomes[declaration] as? Outcome.Updates)?.moved ?: continue
-            if (movedSeverity != null && declaration !in result.info.movedSuppressed && declaration.range.endOffset <= file.textLength) {
-                val builder = holder.newAnnotation(movedSeverity, movedMessage(declaration, moved)).range(declaration.range)
-                // An annotation without fixes has no Alt+Enter menu, so an empty action carries the suppress actions.
-                (if (movedKey == null) builder else builder.newFix(EmptyIntentionAction("Moved dependency")).key(movedKey).registerFix()).create()
-            }
+            if (declaration !in result.info.movedSuppressed) moves.annotate(holder, moves.level.severity, movedMessage(declaration, moved), declaration.range)
         }
-        val severity = severity(OutdatedVersionInspection.SHORT_NAME, HighlightDisplayLevel.WARNING) ?: return
-        val key = HighlightDisplayKey.find(OutdatedVersionInspection.SHORT_NAME)
+        val outdated = Highlights(file, OutdatedVersionInspection.SHORT_NAME, "Outdated dependency version", HighlightDisplayLevel.WARNING)
+        if (!outdated.enabled) return
         val fixes = VersionService.fixes(outcomes)
         val checked = result.declarations.filter { it !in result.info.suppressed }
         val failures = checked.filter { outcomes[it] is Outcome.Failed }.groupBy { (outcomes.getValue(it) as Outcome.Failed).message }
@@ -87,24 +71,12 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
             }
         }
         for (declaration in checked) {
-            val outcome = outcomes[declaration] ?: continue
-            if (declaration.range.endOffset > file.textLength) continue
-            when (outcome) {
-                is Outcome.Failed -> {}
-                is Outcome.Updates -> {
-                    val message = message(declaration, outcome, fixes[declaration].orEmpty()) ?: continue
-                    var builder = holder.newAnnotation(severity, message).range(declaration.range)
-                    // The key adds the inspection's suppress actions to each fix's submenu.
-                    fun register(fix: IntentionAction) {
-                        builder = if (key == null) builder.withFix(fix) else builder.newFix(fix).key(key).registerFix()
-                    }
-                    VulnerabilityAnnotator.updateFixes(declaration, fixes[declaration].orEmpty().values, result.vulnerabilities).forEach(::register)
-                    register(UpdateFileFix())
-                    val newest = outcome.targets.major
-                    if (declaration.lookup.hasReleaseNotes && newest != null) register(OpenReleaseNotesFix(declaration.name, declaration.lookup, newest))
-                    builder.create()
-                }
-            }
+            val outcome = outcomes[declaration] as? Outcome.Updates ?: continue
+            val message = message(declaration, outcome, fixes[declaration].orEmpty()) ?: continue
+            val newest = outcome.targets.major
+            outdated.annotate(holder, outdated.level.severity, message, declaration.range,
+                VulnerabilityAnnotator.updateFixes(declaration, fixes[declaration].orEmpty().values, result.vulnerabilities) + UpdateFileFix() +
+                    listOfNotNull(if (declaration.lookup.hasReleaseNotes && newest != null) OpenReleaseNotesFix(declaration.name, declaration.lookup, newest) else null))
         }
     }
 

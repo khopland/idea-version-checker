@@ -48,7 +48,7 @@ kotlin {
 }
 
 tasks.processResources {
-    from("LICENSE") { into("META-INF") }
+    from(files("LICENSE", "NOTICE")) { into("META-INF") }
 }
 
 intellijPlatform {

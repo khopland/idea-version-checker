@@ -29,16 +29,10 @@ class VersionService(private val scope: CoroutineScope) {
     suspend fun releases(lookup: Lookup): Releases {
         val now = System.currentTimeMillis()
         val entry = entries.compute(lookup.key) { _, old ->
-            if (old != null && !expired(old, now)) old
+            if (old != null && !expired(old.result, old.createdAt, now)) old
             else Entry(scope.async(Dispatchers.IO) { fetch(lookup) }, now)
         }!!
         return entry.result.await()
-    }
-
-    private fun expired(entry: Entry, now: Long): Boolean {
-        val age = now - entry.createdAt
-        if (entry.result.isCompleted && entry.result.getCompletionExceptionOrNull() != null) return age > FAILURE_TTL
-        return age > TTL
     }
 
     suspend fun check(declarations: List<Declaration>, minAgeHours: Int = VersionCheckerSettings.getInstance().minReleaseAgeHours): Map<Declaration, Outcome> = coroutineScope {
@@ -62,6 +56,16 @@ class VersionService(private val scope: CoroutineScope) {
         private val LOG = logger<VersionService>()
         private val TTL = TimeUnit.MINUTES.toMillis(30)
         private val FAILURE_TTL = TimeUnit.MINUTES.toMillis(1)
+
+        /**
+         * Whether a cached [result] from [createdAt] is too old at [now]. A failure is asked for again soon, and so is a
+         * result that [incomplete] says is missing something.
+         */
+        @OptIn(ExperimentalCoroutinesApi::class)
+        fun <T> expired(result: Deferred<T>, createdAt: Long, now: Long, incomplete: (T) -> Boolean = { false }): Boolean {
+            val failed = result.isCompleted && (result.getCompletionExceptionOrNull() != null || incomplete(result.getCompleted()))
+            return now - createdAt > if (failed) FAILURE_TTL else TTL
+        }
 
         fun getInstance(): VersionService = ApplicationManager.getApplication().getService(VersionService::class.java)
 

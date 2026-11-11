@@ -14,8 +14,11 @@ internal interface Lockfile {
     /** Whether the lockfile installs the workspace at [path], relative to the lockfile's folder, or `""` for the root. */
     fun hasWorkspace(path: String): Boolean
 
-    /** The package that [name], declared by the workspace at [workspace], resolves to. */
-    fun direct(workspace: String, name: String): Node?
+    /**
+     * The package that [name], declared by the workspace at [workspace], resolves to. [range] is what package.json
+     * declares, for a lockfile that finds packages by it.
+     */
+    fun direct(workspace: String, name: String, range: String? = null): Node?
 
     fun dependencies(node: Node): List<Node>
 
@@ -24,8 +27,12 @@ internal interface Lockfile {
         private val CACHE = Key.create<Pair<Long, Lockfile?>>("version-checker.lockfile")
         private val READERS = listOf<Pair<String, (String) -> Lockfile?>>(
             PackageLock.FILE_NAME to { PackageLock.parse(JsonParser.parseString(it).asJsonObject) },
-            PnpmLock.FILE_NAME to PnpmLock::parse)
-        private val packageManager = Regex(""""packageManager"\s*:\s*"(npm|pnpm)@""")
+            PnpmLock.FILE_NAME to PnpmLock::parse,
+            YarnLock.FILE_NAME to YarnLock::parse,
+            BunLock.FILE_NAME to BunLock::parse)
+        /** The lockfile of each package manager that `packageManager` names. */
+        private val MANAGERS = mapOf("npm" to PackageLock.FILE_NAME, "pnpm" to PnpmLock.FILE_NAME, "yarn" to YarnLock.FILE_NAME, "bun" to BunLock.FILE_NAME)
+        private val packageManager = Regex(""""packageManager"\s*:\s*"(npm|pnpm|yarn|bun)@""")
         val FILE_NAMES = READERS.map { it.first }
 
         /**
@@ -41,9 +48,8 @@ internal interface Lockfile {
                 val found = READERS.mapNotNull { (name, parse) -> dir.findChild(name)?.let { it to parse } }
                 val manager = if (found.size < 2) null else dir.findChild("package.json")
                     ?.let { runCatching { packageManager.find(VfsUtilCore.loadText(it))?.groupValues?.get(1) }.getOrNull() }
-                val lock = found.sortedWith(compareByDescending<Pair<VirtualFile, (String) -> Lockfile?>> { (file, _) ->
-                    file.name == (if (manager == "pnpm") PnpmLock.FILE_NAME else PackageLock.FILE_NAME) && manager != null
-                }.thenByDescending { it.first.timeStamp }).firstNotNullOfOrNull { (file, parse) -> read(file, parse) }
+                val lock = found.sortedWith(compareByDescending<Pair<VirtualFile, (String) -> Lockfile?>> { (file, _) -> file.name == MANAGERS[manager] }
+                    .thenByDescending { it.first.timeStamp }).firstNotNullOfOrNull { (file, parse) -> read(file, parse) }
                 if (lock != null) return if (lock.hasWorkspace(relative)) lock to relative else null
                 relative = if (relative.isEmpty()) dir.name else "${dir.name}/$relative"
                 directory = dir.parent
@@ -75,7 +81,7 @@ internal class PackageLock(private val packages: Map<String, Entry>) : Lockfile 
 
     override fun hasWorkspace(path: String) = path in packages
 
-    override fun direct(workspace: String, name: String) = resolve(workspace, name)?.let { node(it, name) }
+    override fun direct(workspace: String, name: String, range: String?) = resolve(workspace, name)?.let { node(it, name) }
 
     override fun dependencies(node: Lockfile.Node) =
         packages[node.id]?.dependencies.orEmpty().mapNotNull { name -> resolve(node.id, name)?.let { node(it, name) } }

@@ -5,15 +5,19 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import io.github.khopland.versionchecker.core.Advisory
 import io.github.khopland.versionchecker.core.Change
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.DependencyReport
 import io.github.khopland.versionchecker.core.Edit
 import io.github.khopland.versionchecker.core.Edits
 import io.github.khopland.versionchecker.core.FakeProvider
+import io.github.khopland.versionchecker.core.Pkg
 import io.github.khopland.versionchecker.core.UpdateKind
 import io.github.khopland.versionchecker.core.VersionService
 import io.github.khopland.versionchecker.core.VersionsChangedListener
+import io.github.khopland.versionchecker.core.VulnerabilityService
+import io.github.khopland.versionchecker.core.VulnerabilitySource
 import com.intellij.openapi.util.TextRange
 
 /** The Dependency Updates tool window against a fake provider: `<lib name="x" version="1.0"/>`. */
@@ -138,13 +142,62 @@ class DependencyUpdatesTest : BasePlatformTestCase() {
         myFixture.addFileToProject("fake.xml", """<libs><lib name="current" version="2.0.0"/></libs>""")
         check()
         waitUntil({ panel.table.emptyText.text }) { panel.table.emptyText.text == "All dependencies are up to date" }
+    }
 
-        VersionCheckerSettings.getInstance().state.enabled = false
+    fun testListsVulnerableVersionsFirstAndUpdatesThemToSafeVersions() {
+        val service = VulnerabilityService.getInstance()
+        val previous = service.source
+        VersionCheckerSettings.getInstance().state.checkVulnerabilities = true
+        service.clear()
+        service.source = object : VulnerabilitySource {
+            override suspend fun check(packages: List<Pkg>) = packages.associateWith { pkg ->
+                listOfNotNull(
+                    Advisory("CVE-1", emptyList(), "HIGH", "Bad parsing", listOf("1.1.0")).takeIf { pkg.name == "a" },
+                    Advisory("CVE-2", emptyList(), "CRITICAL", null, emptyList()).takeIf { pkg.name == "current" },
+                ).filter { it.affects(pkg.version) }
+            }
+        }
         try {
+            val app = myFixture.addFileToProject("app/fake.xml", """
+                <libs>
+                  <lib name="shared-y" version="1.0.0"/>
+                  <lib name="a" version="1.0.0"/>
+                  <lib name="current" version="2.0.0"/>
+                </libs>
+            """.trimIndent())
+            val kept = myFixture.addFileToProject("kept/fake.xml", """
+                <libs>
+                  <!--suppress OutdatedDependencyVersion -->
+                  <lib name="a" version="1.0.1"/>
+                  <!--suppress VulnerableDependency -->
+                  <lib name="a" version="1.0.0"/>
+                </libs>
+            """.trimIndent())
+            val panel = DependencyUpdatesPanel(project, testRootDisposable)
+            val state = check()
+            assertTrue(state.vulnerabilities)
+            // The worst first. A version kept from the outdated versions still shows when it is vulnerable, without its updates.
+            assertEquals(listOf("current 2.0.0 CRITICAL null", "a 1.0.0 HIGH 1.1.0", "a 1.0.1 HIGH 1.1.0", "shared-y 1.0.0 null null", "a 1.0.0 null null"),
+                state.rows.map { "${it.declaration.name} ${it.declaration.current} ${it.worst?.severity} ${it.safe}" })
+            assertEquals("CVE-1 (high): Bad parsing. Fixed in 1.1.0. a 1.0.0 → 1.0.1 (patch) · 1.2.0 (minor) · 2.0.0 (major). 1.0.0 is deprecated: Use other", state.rows[1].message)
+            assertEquals("CVE-1 (high): Bad parsing. Fixed in 1.1.0", state.rows[2].message)
+            assertEquals(emptyList<String?>(), UpdateKind.entries.mapNotNull { state.rows[2].offered(it) })
+
+            waitUntil { panel.table.items.size == 5 }
+            assertEquals(listOf("Dependency", "Current", "Vulnerabilities", "Safe", "Patch", "Minor", "Major", "Location"),
+                (0 until panel.table.columnCount).map { panel.table.getColumnName(it) })
+            panel.updateSafe()
+            assertEquals("""<lib name="a" version="1.1.0"/>""", document(app).text.lines()[2].trim())
+            assertEquals("""<lib name="shared-y" version="1.0.0"/>""", document(app).text.lines()[1].trim())
+            assertEquals(listOf("""<lib name="a" version="1.1.0"/>""", """<lib name="a" version="1.0.0"/>"""), document(kept).text.lines().filter { "lib name" in it }.map { it.trim() })
+
+            VersionCheckerSettings.getInstance().state.checkVulnerabilities = false
             check()
-            waitUntil({ panel.table.emptyText.text }) { panel.table.emptyText.text == "Version checks are turned off" }
+            waitUntil { panel.table.columnCount == 6 }
         } finally {
-            VersionCheckerSettings.getInstance().state.enabled = true
+            VersionCheckerSettings.getInstance().state.checkVulnerabilities = false
+            service.source = previous
+            service.clear()
         }
     }
 

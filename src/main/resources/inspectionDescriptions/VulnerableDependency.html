@@ -5,7 +5,8 @@ Reports declared Maven, Gradle and npm dependency versions with known vulnerabil
 It sends the names and versions of declared dependencies to osv.dev. A project set up under <b>Version Checker | Nexus IQ</b>
 sends them to its Nexus IQ server instead, and then only vulnerabilities that the application's policies flag and that are
 not waived are reported. <b>Alt+Enter</b> opens the application's report in Nexus IQ, where you can waive them. <b>Vulnerable transitive dependency</b> reports the
-packages they bring in, in Maven, npm and pnpm projects.</p>
+packages they bring in, in Maven, npm, pnpm, Yarn and Bun projects.</p>
+<p>An npm dependency is checked at the version its lockfile installs, or else at the declared version.</p>
 <p>Critical and high severity show as errors at the default level. Use <b>Alt+Enter</b> to update to the lowest stable
 version that fixes every reported vulnerability.</p>
 <p>To keep a version on purpose, add a suppress comment from the <b>Alt+Enter</b> menu, for example

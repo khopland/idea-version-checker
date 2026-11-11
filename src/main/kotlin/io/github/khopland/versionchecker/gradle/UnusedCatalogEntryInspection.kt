@@ -9,12 +9,10 @@ import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileVisitor
 import com.intellij.psi.PsiFile
-import io.github.khopland.versionchecker.VersionCheckerSettings
 
 /** Finds `[versions]`, `[libraries]` and `[plugins]` entries in `gradle/libs.versions.toml` that nothing uses. No network access. */
 class UnusedCatalogEntryInspection : LocalInspectionTool() {
     override fun checkFile(file: PsiFile, manager: InspectionManager, isOnTheFly: Boolean): Array<ProblemDescriptor>? {
-        if (!VersionCheckerSettings.getInstance().enabled) return null
         val vfile = file.virtualFile ?: return null
         if (vfile.name != "libs.versions.toml" || vfile.parent?.name != "gradle") return null
         val sources = CatalogSources.find(vfile.parent.parent ?: return null) ?: return null

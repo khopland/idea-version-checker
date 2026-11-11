@@ -22,7 +22,7 @@ internal class FakeProvider : DeclarationProvider {
             val edit = if (name.startsWith("shared") && shared != null)
                 Edit(file.virtualFile, TextRange(shared.groups[1]!!.range.first, shared.groups[1]!!.range.last + 1), shared.groupValues[1], "shared")
             else Edit(file.virtualFile, range, group.value)
-            Declaration(name, range, group.value, FakeLookup(name, VERSIONS[name].orEmpty(), mapOf("1.0.0" to "Use other")), edit)
+            Declaration(name, range, group.value, FakeLookup(name, VERSIONS[name].orEmpty(), mapOf("1.0.0" to "Use other")), edit, ecosystem = Ecosystem.MAVEN)
         }.toList()
     }
 }

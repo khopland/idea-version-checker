@@ -9,7 +9,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.PsiTreeUtil
-import io.github.khopland.versionchecker.VersionCheckerSettings
 
 /**
  * Finds a package that `package.json` lists twice. A dev dependency that is also a dependency is installed anyway,
@@ -18,7 +17,6 @@ import io.github.khopland.versionchecker.VersionCheckerSettings
  */
 class DuplicateDependencyInspection : LocalInspectionTool() {
     override fun checkFile(file: PsiFile, manager: InspectionManager, isOnTheFly: Boolean): Array<ProblemDescriptor>? {
-        if (!VersionCheckerSettings.getInstance().enabled) return null
         if (file !is JsonFile || file.name != "package.json" || "/node_modules/" in file.virtualFile?.path.orEmpty()) return null
         val root = file.topLevelValue as? JsonObject ?: return null
         fun section(name: String) = (root.findProperty(name)?.value as? JsonObject)?.propertyList.orEmpty()

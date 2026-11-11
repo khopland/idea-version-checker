@@ -20,6 +20,7 @@ Use IntelliJ IDEA 2026.1.4 through 2026.3.x. Open **Settings → Plugins → Mar
 | Check again now | **Tools → Versions → Check Now**. Results otherwise stay cached for 30 minutes. After that, and after a restart, the plugin asks the repository whether its stored copy is still current, so an unchanged document is not downloaded again. |
 
 The **Dependency Updates** tool window lists every outdated version in the project, one row each, with the newest patch, minor and major update and where it is declared.
+With [vulnerability checks](docs/vulnerabilities.md) on, it lists the vulnerable versions first, with their severity and safe version.
 Up-to-date versions and versions kept by a suppress comment are left out. Versions that could not be checked come last, with the reason.
 Double-click a row, or press **Enter** or **F4**, to go to the declaration. Select rows, or none for all of them, and pick **Update → Patch / Minor / Major** in the toolbar or the context menu.
 A grey version cannot be written, for example a shared property whose users need different versions. The tooltip says why.
@@ -100,55 +101,18 @@ Use `MovedDependency` the same way for moved packages, and `VulnerableDependency
 
 ## Vulnerabilities
 
-The **Vulnerable dependency version** inspection reports declared versions with known vulnerabilities from [OSV.dev](https://osv.dev), which includes the GitHub Advisory Database.
+Optionally, the plugin reports declared versions with known vulnerabilities from [OSV.dev](https://osv.dev), or from your Nexus IQ server, with a fix to the nearest safe version:
 
 > CVE-2021-44228 (critical): Remote code injection in Log4j. Fixed in 2.15.0
 
-It is off by default. Turn on **Check for known vulnerabilities** in **Settings → Tools → Version Checker**.
-The check then sends the names and versions of the declared Maven, Gradle and npm dependencies to `api.osv.dev`: those in open build files, and in other build files that share a version with them, such as a parent POM property. In Maven, npm and pnpm projects it also sends the packages they bring in, as resolved by the last Maven import or the lockfile, which can include internal packages from private repositories. Modules of the Maven project are not sent. Credentials, file names and repository URLs are not sent. A project set up for [Nexus IQ](#nexus-iq) sends them to its Nexus IQ server instead, and nothing to osv.dev. Nothing is sent while the setting or the inspection is off.
-For npm, the declared version is checked, which for `^1.2.3` is the lowest version it allows, not the one in the lockfile.
+It is off by default, because it sends dependency names and versions to `api.osv.dev` or to your Nexus IQ server. Turn on **Check for known vulnerabilities** in **Settings → Tools → Version Checker**.
 
-- Several advisories show as one warning with their IDs and the highest severity. The ID is the CVE when there is one, otherwise the GitHub (`GHSA-…`) or OSV ID.
-- The severity is GitHub's rating, or else computed from a CVSS 3 vector. An advisory with only a CVSS 4 vector shows no severity.
-- Critical and high severity show as errors, unless you set another level for the inspection. The error also offers the patch, minor and major updates, because it hides the outdated warning, its deprecation note and a moved-dependency notice on the same version.
-- **Alt+Enter** offers **Update to … (fixes N vulnerabilities)**: the lowest stable version above the current one, with the same variant, that no reported advisory affects. Like the other fixes, it changes a shared Maven property or catalog `version.ref`, and only to a version that every user of it has and that fixes all of them. The patch, minor and major fixes say `still vulnerable` when the new version is affected too.
-- `<!--suppress VulnerableDependency -->`, `//noinspection VulnerableDependency` or `#noinspection VulnerableDependency` keeps a version, as for outdated versions.
-- Results stay in memory for 30 minutes. **Check Now** asks again. Advisory details stay on disk until OSV.dev reports a change, or for 30 days unused. An advisory that could not be read shows by its ID, without a fix, and is asked for again after a minute.
+- Declared Maven, Gradle and npm dependencies, with npm dependencies at the version the lockfile installs.
+- The packages they bring in, in Maven projects and from `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` and `bun.lock`, with a fix that pins the package for Maven, npm and pnpm.
+- The **Dependency Updates** tool window lists the vulnerable versions first and updates them to safe versions.
+- With Nexus IQ, only what your application's policies flag and nobody waived.
 
-### Transitive dependencies
-
-The **Vulnerable transitive dependency** inspection warns on a declared dependency that brings in a vulnerable package, with the shortest path to it:
-
-> Brings in com.fasterxml.jackson.core:jackson-databind 2.9.0 via org.example:json: CVE-2019-12384 (high): Polymorphic typing. Fixed in 2.9.9.1
-
-The warning is on the artifact or package name, so an error on the dependency's own version does not hide it. It stays a warning at the default level, since the version is not set in the file and the code may never reach the package. A package the file declares, or a POM manages, is checked by **Vulnerable dependency version** instead, and its own dependencies show under it.
-
-- **Maven:** the dependency tree of the last Maven import, so reload the project after changing dependencies. Dependencies inherited from a parent POM show in the parent. **Alt+Enter** offers **Pin … to … in dependency management**: the lowest stable version above the resolved one that no reported advisory affects, added to `<dependencyManagement>` in this POM. It is not offered for an artifact with a classifier or a type other than `jar`, which a plain entry does not match. `<!--suppress VulnerableTransitiveDependency -->` above the `<artifactId>` keeps a dependency, and **Alt+Enter → Suppress for tag** puts it there.
-- **npm and pnpm:** the packages that `package-lock.json` (lockfile version 2 or 3, from npm 7 and later) or `pnpm-lock.yaml` (version 6 or 9, from pnpm 8 and later) installs, so install after changing dependencies. With both lockfiles, `packageManager` in `package.json` says which one is read, or else the newer one. Open `package.json` files are checked again when the lockfile changes. A workspace package uses the lockfile of the workspace root. **Alt+Enter** offers **Override …**: an override in the root of the workspace, scoped to the vulnerable version's major, such as `"qs@^6": "^6.2.4"`, so copies of other majors keep their version. It is offered only when the safe version has the same major. The value is a range from the safe version, so newer copies in the range keep their version. npm writes it to `overrides` in `package.json`. pnpm writes it to `overrides` in `pnpm-workspace.yaml` for pnpm 11 and later, which read only that file, with the version from `packageManager` or else from the last install in `node_modules`. pnpm before 10.5.1 get it in `pnpm.overrides` in `package.json`, the only place they read. pnpm in between, or of an unknown version, get it where the project already keeps overrides, since pnpm 10 ignores the workspace file's while `package.json` has some, and otherwise in `package.json`, since a workspace file with only overrides makes pnpm 9 fail to install. When copies of one package need different safe versions, the override offers the highest. Not for `0.0.x` versions, where each patch is its own range. It is not offered for a package that is already overridden in the file it would write to, or that the root `package.json` depends on directly, which npm refuses. `package.json` cannot have comments, so turn the inspection off instead of suppressing it. `yarn.lock` and `bun.lock` are not read yet.
-
-### Nexus IQ
-
-With a [Nexus IQ server](https://help.sonatype.com/en/iq-server.html) (Sonatype Lifecycle), the check can follow your organization's policies and waivers instead of OSV.dev, so the editor shows only the vulnerable dependencies that still need attention.
-Open **Settings → Tools → Version Checker → Nexus IQ** and enter the server URL and your user name and password or user token. **Test Connection** checks them.
-The server is stored in `.idea/version-checker.xml`, so you can share it with the team. The user name and password stay in the IDE password safe.
-
-Each build file finds its application, the first of:
-
-1. `clm.applicationId` in the POM or a parent POM, or `<applicationId>` in the configuration of `clm-maven-plugin`, as the [Sonatype CLM for Maven](https://help.sonatype.com/en/sonatype-clm-for-maven.html) plugin reads them.
-2. The **Application ID** in the settings, for the whole project.
-3. The first of these that Nexus IQ has an application for: the artifact ID of the POM and of its parents in the project, or the `name` of the `package.json` and those above it in the project, with and without the `@scope/`.
-
-Without one, the file shows which names were tried.
-
-- The declared dependencies, and the [transitive](#transitive-dependencies) packages they bring in, are evaluated against the policies of the application, through the component evaluation API. **Check for known vulnerabilities** must be on.
-- A vulnerability shows when a policy violation names it and the violation is neither waived nor legacy. Vulnerabilities that no policy flags, and those Nexus IQ marks as not applicable, are left out.
-- The message names the policy, as in `CVE-2021-44228 (critical): Security-Critical policy. Fixed in 2.17.1`. The fix is the lowest version from or above the one Nexus IQ suggests without policy violations.
-- **Alt+Enter → Open … in Nexus IQ to waive** opens the application's newest scan report in the browser, where you can waive the violation. The report shows the last scan of the application, so a dependency changed since then may not be in it yet.
-- Results stay in memory for 30 minutes, as for OSV.dev. **Check Now** asks again, for example after you waive a violation.
-- To see what Nexus IQ answers, add `#io.github.khopland.versionchecker.vuln.NexusIqSource` in **Help → Diagnostic Tools → Debug Log Settings** and look in `idea.log`. Credentials are not logged.
-
-Only declared dependencies are checked otherwise, including npm, Bun and pnpm catalog entries. Transitive dependencies of Gradle, Yarn and Bun projects, npm `overrides` and `resolutions`, `packageManager`, Gradle plugins, the wrappers, toolchain files and GitHub Actions are not, so this does not replace a full scan of the resolved dependencies, such as `npm audit`, OWASP Dependency-Check or a Nexus IQ or Snyk scan.
-IntelliJ IDEA Ultimate's built-in **Package Checker** plugin may report the same vulnerabilities; turn one of them off if you see both.
+See [Vulnerabilities](docs/vulnerabilities.md) for what is sent, the lockfiles, the fixes, Nexus IQ and the limits.
 
 ## Redundant Maven overrides
 
@@ -183,12 +147,11 @@ Build scripts, `buildSrc` and included builds that import the catalog are search
 
 **Settings → Tools → Version Checker**:
 
-- **Check versions in build files**: turn the checks on or off.
 - **Minimum release age (hours)**: hide Maven, Gradle and wrapper versions published less recently than this, for example `24` to match a Nexus quarantine. It does not apply to npm: a Nexus quarantine already leaves held-back versions out of the npm metadata, while Maven metadata still lists them. The fix for a vulnerability follows it too.
 - **Check for known vulnerabilities**: off by default. See [Vulnerabilities](#vulnerabilities).
-- **Nexus IQ**, per project: the server, credentials and optional application for [Nexus IQ](#nexus-iq).
+- **Nexus IQ**, per project: the server, credentials and optional application for [Nexus IQ](docs/vulnerabilities.md#nexus-iq).
 
-Severity and per-inspection on/off are under **Settings → Editor → Inspections → Version Checker**.
+To turn a check off, or change its severity, use **Settings → Editor → Inspections → Version Checker**.
 
 ## Repositories and credentials
 
@@ -238,3 +201,4 @@ To release a version, see [Releasing](docs/releasing.md).
 ## License
 
 Copyright 2026 Kristoffer Larsen Hopland. Licensed under the [Apache License, Version 2.0](LICENSE).
+The CVSS 4.0 scoring comes from FIRST's calculator under the BSD 2-Clause License; see [NOTICE](NOTICE).

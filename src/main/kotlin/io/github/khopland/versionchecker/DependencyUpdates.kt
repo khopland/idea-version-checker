@@ -15,7 +15,6 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
@@ -88,28 +87,14 @@ class ShowDependencyUpdatesAction : DumbAwareAction() {
 }
 
 /**
- * Every outdated version in the project in one table, with the patch, minor and major update of each.
+ * Every outdated version in the project in one table, with the patch, minor and major update of each. With
+ * **Check for known vulnerabilities** on, also every vulnerable version, worst first, with its severity and safe version.
  * The list checks again when a build file changes, after an update and after **Check Now**, while it is visible.
  */
 class DependencyUpdatesPanel(private val project: Project, parent: Disposable) : SimpleToolWindowPanel(true, true), Disposable {
     private val report = DependencyReport.getInstance(project)
-    private val model = ListTableModel<Row>(arrayOf(
-        Column("Dependency", comparator = compareBy { it.declaration.name }) { row ->
-            icon = row.file.fileType.icon
-            append(row.declaration.name)
-            row.failure?.let { append("  could not check: $it", SimpleTextAttributes.ERROR_ATTRIBUTES) }
-            if (row.updates?.deprecated != null) append("  deprecated", SimpleTextAttributes.ERROR_ATTRIBUTES)
-        },
-        Column("Current", width = "1.20.300-android", comparator = compareBy(Versions.comparator) { it.declaration.current }) {
-            append(it.declaration.current)
-        },
-        version(UpdateKind.PATCH),
-        version(UpdateKind.MINOR),
-        version(UpdateKind.MAJOR),
-        Column("Location", comparator = compareBy<Row>({ it.file.path }, { it.line })) { row ->
-            append("${location(row)}:${row.line}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-        },
-    ), mutableListOf())
+    private val model = ListTableModel<Row>(columns(false), mutableListOf())
+    private var vulnerabilities = false
     val table = TableView(model)
     private val status = JBLabel().apply {
         border = JBUI.Borders.empty(3, 8)
@@ -127,7 +112,7 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
         EditSourceOnDoubleClickHandler.install(table)
         EditSourceOnEnterKeyHandler.install(table)
 
-        val update = DefaultActionGroup("Update", UpdateKind.entries.map { UpdateRowsAction(it) }).apply {
+        val update = DefaultActionGroup("Update", UpdateKind.entries.map { UpdateRowsAction(it) } + SafeRowsAction()).apply {
             isPopup = true
             templatePresentation.icon = AllIcons.Actions.Upload
             templatePresentation.putClientProperty(ActionUtil.SHOW_TEXT_IN_TOOLBAR, true)
@@ -137,7 +122,7 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
         toolbar.targetComponent = this
         setToolbar(toolbar.component)
 
-        val menu = DefaultActionGroup(UpdateKind.entries.map { UpdateRowsAction(it) }).apply {
+        val menu = DefaultActionGroup(UpdateKind.entries.map { UpdateRowsAction(it) } + SafeRowsAction()).apply {
             addSeparator()
             add(ActionManager.getInstance().getAction(IdeActions.ACTION_EDIT_SOURCE))
         }
@@ -178,20 +163,48 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
         report.refresh()
     }
 
+    /** The severity and safe version columns show only while vulnerabilities are checked. */
+    private fun columns(vulnerabilities: Boolean): Array<ColumnInfo<*, *>> = listOfNotNull<ColumnInfo<*, *>>(
+        Column("Dependency", comparator = compareBy { it.declaration.name }) { row ->
+            icon = row.file.fileType.icon
+            append(row.declaration.name)
+            row.failure?.let { append("  could not check: $it", SimpleTextAttributes.ERROR_ATTRIBUTES) }
+            if (row.updates?.deprecated != null) append("  deprecated", SimpleTextAttributes.ERROR_ATTRIBUTES)
+        },
+        Column("Current", width = "1.20.300-android", comparator = compareBy(Versions.comparator) { it.declaration.current }) {
+            append(it.declaration.current)
+        },
+        Column("Vulnerabilities", width = "moderate (10)", comparator = compareBy { it.worst?.rank ?: -1 }) { row ->
+            val worst = row.worst ?: return@Column
+            val count = row.vulnerable!!.advisories.distinctBy { it.displayId }.size
+            append((worst.severity?.takeIf { worst.rank > 0 }?.lowercase() ?: "unknown") + if (count > 1) " ($count)" else "",
+                if (worst.rank >= 3) SimpleTextAttributes.ERROR_ATTRIBUTES else SimpleTextAttributes.REGULAR_ATTRIBUTES)
+        }.takeIf { vulnerabilities },
+        Column("Safe", width = "1.20.300-android", comparator = compareBy(nullsLast(Versions.comparator)) { it.vulnerable?.fix }) { row ->
+            val version = row.vulnerable?.fix ?: return@Column
+            append(version, if (row.safe != null) SimpleTextAttributes.REGULAR_ATTRIBUTES else SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        }.takeIf { vulnerabilities },
+        version(UpdateKind.PATCH),
+        version(UpdateKind.MINOR),
+        version(UpdateKind.MAJOR),
+        Column("Location", comparator = compareBy<Row>({ it.file.path }, { it.line })) { row ->
+            append("${location(row)}:${row.line}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        },
+    ).toTypedArray()
+
     private fun show(state: DependencyReport.State) {
         val selected = table.selectedObjects.map { it.declaration.edit?.key ?: it.declaration.name }.toSet()
+        if (state.vulnerabilities != vulnerabilities) {
+            vulnerabilities = state.vulnerabilities
+            model.columnInfos = columns(vulnerabilities)
+        }
         model.items = state.rows
         table.selection = state.rows.filter { (it.declaration.edit?.key ?: it.declaration.name) in selected }
-        val outdated = state.rows.filter { it.failure == null }
-        val failed = state.rows.size - outdated.size
+        val outdated = state.rows.filter { row -> row.updates?.let { !it.targets.isEmpty || it.deprecated != null } == true }
+        val failed = state.rows.count { it.failure != null }
+        val vulnerable = state.rows.count { it.vulnerable != null }
         val empty = table.emptyText
         when {
-            state.disabled -> {
-                empty.text = "Version checks are turned off"
-                empty.appendLine("Open settings", SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) {
-                    ShowSettingsUtil.getInstance().showSettingsDialog(project, VersionCheckerConfigurable::class.java)
-                }
-            }
             state.running && state.rows.isEmpty() -> empty.text = "Checking versions…"
             state.done && state.checked == 0 -> empty.text = "No versions found in build files"
             state.done -> {
@@ -201,10 +214,11 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
             else -> empty.text = ""
         }
         status.text = when {
-            state.disabled -> ""
             state.running -> "Checking versions…"
             !state.done -> ""
             else -> listOfNotNull(
+                if (vulnerable > 0) "$vulnerable vulnerable" else null,
+                state.vulnerabilityError?.let { "vulnerabilities not checked: $it" },
                 "${outdated.size} of ${count(state.checked, "version")} outdated",
                 UpdateKind.entries.reversed().mapNotNull { kind ->
                     outdated.count { it.offered(kind) != null }.takeIf { it > 0 }?.let { "$it ${kind.label}" }
@@ -233,6 +247,18 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
         Edits.apply(project, changes, "Update ${mode.label} versions")
     }
 
+    /**
+     * Writes the safe version of each selected row, or of every row when none is selected, as one undoable edit. Rows that
+     * share a version, such as a Maven property, get the highest one any of them needs.
+     */
+    fun updateSafe() {
+        val changes = targets().filter { it.safe != null }.groupBy { it.declaration.edit!!.key }.values.map { rows ->
+            val edit = rows.first().declaration.edit!!
+            Change(edit, edit.format(rows.map { it.safe!! }.maxWith(Versions.comparator)))
+        }
+        Edits.apply(project, changes, "Update to safe versions")
+    }
+
     private fun targets(): List<Row> = table.selectedObjects.ifEmpty { model.items }
 
     override fun dispose() {}
@@ -250,6 +276,21 @@ class DependencyUpdatesPanel(private val project: Project, parent: Disposable) :
         }
 
         override fun actionPerformed(e: AnActionEvent) = update(mode)
+    }
+
+    private inner class SafeRowsAction : DumbAwareAction() {
+        override fun getActionUpdateThread() = ActionUpdateThread.EDT
+
+        override fun update(e: AnActionEvent) {
+            val count = targets().count { it.safe != null }
+            val which = if (table.selectedObjects.isEmpty()) "All" else "Selected"
+            e.presentation.text = "Safe Versions" + if (count > 0) " ($which: $count)" else ""
+            e.presentation.description = "Update the ${which.lowercase()} vulnerable versions to the nearest version without known vulnerabilities"
+            e.presentation.isVisible = vulnerabilities
+            e.presentation.isEnabled = count > 0
+        }
+
+        override fun actionPerformed(e: AnActionEvent) = updateSafe()
     }
 
     private inner class RefreshAction : DumbAwareAction("Check Again", "Read repository metadata again and check every build file", AllIcons.Actions.Refresh) {
