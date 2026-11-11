@@ -6,8 +6,8 @@ Releases run through GitHub Actions. The version is `pluginVersion` in
 
 ## Prepare
 
-1. Bump `pluginVersion` in `gradle.properties`, for example to `1.4.0`, or
-   `1.4.0-beta.1` for a prerelease.
+1. Bump `pluginVersion` in `gradle.properties`, for example to `2.4.0`, or
+   `2.4.0-eap.1` for a prerelease.
 2. Move the `[Unreleased]` entries under a new `## [<version>]` heading in
    `CHANGELOG.md`.
 3. Open a pull request. The **Build** workflow lints the workflows and
@@ -41,7 +41,7 @@ cache that pull requests write to.
 secrets. Without rebuilding, it signs the tested ZIP when signing is
 configured, records its build provenance, uploads the ZIP and `SHA256SUMS` to
 the GitHub release, and publishes the ZIP to JetBrains Marketplace. Versions
-with a suffix, such as `1.4.0-beta.1`, go to the `beta` channel; plain versions
+with a suffix, such as `2.4.0-eap.1`, go to the `eap` channel; plain versions
 go to `default`. The GitHub upload runs first, so a Marketplace release is
 always on GitHub too.
 
@@ -57,7 +57,7 @@ If a job fails, fix the cause and re-run it from the Actions tab.
 
 A release event runs the workflow file from the tagged commit. If that file
 cannot start, run **Release** manually from the Actions tab on `main` and enter
-the published tag, for example `v1.4.0`. This uses the workflow from `main`
+the published tag, for example `v2.4.0`. This uses the workflow from `main`
 and builds the tagged sources. Clear **Upload to Marketplace** when that
 version is already on the Marketplace and only the GitHub assets are missing.
 

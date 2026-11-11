@@ -7,6 +7,7 @@ import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.smartReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -15,18 +16,27 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiManager
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.openapi.util.text.StringUtil
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The result of [Updater.check]. [files] is the build file each declaration was found in, and [scanned] every build file read. */
+/**
+ * The result of [Updater.check]. [files] is the build file each declaration was found in, and [scanned] every build file read.
+ * [vulnerabilities] leaves out the versions that a suppress comment for vulnerabilities keeps, but has those that one for
+ * outdated versions keeps, which are not in [declarations]. [vulnerabilityError] says why they could not be checked.
+ */
 class Checked(
     val declarations: List<Declaration>,
     val files: Map<Declaration, VirtualFile>,
     val scanned: List<VirtualFile>,
     val outcomes: Map<Declaration, Outcome>,
     val fixes: Map<Declaration, Map<UpdateKind, String>>,
+    val vulnerabilities: Map<Declaration, Vulnerable> = emptyMap(),
+    val vulnerabilityError: String? = null,
 )
 
 /** Updates many declarations at once: **Update This File** and **Update All Files**. */
@@ -68,6 +78,7 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
     }
 
     companion object {
+        private val LOG = logger<Updater>()
         private const val LIST_LIMIT = 15
 
         fun getInstance(project: Project): Updater = project.service()
@@ -75,8 +86,10 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
         /**
          * Checks [files], or every build file in the project when [files] is null. Versions kept by a suppress comment
          * are left out of [Checked.declarations], but still take part in the agreement on a shared version.
+         * With [vulnerabilities], the declarations are also checked for known vulnerabilities, each file in its own
+         * Nexus IQ application.
          */
-        suspend fun check(project: Project, files: List<VirtualFile>?): Checked {
+        suspend fun check(project: Project, files: List<VirtualFile>?, vulnerabilities: Boolean = false): Checked = coroutineScope {
             withContext(Dispatchers.EDT) { PsiDocumentManager.getInstance(project).commitAllDocuments() }
             val targets = files ?: buildFiles(project)
             // Every build file already takes part when the whole project is checked, so only a file scope needs related declarations.
@@ -85,15 +98,32 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
                     val psi = PsiManager.getInstance(project).findFile(file) ?: return@mapNotNull null
                     val provider = DeclarationProvider.forFile(psi) ?: return@mapNotNull null
                     val own = provider.collect(psi)
-                    Found(file, own, if (files == null) emptyList() else provider.related(psi, own), Suppression.suppressed(psi, own, OutdatedVersionInspection()))
+                    Found(file, own, if (files == null) emptyList() else provider.related(psi, own), Suppression.suppressed(psi, own, OutdatedVersionInspection()),
+                        if (vulnerabilities) Suppression.suppressed(psi, own, VulnerableDependencyInspection()) else emptySet(),
+                        if (vulnerabilities) VulnerabilityService.application(provider, psi) else null)
                 }
             }
+            // Files of one Nexus IQ application go together, so versions they share agree on a safe version.
+            val vulnerable = if (vulnerabilities) found.groupBy { it.application }.map { (application, group) ->
+                async { runCatching { VulnerabilityService.getInstance().check(group.flatMap { it.declarations + it.related }, project, application) } }
+            } else emptyList()
             val outcomes = VersionService.getInstance().check(found.flatMap { it.declarations + it.related })
             val kept = found.flatMap { f -> f.declarations.filter { it !in f.suppressed }.map { it to f.file } }
-            return Checked(kept.map { it.first }, kept.toMap(), found.map { it.file }, outcomes, VersionService.fixes(outcomes))
+            // One application that fails, such as one Nexus IQ does not have, does not hide the others or the outdated versions.
+            val results = vulnerable.map { it.await() }
+            val error = results.firstNotNullOfOrNull { it.exceptionOrNull() }?.also {
+                if (it is CancellationException) throw it
+                LOG.info("Could not check for vulnerabilities", it)
+            }
+            val unsuppressed = found.flatMapTo(HashSet()) { it.declarations - it.vulnerable }
+            Checked(kept.map { it.first }, found.flatMap { f -> f.declarations.map { it to f.file } }.toMap(), found.map { it.file }, outcomes, VersionService.fixes(outcomes),
+                results.flatMap { it.getOrNull().orEmpty().entries }.filter { it.key in unsuppressed }.associate { it.toPair() },
+                error?.let { it.message ?: it.javaClass.simpleName })
         }
 
-        private class Found(val file: VirtualFile, val declarations: List<Declaration>, val related: List<Declaration>, val suppressed: Set<Declaration>)
+        /** [suppressed] are kept by a suppress comment for outdated versions, [vulnerable] for vulnerabilities. */
+        private class Found(val file: VirtualFile, val declarations: List<Declaration>, val related: List<Declaration>, val suppressed: Set<Declaration>,
+                            val vulnerable: Set<Declaration>, val application: ApplicationHint?)
 
         suspend fun buildFiles(project: Project): List<VirtualFile> = smartReadAction(project) {
             val scope = GlobalSearchScope.projectScope(project)

@@ -4,9 +4,10 @@ import kotlin.math.ceil
 import kotlin.math.min
 import kotlin.math.pow
 
-/** The CVSS 3.x base score of a vector such as `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`, and its rating. */
+/** The CVSS 3.x base score of a vector such as `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`, or the [Cvss4] score, and its rating. */
 internal object Cvss {
     fun score(vector: String): Double? {
+        if (vector.startsWith("CVSS:4.0/")) return Cvss4.score(vector)
         if (!vector.startsWith("CVSS:3.")) return null
         val metrics = vector.split('/').drop(1).associate { it.substringBefore(':') to it.substringAfter(':') }
         val changed = metrics["S"] == "C"

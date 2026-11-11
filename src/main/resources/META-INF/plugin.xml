@@ -16,7 +16,7 @@
         A minimum release age hides new Maven and Gradle releases, for example to match a Nexus quarantine.
         A suppress comment keeps a version on purpose.</p>
         <p>Optionally, known vulnerabilities of declared Maven, Gradle and npm dependencies from OSV.dev, with a fix to the nearest safe version,
-        and of the packages they bring in, in Maven, npm and pnpm projects.
+        and of the packages they bring in, in Maven, npm, pnpm, Yarn and Bun projects. The tool window lists the vulnerable versions first and updates them to safe versions.
         With a Nexus IQ server, the vulnerabilities your application's policies flag and that are not waived, and Alt+Enter to open the report where you waive them.</p>
     ]]></description>
     <depends>com.intellij.modules.platform</depends>
@@ -52,7 +52,7 @@
         <localInspection shortName="VulnerableDependency" displayName="Vulnerable dependency version" groupName="Version Checker"
                          enabledByDefault="true" level="WARNING"
                          implementationClass="io.github.khopland.versionchecker.core.VulnerableDependencyInspection"/>
-        <!-- Its annotator runs where the build tool's resolved packages are known: Maven projects and npm and pnpm lockfiles. -->
+        <!-- Its annotator runs where the build tool's resolved packages are known: Maven projects and npm, pnpm, Yarn and Bun lockfiles. -->
         <localInspection shortName="VulnerableTransitiveDependency" displayName="Vulnerable transitive dependency" groupName="Version Checker"
                          enabledByDefault="true" level="WARNING"
                          implementationClass="io.github.khopland.versionchecker.core.VulnerableTransitiveDependencyInspection"/>

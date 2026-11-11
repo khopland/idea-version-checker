@@ -51,7 +51,8 @@ class Edit(val file: VirtualFile, val range: TextRange, val expected: String, va
  * One version in a build file.
  * [range] is where the warning shows, in the file that was scanned. A null [edit] means the plugin
  * can check the version but not change it, and [note] says why. [ecosystem] is where vulnerability databases
- * list the package, or null when they do not, as for Gradle plugins and wrappers.
+ * list the package, or null when they do not, as for Gradle plugins and wrappers. [installed] is the version a lockfile
+ * resolves [current] to, such as 1.4.0 for `^1.2.3`.
  */
 class Declaration(
     val name: String,
@@ -61,8 +62,12 @@ class Declaration(
     val edit: Edit?,
     val note: String? = null,
     val ecosystem: Ecosystem? = null,
+    val installed: String? = null,
 ) {
-    val pkg get() = ecosystem?.let { Pkg(it, name, current) }
+    /** The version the vulnerability check uses: [installed], unless the lockfile is older than [current]. */
+    val checked get() = installed?.takeIf { Versions.compare(it, current) > 0 } ?: current
+
+    val pkg get() = ecosystem?.let { Pkg(it, name, checked) }
 }
 
 /**
@@ -92,7 +97,7 @@ interface DeclarationProvider {
 
     fun accepts(file: PsiFile): Boolean
 
-    /** Runs in a read action. Must not do I/O. */
+    /** Runs in a read action. May read files through the VFS, such as a lockfile, but must not use the network. */
     fun collect(file: PsiFile): List<Declaration>
 
     /**

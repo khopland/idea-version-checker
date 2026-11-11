@@ -85,7 +85,24 @@ class OsvSourceTest {
         assertEquals(5.3, Cvss.score("CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N")!!, 0.0)
         assertEquals("MODERATE", Cvss.rating("CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"))
         assertNull(Cvss.rating("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N"))
-        assertNull(Cvss.score("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"))
+        assertNull(Cvss.score("AV:N/AC:L/Au:N/C:P/I:P/A:P"))
+    }
+
+    @Test
+    fun severityPrefersTheNewestCvssVersionThatScores() {
+        fun severity(vararg vectors: String) = OsvSource.parse(JsonParser.parseString("""
+            {"id": "OSV-2", "aliases": [], "affected": [], "severity": [${vectors.joinToString { """{"type": "CVSS_V${it[5]}", "score": "$it"}""" }}]}
+        """).asJsonObject, Pkg(Ecosystem.NPM, "x", "1.0.0")).severity
+        val v3 = "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+        val v4 = "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+        assertEquals("CRITICAL", severity(v4))
+        assertEquals("HIGH", severity(v3))
+        assertEquals("CRITICAL", severity(v3, v4))
+        assertEquals("CRITICAL", severity(v4, v3))
+        // A 4.0 vector that does not parse leaves the 3.1 one.
+        assertEquals("HIGH", severity(v3, v4.substringBefore("/SA:N")))
+        // A 4.0 vector without impact wins too, so there is no severity.
+        assertNull(severity(v3, "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"))
     }
 
     @Test

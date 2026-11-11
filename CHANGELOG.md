@@ -5,8 +5,15 @@
 ### Added
 
 - **Vulnerable dependency version** inspection: known vulnerabilities of declared Maven, Gradle and npm dependencies from OSV.dev, with a fix to the lowest stable version that fixes all of them. Off by default: turn on **Check for known vulnerabilities** in **Settings → Tools → Version Checker**. The patch, minor and major fixes say when the new version is still vulnerable.
-- **Vulnerable transitive dependency** inspection: a warning on a declared dependency that brings in a vulnerable package, with the path to it. Maven projects use the dependency tree of the last import, and npm and pnpm projects their lockfile. **Alt+Enter** pins the package to the nearest safe version in `<dependencyManagement>`, npm `overrides` or pnpm overrides. While **Check for known vulnerabilities** is on, these resolved packages are sent to OSV.dev too, or to Nexus IQ.
+- **Vulnerable transitive dependency** inspection: a warning on a declared dependency that brings in a vulnerable package, with the path to it. Maven projects use the dependency tree of the last import, and npm and pnpm projects their lockfile. **Alt+Enter** pins the package to the nearest safe version in `<dependencyManagement>`, npm `overrides` or pnpm overrides. While **Check for known vulnerabilities** is on, these resolved packages are sent to OSV.dev too, or to Nexus IQ. Yarn (`yarn.lock`) and Bun (`bun.lock`) projects get the warning without a fix.
+- An npm dependency is checked for vulnerabilities at the version its lockfile installs, so `^1.2.3` with 1.4.0 installed is checked as 1.4.0.
+- **Dependency Updates** tool window: with vulnerability checks on, vulnerable versions come first, with **Vulnerabilities** and **Safe** columns, and **Update → Safe Versions** writes the safe versions in one undoable edit.
+- The severity of an advisory with only a CVSS 4.0 vector is computed, so it can show as critical or high.
 - Nexus IQ: in **Settings → Tools → Version Checker → Nexus IQ**, a project can check its dependencies against the policies of a Nexus IQ application instead of OSV.dev. Only vulnerabilities that a policy violation names and that are not waived show, and **Alt+Enter** opens the application's report in Nexus IQ to waive them. Each build file finds its application from `clm.applicationId` or the `clm-maven-plugin` configuration in the POM, the project setting, or else an application named after its artifact ID or package name.
+
+### Removed
+
+- The **Check versions in build files** setting. Turn the inspections off under **Settings → Editor → Inspections → Version Checker** instead. If you had the setting off, the checks are on again after the update.
 
 ## [2.3.0]
 

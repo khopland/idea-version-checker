@@ -5,7 +5,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
-import io.github.khopland.versionchecker.VersionCheckerSettings
 import io.github.khopland.versionchecker.core.Versions
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
@@ -36,7 +35,6 @@ internal object RedundantOverrides {
     private val versionProperty = Regex("""(?i).*[.\-_]?version$""")
 
     fun find(file: PsiFile): List<Redundancy> {
-        if (!VersionCheckerSettings.getInstance().enabled) return emptyList()
         val xml = file as? XmlFile ?: return emptyList()
         if (xml.name != "pom.xml") return emptyList()
         val root = MavenPoms.root(xml) ?: return emptyList()

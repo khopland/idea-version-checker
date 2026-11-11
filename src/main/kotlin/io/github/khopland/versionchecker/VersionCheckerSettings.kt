@@ -19,12 +19,10 @@ import io.github.khopland.versionchecker.vuln.NexusIqSettings
 @State(name = "VersionChecker", storages = [Storage("version-checker.xml")])
 class VersionCheckerSettings : SimplePersistentStateComponent<VersionCheckerSettings.State>(State()) {
     class State : BaseState() {
-        var enabled by property(true)
         var minReleaseAgeHours by property(0)
         var checkVulnerabilities by property(false)
     }
 
-    val enabled get() = state.enabled
     val minReleaseAgeHours get() = state.minReleaseAgeHours.coerceAtLeast(0)
     /** Off by default: the check sends dependency names and versions to osv.dev, or the project's Nexus IQ server. */
     val checkVulnerabilities get() = state.checkVulnerabilities
@@ -38,13 +36,12 @@ class VersionCheckerConfigurable : BoundConfigurable("Version Checker") {
     private val state get() = VersionCheckerSettings.getInstance().state
 
     override fun createPanel(): DialogPanel = panel {
-        row { checkBox("Check versions in build files").bindSelected(state::enabled) }
         row("Minimum release age:") {
             intTextField(0..100_000).columns(6).bindIntText(state::minReleaseAgeHours)
             label("hours")
         }.rowComment("Hide Maven, Gradle and wrapper versions published less than this long ago, for example to match a Nexus quarantine. npm is not affected: the registry already hides quarantined versions. 0 shows the newest version.")
         row { checkBox("Check for known vulnerabilities (sends dependency names and versions to osv.dev)").bindSelected(state::checkVulnerabilities) }
-            .rowComment("Declared Maven, Gradle and npm dependencies, and in Maven, npm and pnpm projects the packages they bring in, as the last Maven import or the lockfile resolved them. A project with a Nexus IQ server under <b>Nexus IQ</b> sends them there instead.")
+            .rowComment("Declared Maven, Gradle and npm dependencies, and in Maven, npm, pnpm, Yarn and Bun projects the packages they bring in, as the last Maven import or the lockfile resolved them. A project with a Nexus IQ server under <b>Nexus IQ</b> sends them there instead.")
     }
 
     override fun apply() {

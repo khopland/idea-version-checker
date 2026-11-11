@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker.npm
 
 import com.intellij.json.psi.JsonFile
 import com.intellij.json.psi.JsonObject
+import com.intellij.json.psi.JsonProperty
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.json.psi.JsonValue
 import com.intellij.openapi.progress.ProgressManager
@@ -52,19 +53,23 @@ class NpmProvider : DeclarationProvider {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return emptyList()
         val vfile = file.virtualFile ?: return emptyList()
         val registries by lazy { NpmPackages.registries(vfile) }
+        val lockfile by lazy { Lockfile.find(vfile) }
         val result = mutableListOf<Declaration>()
         // Overrides pin packages deeper in the tree, which the vulnerability check leaves out.
-        fun add(name: String, literal: JsonStringLiteral, label: String = name, ecosystem: Ecosystem? = Ecosystem.NPM) {
+        // A [locked] dependency is checked for vulnerabilities at the version the lockfile installs.
+        fun add(name: String, literal: JsonStringLiteral, label: String = name, ecosystem: Ecosystem? = Ecosystem.NPM, locked: Boolean = false) {
             val spec = NpmSpec.parse(literal.value) ?: return
             val raw = literal.value
             val range = TextRange.from(literal.textRange.startOffset + 1, raw.length).takeIf { literal.text.length == raw.length + 2 } ?: return
+            val installed = if (locked) lockfile?.let { (lock, workspace) -> lock.direct(workspace, name, raw) }?.takeIf { it.name == name }?.version else null
             result += Declaration(label, range, spec.version, NpmLookup(name, registries.registry(name)), Edit(vfile, range, raw) { spec.prefix + it },
-                ecosystem = ecosystem)
+                ecosystem = ecosystem, installed = installed)
         }
         fun section(value: JsonValue?) = (value as? JsonObject)?.propertyList.orEmpty()
-        fun dependencies(value: JsonValue?) = section(value).forEach { property -> (property.value as? JsonStringLiteral)?.let { add(property.name, it) } }
+        fun dependencies(value: JsonValue?, locked: Boolean = false) =
+            section(value).forEach { property -> (property.value as? JsonStringLiteral)?.let { add(property.name, it, locked = locked) } }
 
-        SECTIONS.forEach { dependencies(root.findProperty(it)?.value) }
+        SECTIONS.forEach { dependencies(root.findProperty(it)?.value, locked = true) }
         (root.findProperty("packageManager")?.value as? JsonStringLiteral)?.let { packageManager(it, vfile, registries) }?.let { result += it }
 
         // npm overrides nest: `"foo": {".": "1.0.0", "bar": "2.0.0"}` pins foo and the bar under foo.
@@ -91,7 +96,7 @@ class NpmProvider : DeclarationProvider {
     }
 
     /**
-     * The packages that `package-lock.json` or `pnpm-lock.yaml` installs below each declared dependency, breadth first,
+     * The packages that `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lock` installs below each declared dependency, breadth first,
      * so each package gets its shortest path. Workspace packages are linked, not installed from the registry, so they are left out.
      * The walk stops at a package this file declares: the vulnerable dependency inspection checks it, and its own
      * dependencies show under it.
@@ -103,11 +108,12 @@ class NpmProvider : DeclarationProvider {
         val registries by lazy { NpmPackages.registries(vfile) }
         val declared = SECTIONS.flatMap { (root.findProperty(it)?.value as? JsonObject)?.propertyList.orEmpty() }.distinctBy { it.name }
         // By name and version: pnpm tells copies with other peers apart.
-        val direct = declared.mapNotNullTo(hashSetOf()) { property -> lock.direct(workspace, property.name)?.let { it.name to it.version } }
+        fun direct(property: JsonProperty) = lock.direct(workspace, property.name, (property.value as? JsonStringLiteral)?.value)
+        val direct = declared.mapNotNullTo(hashSetOf()) { property -> direct(property)?.let { it.name to it.version } }
         return declared.flatMap { property ->
             val key = property.nameElement
             val range = TextRange(key.textRange.startOffset + 1, key.textRange.endOffset - 1)
-            val top = lock.direct(workspace, property.name) ?: return@flatMap emptyList()
+            val top = direct(property) ?: return@flatMap emptyList()
             val seen = hashSetOf(top.id)
             val queue = ArrayDeque(listOf(top to emptyList<String>()))
             buildList {
@@ -126,7 +132,7 @@ class NpmProvider : DeclarationProvider {
 
     /**
      * An override in the root of the workspace, scoped to the vulnerable version's major, so other copies keep theirs:
-     * npm `overrides`, or for pnpm see [pnpmOverridesInWorkspaceFile]. Not for a package that this file depends on directly,
+     * npm `overrides`, or for pnpm see [pnpmOverridesInWorkspaceFile]. Not for Yarn or Bun, nor for a package that this file depends on directly,
      * which npm refuses to override, nor for one that is already overridden where the package manager reads it.
      */
     override fun pin(file: PsiFile, transitive: Transitive, version: String): PinFix? {
@@ -135,8 +141,12 @@ class NpmProvider : DeclarationProvider {
         val (lock, workspace) = Lockfile.find(vfile) ?: return null
         val name = transitive.pkg.name
         if (workspace.isNotEmpty() || (SECTIONS + "peerDependencies").any { (root.findProperty(it)?.value as? JsonObject)?.findProperty(name) != null }) return null
+        val keys = when (lock) {
+            is PackageLock -> listOf("overrides")
+            is PnpmLock -> listOf("pnpm", "overrides")
+            else -> return null
+        }
         val key = NpmOverrides.key(name, transitive.pkg.version, version) ?: return null
-        val keys = if (lock is PackageLock) listOf("overrides") else listOf("pnpm", "overrides")
         if (lock is PnpmLock) {
             val workspaceText = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { PnpmWorkspace.text(it) ?: return null }
             // pnpm reads overrides from one of the files, so only an override in the one the fix writes to counts.

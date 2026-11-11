@@ -2,6 +2,7 @@ package io.github.khopland.versionchecker.core
 
 import com.intellij.codeInsight.daemon.ProblemHighlightFilter
 import com.intellij.codeInsight.intention.IntentionAction
+import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
@@ -190,6 +191,48 @@ class VulnerableDependencyTest : BasePlatformTestCase() {
         assertContainsElements(texts, "Update shared.version to 1.1.0 (fixes 1 vulnerability)", "Update shared.version to 1.0.1 (patch, still vulnerable)")
     }
 
+    fun testPackageJsonIsCheckedAtTheLockedVersion() {
+        // ^1.2.0 allows the safe 1.2.0, but the lockfile installs the vulnerable 1.2.5.
+        myFixture.addFileToProject("package-lock.json", """{"lockfileVersion": 3, "packages": {"": {}, "node_modules/minimist": {"version": "1.2.5"}}}""")
+        myFixture.configureByText("package.json", """{"dependencies": {"minimist": "^1.2.0"}}""")
+        assertEquals(listOf("GHSA-minimist (moderate). Fixed in 1.2.6"), vulnerabilities().map { it.description })
+        assertTrue(Pkg(Ecosystem.NPM, "minimist", "1.2.5") in source.queried)
+        assertFalse(Pkg(Ecosystem.NPM, "minimist", "1.2.0") in source.queried)
+        // The outdated warning still compares the declared version.
+        assertTrue(myFixture.doHighlighting().any { it.description?.startsWith("minimist 1.2.0 → ") == true })
+        assertContainsElements(intentions("^1.2.0"), "Update to 1.2.6 (fixes 1 vulnerability)")
+        myFixture.launchAction(myFixture.findSingleIntention("Update to 1.2.6 (fixes 1 vulnerability)"))
+        assertTrue(myFixture.editor.document.text.contains("\"minimist\": \"^1.2.6\""))
+    }
+
+    fun testYarnLockfileFindsTheLockedVersionByRange() {
+        myFixture.addFileToProject("yarn.lock", "# yarn lockfile v1\n\nminimist@^1.2.0:\n  version \"1.2.5\"\n")
+        myFixture.configureByText("package.json", """{"devDependencies": {"minimist": "^1.2.0"}}""")
+        assertEquals(listOf("GHSA-minimist (moderate). Fixed in 1.2.6"), vulnerabilities().map { it.description })
+    }
+
+    fun testDeclaredVersionWithoutALockedOne() {
+        // No lockfile.
+        myFixture.configureByText("package.json", """{"dependencies": {"minimist": "^1.2.0"}}""")
+        assertEmpty(vulnerabilities())
+        assertTrue(Pkg(Ecosystem.NPM, "minimist", "1.2.0") in source.queried)
+        // A lockfile without the package, or one older than package.json, as before an install.
+        myFixture.addFileToProject("package-lock.json", """{"lockfileVersion": 3, "packages": {"": {}, "node_modules/other": {"version": "1.2.5"}}}""")
+        myFixture.configureByText("package.json", """{"dependencies": {"minimist": "^1.2.4"}}""")
+        assertEquals(listOf("GHSA-minimist (moderate). Fixed in 1.2.6"), vulnerabilities().map { it.description })
+        assertTrue(Pkg(Ecosystem.NPM, "minimist", "1.2.4") in source.queried)
+        WriteAction.runAndWait<Throwable> {
+            myFixture.findFileInTempDir("package-lock.json").setBinaryContent("""{"lockfileVersion": 3, "packages": {"": {}, "node_modules/minimist": {"version": "1.2.0"}}}""".toByteArray())
+        }
+        source.queried.clear()
+        myFixture.configureByText("package.json", """{"dependencies": {"minimist": "^1.2.5"}}""")
+        assertEquals(listOf("GHSA-minimist (moderate). Fixed in 1.2.6"), vulnerabilities().map { it.description })
+        assertEquals(listOf(Pkg(Ecosystem.NPM, "minimist", "1.2.5")), source.queried)
+        // A catalog entry is no installed package, so it keeps its own version.
+        myFixture.configureByText("package.json", """{"workspaces": {"catalog": {"minimist": "^1.2.0"}}}""")
+        assertEmpty(vulnerabilities())
+    }
+
     fun testFailureIsOneWeakWarning() {
         VulnerabilityService.getInstance().source = object : VulnerabilitySource {
             override suspend fun check(packages: List<Pkg>): Map<Pkg, List<Advisory>> = throw HttpFailure("api.osv.dev: unknown host")
@@ -208,7 +251,8 @@ class VulnerableDependencyTest : BasePlatformTestCase() {
             "com.example:beta" to listOf("1.0.0", "1.0.1", "1.1.0", "1.2.0"),
             "lodash" to listOf("4.17.20", "4.17.21"),
             "left-pad" to listOf("1.3.0"),
-            "abandoned" to listOf("1.0.0"))
+            "abandoned" to listOf("1.0.0"),
+            "minimist" to listOf("1.2.0", "1.2.4", "1.2.5", "1.2.6", "1.2.8"))
         private val ADVISORIES = mapOf(
             "org.apache.logging.log4j:log4j-core" to listOf(
                 Advisory("GHSA-jfh8-c2jp-5v3q", listOf("CVE-2021-44228"), "CRITICAL", "Remote code injection in Log4j", listOf("2.15.0"), listOf(AffectedRange("2.13.0", "2.15.0"))),
@@ -216,6 +260,7 @@ class VulnerableDependencyTest : BasePlatformTestCase() {
             "com.example:lib" to listOf(Advisory("GHSA-lib", emptyList(), "MODERATE", "Lib leaks <tokens>.", listOf("1.0.2"), listOf(AffectedRange("0", "1.0.2")))),
             "com.example:alpha" to listOf(Advisory("GHSA-alpha", emptyList(), "MODERATE", null, listOf("1.0.1"), listOf(AffectedRange("0", "1.0.1")))),
             "com.example:beta" to listOf(Advisory("GHSA-beta", emptyList(), "MODERATE", null, listOf("1.1.0"), listOf(AffectedRange("0", "1.1.0")))),
+            "minimist" to listOf(Advisory("GHSA-minimist", emptyList(), "MODERATE", null, listOf("1.2.6"), listOf(AffectedRange("1.2.3", "1.2.6")))),
             "abandoned" to listOf(Advisory("GHSA-abandoned", emptyList(), "CRITICAL", null, emptyList(), listOf(AffectedRange("0")))),
             "lodash" to listOf(Advisory("GHSA-35jh-r3h4-6jhm", listOf("CVE-2021-23337"), "HIGH", "Command Injection in lodash", listOf("4.17.21"), listOf(AffectedRange("0", "4.17.21")))))
     }

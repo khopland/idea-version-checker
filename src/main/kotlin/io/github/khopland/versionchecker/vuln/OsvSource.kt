@@ -97,7 +97,9 @@ class OsvSource(private val http: () -> Http = Http::getInstance, private val ap
             val ranges = affected.flatMap { it.array("ranges") }.map { it.asJsonObject }.filter { it.string("type") != "GIT" }
                 .flatMap { ranges(it.array("events")) }
             val severity = document.getAsJsonObject("database_specific")?.string("severity")
-                ?: document.array("severity").firstNotNullOfOrNull { it.asJsonObject.string("score")?.let(Cvss::rating) }
+                // The newest CVSS version that scores, so a 4.0 vector wins over a 3.1 one in the same advisory.
+                ?: document.array("severity").mapNotNull { it.asJsonObject.string("score") }.sortedByDescending { it.substringBefore('/') }
+                    .firstNotNullOfOrNull(Cvss::score)?.let(Cvss::rating)
             return Advisory(
                 id = document.string("id")!!,
                 aliases = document.array("aliases").map { it.asString },

@@ -9,7 +9,7 @@ package io.github.khopland.versionchecker.npm
 internal class PnpmLock(private val importers: Map<String, Map<String, String>>, private val snapshots: Map<String, Map<String, String>>) : Lockfile {
     override fun hasWorkspace(path: String) = path.ifEmpty { "." } in importers
 
-    override fun direct(workspace: String, name: String) = importers[workspace.ifEmpty { "." }]?.get(name)?.let { node(name, it) }
+    override fun direct(workspace: String, name: String, range: String?) = importers[workspace.ifEmpty { "." }]?.get(name)?.let { node(name, it) }
 
     override fun dependencies(node: Lockfile.Node) = snapshots[node.id].orEmpty().mapNotNull { (name, reference) -> node(name, reference) }
 
@@ -38,6 +38,11 @@ internal class PnpmLock(private val importers: Map<String, Map<String, String>>,
             return if (at <= 0) null else id.substring(0, at) to id.substring(at + 1)
         }
 
+        /** A `key: value` line of YAML: its indent, its key and its value, without quotes. Null for other lines, such as comments. */
+        fun line(text: String): Triple<Int, String, String>? = entry.matchEntire(text)?.let {
+            Triple(it.groupValues[1].length, it.name(), it.groupValues[5].trim().removeSurrounding("'").removeSurrounding("\""))
+        }
+
         /** Null for lockfile version 5 and older, which name packages another way. */
         fun parse(text: String): PnpmLock? {
             val importers = HashMap<String, MutableMap<String, String>>()
@@ -49,11 +54,9 @@ internal class PnpmLock(private val importers: Map<String, Map<String, String>>,
             var importer: String? = null
             var group: String? = null
             var key: String? = null
-            for (line in text.lineSequence()) {
-                val match = entry.matchEntire(line) ?: continue
-                val name = match.name()
-                val value = match.groupValues[5].trim().removeSurrounding("'").removeSurrounding("\"")
-                if (match.groupValues[1].isEmpty()) {
+            for (row in text.lineSequence()) {
+                val (indent, name, value) = line(row) ?: continue
+                if (indent == 0) {
                     section = name
                     shift = 0
                     if (name == "lockfileVersion") version = value.toDoubleOrNull()
@@ -65,7 +68,7 @@ internal class PnpmLock(private val importers: Map<String, Map<String, String>>,
                     }
                     continue
                 }
-                val level = match.groupValues[1].length + shift
+                val level = indent + shift
                 when (section) {
                     "importers" -> when (level) {
                         2 -> importer = name
