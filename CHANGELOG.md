@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.4.0]
+
 ### Added
 
 - **Vulnerable dependency version** inspection: known vulnerabilities of declared Maven, Gradle and npm dependencies from OSV.dev, with a fix to the lowest stable version that fixes all of them. Off by default: turn on **Check for known vulnerabilities** in **Settings → Tools → Version Checker**. The patch, minor and major fixes say when the new version is still vulnerable.
