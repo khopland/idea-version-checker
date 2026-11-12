@@ -39,8 +39,9 @@ class NpmTest : BasePlatformTestCase() {
     fun testRegistryDocument() = runBlocking {
         val releases = NpmLookup.parse("""
             {"name": "x", "dist-tags": {"latest": "2.0.0"}, "versions": {"1.0.0": {"dist": {"tarball": "t", "fileCount": 3}, "dependencies": {"a": "1"}},
-             "1.0.1": {"deprecated": "Security issue"}, "1.1.0": {"deprecated": ""}, "2.0.0-rc.1": {}, "2.0.0": {}}, "modified": "2024"}
+             "1.0.1": {"deprecated": "Security issue"}, "1.1.0": {"deprecated": ""}, "2.0.0-rc.1": {}, "2.0.0": {"deprecated": false}}, "modified": "2024"}
         """.reader())
+        assertEquals(setOf("1.0.1"), releases.deprecated.keys)
         assertEquals(listOf("1.0.0", "1.0.1", "1.1.0", "2.0.0"), releases.versions)
         assertEquals(Targets("1.0.1", "1.1.0", "2.0.0"), VersionService.outcome("1.0.0", releases, null).targets)
         assertEquals("Security issue", VersionService.outcome("1.0.1", releases, null).deprecated)
@@ -115,6 +116,10 @@ class NpmTest : BasePlatformTestCase() {
             assertEquals(listOf("1.0.0"), NpmLookup("@corp/lib", registry, http = { repository.http }).fetch().versions)
             assertEquals(listOf("Bearer t"), repository.authorizations)
             assertEquals(emptyList<String>(), NpmLookup("local-only", registry, http = { repository.http }).fetch().versions)
+            // A proxy's login page, for example.
+            repository.routes["/page"] = FakeRepository.Response(200, "<html>Sign in</html>")
+            val failure = runCatching { NpmLookup("page", registry, http = { repository.http }).fetch() }.exceptionOrNull()
+            assertEquals("${repository.url}/ did not return a package document for page", failure?.message)
         }
     }
 

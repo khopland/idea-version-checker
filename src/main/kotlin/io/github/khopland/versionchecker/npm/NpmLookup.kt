@@ -34,7 +34,12 @@ internal class NpmLookup(val packageName: String, private val registry: NpmRegis
         if (!response.ok) throw HttpFailure("${registry.url} returned HTTP ${response.status}" +
             if (response.status == 401 || response.status == 403) ". Check the auth token in .npmrc" else "")
         val times = Times(url)
-        return parse(response.body.inputStream().reader(), times::of)
+        return try {
+            parse(response.body.inputStream().reader(), times::of)
+        } catch (e: Exception) {
+            // A proxy or a login page can answer 200 with something else, and the parser's own message says nothing about where.
+            throw HttpFailure("${registry.url} did not return a package document for $packageName")
+        }
     }
 
     private inner class Times(private val url: String) {
@@ -118,7 +123,8 @@ internal class NpmLookup(val packageName: String, private val registry: NpmRegis
                     var node: String? = null
                     reader.members { field ->
                         when (field) {
-                            "deprecated" -> message = reader.primitive()
+                            // Some registries write `false` for a version that is not deprecated.
+                            "deprecated" -> message = reader.primitive().takeUnless { it == "false" }
                             "peerDependencies" -> if (isStable) peers = buildMap { reader.members { peer -> reader.primitive()?.let { put(peer, it) } } } else reader.skipValue()
                             "engines" -> if (isStable) reader.members { engine -> if (engine == "node") node = reader.primitive() else reader.skipValue() }
                                 else reader.skipValue()
