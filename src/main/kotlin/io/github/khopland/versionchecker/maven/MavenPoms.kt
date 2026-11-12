@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
@@ -24,8 +25,12 @@ internal object MavenPoms {
     private val placeholder = Regex("""\$\{([^}]+)}""")
     private val propertyReference = Regex("""^\$\{([^}]+)}$""")
 
-    /** [stamps] are the PSI stamps of the chain's files, and [imported] is the state of Maven's projects it was resolved with. */
-    private class CachedChain(val imported: Long, val stamps: List<Long>, val chain: PomChain)
+    /**
+     * [stamps] are the PSI stamps of the chain's files, and [imported] is the state of Maven's projects it was resolved
+     * with. [files] counts the files the IDE knows: a chain that ends at a parent that was not found is resolved again
+     * when a file appears, since it can be that parent in the local repository.
+     */
+    private class CachedChain(val imported: Long, val stamps: List<Long>, val files: Long, val chain: PomChain)
 
     private val CHAIN = Key.create<CachedChain>("version-checker.maven-chain")
 
@@ -78,9 +83,11 @@ internal object MavenPoms {
     fun chain(project: Project, file: XmlFile): PomChain {
         val manager = MavenProjectsManager.getInstance(project)
         val imported = imported(manager)
-        file.getUserData(CHAIN)?.takeIf { it.imported == imported && it.chain.ancestors.all(XmlFile::isValid) && it.stamps == stamps(it.chain) }
-            ?.let { return it.chain }
-        return resolveChain(project, file, manager).also { file.putUserData(CHAIN, CachedChain(imported, stamps(it), it)) }
+        val files = VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS.modificationCount
+        file.getUserData(CHAIN)?.takeIf {
+            it.imported == imported && (it.chain.complete || it.files == files) && it.chain.ancestors.all(XmlFile::isValid) && it.stamps == stamps(it.chain)
+        }?.let { return it.chain }
+        return resolveChain(project, file, manager).also { file.putUserData(CHAIN, CachedChain(imported, stamps(it), files, it)) }
     }
 
     private fun resolveChain(project: Project, file: XmlFile, manager: MavenProjectsManager): PomChain {
