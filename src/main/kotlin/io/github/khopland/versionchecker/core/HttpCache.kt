@@ -28,8 +28,11 @@ class HttpCache(private val directory: Path) {
         val body = directory.resolve("$key.body")
         if (!Files.isRegularFile(meta) || !Files.isRegularFile(body)) return null
         val lines = Files.readAllLines(meta)
+        val now = System.currentTimeMillis()
+        // The time only keeps the entry from the pruner, so it is written at most once a day instead of on every hit.
+        if (now - Files.getLastModifiedTime(meta).toMillis() > TimeUnit.DAYS.toMillis(1))
+            Files.setLastModifiedTime(meta, java.nio.file.attribute.FileTime.fromMillis(now))
         Entry(Files.readAllBytes(body), lines.getOrNull(0)?.ifEmpty { null }, lines.getOrNull(1)?.ifEmpty { null })
-            .also { Files.setLastModifiedTime(meta, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis())) }
     }.getOrNull()
 
     fun put(key: String, entry: Entry) {
