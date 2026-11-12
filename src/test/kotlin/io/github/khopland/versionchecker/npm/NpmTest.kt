@@ -1,6 +1,5 @@
 package io.github.khopland.versionchecker.npm
 
-import com.google.gson.JsonParser
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.Targets
 import io.github.khopland.versionchecker.core.VersionService
@@ -38,10 +37,10 @@ class NpmTest : BasePlatformTestCase() {
     }
 
     fun testRegistryDocument() = runBlocking {
-        val document = JsonParser.parseString("""
-            {"versions": {"1.0.0": {}, "1.0.1": {"deprecated": "Security issue"}, "1.1.0": {}, "2.0.0-rc.1": {}, "2.0.0": {}}}
-        """).asJsonObject
-        val releases = NpmLookup.parse(document)
+        val releases = NpmLookup.parse("""
+            {"name": "x", "dist-tags": {"latest": "2.0.0"}, "versions": {"1.0.0": {"dist": {"tarball": "t", "fileCount": 3}, "dependencies": {"a": "1"}},
+             "1.0.1": {"deprecated": "Security issue"}, "1.1.0": {"deprecated": ""}, "2.0.0-rc.1": {}, "2.0.0": {}}, "modified": "2024"}
+        """.reader())
         assertEquals(listOf("1.0.0", "1.0.1", "1.1.0", "2.0.0"), releases.versions)
         assertEquals(Targets("1.0.1", "1.1.0", "2.0.0"), VersionService.outcome("1.0.0", releases, null).targets)
         assertEquals("Security issue", VersionService.outcome("1.0.1", releases, null).deprecated)

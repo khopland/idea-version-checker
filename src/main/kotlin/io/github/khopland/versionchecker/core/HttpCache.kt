@@ -4,6 +4,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.concurrent.TimeUnit
 
 /**
@@ -18,7 +19,7 @@ class HttpCache(private val directory: Path) {
     fun key(url: String, headers: Map<String, String>): String {
         // Credentials are part of the key, because a repository can answer differently per user.
         val text = url + "\n" + headers.toSortedMap().entries.joinToString("\n") { "${it.key}=${it.value}" }
-        return MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }.take(40)
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.toByteArray()), 0, 20)
     }
 
     fun get(key: String): Entry? = runCatching {

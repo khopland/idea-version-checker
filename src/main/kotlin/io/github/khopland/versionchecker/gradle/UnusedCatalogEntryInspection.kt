@@ -11,6 +11,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.VirtualFileVisitor
 import com.intellij.psi.PsiFile
+import io.github.khopland.versionchecker.core.FileStamps
 
 /** Finds `[versions]`, `[libraries]` and `[plugins]` entries in `gradle/libs.versions.toml` that nothing uses. No network access. */
 class UnusedCatalogEntryInspection : LocalInspectionTool() {
@@ -100,11 +101,20 @@ internal object CatalogEntries {
         return depth
     }
 
+    /** What one source file can use of a catalog: the words it has in quotes, and its `libs.a.b` accessors, split at the dots. */
+    class Uses(val strings: Set<String>, val chains: List<List<String>>)
+
+    fun uses(source: CharSequence) = Uses(quoted.findAll(source).mapTo(HashSet()) { it.groupValues[1] },
+        accessor.findAll(source).map { it.groupValues[1].split('.') }.toList())
+
+    fun unused(catalog: CharSequence, sources: List<String>): List<Entry> = unused(catalog, sources.map(::uses))
+
     /**
      * Entries that neither the catalog nor any of the [sources] use. A use is an accessor such as `libs.junit.api`
      * for the alias `junit-api`, or the alias in quotes, as in `libs.findLibrary("junit-api")`.
      */
-    fun unused(catalog: CharSequence, sources: List<String>): List<Entry> {
+    @JvmName("unusedIn")
+    fun unused(catalog: CharSequence, sources: Collection<Uses>): List<Entry> {
         val entries = parse(catalog)
         val versions = entries.filter { it.section == "versions" }
         val libraries = entries.filter { it.section == "libraries" }
@@ -113,8 +123,8 @@ internal object CatalogEntries {
         val bundled = entries.filter { it.section == "bundles" }.flatMapTo(HashSet()) { entry ->
             quoted.findAll(entry.value.substringAfter('=')).map { it.groupValues[1] }
         }
-        val strings = sources.flatMapTo(HashSet()) { source -> quoted.findAll(source).map { it.groupValues[1] } }
-        val chains = sources.flatMap { source -> accessor.findAll(source).map { it.groupValues[1].split('.') } }
+        val strings = sources.flatMapTo(HashSet()) { it.strings }
+        val chains = sources.flatMap { it.chains }
         // The longest alias that the chain starts with: `libs.junit.api.get()` uses `junit-api`, not `junit`.
         fun used(candidates: List<Entry>, chains: List<List<String>>): Set<Entry> {
             val segments = candidates.associateWith { it.alias.split('-', '_', '.') }
@@ -138,32 +148,43 @@ internal object CatalogSources {
     private class Listing(val stamp: Long, val files: List<VirtualFile>)
 
     private val SCRIPTS = Key.create<Listing>("version-checker.catalog-scripts")
+    private val CODE = Key.create<Listing>("version-checker.catalog-code")
+    private val USES = Key.create<Pair<Long, CatalogEntries.Uses>>("version-checker.catalog-uses")
+    private val codeExtensions = setOf("kt", "kts", "java", "groovy")
 
     /**
      * The build scripts under [root], kept while the file tree keeps its shape. `GradleProvider.related()` reads them
      * for every annotated script, so walking the whole build again when nothing was added or removed is wasted work.
      */
-    fun scripts(root: VirtualFile): List<VirtualFile> {
+    fun scripts(root: VirtualFile): List<VirtualFile> = listing(root, SCRIPTS, sources = false) { it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") }
+
+    private fun listing(dir: VirtualFile, key: Key<Listing>, sources: Boolean, accept: (VirtualFile) -> Boolean): List<VirtualFile> {
         val stamp = VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS.modificationCount
-        root.getUserData(SCRIPTS)?.takeIf { it.stamp == stamp }?.let { return it.files }
-        return files(root, sources = false) { it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") }
-            .also { root.putUserData(SCRIPTS, Listing(stamp, it)) }
+        dir.getUserData(key)?.takeIf { it.stamp == stamp }?.let { return it.files }
+        return files(dir, sources, accept).also { dir.putUserData(key, Listing(stamp, it)) }
+    }
+
+    /** What [file] uses, scanned once per change of its text: the catalog is checked on every pass, and the build's sources rarely change. */
+    private fun uses(file: VirtualFile): CatalogEntries.Uses {
+        val stamp = FileStamps.document(file)
+        file.getUserData(USES)?.takeIf { it.first == stamp }?.let { return it.second }
+        return CatalogEntries.uses(text(file)).also { file.putUserData(USES, stamp to it) }
     }
 
     /**
-     * The text of every file in the build at [root] that can use its default catalog `libs`: the build scripts, and the
+     * What every file in the build at [root] that can use its default catalog `libs` uses: the build scripts, and the
      * code of `buildSrc` and of included builds that import the catalog. Null when the build sets up other catalogs,
      * because an entry could be used under another name.
      */
-    fun find(root: VirtualFile): List<String>? {
-        val scripts = files(root, sources = false) { it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") }.associateWith(::text)
+    fun find(root: VirtualFile): List<CatalogEntries.Uses>? {
+        val scripts = scripts(root).filter { it.isValid }
         if (scripts.isEmpty()) return null
-        val settings = scripts.filterKeys { it.name.startsWith("settings.gradle") }
+        val settings = scripts.filter { it.name.startsWith("settings.gradle") }.associateWith(::text)
         if (settings.values.any { "defaultLibrariesExtensionName" in it || ("versionCatalogs" in it && createdCatalog.findAll(it).any { m -> m.groupValues[1] != "libs" }) })
             return null
         val codeRoots = listOfNotNull(root.findChild("buildSrc")) + settings.filter { (file, text) -> file.parent != root && "libs.versions.toml" in text }.keys.map { it.parent }
-        val code = codeRoots.distinct().flatMap { dir -> files(dir, sources = true) { it.extension in setOf("kt", "kts", "java", "groovy") } }
-        return scripts.values.toList() + code.distinct().filter { it !in scripts }.map(::text)
+        val code = codeRoots.distinct().flatMap { dir -> listing(dir, CODE, sources = true) { it.extension in codeExtensions } }.filter { it.isValid }
+        return (scripts + code).distinct().map(::uses)
     }
 
     /**

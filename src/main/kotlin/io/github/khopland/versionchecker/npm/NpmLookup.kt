@@ -34,7 +34,7 @@ internal class NpmLookup(val packageName: String, private val registry: NpmRegis
         if (!response.ok) throw HttpFailure("${registry.url} returned HTTP ${response.status}" +
             if (response.status == 401 || response.status == 403) ". Check the auth token in .npmrc" else "")
         val times = Times(url)
-        return parse(JsonParser.parseString(response.text()).asJsonObject, times::of)
+        return parse(response.body.inputStream().reader(), times::of)
     }
 
     private inner class Times(private val url: String) {
@@ -97,24 +97,56 @@ internal class NpmLookup(val packageName: String, private val registry: NpmRegis
             times
         }
 
-        fun parse(document: JsonObject, publishedAt: (suspend (String) -> Long?)? = null): Releases {
-            val versions = document.getAsJsonObject("versions") ?: JsonObject()
-            val deprecated = versions.entrySet().mapNotNull { (version, manifest) ->
-                manifest.asJsonObject.get("deprecated")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.isNotBlank() }?.let { version to it }
-            }.toMap()
-            // Semver prerelease versions have a hyphen after the version core.
-            val stable = versions.keySet().filter { '-' !in it.substringBefore('+') }
+        /**
+         * The install document, read as a stream: a package with thousands of releases has megabytes of manifests, and
+         * only the version, its deprecation, its peers and its Node.js range are kept from each.
+         */
+        fun parse(document: Reader, publishedAt: (suspend (String) -> Long?)? = null): Releases = JsonReader(document).use { reader ->
+            val stable = LinkedHashSet<String>()
+            val deprecated = HashMap<String, String>()
+            val needs = HashMap<String, Needs>()
             // Most versions of a package need the same, so they share one instance.
             val shared = hashMapOf<Pair<Map<String, String>, String?>, Needs>()
-            val needs = stable.mapNotNull { version ->
-                val manifest = versions.get(version).asJsonObject
-                val peers = manifest.get("peerDependencies")?.takeIf { it.isJsonObject }?.asJsonObject?.entrySet().orEmpty()
-                    .mapNotNull { (name, range) -> range.takeIf { it.isJsonPrimitive }?.asString?.let { name to it } }.toMap()
-                val node = manifest.get("engines")?.takeIf { it.isJsonObject }?.asJsonObject?.get("node")?.takeIf { it.isJsonPrimitive }?.asString
-                    ?.takeIf { it.isNotBlank() }
-                if (peers.isEmpty() && node == null) null else version to shared.getOrPut(peers to node) { Needs(peers, node) }
-            }.toMap()
-            return Releases(stable, deprecated, publishedAt = publishedAt, needs = needs)
+            reader.members { name ->
+                if (name != "versions") return@members reader.skipValue()
+                reader.members { version ->
+                    // Semver prerelease versions have a hyphen after the version core.
+                    val isStable = '-' !in version.substringBefore('+')
+                    if (isStable) stable += version
+                    var message: String? = null
+                    var peers = emptyMap<String, String>()
+                    var node: String? = null
+                    reader.members { field ->
+                        when (field) {
+                            "deprecated" -> message = reader.primitive()
+                            "peerDependencies" -> if (isStable) peers = buildMap { reader.members { peer -> reader.primitive()?.let { put(peer, it) } } } else reader.skipValue()
+                            "engines" -> if (isStable) reader.members { engine -> if (engine == "node") node = reader.primitive() else reader.skipValue() }
+                                else reader.skipValue()
+                            else -> reader.skipValue()
+                        }
+                    }
+                    // A version that the document has twice counts as it is written last.
+                    message?.takeIf { it.isNotBlank() }?.let { deprecated[version] = it } ?: deprecated.remove(version)
+                    val engine = node?.takeIf { it.isNotBlank() }
+                    if (peers.isEmpty() && engine == null) needs -= version else needs[version] = shared.getOrPut(peers to engine) { Needs(peers, engine) }
+                }
+            }
+            Releases(stable.toList(), deprecated, publishedAt = publishedAt, needs = needs)
+        }
+
+        /** Calls [each] with the name of every member of the object that comes next, to read its value. Anything but an object is skipped. */
+        private inline fun JsonReader.members(each: (String) -> Unit) {
+            if (peek() != JsonToken.BEGIN_OBJECT) return skipValue()
+            beginObject()
+            while (hasNext()) each(nextName())
+            endObject()
+        }
+
+        /** The string, number or boolean that comes next, as text. Null, and skipped, for anything else. */
+        private fun JsonReader.primitive(): String? = when (peek()) {
+            JsonToken.STRING, JsonToken.NUMBER -> nextString()
+            JsonToken.BOOLEAN -> nextBoolean().toString()
+            else -> null.also { skipValue() }
         }
     }
 }

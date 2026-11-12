@@ -98,6 +98,22 @@ class MavenImportedTest : BasePlatformTestCase() {
         assertEquals("A newer local version is a deliberate override", 5, found.size)
     }
 
+    fun testAnUnusedPropertyFollowsEditsToOtherPoms() {
+        val owner = pom("owner", "<properties><tool.version>1.0</tool.version></properties>")
+        val user = pom("user", "<properties><x>1</x></properties>", parent = "owner")
+        assertContainsElements(problems(owner), "Property tool.version is not used")
+
+        // The names every POM refers to are kept between checks, so another POM's edit must be seen.
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
+            val documents = com.intellij.psi.PsiDocumentManager.getInstance(project)
+            val document = documents.getDocument(user)!!
+            document.setText(document.text.replace("<x>1</x>", "<x>${'$'}{tool.version}</x>"))
+            documents.commitDocument(document)
+        }
+        assertDoesntContain(problems(owner), "Property tool.version is not used")
+        assertEquals(setOf("a", "b.c", "x\${b.c"), RedundantOverrides.references("\${a} \${x\${b.c}} \${open"))
+    }
+
     fun testRedundantPluginVersions() {
         pom("parent", """
             <properties><compiler.version>3.13.0</compiler.version></properties>
