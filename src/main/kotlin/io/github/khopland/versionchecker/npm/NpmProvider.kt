@@ -5,6 +5,7 @@ import com.intellij.json.psi.JsonObject
 import com.intellij.json.psi.JsonProperty
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.json.psi.JsonValue
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.Key
@@ -108,13 +109,18 @@ class NpmProvider : DeclarationProvider {
     override fun transitive(file: PsiFile): List<Transitive> {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return emptyList()
         val vfile = file.virtualFile ?: return emptyList()
-        val (lock, workspace) = Lockfile.find(vfile) ?: return emptyList()
+        val located = Lockfile.locate(vfile) ?: return emptyList()
+        val lock = located.lockfile
+        val workspace = located.workspace
+        // The walk only changes when package.json or the lockfile does, and the annotator repeats it for every pass.
+        val stamp = fileStamp(vfile) to located.file.modificationStamp
+        vfile.getUserData(TRANSITIVE)?.takeIf { it.first == stamp }?.let { return it.second }
         val registries by lazy { NpmPackages.registries(vfile) }
         val declared = SECTIONS.flatMap { (root.findProperty(it)?.value as? JsonObject)?.propertyList.orEmpty() }.distinctBy { it.name }
         // By name and version: pnpm tells copies with other peers apart.
         fun direct(property: JsonProperty) = lock.direct(workspace, property.name, (property.value as? JsonStringLiteral)?.value)
         val direct = declared.mapNotNullTo(hashSetOf()) { property -> direct(property)?.let { it.name to it.version } }
-        return declared.flatMap { property ->
+        val result = declared.flatMap { property ->
             val key = property.nameElement
             val range = TextRange(key.textRange.startOffset + 1, key.textRange.endOffset - 1)
             val top = direct(property) ?: return@flatMap emptyList()
@@ -132,6 +138,8 @@ class NpmProvider : DeclarationProvider {
                 }
             }.distinctBy { it.pkg }
         }
+        vfile.putUserData(TRANSITIVE, stamp to result)
+        return result
     }
 
     /**
@@ -230,6 +238,11 @@ class NpmProvider : DeclarationProvider {
         private val pnpmVersion = Regex("""^pnpm@(\d+)\.(\d+)\.(\d+)""")
         private val installedPnpmVersion = Regex("""packageManager"?\s*:\s*"?pnpm@(\d+)\.(\d+)\.(\d+)""")
         private val INSTALLED_PNPM = Key.create<Pair<Long, String?>>("version-checker.installed-pnpm")
+        private val TRANSITIVE = Key.create<Pair<Pair<Long, Long>, List<Transitive>>>("version-checker.transitive")
+
+        /** The unsaved text counts too, since the walk follows the offsets in the document. */
+        private fun fileStamp(file: VirtualFile): Long =
+            FileDocumentManager.getInstance().getCachedDocument(file)?.modificationStamp ?: file.modificationStamp
 
         /** The file where pnpm records the version it installed with, as YAML before pnpm 11 and as JSON since. */
         const val MODULES_FILE = ".modules.yaml"

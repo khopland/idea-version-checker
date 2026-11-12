@@ -14,6 +14,9 @@ internal class BunLock(private val workspaces: Map<String, String>, private val 
     /** [reference] is `name@version`, or for a package not from the registry such as `name@workspace:path`, another one. */
     class Entry(val reference: String, val dependencies: Set<String>)
 
+    /** Shared by every root of a transitive walk, which otherwise resolves the same path over and over. */
+    private val children = HashMap<String, List<Lockfile.Node>>()
+
     override fun hasWorkspace(path: String) = path in workspaces
 
     /** A workspace's own copies start with `./` when its name is taken by a root dependency of that name. */
@@ -24,7 +27,9 @@ internal class BunLock(private val workspaces: Map<String, String>, private val 
         return node("$prefix/$name".takeIf { it in packages } ?: name)
     }
 
-    override fun dependencies(node: Lockfile.Node) = packages[node.id]?.dependencies.orEmpty().mapNotNull { name -> resolve(node.id, name)?.let(::node) }
+    override fun dependencies(node: Lockfile.Node) = children.getOrPut(node.id) {
+        packages[node.id]?.dependencies.orEmpty().mapNotNull { name -> resolve(node.id, name)?.let(::node) }
+    }
 
     /** Every version of [name] the lockfile installs. */
     fun versions(name: String) = packages.keys.mapNotNullTo(HashSet()) { path -> node(path)?.takeIf { it.name == name }?.version }

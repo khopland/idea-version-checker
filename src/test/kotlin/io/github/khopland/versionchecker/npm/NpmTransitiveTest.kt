@@ -1,7 +1,9 @@
 package io.github.khopland.versionchecker.npm
 
+import com.google.gson.JsonParser
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -67,7 +69,7 @@ class NpmTransitiveTest : BasePlatformTestCase() {
     }
 
     /** A lockfile with the root, and `location: version` entries with the dependencies after a `>`. */
-    private fun lock(path: String, vararg entries: String, root: String = "") {
+    private fun lock(path: String, vararg entries: String, root: String = ""): VirtualFile {
         val packages = entries.joinToString(",\n") { line ->
             val (location, rest) = line.split(": ", limit = 2)
             val version = rest.substringBefore(" >").trim()
@@ -77,7 +79,30 @@ class NpmTransitiveTest : BasePlatformTestCase() {
                 dependencies.takeIf { it.isNotEmpty() }?.joinToString(", ", "\"dependencies\": {", "}") { "\"$it\": \"*\"" })
             "\"$location\": {${fields.joinToString(", ")}}"
         }
-        myFixture.addFileToProject(path, """{"lockfileVersion": 3, "packages": {"": {$root}${if (packages.isEmpty()) "" else ",\n$packages"}}}""")
+        return myFixture.addFileToProject(path, """{"lockfileVersion": 3, "packages": {"": {$root}${if (packages.isEmpty()) "" else ",\n$packages"}}}""").virtualFile
+    }
+
+    fun testLockfileChildrenAreResolvedOnce() {
+        val lock = PackageLock.parse(JsonParser.parseString("""
+            {"lockfileVersion": 3, "packages": {
+              "": {"dependencies": {"web": "*"}},
+              "node_modules/web": {"version": "1.0.0", "dependencies": {"qs": "*"}},
+              "node_modules/qs": {"version": "6.0.0"}
+            }}
+        """.trimIndent()).asJsonObject)!!
+        val web = lock.direct("", "web")!!
+        // The transitive walk visits one package from every declared dependency, so its children must be reused.
+        assertSame(lock.dependencies(web), lock.dependencies(web))
+    }
+
+    fun testTransitiveWalkFollowsTheLockfile() {
+        myFixture.addFileToProject("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
+        val lock = lock("package-lock.json", "node_modules/web: 1.0.0 > qs", "node_modules/qs: 6.0.0")
+        assertEquals(listOf("web >  > qs@6.0.0"), transitive("package.json"))
+        WriteAction.runAndWait<Throwable> {
+            lock.setBinaryContent("""{"lockfileVersion": 3, "packages": {"": {}, "node_modules/web": {"version": "1.0.0", "dependencies": {"qs": "*"}}, "node_modules/qs": {"version": "6.2.4"}}}""".toByteArray())
+        }
+        assertEquals(listOf("web >  > qs@6.2.4"), transitive("package.json"))
     }
 
     private fun transitive(path: String) = transitive(myFixture.configureByFile(path))
