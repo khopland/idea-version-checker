@@ -1,4 +1,6 @@
-<idea-plugin>
+<!-- Installing, updating or uninstalling this plugin always restarts the IDE. Loading it dynamically in a
+     running IDE is not supported, and a failed reload leaves the plugin class loader without its classes. -->
+<idea-plugin require-restart="true">
     <id>io.github.khopland.version-checker</id>
     <name>Version Checker</name>
     <vendor>khopland</vendor>
