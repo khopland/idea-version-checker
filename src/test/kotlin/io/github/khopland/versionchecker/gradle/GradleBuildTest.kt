@@ -137,4 +137,39 @@ class GradleBuildTest : BasePlatformTestCase() {
         val declarations = GradleScripts.collect("""dependencies { implementation("androidx.core:core-ktx:1.12.0") }""", LightVirtualFile("build.gradle.kts"))
         assertEquals(listOf(MavenRepo.GOOGLE.base), repos(declarations.single()).map { it.base })
     }
+
+    fun testScriptsAndBuildsAreReusedUntilTheirTextChanges() {
+        myFixture.addFileToProject("settings.gradle.kts", "rootProject.name = \"demo\"")
+        myFixture.addFileToProject("gradle.properties", "unused=1")
+        val script = myFixture.addFileToProject("app/build.gradle.kts", """
+            repositories { maven { url = uri("https://module.example.com") } }
+            dependencies { implementation("com.example:lib:1.0") }
+        """.trimIndent())
+
+        val first = provider.collect(script)
+        val again = provider.collect(script)
+        assertSame(GradleBuildFiles.script(script.virtualFile), GradleBuildFiles.script(script.virtualFile))
+        // Same instances: neither the script nor the build around it was parsed again.
+        assertSame(repos(first.single()).single(), repos(again.single()).single())
+
+        myFixture.saveText(script.virtualFile, """
+            repositories { maven { url = uri("https://changed.example.com") } }
+            dependencies { implementation("com.example:lib:2.0") }
+        """.trimIndent())
+        val changed = provider.collect(script)
+        assertEquals(listOf("https://changed.example.com"), repos(changed.single()).map { it.base })
+        assertEquals(listOf("2.0"), changed.map { it.current })
+    }
+
+    fun testEditingRootPropertiesRebuildsTheRepositories() {
+        myFixture.addFileToProject("settings.gradle.kts", """
+            dependencyResolutionManagement { repositories { maven { url = uri(property("repoUrl")) } } }
+        """.trimIndent())
+        val properties = myFixture.addFileToProject("gradle.properties", "repoUrl=https://one.example.com\n")
+        val script = myFixture.addFileToProject("build.gradle.kts", """dependencies { implementation("com.example:lib:1.0") }""")
+
+        assertEquals(listOf("https://one.example.com"), repos(provider.collect(script).single()).map { it.base })
+        myFixture.saveText(properties.virtualFile, "repoUrl=https://two.example.com\n")
+        assertEquals(listOf("https://two.example.com"), repos(provider.collect(script).single()).map { it.base })
+    }
 }

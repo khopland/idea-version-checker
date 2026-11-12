@@ -57,4 +57,21 @@ class MavenProviderTest : BasePlatformTestCase() {
         assertTrue(myFixture.editor.document.text.contains("<junit.version>4.13.2</junit.version>"))
         assertTrue(myFixture.editor.document.text.contains("<version> 33.4.0-jre </version>"))
     }
+
+    fun testDeclarationsAndChainsAreReusedUntilThePomChanges() {
+        val file = myFixture.configureByText("pom.xml", pom)
+        val provider = MavenProvider()
+
+        val first = provider.collect(file)
+        assertSame(first, provider.collect(file))
+        val chain = MavenPoms.chain(project, file as com.intellij.psi.xml.XmlFile)
+        assertSame(chain, MavenPoms.chain(project, file))
+
+        myFixture.saveText(file.virtualFile, pom.replace("<junit.version>4.12</junit.version>", "<junit.version>4.13.2</junit.version>"))
+        com.intellij.psi.PsiDocumentManager.getInstance(project).commitAllDocuments()
+        val changed = provider.collect(file)
+        assertNotSame(first, changed)
+        assertEquals("4.13.2", changed.first().current)
+        assertNotSame(chain, MavenPoms.chain(project, file as com.intellij.psi.xml.XmlFile))
+    }
 }

@@ -1,11 +1,13 @@
 package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
+import io.github.khopland.versionchecker.core.FileStamps
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
@@ -21,6 +23,16 @@ internal data class PropertyValue(val file: XmlFile, val tag: XmlTag, val name: 
 internal object MavenPoms {
     private val placeholder = Regex("""\$\{([^}]+)}""")
     private val propertyReference = Regex("""^\$\{([^}]+)}$""")
+
+    private class StampedChain(val stamp: ChainStamp, val chain: PomChain)
+
+    /** What a chain was resolved from: the POM, the PSI around it, and the projects Maven imports. */
+    private data class ChainStamp(val file: Long, val psi: Long, val imported: Long)
+
+    private val CHAIN = Key.create<StampedChain>("version-checker.maven-chain")
+
+    /** Changes when Maven imports, removes or resolves a project, which can change a POM's parents. */
+    fun imported(manager: MavenProjectsManager): Long = manager.modificationTracker.modificationCount
 
     fun child(tag: XmlTag?, vararg path: String): XmlTag? = path.fold(tag) { current, name -> current?.findFirstSubTag(name) }
 
@@ -61,8 +73,18 @@ internal object MavenPoms {
 
     fun profiles(root: XmlTag): List<XmlTag> = children(root, "profiles", "profile")
 
+    /** [file]'s parents, resolved once while the POM, the PSI and the imported projects keep their stamps. */
     fun chain(project: Project, file: XmlFile): PomChain {
         val manager = MavenProjectsManager.getInstance(project)
+        val stamp = ChainStamp(
+            file = file.virtualFile?.let(FileStamps::document) ?: 0,
+            psi = FileStamps.project(project),
+            imported = imported(manager))
+        file.getUserData(CHAIN)?.takeIf { it.stamp == stamp }?.let { return it.chain }
+        return resolveChain(project, file, manager).also { file.putUserData(CHAIN, StampedChain(stamp, it)) }
+    }
+
+    private fun resolveChain(project: Project, file: XmlFile, manager: MavenProjectsManager): PomChain {
         val ancestors = mutableListOf<XmlFile>()
         val seen = hashSetOf(file.virtualFile?.path)
         var current = file

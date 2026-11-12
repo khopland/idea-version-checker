@@ -1,7 +1,10 @@
 package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.util.Key
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
@@ -11,6 +14,7 @@ import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
+import io.github.khopland.versionchecker.core.FileStamps
 import io.github.khopland.versionchecker.core.PinFix
 import io.github.khopland.versionchecker.core.Pkg
 import io.github.khopland.versionchecker.core.Transitive
@@ -21,9 +25,28 @@ import org.jetbrains.idea.maven.model.MavenArtifactNode
 import org.jetbrains.idea.maven.model.MavenArtifactState
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.project.MavenProjectsManager
+import org.jetbrains.idea.maven.project.MavenSettingsCache
+import java.nio.file.Files
 
 /** Dependencies, dependency management, BOMs, plugins, extensions and the parent in `pom.xml`. */
 class MavenProvider : DeclarationProvider {
+    private class Cached(val stamp: Stamp, val declarations: List<Declaration>)
+
+    /** Everything that can change what [collect] finds: the POM, the PSI, Maven's projects and its settings. */
+    private data class Stamp(val file: Long, val psi: Long, val imported: Long, val settings: Int, val offline: Boolean)
+
+    private companion object {
+        val CACHE = Key.create<Cached>("version-checker.maven-declarations")
+
+        /** The settings files' stamps, since repositories and their credentials come from them. */
+        fun settingsStamp(project: Project): Int = runCatching {
+            MavenSettingsCache.getInstance(project).getEffectiveSettingsFiles().fold(0) { hash, path ->
+                val modified = runCatching { Files.getLastModifiedTime(path).toMillis() }.getOrDefault(0L)
+                31 * hash + modified.hashCode()
+            }
+        }.getOrDefault(0)
+    }
+
     override val fileNames = listOf("pom.xml")
 
     override fun accepts(file: PsiFile) = file is XmlFile && file.name == "pom.xml"
@@ -70,8 +93,20 @@ class MavenProvider : DeclarationProvider {
         val root = MavenPoms.root(xml) ?: return emptyList()
         val project = file.project
         val pom = file.virtualFile ?: return emptyList()
-        if (MavenRepos.offline(project)) return emptyList()
         val manager = MavenProjectsManager.getInstance(project)
+        val offline = manager.generalSettings.isWorkOffline
+        val stamp = Stamp(FileStamps.document(pom), FileStamps.project(project), MavenPoms.imported(manager),
+            settingsStamp(project), offline)
+        file.getUserData(CACHE)?.takeIf { it.stamp == stamp }?.let { return it.declarations }
+        if (offline) return emptyList()
+        val declarations = collect(file, xml, root, pom, project, manager)
+        file.putUserData(CACHE, Cached(stamp, declarations))
+        return declarations
+    }
+
+    /** `related()` visits every imported project, so each POM's declarations are collected once per change. */
+    private fun collect(file: PsiFile, xml: XmlFile, root: XmlTag, pom: VirtualFile, project: Project,
+                        manager: MavenProjectsManager): List<Declaration> {
         val modules = manager.projects.mapTo(hashSetOf()) { "${it.mavenId.groupId}:${it.mavenId.artifactId}" }
         val dependencyRepos by lazy { MavenRepos.forPom(project, pom, plugins = false) }
         val pluginRepos by lazy { MavenRepos.forPom(project, pom, plugins = true) }

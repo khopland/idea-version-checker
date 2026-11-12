@@ -17,9 +17,15 @@ import io.github.khopland.versionchecker.repo.MavenRepo
  * versions in simple variables are found. Libraries and plugins come from the repositories the build declares, or
  * from Maven Central, Google and the Gradle Plugin Portal when it declares none.
  */
-class GradleProvider internal constructor(private val environment: () -> GradleEnvironment) : DeclarationProvider {
+class GradleProvider internal constructor(environment: () -> GradleEnvironment) : DeclarationProvider {
     @Suppress("unused") // Created by the platform.
     constructor() : this(GradleEnvironment::system)
+
+    /**
+     * One environment for every script, so the user's `gradle.properties` and init scripts are read once instead of
+     * once per script on every highlighting pass. `GradleBuildFiles` ties its cached builds to this instance.
+     */
+    private val environment: GradleEnvironment by lazy(environment)
 
     override val fileNames = listOf("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "libs.versions.toml")
 
@@ -27,9 +33,8 @@ class GradleProvider internal constructor(private val environment: () -> GradleE
 
     override fun collect(file: PsiFile): List<Declaration> {
         val vfile = file.virtualFile ?: return emptyList()
-        if (file.name.endsWith(".toml")) return GradleCatalog.collect(file.text, vfile, GradleBuildFiles.forCatalog(vfile, environment()))
-        val script = ScriptText(file.text)
-        return GradleScripts.collect(script, vfile, GradleBuildFiles.forScript(vfile, script, environment()))
+        if (file.name.endsWith(".toml")) return GradleCatalog.collect(GradleBuildFiles.text(vfile), vfile, GradleBuildFiles.forCatalog(vfile, environment))
+        return GradleScripts.collect(GradleBuildFiles.script(vfile), vfile, GradleBuildFiles.forScript(vfile, environment))
     }
 
     /** Other scripts of the build that use the same root project property or `gradle.properties` entry. */
@@ -41,7 +46,7 @@ class GradleProvider internal constructor(private val environment: () -> GradleE
         if (shared.isEmpty()) return emptyList()
         val root = GradleBuildFiles.root(self) ?: return emptyList()
         val psi = PsiManager.getInstance(file.project)
-        return CatalogSources.files(root, sources = false) { it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") }
+        return CatalogSources.scripts(root)
             .filter { it != self }
             .mapNotNull { psi.findFile(it) }
             .flatMap { collect(it) }
