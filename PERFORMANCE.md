@@ -167,9 +167,10 @@ pull requests:
 
 10. **npm registry configuration is rebuilt per call.** `RegistryConfig.forDirectory()` walks up to the file system
     root checking for `.npmrc` or `.yarnrc.yml`; the file contents are cached, but the walk and merge are not. Since
-    #128 it is also the npm provider's `stamp()`, so it runs once per annotator per pass. On the test project that is
-    part of the 0.6 ms a pass costs, so it is cheap, but a cache keyed on the directory and the files' modification
-    times would remove it from the hot path.
+    #128 it is also the npm provider's `stamp()`, so it runs once per annotator per pass. It measures **81 µs** per
+    call for a package nine directories deep, so about 0.25 ms per pass. Asking for the file times without an
+    exception for each missing file was tried and made no difference: the cost is the file system calls. Removing it
+    needs a cache that trusts the files for a short time, which is not worth a stale registry.
 
 11. **`nodeVersion()` walks the tree per collection.** It now runs once per `package.json` change rather than once
     per pass. Low priority.
@@ -185,5 +186,24 @@ pull requests:
 
 ## Suggested order for what is left
 
-1. Cache `RegistryConfig` per directory (item 10), since it is now on every pass.
-2. Item 28 only if a real project shows it in a profile.
+Nothing here is worth doing before a profile of a real project shows it. Item 28 is the one to look at first if a
+very large npm workspace feels slow after an edit to `package.json`.
+
+## Found on the way
+
+Not performance, but found while reading the code, and fixed in #130:
+
+- A version that an npm registry marks with `"deprecated": false` was shown as deprecated, with the message `false`.
+- A registry that answers 200 with something other than a package document failed with the JSON parser's message,
+  which does not say which registry it was.
+
+Also fixed, in #129: a POM whose parent was not found kept that result until Maven imported again; it is resolved
+again when a file appears, since that can be the parent in the local repository.
+
+Left alone:
+
+- `MavenImportedTest` does not remove the Maven projects it registers, so POMs of one test are still imported in the
+  next. Tests that share artifact names can see each other's modules.
+- The test log has 16 `PSI/document/model changes are not allowed during highlighting` errors from other plugins'
+  background services (`PackageJsonEntityManager`, `KotlinScriptResolutionService`). They are on `main` too and fail
+  no test.
