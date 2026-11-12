@@ -13,6 +13,10 @@
 
 - The minimum release age now applies to npm versions too, so a release that is a few hours old is not offered. Release times come from the full registry document, read only for a package that has an update.
 
+### Fixed
+
+- Installing, updating or uninstalling the plugin now always restarts the IDE. A dynamic reload in 2026.3 could leave the plugin class loader without the plugin's classes, so the **Versions** menu, every inspection and the **Dependency Updates** tool window failed with `ClassNotFoundException`.
+
 ## [2.4.0]
 
 ### Added
