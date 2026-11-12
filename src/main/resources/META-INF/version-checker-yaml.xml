@@ -2,6 +2,9 @@
     <extensions defaultExtensionNs="com.intellij">
         <externalAnnotator language="yaml" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
         <externalAnnotator language="yaml" implementationClass="io.github.khopland.versionchecker.core.VulnerabilityAnnotator"/>
+        <localInspection language="yaml" shortName="UnusedPnpmCatalogEntry" displayName="Unused pnpm catalog entry" groupName="Version Checker"
+                         enabledByDefault="true" level="WEAK WARNING"
+                         implementationClass="io.github.khopland.versionchecker.npm.UnusedPnpmCatalogEntryInspection"/>
     </extensions>
     <extensions defaultExtensionNs="io.github.khopland.version-checker">
         <declarationProvider implementation="io.github.khopland.versionchecker.npm.PnpmWorkspaceProvider"/>

@@ -19,6 +19,9 @@ internal class YarnLock(private val entries: Map<String, Entry>, private val wor
 
     override fun dependencies(node: Lockfile.Node) = entries[node.id]?.dependencies.orEmpty().mapNotNull { (name, range) -> node(name, range) }
 
+    /** Every version of [name] the lockfile installs. */
+    fun versions(name: String) = entries.values.mapNotNullTo(HashSet()) { entry -> entry.pkg?.takeIf { it.first == name }?.second }
+
     /** Since Yarn 2, a range without a protocol, as Yarn 2 wrote dependencies, is an npm range. */
     private fun node(name: String, range: String): Lockfile.Node? {
         val entry = entries["$name@" + (if (workspaces == null || ':' in range) range else "npm:$range")] ?: return null

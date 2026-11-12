@@ -56,7 +56,7 @@ With several lockfiles in one folder, `packageManager` in `package.json` says wh
 Yarn 1 does not list its workspaces, so every `package.json` below a Yarn 1 lockfile uses it, and a dependency is found by the exact range `package.json` declares.
 Git, file, link, tarball and patched dependencies have no registry version and are not checked.
 
-**Alt+Enter** offers **Override …** for npm and pnpm, not for Yarn or Bun: an override in the root of the workspace, scoped to the vulnerable version's major, such as `"qs@^6": "^6.2.4"`, so copies of other majors keep their version. The value is a range from the safe version, so newer copies in the range keep their version. When copies of one package need different safe versions, the override offers the highest.
+**Alt+Enter** offers **Override …**: an override in the root of the workspace. For npm and pnpm it is scoped to the vulnerable version's major, such as `"qs@^6": "^6.2.4"`, so copies of other majors keep their version. Yarn `resolutions` and Bun `overrides` name a package but no range, as in `"qs": "^6.2.4"`, which moves every copy. So Yarn and Bun get the fix only while every installed copy of the package is in that major. The value is a range from the safe version, so newer copies in the range keep their version. When copies of one package need different safe versions, the override offers the highest.
 
 The fix is not offered when:
 

@@ -1,0 +1,9 @@
+<html>
+<body>
+Reports <code>catalog</code> and <code>catalogs</code> entries in <code>pnpm-workspace.yaml</code> that no package uses.
+<p>An entry is used when a <code>package.json</code> below the file takes its version from it, as
+<code>"react": "catalog:"</code> or <code>"react": "catalog:name"</code>, or when an override in
+<code>pnpm-workspace.yaml</code> does. Files in <code>node_modules</code> do not count.</p>
+<p>Use <b>Alt+Enter</b> to remove the entry.</p>
+</body>
+</html>

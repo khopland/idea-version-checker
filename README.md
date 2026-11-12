@@ -124,7 +124,7 @@ Optionally, the plugin reports declared versions with known vulnerabilities from
 It is off by default, because it sends dependency names and versions to `api.osv.dev` or to your Nexus IQ server. Turn on **Check for known vulnerabilities** in **Settings → Tools → Version Checker**.
 
 - Declared Maven, Gradle and npm dependencies, with npm dependencies at the version the lockfile installs.
-- The packages they bring in, in Maven projects and from `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` and `bun.lock`, with a fix that pins the package for Maven, npm and pnpm.
+- The packages they bring in, in Maven projects and from `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` and `bun.lock`, with a fix that pins the package for Maven, npm, pnpm, Yarn and Bun.
 - The **Dependency Updates** tool window lists the vulnerable versions first and updates them to safe versions.
 - With Nexus IQ, only what your application's policies flag and nobody waived.
 
@@ -147,6 +147,12 @@ Use **Alt+Enter** to remove one, or **Fix all** in the file.
 
 The **Duplicate npm dependency** inspection reports a package that `package.json` lists in both `dependencies` and `devDependencies` (or `optionalDependencies`), and a package in both `dependencies` and `optionalDependencies`, which overrides it.
 **Alt+Enter** removes it from `devDependencies` or `dependencies`. A package in both `peerDependencies` and `devDependencies` is normal and is not reported.
+
+## Unused pnpm catalog entries
+
+The **Unused pnpm catalog entry** inspection reports a `catalog` or `catalogs` entry in `pnpm-workspace.yaml` that no package uses.
+An entry is used when a `package.json` below the file has `"catalog:"` or `"catalog:name"` for the package, or an override in `pnpm-workspace.yaml` has.
+**Alt+Enter** removes the entry. It works offline.
 
 ## Unused version catalog entries
 
