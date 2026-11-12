@@ -3,6 +3,7 @@ package io.github.khopland.versionchecker.npm
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * `bun.lock`, the text lockfile of Bun 1.2 and later: JSON with trailing commas. [workspaces] maps each workspace's path,
@@ -15,7 +16,7 @@ internal class BunLock(private val workspaces: Map<String, String>, private val 
     class Entry(val reference: String, val dependencies: Set<String>)
 
     /** Shared by every root of a transitive walk, which otherwise resolves the same path over and over. */
-    private val children = HashMap<String, List<Lockfile.Node>>()
+    private val children = ConcurrentHashMap<String, List<Lockfile.Node>>()
 
     override fun hasWorkspace(path: String) = path in workspaces
 

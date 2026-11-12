@@ -2,9 +2,11 @@ package io.github.khopland.versionchecker.npm
 
 import com.google.gson.JsonParser
 import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.VersionCheckerSettings
@@ -103,6 +105,21 @@ class NpmTransitiveTest : BasePlatformTestCase() {
             lock.setBinaryContent("""{"lockfileVersion": 3, "packages": {"": {}, "node_modules/web": {"version": "1.0.0", "dependencies": {"qs": "*"}}, "node_modules/qs": {"version": "6.2.4"}}}""".toByteArray())
         }
         assertEquals(listOf("web >  > qs@6.2.4"), transitive("package.json"))
+    }
+
+    fun testTransitiveWalkIsReusedUntilPackageJsonChanges() {
+        val file = myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
+        lock("package-lock.json", "node_modules/web: 1.0.0 > qs", "node_modules/qs: 6.0.0", "node_modules/app: 2.0.0 > ms", "node_modules/ms: 2.1.3")
+        val provider = NpmProvider()
+        val first = provider.transitive(file)
+        assertSame(first, provider.transitive(file))
+        // The ranges are offsets in package.json, so an edit there needs a new walk.
+        WriteCommandAction.runWriteCommandAction(project) {
+            myFixture.editor.document.setText("""{"dependencies": {"app": "^2.0.0", "web": "^1.0.0"}}""")
+            PsiDocumentManager.getInstance(project).commitAllDocuments()
+        }
+        assertEquals(listOf("app >  > ms@2.1.3", "web >  > qs@6.0.0"), transitive(file))
+        assertEquals("web", file.text.substring(provider.transitive(file).last().range.startOffset, provider.transitive(file).last().range.endOffset))
     }
 
     private fun transitive(path: String) = transitive(myFixture.configureByFile(path))

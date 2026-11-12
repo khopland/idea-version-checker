@@ -5,6 +5,7 @@ import com.google.gson.JsonParser
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import java.util.concurrent.ConcurrentHashMap
 
 /** The packages a lockfile installs. A workspace package is linked, not installed, so it is no [Node]. */
 internal interface Lockfile {
@@ -22,6 +23,9 @@ internal interface Lockfile {
 
     fun dependencies(node: Node): List<Node>
 
+    /** A [lockfile], the package's [workspace] in it, and the [file] it was read from, whose stamp tells when what a caller derived from it is stale. */
+    class Located(val lockfile: Lockfile, val workspace: String, val file: VirtualFile)
+
     companion object {
         private const val MAX_DEPTH = 8
         private val CACHE = Key.create<Pair<Long, Lockfile?>>("version-checker.lockfile")
@@ -34,9 +38,6 @@ internal interface Lockfile {
         private val MANAGERS = mapOf("npm" to PackageLock.FILE_NAME, "pnpm" to PnpmLock.FILE_NAME, "yarn" to YarnLock.FILE_NAME, "bun" to BunLock.FILE_NAME)
         private val packageManager = Regex(""""packageManager"\s*:\s*"(npm|pnpm|yarn|bun)@""")
         val FILE_NAMES = READERS.map { it.first }
-
-        /** A lockfile and the file it was read from, whose stamp tells when a cached walk over it is stale. */
-        class Located(val lockfile: Lockfile, val workspace: String, val file: VirtualFile)
 
         /**
          * The lockfile that installs the package in [packageJson], and the package's workspace in it: `""` in the same
@@ -90,7 +91,7 @@ internal class PackageLock(private val packages: Map<String, Entry>) : Lockfile 
      * The children of each package. A transitive walk visits the same package from many declared dependencies, and
      * resolving its children walks the `node_modules` parents again every time.
      */
-    private val children = HashMap<String, List<Lockfile.Node>>()
+    private val children = ConcurrentHashMap<String, List<Lockfile.Node>>()
 
     override fun hasWorkspace(path: String) = path in packages
 

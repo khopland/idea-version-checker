@@ -5,7 +5,6 @@ import com.intellij.json.psi.JsonObject
 import com.intellij.json.psi.JsonProperty
 import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.json.psi.JsonValue
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.Key
@@ -112,10 +111,12 @@ class NpmProvider : DeclarationProvider {
         val located = Lockfile.locate(vfile) ?: return emptyList()
         val lock = located.lockfile
         val workspace = located.workspace
-        // The walk only changes when package.json or the lockfile does, and the annotator repeats it for every pass.
-        val stamp = fileStamp(vfile) to located.file.modificationStamp
-        vfile.getUserData(TRANSITIVE)?.takeIf { it.first == stamp }?.let { return it.second }
-        val registries by lazy { NpmPackages.registries(vfile) }
+        val registries = NpmPackages.registries(vfile)
+        // The walk only changes when package.json, the lockfile or the registry settings do, and the annotator repeats it for every pass.
+        val stamp = WalkStamp(file.modificationStamp, located.file, located.file.modificationStamp, registries)
+        file.getUserData(TRANSITIVE)?.takeIf { it.first == stamp }?.let { return it.second }
+        // Many declared dependencies bring in the same package, so each name is looked up once.
+        val lookups = HashMap<String, NpmLookup>()
         val declared = SECTIONS.flatMap { (root.findProperty(it)?.value as? JsonObject)?.propertyList.orEmpty() }.distinctBy { it.name }
         // By name and version: pnpm tells copies with other peers apart.
         fun direct(property: JsonProperty) = lock.direct(workspace, property.name, (property.value as? JsonStringLiteral)?.value)
@@ -132,13 +133,14 @@ class NpmProvider : DeclarationProvider {
                     val (node, path) = queue.removeFirst()
                     for (child in lock.dependencies(node)) {
                         if (!seen.add(child.id) || (child.name to child.version) in direct) continue
-                        add(Transitive(property.name, range, Pkg(Ecosystem.NPM, child.name, child.version), path, NpmLookup(child.name, registries.registry(child.name))))
+                        add(Transitive(property.name, range, Pkg(Ecosystem.NPM, child.name, child.version), path,
+                            lookups.getOrPut(child.name) { NpmLookup(child.name, registries.registry(child.name)) }))
                         queue += child to path + child.name
                     }
                 }
             }.distinctBy { it.pkg }
         }
-        vfile.putUserData(TRANSITIVE, stamp to result)
+        file.putUserData(TRANSITIVE, stamp to result)
         return result
     }
 
@@ -238,11 +240,13 @@ class NpmProvider : DeclarationProvider {
         private val pnpmVersion = Regex("""^pnpm@(\d+)\.(\d+)\.(\d+)""")
         private val installedPnpmVersion = Regex("""packageManager"?\s*:\s*"?pnpm@(\d+)\.(\d+)\.(\d+)""")
         private val INSTALLED_PNPM = Key.create<Pair<Long, String?>>("version-checker.installed-pnpm")
-        private val TRANSITIVE = Key.create<Pair<Pair<Long, Long>, List<Transitive>>>("version-checker.transitive")
+        private val TRANSITIVE = Key.create<Pair<WalkStamp, List<Transitive>>>("version-checker.transitive")
 
-        /** The unsaved text counts too, since the walk follows the offsets in the document. */
-        private fun fileStamp(file: VirtualFile): Long =
-            FileDocumentManager.getInstance().getCachedDocument(file)?.modificationStamp ?: file.modificationStamp
+        /**
+         * What a transitive walk was made from: the PSI of package.json, whose offsets the result has, the lockfile, and
+         * the registries that the lookups of the packages go to.
+         */
+        private data class WalkStamp(val psi: Long, val lockfile: VirtualFile, val lock: Long, val registries: RegistryConfig)
 
         /** The file where pnpm records the version it installed with, as YAML before pnpm 11 and as JSON since. */
         const val MODULES_FILE = ".modules.yaml"

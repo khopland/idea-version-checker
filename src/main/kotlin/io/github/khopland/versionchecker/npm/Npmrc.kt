@@ -31,6 +31,11 @@ internal class Npmrc(private val values: Map<String, String>) : RegistryConfig {
         return emptyMap()
     }
 
+    /** By the settings, so a cache can tell whether a newly read configuration says anything else. */
+    override fun equals(other: Any?) = other is Npmrc && other.values == values
+
+    override fun hashCode() = values.hashCode()
+
     companion object {
         const val DEFAULT = "https://registry.npmjs.org/"
         private val placeholder = Regex("""\$\{([^}?]+)\??}""")

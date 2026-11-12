@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * `pnpm-lock.yaml`, lockfile version 6 (pnpm 8) or 9 (pnpm 9 and later). [importers] maps each workspace (`.` for the
  * root) to its declared packages and the versions they resolve to, such as `1.0.0`, `1.0.0(react@18.2.0)` with peers,
@@ -8,7 +10,7 @@ package io.github.khopland.versionchecker.npm
  */
 internal class PnpmLock(private val importers: Map<String, Map<String, String>>, private val snapshots: Map<String, Map<String, String>>) : Lockfile {
     /** Shared by every root of a transitive walk, which otherwise resolves the same snapshot over and over. */
-    private val children = HashMap<String, List<Lockfile.Node>>()
+    private val children = ConcurrentHashMap<String, List<Lockfile.Node>>()
 
     override fun hasWorkspace(path: String) = path.ifEmpty { "." } in importers
 
