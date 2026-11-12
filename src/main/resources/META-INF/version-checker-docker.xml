@@ -1,0 +1,7 @@
+<idea-plugin>
+    <!-- With the Docker plugin a Dockerfile has its own language. Without it, it is plain text. -->
+    <extensions defaultExtensionNs="com.intellij">
+        <externalAnnotator language="Dockerfile" implementationClass="io.github.khopland.versionchecker.core.VersionAnnotator"/>
+        <lang.inspectionSuppressor language="Dockerfile" implementationClass="io.github.khopland.versionchecker.core.LineCommentSuppressor"/>
+    </extensions>
+</idea-plugin>

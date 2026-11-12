@@ -57,6 +57,7 @@ Versions that do not start with a number, like `r09`, are not suggested.
 | Wrappers | `distributionUrl` in `.mvn/wrapper/maven-wrapper.properties` and `gradle/wrapper/gradle-wrapper.properties`. |
 | Toolchains | `.nvmrc` and `.node-version` with a full Node.js version. Major updates are LTS releases only. `.sdkmanrc` lines such as `java=21.0.2-tem`, from the SDKMAN! list for your platform; Java keeps its vendor suffix. `.tool-versions` (asdf, mise): `nodejs`, `maven` and `gradle`. |
 | GitHub Actions | `uses: owner/repo@v4` in `.github/workflows` and `action.yml`. A tag keeps its shape: `v4` is offered `v5`, `v4.1.2` is offered `v4.2.0`. Tags come from github.com without an API token. Commit hashes, branches, Docker and local actions are not checked. |
+| Docker | `FROM image:tag` in a `Dockerfile`, `Dockerfile.*`, `*.dockerfile` or `Containerfile`, and `image: image:tag` in Compose files (`compose.yaml`, `docker-compose.yml` and variants such as `compose.prod.yaml`). A tag keeps its shape and its variant: `node:20-alpine` is offered `22-alpine`, never `22.11.0-alpine` or `22-slim`. Tags come from Docker Hub, ghcr.io, quay.io and other registries that list public images without a login. An image with a `@sha256:` digest is checked but not changed. Images without a version tag, `latest`, tags with a variable such as `${NODE_VERSION}`, build stages and private images are not checked. |
 
 A version that several declarations share, like a Maven property or a catalog `version.ref`, changes only when they all want the same version.
 
@@ -94,7 +95,7 @@ A suppress comment in the build file keeps one version. It lives in the file, so
 | Gradle scripts | `//noinspection OutdatedDependencyVersion` on the line above. |
 | `libs.versions.toml` | `#noinspection OutdatedDependencyVersion` on the line above. |
 | Wrapper properties | `# suppress inspection "OutdatedDependencyVersion"` on the line above. |
-| `pnpm-workspace.yaml`, workflows, `.sdkmanrc`, `.tool-versions` | `#noinspection OutdatedDependencyVersion` on the line above. |
+| `pnpm-workspace.yaml`, workflows, Dockerfiles, Compose files, `.sdkmanrc`, `.tool-versions` | `#noinspection OutdatedDependencyVersion` on the line above. |
 
 To add the comment, press **Alt+Enter** on the warning, open the submenu of any fix with the right arrow, and pick **Suppress for tag**, **Suppress for statement** or **Suppress for line**. A comment where the version is set, on a Maven property or a catalog `[versions]` entry, keeps every declaration that uses it.
 Use `MovedDependency` the same way for moved packages, and `VulnerableDependency` for vulnerable versions. `package.json` cannot have comments, so there turn the inspection off for the file or project instead.
@@ -147,7 +148,7 @@ Build scripts, `buildSrc` and included builds that import the catalog are search
 
 **Settings → Tools → Version Checker**:
 
-- **Minimum release age (hours)**: hide Maven, Gradle and wrapper versions published less recently than this, for example `24` to match a Nexus quarantine. It does not apply to npm: a Nexus quarantine already leaves held-back versions out of the npm metadata, while Maven metadata still lists them. The fix for a vulnerability follows it too.
+- **Minimum release age (hours)**: hide Maven, Gradle and wrapper versions published less recently than this, for example `24` to match a Nexus quarantine. It does not apply to npm: a Nexus quarantine already leaves held-back versions out of the npm metadata, while Maven metadata still lists them. The fix for a vulnerability follows it too. It does not apply to Docker images either: a registry does not say when a tag was published.
 - **Check for known vulnerabilities**: off by default. See [Vulnerabilities](#vulnerabilities).
 - **Nexus IQ**, per project: the server, credentials and optional application for [Nexus IQ](docs/vulnerabilities.md#nexus-iq).
 
@@ -194,7 +195,7 @@ The demo projects in `src/test/resources` have outdated versions on purpose. Cop
 | `core` | Version ordering and targets, the HTTP client, the cached checkers for versions and vulnerabilities, the annotator and inspections, quick fixes and bulk updates. |
 | `repo` | The Maven-layout repository lookup used by Maven, Gradle and the Maven wrapper. |
 | `vuln` | The OSV.dev and Nexus IQ `VulnerabilitySource`s, the Nexus IQ settings and the action that opens a report. |
-| `maven`, `npm`, `gradle`, `wrapper` | One `DeclarationProvider` each: find versions in a file, and say how to look them up and edit them. |
+| `maven`, `npm`, `gradle`, `wrapper`, `toolchain`, `actions`, `docker` | One `DeclarationProvider` each: find versions in a file, and say how to look them up and edit them. |
 
 To release a version, see [Releasing](docs/releasing.md).
 

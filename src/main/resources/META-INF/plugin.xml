@@ -10,6 +10,7 @@
           <li><b>Gradle:</b> libraries and plugins in build scripts, <code>gradle.properties</code> and <code>libs.versions.toml</code>, from the repositories the build declares, and unused catalog entries.</li>
           <li>The Maven and Gradle wrappers, <code>.nvmrc</code>, <code>.node-version</code>, <code>.sdkmanrc</code> and <code>.tool-versions</code>.</li>
           <li>GitHub Actions in workflows and <code>action.yml</code>.</li>
+          <li>Docker images in Dockerfiles and Compose files.</li>
         </ul>
         <p>Use <b>Alt+Enter</b> on a version to update it or open its release notes, or <b>Tools | Versions</b> to update a file or the whole project in one undoable edit.
         The <b>Dependency Updates</b> tool window lists every outdated version in the project, with its patch, minor and major update.
@@ -23,6 +24,7 @@
     <depends optional="true" config-file="version-checker-maven.xml">org.jetbrains.idea.maven</depends>
     <depends optional="true" config-file="version-checker-json.xml">com.intellij.modules.json</depends>
     <depends optional="true" config-file="version-checker-yaml.xml">org.jetbrains.plugins.yaml</depends>
+    <depends optional="true" config-file="version-checker-docker.xml">Docker</depends>
 
     <extensionPoints>
         <extensionPoint name="declarationProvider" interface="io.github.khopland.versionchecker.core.DeclarationProvider" dynamic="true"/>
@@ -76,6 +78,7 @@
         <declarationProvider implementation="io.github.khopland.versionchecker.toolchain.NodeVersionProvider"/>
         <declarationProvider implementation="io.github.khopland.versionchecker.toolchain.SdkmanProvider"/>
         <declarationProvider implementation="io.github.khopland.versionchecker.toolchain.ToolVersionsProvider"/>
+        <declarationProvider implementation="io.github.khopland.versionchecker.docker.DockerfileProvider"/>
     </extensions>
 
     <actions>
