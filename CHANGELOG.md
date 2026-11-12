@@ -18,6 +18,7 @@
 ### Changed
 
 - The minimum release age now applies to npm versions too, so a release that is a few hours old is not offered. Release times come from the full registry document, read only for a package that has an update.
+- The editor shows the versions it has after one second and adds those from slow repositories when they arrive. Before, one slow package held back every warning in the file. Inspect Code, the tool window and the bulk updates still wait for all of them.
 - Repository answers are downloaded compressed. The first check of a `package.json` downloads about a fifth of what it did, for example 18 MB instead of 87 MB for 40 common packages.
 - npm documents over 8 MB, such as those of `next` and `typescript`, are kept on disk like the others, so they are not downloaded again after a restart or every 30 minutes.
 

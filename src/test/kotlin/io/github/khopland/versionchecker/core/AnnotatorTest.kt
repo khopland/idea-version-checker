@@ -1,7 +1,10 @@
 package io.github.khopland.versionchecker.core
 
 import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import kotlinx.coroutines.CompletableDeferred
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Runs the real annotator, quick fixes and inspection profile against a fake provider. */
 class AnnotatorTest : BasePlatformTestCase() {
@@ -58,6 +61,33 @@ class AnnotatorTest : BasePlatformTestCase() {
         // x wants 1.0.1/1.2.0/2.0.0 and y wants 1.0.1/1.1.0/1.1.0; only the patch update agrees.
         assertContainsElements(texts, "Update shared to 1.0.1 (patch)")
         assertDoesntContain(texts, "Update shared to 1.2.0 (minor)", "Update shared to 2.0.0 (major)")
+    }
+
+    fun testSlowRepositoryShowsLaterThanTheOthers() {
+        val service = VersionService.getInstance()
+        val gate = CompletableDeferred<Unit>()
+        val fetch = service.fetch
+        service.patience = 200.milliseconds
+        service.fetch = { lookup -> if (lookup.key == "current") gate.await(); fetch(lookup) }
+        try {
+            myFixture.configureByText("fake.xml", """<libs><lib name="a" version="1.0.0"/><lib name="current" version="1.0.0"/></libs>""")
+            fun warnings() = myFixture.doHighlighting().filter { it.severity == HighlightSeverity.WARNING }.map { it.description.substringBefore(" →") }
+            assertEquals(listOf("a 1.0.0"), warnings())
+            // Inspect Code has no later, so it waits.
+            val batch = VersionAnnotator().collectInformation(myFixture.file)!!
+            assertFalse(batch.editor)
+
+            gate.complete(Unit)
+            // The check went on after the editor stopped waiting, and the file is highlighted again when it ends.
+            val checked = CompletableDeferred<Unit>()
+            service.whenMore("test", FakeProvider().collect(myFixture.file)) { checked.complete(Unit) }
+            PlatformTestUtil.waitWithEventsDispatching("The slow version was not checked", { checked.isCompleted }, 10)
+            assertEquals(listOf("a 1.0.0", "current 1.0.0"), warnings())
+        } finally {
+            service.patience = null
+            service.fetch = fetch
+            gate.complete(Unit)
+        }
     }
 
     fun testDisabledInspectionHidesWarnings() {

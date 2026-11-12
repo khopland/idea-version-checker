@@ -135,4 +135,7 @@ sealed interface Outcome {
     /** [needs] has the checked version and the [targets], where they need something. */
     data class Updates(val targets: Targets, val deprecated: String?, val moved: Moved? = null, val needs: Map<String, Needs> = emptyMap()) : Outcome
     data class Failed(val message: String) : Outcome
+
+    /** Not checked yet: the repository is slow, and the editor shows the other versions first. */
+    data object Pending : Outcome
 }

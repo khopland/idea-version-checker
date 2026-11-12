@@ -116,6 +116,7 @@ class DependencyReport(private val project: Project, private val scope: Coroutin
                 val outcome = checked.outcomes[declaration]?.takeIf { declaration in outdated } ?: Outcome.Updates(Targets.NONE, null)
                 val shown = vulnerable != null || when (outcome) {
                     is Outcome.Failed -> true
+                    Outcome.Pending -> false
                     is Outcome.Updates -> !outcome.targets.isEmpty || outcome.deprecated != null
                 }
                 if (!shown) return@mapNotNull null
