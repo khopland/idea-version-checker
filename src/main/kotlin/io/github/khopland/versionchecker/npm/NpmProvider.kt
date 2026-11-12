@@ -18,9 +18,11 @@ import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
+import io.github.khopland.versionchecker.core.Install
 import io.github.khopland.versionchecker.core.PinFix
 import io.github.khopland.versionchecker.core.Pkg
 import io.github.khopland.versionchecker.core.Transitive
+import io.github.khopland.versionchecker.core.UpdateKind
 import io.github.khopland.versionchecker.core.Versions
 
 /**
@@ -54,16 +56,18 @@ class NpmProvider : DeclarationProvider {
         val vfile = file.virtualFile ?: return emptyList()
         val registries by lazy { NpmPackages.registries(vfile) }
         val lockfile by lazy { Lockfile.find(vfile) }
+        val install by lazy { Install(nodeVersion(file), NpmRange::satisfies) }
         val result = mutableListOf<Declaration>()
         // Overrides pin packages deeper in the tree, which the vulnerability check leaves out.
-        // A [locked] dependency is checked for vulnerabilities at the version the lockfile installs.
+        // A [locked] dependency is checked for vulnerabilities at the version the lockfile installs, and its updates for
+        // conflicts with the other dependencies and with Node.js.
         fun add(name: String, literal: JsonStringLiteral, label: String = name, ecosystem: Ecosystem? = Ecosystem.NPM, locked: Boolean = false) {
             val spec = NpmSpec.parse(literal.value) ?: return
             val raw = literal.value
             val range = TextRange.from(literal.textRange.startOffset + 1, raw.length).takeIf { literal.text.length == raw.length + 2 } ?: return
             val installed = if (locked) lockfile?.let { (lock, workspace) -> lock.direct(workspace, name, raw) }?.takeIf { it.name == name }?.version else null
             result += Declaration(label, range, spec.version, NpmLookup(name, registries.registry(name)), Edit(vfile, range, raw) { spec.prefix + it },
-                ecosystem = ecosystem, installed = installed)
+                ecosystem = ecosystem, installed = installed, install = if (locked) install else null, floats = spec.floats)
         }
         fun section(value: JsonValue?) = (value as? JsonObject)?.propertyList.orEmpty()
         fun dependencies(value: JsonValue?, locked: Boolean = false) =
@@ -190,6 +194,20 @@ class NpmProvider : DeclarationProvider {
         }
     }
 
+    /**
+     * The Node.js version in the nearest `.nvmrc`, `.node-version` or `.tool-versions`, beside [file] or above it in the
+     * project. It may lack the minor or patch number. Aliases such as `lts/iron` say nothing.
+     */
+    private fun nodeVersion(file: PsiFile): String? {
+        val index = ProjectFileIndex.getInstance(file.project)
+        return generateSequence(file.virtualFile?.parent) { it.parent }.takeWhile { index.isInContent(it) }.firstNotNullOfOrNull { directory ->
+            NODE_FILES.firstNotNullOfOrNull { (name, pattern) ->
+                directory.findChild(name)?.takeIf { !it.isDirectory }?.let { runCatching { VfsUtilCore.loadText(it) }.getOrNull() }
+                    ?.let { pattern.find(it) }?.groupValues?.get(1)
+            }
+        }
+    }
+
     /** `"pnpm@9.12.0"`. A `+sha512.…` hash must change with the version, so the plugin only warns. */
     private fun packageManager(literal: JsonStringLiteral, file: VirtualFile, registries: RegistryConfig): Declaration? {
         val match = packageManager.matchEntire(literal.value) ?: return null
@@ -206,6 +224,9 @@ class NpmProvider : DeclarationProvider {
 
     companion object {
         private val SECTIONS = listOf("dependencies", "devDependencies", "optionalDependencies")
+        private val nodeFile = Regex("""\A\s*v?(\d+(?:\.\d+){0,2})\s*\z""")
+        private val NODE_FILES = listOf(".nvmrc" to nodeFile, ".node-version" to nodeFile,
+            ".tool-versions" to Regex("""(?m)^[ \t]*(?:nodejs|node)[ \t]+v?(\d+(?:\.\d+){0,2})(?=\s|$)"""))
         private val pnpmVersion = Regex("""^pnpm@(\d+)\.(\d+)\.(\d+)""")
         private val installedPnpmVersion = Regex("""packageManager"?\s*:\s*"?pnpm@(\d+)\.(\d+)\.(\d+)""")
         private val INSTALLED_PNPM = Key.create<Pair<Long, String?>>("version-checker.installed-pnpm")
@@ -248,6 +269,16 @@ internal object NpmPackages {
 
 /** A version selector the plugin can update: exact, `^` or `~`, with a full `major.minor.patch` version. */
 internal data class NpmSpec(val prefix: String, val version: String) {
+    /** The updates the selector takes by itself. A caret stops at the first number that is not zero. */
+    val floats: UpdateKind? get() {
+        val (major, minor) = version.split('.')
+        return when {
+            prefix == "^" && major != "0" -> UpdateKind.MINOR
+            prefix == "~" || prefix == "^" && minor != "0" -> UpdateKind.PATCH
+            else -> null
+        }
+    }
+
     companion object {
         private val pattern = Regex("""^(\^|~|=|v)?(\d+\.\d+\.\d+)$""")
 

@@ -22,6 +22,8 @@ class Releases(
     val ignoresMinimumAge: Boolean = false,
     /** New coordinates when the package has moved. */
     val moved: Moved? = null,
+    /** What each version needs beside it, for the versions that need something. */
+    val needs: Map<String, Needs> = emptyMap(),
 ) {
     suspend fun publishedAt(version: String): Long? = publishedAt?.invoke(version)
 }
@@ -52,7 +54,9 @@ class Edit(val file: VirtualFile, val range: TextRange, val expected: String, va
  * [range] is where the warning shows, in the file that was scanned. A null [edit] means the plugin
  * can check the version but not change it, and [note] says why. [ecosystem] is where vulnerability databases
  * list the package, or null when they do not, as for Gradle plugins and wrappers. [installed] is the version a lockfile
- * resolves [current] to, such as 1.4.0 for `^1.2.3`.
+ * resolves [current] to, such as 1.4.0 for `^1.2.3`. [install] is shared by the declarations that are installed together
+ * and can conflict, and then [name] is the package name. [floats] is the kind of update an install may take without an
+ * edit, as `^1.2.3` takes minor releases.
  */
 class Declaration(
     val name: String,
@@ -63,6 +67,8 @@ class Declaration(
     val note: String? = null,
     val ecosystem: Ecosystem? = null,
     val installed: String? = null,
+    val install: Install? = null,
+    val floats: UpdateKind? = null,
 ) {
     /** The version the vulnerability check uses: [installed], unless the lockfile is older than [current]. */
     val checked get() = installed?.takeIf { Versions.compare(it, current) > 0 } ?: current
@@ -126,6 +132,10 @@ interface DeclarationProvider {
 }
 
 sealed interface Outcome {
-    data class Updates(val targets: Targets, val deprecated: String?, val moved: Moved? = null) : Outcome
+    /** [needs] has the checked version and the [targets], where they need something. */
+    data class Updates(val targets: Targets, val deprecated: String?, val moved: Moved? = null, val needs: Map<String, Needs> = emptyMap()) : Outcome
     data class Failed(val message: String) : Outcome
+
+    /** Not checked yet: the repository is slow, and the editor shows the other versions first. */
+    data object Pending : Outcome
 }

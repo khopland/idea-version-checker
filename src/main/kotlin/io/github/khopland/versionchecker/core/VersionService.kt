@@ -6,25 +6,43 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import io.github.khopland.versionchecker.VersionCheckerSettings
 import kotlinx.coroutines.*
+import kotlinx.coroutines.selects.select
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
-/** Checks declarations. Each lookup runs once per key, and its result stays in memory for a while. */
+/**
+ * Checks declarations. Each lookup runs once per key, and its result stays in memory for a while. So does the outcome for
+ * each version, which runs to its end even when the caller stops waiting, so the next caller finds it.
+ */
 @Service
 class VersionService(private val scope: CoroutineScope) {
-    private class Entry(val result: Deferred<Releases>, val createdAt: Long)
+    private class Entry<T>(val result: Deferred<T>, val createdAt: Long)
 
-    private val entries = ConcurrentHashMap<String, Entry>()
+    private val entries = ConcurrentHashMap<String, Entry<Releases>>()
+    private val outcomes = ConcurrentHashMap<String, Entry<Outcome>>()
+    private val waiters = ConcurrentHashMap<Any, Job>()
 
     /** Replaced in tests, so they need no network. */
     @Volatile
     internal var fetch: suspend (Lookup) -> Releases = { it.fetch() }
 
+    /**
+     * How long an editor waits for slow repositories before it shows the versions it has. The others show when they
+     * arrive. Null waits for all of them, as tests do.
+     */
+    @Volatile
+    internal var patience: Duration? = if (ApplicationManager.getApplication().isUnitTestMode) null else 1.seconds
+
     /** Forget every cached version list, for example after the user asks to check again. */
-    fun clear() = entries.clear()
+    fun clear() {
+        entries.clear()
+        outcomes.clear()
+    }
 
     suspend fun releases(lookup: Lookup): Releases {
         val now = System.currentTimeMillis()
@@ -35,27 +53,57 @@ class VersionService(private val scope: CoroutineScope) {
         return entry.result.await()
     }
 
-    suspend fun check(declarations: List<Declaration>, minAgeHours: Int = VersionCheckerSettings.getInstance().minReleaseAgeHours): Map<Declaration, Outcome> = coroutineScope {
-        val cutoff = cutoff(minAgeHours)
-        val lookups = declarations.map { it.lookup }.distinctBy { it.key }
-            .associate { lookup -> lookup.key to async { runCatching { releases(lookup) } } }
-        declarations.associateWith { declaration ->
-            async {
-                lookups.getValue(declaration.lookup.key).await().fold(
-                    onSuccess = { releases -> outcome(declaration.current, releases, cutoff) },
-                    onFailure = { error ->
-                        if (error is CancellationException) throw error
-                        LOG.info("Could not check ${declaration.name}", error)
-                        Outcome.Failed(error.message ?: error.javaClass.simpleName)
-                    })
-            }
-        }.mapValues { it.value.await() }
+    private fun outcome(declaration: Declaration, minAgeHours: Int): Deferred<Outcome> {
+        val now = System.currentTimeMillis()
+        val key = listOf(declaration.lookup.key, declaration.current, declaration.checked, minAgeHours).joinToString("\n")
+        return outcomes.compute(key) { _, old ->
+            if (old != null && !expired(old.result, old.createdAt, now) { it is Outcome.Failed }) old
+            else Entry(scope.async {
+                try {
+                    outcome(declaration.current, releases(declaration.lookup), cutoff(minAgeHours), declaration.checked)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    LOG.info("Could not check ${declaration.name}", e)
+                    Outcome.Failed(e.message ?: e.javaClass.simpleName)
+                }
+            }, now)
+        }!!.result
+    }
+
+    /**
+     * With [patience], a version that is not checked within it is [Outcome.Pending], and its check goes on:
+     * [whenMore] tells when to ask again.
+     */
+    suspend fun check(declarations: List<Declaration>, minAgeHours: Int = VersionCheckerSettings.getInstance().minReleaseAgeHours,
+                      patience: Duration? = null): Map<Declaration, Outcome> {
+        val results = declarations.associateWith { outcome(it, minAgeHours) }
+        if (patience != null) withTimeoutOrNull(patience) { results.values.joinAll() }
+        return results.mapValues { (_, result) -> if (patience == null || result.isCompleted) result.await() else Outcome.Pending }
+    }
+
+    /**
+     * Calls [then] once more of the [pending] declarations are checked: after the first of them, with those that follow
+     * within a moment, so the editor is not painted for each one. A call with the same [owner] replaces one that still waits.
+     */
+    fun whenMore(owner: Any, pending: List<Declaration>, minAgeHours: Int = VersionCheckerSettings.getInstance().minReleaseAgeHours,
+                 then: suspend () -> Unit) {
+        val checks = pending.map { outcome(it, minAgeHours) }
+        val waiter = scope.launch(start = CoroutineStart.LAZY) {
+            select { checks.forEach { check -> check.onJoin {} } }
+            withTimeoutOrNull(BATCH) { checks.joinAll() }
+            then()
+        }
+        waiters.put(owner, waiter)?.cancel()
+        waiter.invokeOnCompletion { waiters.remove(owner, waiter) }
+        waiter.start()
     }
 
     companion object {
         private val LOG = logger<VersionService>()
         private val TTL = TimeUnit.MINUTES.toMillis(30)
         private val FAILURE_TTL = TimeUnit.MINUTES.toMillis(1)
+        private val BATCH = 1.seconds
 
         /**
          * Whether a cached [result] from [createdAt] is too old at [now]. A failure is asked for again soon, and so is a
@@ -77,9 +125,12 @@ class VersionService(private val scope: CoroutineScope) {
             return releases.allPublishedBefore?.let { it <= cutoff } == true || releases.publishedAt(version)?.let { it <= cutoff } == true
         }
 
-        suspend fun outcome(current: String, releases: Releases, minimumAgeCutoff: Long?): Outcome.Updates {
+        /** [checked] is the version a lockfile installs, when it is not [current]. */
+        suspend fun outcome(current: String, releases: Releases, minimumAgeCutoff: Long?, checked: String = current): Outcome.Updates {
             val targets = Targets.pick(current, releases.versions) { oldEnough(releases, minimumAgeCutoff, it) }
-            return Outcome.Updates(targets, releases.deprecated[current], releases.moved)
+            val needs = if (releases.needs.isEmpty()) emptyMap() else
+                (UpdateKind.entries.mapNotNull { targets[it] } + checked).mapNotNull { version -> releases.needs[version]?.let { version to it } }.toMap()
+            return Outcome.Updates(targets, releases.deprecated[current], releases.moved, needs)
         }
 
         /**

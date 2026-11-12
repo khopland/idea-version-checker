@@ -28,7 +28,11 @@ class FakeRepository : AutoCloseable {
             val response = if (etag != null && exchange.requestHeaders.getFirst("If-None-Match") == etag) Response(304, headers = route.headers) else route
             synchronized(requests) { statuses += response.status }
             response.headers.forEach { (name, value) -> exchange.responseHeaders.add(name, value) }
-            val bytes = response.body.toByteArray()
+            // A route with `Content-Encoding: gzip` compresses for a client that asks for it, as a registry does.
+            val gzip = route.headers["Content-Encoding"] == "gzip" && exchange.requestHeaders.getFirst("Accept-Encoding")?.contains("gzip") == true
+            val bytes = response.body.toByteArray().let { plain ->
+                if (!gzip) plain else java.io.ByteArrayOutputStream().also { out -> java.util.zip.GZIPOutputStream(out).use { it.write(plain) } }.toByteArray()
+            }
             if (exchange.requestMethod == "HEAD" || response.status == 304) exchange.sendResponseHeaders(response.status, -1)
             else {
                 exchange.sendResponseHeaders(response.status, if (bytes.isEmpty()) -1 else bytes.size.toLong())

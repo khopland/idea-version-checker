@@ -13,6 +13,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
+import java.util.zip.GZIPInputStream
 
 class HttpResult(val status: Int, val body: ByteArray, private val headers: Map<String, List<String>>) {
     val ok get() = status in 200..299
@@ -72,6 +73,8 @@ class Http internal constructor(private val client: HttpClient, private val cach
         val uri = URI(url)
         val request = HttpRequest.newBuilder(uri).timeout(TIMEOUT).method(method, body)
             .header("User-Agent", "IntelliJ-Version-Checker")
+            // The JDK client does not ask for compression by itself. An npm document is five times smaller with it.
+            .header("Accept-Encoding", "gzip")
             .apply { headers.forEach { (name, value) -> header(name, value) } }
             .build()
         val permits = hosts.computeIfAbsent(uri.authority.orEmpty()) { Semaphore(PER_HOST) }
@@ -80,7 +83,14 @@ class Http internal constructor(private val client: HttpClient, private val cach
         } catch (e: IOException) {
             throw HttpFailure("${uri.host}: ${reason(e)}")
         }
-        return HttpResult(response.statusCode(), response.body() ?: ByteArray(0), response.headers().map())
+        val bytes = response.body() ?: ByteArray(0)
+        val gzip = response.headers().firstValue("Content-Encoding").orElse("").equals("gzip", ignoreCase = true) && bytes.isNotEmpty()
+        val plain = if (!gzip) bytes else try {
+            GZIPInputStream(bytes.inputStream()).use { it.readBytes() }
+        } catch (e: IOException) {
+            throw HttpFailure("${uri.host}: ${reason(e)}")
+        }
+        return HttpResult(response.statusCode(), plain, response.headers().map())
     }
 
     companion object {

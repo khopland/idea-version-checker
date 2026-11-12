@@ -31,6 +31,25 @@ A bulk update is one edit, across all files. **Edit → Undo** reverts all of it
 The plugin only edits declarations. It does not change lockfiles, `node_modules` or downloaded artifacts.
 Reload Maven or Gradle afterwards, then build and test: a newer version is not a compatibility guarantee.
 
+### npm conflicts
+
+An update in `package.json` says when it does not fit what is installed beside it:
+
+> react-dom 18.2.0 → 18.3.1 (minor) · 19.0.0 (major). 19.0.0 needs react ^19.0.0, not 18.2.0
+
+| Conflict | Message |
+| --- | --- |
+| The new version needs a peer dependency in a range the project does not have. | `19.0.0 needs react ^19.0.0, not 18.2.0` |
+| Another dependency needs the old version as its peer. A newer version of it that accepts the update is named. | `9.0.0 breaks eslint-plugin-x 3.0.0, which needs ^8.0.0 (eslint-plugin-x 4.0.0 accepts it)` |
+| The new version needs another Node.js than the nearest `.nvmrc`, `.node-version` or `.tool-versions` names. | `6.0.0 needs Node.js >=20, not 18.19.0` |
+
+The fix says so too: **Update to 19.0.0 (major, conflicts with react)**. It still writes the version, so you can update the other package next.
+**Update This File** and **Update All Files** update the packages together and list only the conflicts that remain.
+
+Only `dependencies`, `devDependencies` and `optionalDependencies` of the same `package.json` are compared, at the version the lockfile installs.
+A peer moves within its declared range: with `"react": "^18.2.0"`, a package that needs react `^18.3.1` is no conflict.
+A conflict the project already has is not reported again. Packages deeper in the tree and other workspace packages are not compared.
+
 Only stable versions are suggested, without alpha, beta, milestone, RC, preview or snapshot versions.
 If you use a prerelease, its final release counts as newer: `4.0.0-rc-5` is offered `4.0.0`.
 

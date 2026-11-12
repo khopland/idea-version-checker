@@ -1,41 +1,50 @@
 package io.github.khopland.versionchecker.core
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.ex.ExternalAnnotatorBatchInspection
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.ExternalAnnotator
 import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiManager
 import io.github.khopland.versionchecker.VersionCheckerSettings
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 
 /** Shows outdated versions. Lookups run on the annotator's background thread, not in the highlighting pass. */
 class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotator.Result>() {
     /**
      * [suppressed] and [movedSuppressed] are kept by a suppress comment. They still take part in the agreement on a shared version.
-     * With [checkVulnerabilities], the updates say when the new version is still vulnerable.
+     * With [checkVulnerabilities], the updates say when the new version is still vulnerable. In an [editor], versions from
+     * slow repositories show later than the others; Inspect Code waits for all of them.
      */
     class Info(val declarations: List<Declaration>, val related: List<Declaration>,
                val suppressed: Set<Declaration> = emptySet(), val movedSuppressed: Set<Declaration> = emptySet(),
-               val checkVulnerabilities: Boolean = false, val project: Project? = null, val application: ApplicationHint? = null)
+               val checkVulnerabilities: Boolean = false, val project: Project? = null, val application: ApplicationHint? = null,
+               val editor: Boolean = false)
     class Result(val info: Info, val outcomes: Map<Declaration, Outcome>, val vulnerabilities: Map<Declaration, Vulnerable> = emptyMap()) {
         val declarations get() = info.declarations
     }
 
-    override fun collectInformation(file: PsiFile, editor: Editor, hasErrors: Boolean): Info? = collectInformation(file)
+    override fun collectInformation(file: PsiFile, editor: Editor, hasErrors: Boolean): Info? = collectInformation(file, editor = true)
 
-    override fun collectInformation(file: PsiFile): Info? {
+    override fun collectInformation(file: PsiFile): Info? = collectInformation(file, editor = false)
+
+    private fun collectInformation(file: PsiFile, editor: Boolean): Info? {
         val provider = DeclarationProvider.forFile(file) ?: return null
         val declarations = provider.collect(file)
         if (declarations.isEmpty()) return null
         val vulnerabilities = VersionCheckerSettings.getInstance().checkVulnerabilities && VulnerableDependencyInspection.enabled(file)
         return Info(declarations, provider.related(file, declarations), Suppression.suppressed(file, declarations, OutdatedVersionInspection()),
             Suppression.suppressed(file, declarations, MovedDependencyInspection()), vulnerabilities, file.project,
-            if (vulnerabilities) VulnerabilityService.application(provider, file) else null)
+            if (vulnerabilities) VulnerabilityService.application(provider, file) else null, editor)
     }
 
     override fun doAnnotate(info: Info): Result = runBlockingCancellable {
@@ -44,12 +53,14 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
         val vulnerabilities = if (info.checkVulnerabilities) async {
             Highlights.attempt("check for vulnerabilities") { VulnerabilityService.getInstance().check(declarations, info.project, info.application) }.first
         } else null
-        val outcomes = VersionService.getInstance().check(declarations)
+        val service = VersionService.getInstance()
+        val outcomes = service.check(declarations, patience = service.patience.takeIf { info.editor })
         Result(info, outcomes, vulnerabilities?.await().orEmpty())
     }
 
     override fun apply(file: PsiFile, result: Result, holder: AnnotationHolder) {
         val outcomes = result.outcomes
+        highlightAgainWhenChecked(file, outcomes)
         val moves = Highlights(file, MovedDependencyInspection.SHORT_NAME, "Moved dependency", HighlightDisplayLevel.WEAK_WARNING)
         if (moves.enabled) for (declaration in result.declarations) {
             val moved = (outcomes[declaration] as? Outcome.Updates)?.moved ?: continue
@@ -72,10 +83,11 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
         }
         for (declaration in checked) {
             val outcome = outcomes[declaration] as? Outcome.Updates ?: continue
-            val message = message(declaration, outcome, fixes[declaration].orEmpty()) ?: continue
+            val conflicts = Conflicts.offered(declaration, outcomes)
+            val message = message(declaration, outcome, fixes[declaration].orEmpty(), conflicts) ?: continue
             val newest = outcome.targets.major
             outdated.annotate(holder, outdated.level.severity, message, declaration.range,
-                VulnerabilityAnnotator.updateFixes(declaration, fixes[declaration].orEmpty().values, result.vulnerabilities) + UpdateFileFix() +
+                VulnerabilityAnnotator.updateFixes(declaration, fixes[declaration].orEmpty().values, result.vulnerabilities, conflicts) + UpdateFileFix() +
                     listOfNotNull(if (declaration.lookup.hasReleaseNotes && newest != null) OpenReleaseNotesFix(declaration.name, declaration.lookup, newest) else null))
         }
     }
@@ -83,10 +95,28 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
     override fun getPairedBatchInspectionShortName() = OutdatedVersionInspection.SHORT_NAME
 
     companion object {
+        /** Highlights [file] again when more of the versions that are still [Outcome.Pending] in [outcomes] are checked. */
+        fun highlightAgainWhenChecked(file: PsiFile, outcomes: Map<Declaration, Outcome>) {
+            val pending = outcomes.filterValues { it is Outcome.Pending }.keys.toList()
+            val target = file.virtualFile ?: return
+            if (pending.isEmpty()) return
+            val project = file.project
+            VersionService.getInstance().whenMore(target, pending) {
+                withContext(Dispatchers.EDT) {
+                    if (project.isDisposed || !target.isValid) return@withContext
+                    PsiManager.getInstance(project).findFile(target)?.let { DaemonCodeAnalyzer.getInstance(project).restart(it, "More versions checked") }
+                }
+            }
+        }
+
         fun movedMessage(declaration: Declaration, moved: Moved): String =
             "${declaration.name} has moved to ${moved.to}" + (moved.newest?.let { " (newest $it)" } ?: "") + (moved.message?.let { ": $it" } ?: "")
 
-        fun message(declaration: Declaration, outcome: Outcome.Updates, fixes: Map<UpdateKind, String>): String? {
+        private const val LISTED = 3
+
+        /** [conflicts] are those of the offered versions, from [Conflicts.offered]. */
+        fun message(declaration: Declaration, outcome: Outcome.Updates, fixes: Map<UpdateKind, String>,
+                    conflicts: Map<String, List<Conflict>> = emptyMap()): String? {
             val versions = UpdateKind.entries.mapNotNull { outcome.targets[it] }.distinct()
             val deprecated = outcome.deprecated?.let { "${declaration.current} is deprecated: $it" }
             if (versions.isEmpty()) return deprecated?.let { "${declaration.name} $it" }
@@ -96,7 +126,11 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
                 fixes.isEmpty() -> "the version is shared, and its users need different versions"
                 else -> null
             }
-            return listOfNotNull("${declaration.name} ${declaration.current} → $updates", deprecated, reason).joinToString(". ")
+            val conflicting = conflicts.flatMap { (version, found) ->
+                found.take(LISTED).map { it.text(declaration, version) } +
+                    listOfNotNull("$version has ${found.size - LISTED} more conflicts".takeIf { found.size > LISTED })
+            }
+            return (listOfNotNull("${declaration.name} ${declaration.current} → $updates", deprecated, reason) + conflicting).joinToString(". ")
         }
     }
 }

@@ -8,7 +8,7 @@
         <p>Highlights outdated dependency versions in your build files and updates them by patch, minor or major.</p>
         <ul>
           <li><b>Maven:</b> dependencies, BOMs, build plugins and version properties, with fixes that remove redundant overrides and duplicates.</li>
-          <li><b>npm:</b> dependencies, overrides, resolutions, catalogs and <code>packageManager</code> in <code>package.json</code> and <code>pnpm-workspace.yaml</code>, for npm, pnpm, Yarn and Bun projects, packages listed twice and unused pnpm catalog entries.</li>
+          <li><b>npm:</b> dependencies, overrides, resolutions, catalogs and <code>packageManager</code> in <code>package.json</code> and <code>pnpm-workspace.yaml</code>, for npm, pnpm, Yarn and Bun projects, packages listed twice and unused pnpm catalog entries. An update says when it conflicts with a peer dependency or the project's Node.js version.</li>
           <li><b>Gradle:</b> libraries and plugins in build scripts, <code>gradle.properties</code> and <code>libs.versions.toml</code>, from the repositories the build declares, and unused catalog entries.</li>
           <li>The Maven and Gradle wrappers, <code>.nvmrc</code>, <code>.node-version</code>, <code>.sdkmanrc</code> and <code>.tool-versions</code>.</li>
           <li>GitHub Actions in workflows and <code>action.yml</code>.</li>

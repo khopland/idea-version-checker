@@ -58,6 +58,7 @@ class HttpCache(private val directory: Path) {
     }
 
     companion object {
-        private const val MAX_BODY = 8 * 1024 * 1024
+        // The npm document of a package with many releases, such as next, is 26 MB.
+        private const val MAX_BODY = 64 * 1024 * 1024
     }
 }
