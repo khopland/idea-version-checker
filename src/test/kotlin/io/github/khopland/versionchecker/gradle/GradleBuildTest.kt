@@ -133,6 +133,26 @@ class GradleBuildTest : BasePlatformTestCase() {
         }
     }
 
+    fun testChangedUserPropertiesAreReadAgain() {
+        val home = Files.createTempDirectory("gradle-home")
+        try {
+            Files.writeString(home.resolve("gradle.properties"), "repoUrl=https://one.example.com\n")
+            myFixture.addFileToProject("settings.gradle.kts", """
+                dependencyResolutionManagement { repositories { maven { url = uri(property("repoUrl")) } } }
+            """.trimIndent())
+            val script = myFixture.addFileToProject("build.gradle.kts", """dependencies { implementation("com.example:lib:1.0") }""")
+            val withHome = GradleProvider { GradleEnvironment({ null }, home) }
+            assertEquals(listOf("https://one.example.com"), repos(withHome.collect(script).single()).map { it.base })
+            assertSame(withHome.collect(script), withHome.collect(script))
+
+            Files.writeString(home.resolve("gradle.properties"), "repoUrl=https://two.example.com\n")
+            Files.setLastModifiedTime(home.resolve("gradle.properties"), java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 5_000))
+            assertEquals(listOf("https://two.example.com"), repos(withHome.collect(script).single()).map { it.base })
+        } finally {
+            home.toFile().deleteRecursively()
+        }
+    }
+
     fun testWithoutDeclaredRepositoriesTheDefaultsStay() {
         val declarations = GradleScripts.collect("""dependencies { implementation("androidx.core:core-ktx:1.12.0") }""", LightVirtualFile("build.gradle.kts"))
         assertEquals(listOf(MavenRepo.GOOGLE.base), repos(declarations.single()).map { it.base })
@@ -159,6 +179,22 @@ class GradleBuildTest : BasePlatformTestCase() {
         val changed = provider.collect(script)
         assertEquals(listOf("https://changed.example.com"), repos(changed.single()).map { it.base })
         assertEquals(listOf("2.0"), changed.map { it.current })
+    }
+
+    fun testDeclarationsAreReusedUntilAPropertyTheyUseChanges() {
+        myFixture.addFileToProject("settings.gradle.kts", "include(\"app\")")
+        val properties = myFixture.addFileToProject("app/gradle.properties", "libVersion=1.0\n")
+        val script = myFixture.addFileToProject("app/build.gradle.kts", """dependencies { implementation("com.example:lib:${'$'}libVersion") }""")
+        val other = myFixture.addFileToProject("lib/build.gradle.kts", """dependencies { implementation("com.example:other:3.0") }""")
+
+        val first = provider.collect(script)
+        assertEquals(listOf("1.0"), first.map { it.current })
+        // Nothing the script reads changed, so it is not scanned again, also not after an edit to another module's script.
+        myFixture.saveText(other.virtualFile, """dependencies { implementation("com.example:other:3.1") } // edited""")
+        assertSame(first, provider.collect(script))
+
+        myFixture.saveText(properties.virtualFile, "libVersion=2.0\n")
+        assertEquals(listOf("2.0"), provider.collect(script).map { it.current })
     }
 
     fun testEditingRootPropertiesRebuildsTheRepositories() {

@@ -3,6 +3,7 @@ package io.github.khopland.versionchecker.maven
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
@@ -14,7 +15,6 @@ import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
-import io.github.khopland.versionchecker.core.FileStamps
 import io.github.khopland.versionchecker.core.PinFix
 import io.github.khopland.versionchecker.core.Pkg
 import io.github.khopland.versionchecker.core.Transitive
@@ -32,19 +32,29 @@ import java.nio.file.Files
 class MavenProvider : DeclarationProvider {
     private class Cached(val stamp: Stamp, val declarations: List<Declaration>)
 
-    /** Everything that can change what [collect] finds: the POM, the PSI, Maven's projects and its settings. */
-    private data class Stamp(val file: Long, val psi: Long, val imported: Long, val settings: Int, val offline: Boolean)
+    /** What [collect] reads: the POM and its parents, by their PSI stamps, and what the POMs of a project share. */
+    private data class Stamp(val chain: List<Long>, val shared: Shared.Stamp)
+
+    /**
+     * What every POM of a project reads beside its own files: Maven's projects and settings, and the content roots.
+     * `related()` makes one for all the POMs it visits, so the settings files are looked at once.
+     */
+    private class Shared(project: Project) {
+        data class Stamp(val imported: Long, val roots: Long, val settings: List<Long?>, val security: String, val offline: Boolean)
+
+        private val manager = MavenProjectsManager.getInstance(project)
+        val stamp = Stamp(MavenPoms.imported(manager), ProjectRootManager.getInstance(project).modificationCount,
+            // Repositories and their credentials come from the settings files, which are outside the project.
+            runCatching { MavenSettingsCache.getInstance(project).getEffectiveSettingsFiles() }.getOrDefault(emptyList())
+                .map { runCatching { Files.getLastModifiedTime(it).toMillis() }.getOrNull() },
+            MavenSecurity().stamp, manager.generalSettings.isWorkOffline)
+
+        /** The project's own modules, which are not looked up in a repository. */
+        val modules by lazy { manager.projects.mapTo(hashSetOf()) { "${it.mavenId.groupId}:${it.mavenId.artifactId}" } }
+    }
 
     private companion object {
         val CACHE = Key.create<Cached>("version-checker.maven-declarations")
-
-        /** The settings files' stamps, since repositories and their credentials come from them. */
-        fun settingsStamp(project: Project): Int = runCatching {
-            MavenSettingsCache.getInstance(project).getEffectiveSettingsFiles().fold(0) { hash, path ->
-                val modified = runCatching { Files.getLastModifiedTime(path).toMillis() }.getOrDefault(0L)
-                31 * hash + modified.hashCode()
-            }
-        }.getOrDefault(0)
     }
 
     override val fileNames = listOf("pom.xml")
@@ -57,10 +67,11 @@ class MavenProvider : DeclarationProvider {
         val shared = declarations.mapNotNull { it.edit }.filter { it.file != self }.mapTo(hashSetOf()) { it.key }
         if (shared.isEmpty()) return emptyList()
         val psi = PsiManager.getInstance(file.project)
+        val environment = Shared(file.project)
         return MavenProjectsManager.getInstance(file.project).projects.asSequence()
             .map { it.file }.filter { it != self && it.isValid }
             .mapNotNull { psi.findFile(it) as? XmlFile }
-            .flatMap { collect(it) }
+            .flatMap { collect(it, environment) }
             .filter { it.edit?.key in shared }
             .toList()
     }
@@ -88,29 +99,28 @@ class MavenProvider : DeclarationProvider {
         return ApplicationHint(declared, names.distinct(), "clm.applicationId in the POM")
     }
 
-    override fun collect(file: PsiFile): List<Declaration> {
+    override fun collect(file: PsiFile): List<Declaration> = collect(file, Shared(file.project))
+
+    /** `related()` visits every imported project, so each POM's declarations are collected once per change to what it reads. */
+    private fun collect(file: PsiFile, shared: Shared): List<Declaration> {
         val xml = file as? XmlFile ?: return emptyList()
         val root = MavenPoms.root(xml) ?: return emptyList()
         val project = file.project
         val pom = file.virtualFile ?: return emptyList()
-        val manager = MavenProjectsManager.getInstance(project)
-        val offline = manager.generalSettings.isWorkOffline
-        val stamp = Stamp(FileStamps.document(pom), FileStamps.project(project), MavenPoms.imported(manager),
-            settingsStamp(project), offline)
+        if (shared.stamp.offline) return emptyList()
+        val chain = MavenPoms.chain(project, xml)
+        val stamp = Stamp(MavenPoms.stamps(chain), shared.stamp)
         file.getUserData(CACHE)?.takeIf { it.stamp == stamp }?.let { return it.declarations }
-        if (offline) return emptyList()
-        val declarations = collect(file, xml, root, pom, project, manager)
+        val declarations = collect(xml, root, pom, chain, shared.modules)
         file.putUserData(CACHE, Cached(stamp, declarations))
         return declarations
     }
 
-    /** `related()` visits every imported project, so each POM's declarations are collected once per change. */
-    private fun collect(file: PsiFile, xml: XmlFile, root: XmlTag, pom: VirtualFile, project: Project,
-                        manager: MavenProjectsManager): List<Declaration> {
-        val modules = manager.projects.mapTo(hashSetOf()) { "${it.mavenId.groupId}:${it.mavenId.artifactId}" }
+    private fun collect(xml: XmlFile, root: XmlTag, pom: VirtualFile, chain: PomChain, modules: Set<String>): List<Declaration> {
+        val project = xml.project
+        val manager = MavenProjectsManager.getInstance(project)
         val dependencyRepos by lazy { MavenRepos.forPom(project, pom, plugins = false) }
         val pluginRepos by lazy { MavenRepos.forPom(project, pom, plugins = true) }
-        val chain by lazy { MavenPoms.chain(project, xml) }
         val index = ProjectFileIndex.getInstance(project)
         val result = mutableListOf<Declaration>()
 

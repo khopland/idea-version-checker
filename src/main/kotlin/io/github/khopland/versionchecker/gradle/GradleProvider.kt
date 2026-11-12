@@ -1,13 +1,14 @@
 package io.github.khopland.versionchecker.gradle
 
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiManager
 import io.github.khopland.versionchecker.core.Declaration
 import io.github.khopland.versionchecker.core.DeclarationProvider
 import io.github.khopland.versionchecker.core.Ecosystem
 import io.github.khopland.versionchecker.core.Edit
+import io.github.khopland.versionchecker.core.FileStamps
 import io.github.khopland.versionchecker.core.Lookup
 import io.github.khopland.versionchecker.repo.MavenLookup
 import io.github.khopland.versionchecker.repo.MavenRepo
@@ -17,24 +18,41 @@ import io.github.khopland.versionchecker.repo.MavenRepo
  * versions in simple variables are found. Libraries and plugins come from the repositories the build declares, or
  * from Maven Central, Google and the Gradle Plugin Portal when it declares none.
  */
-class GradleProvider internal constructor(environment: () -> GradleEnvironment) : DeclarationProvider {
+class GradleProvider internal constructor(private val newEnvironment: () -> GradleEnvironment) : DeclarationProvider {
     @Suppress("unused") // Created by the platform.
     constructor() : this(GradleEnvironment::system)
 
+    @Volatile
+    private var current: GradleEnvironment? = null
+
     /**
-     * One environment for every script, so the user's `gradle.properties` and init scripts are read once instead of
-     * once per script on every highlighting pass. `GradleBuildFiles` ties its cached builds to this instance.
+     * One environment for every script while the files in the Gradle user home stay the same, so the user's
+     * `gradle.properties` and init scripts are not parsed again for every script on every highlighting pass.
+     * `GradleBuildFiles` ties its cached builds to the instance, so a new one discards them.
      */
-    private val environment: GradleEnvironment by lazy(environment)
+    private fun environment(): GradleEnvironment = current?.takeIf { it.isCurrent() } ?: newEnvironment().also { current = it }
+
+    private class Collected(val stamp: Stamp, val declarations: List<Declaration>) {
+        /** The file's text, and what its [GradleContext] was made from. */
+        data class Stamp(val text: Long, val context: Any?)
+    }
 
     override val fileNames = listOf("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "libs.versions.toml")
 
     override fun accepts(file: PsiFile) = file.name.endsWith(".gradle") || file.name.endsWith(".gradle.kts") || file.name.endsWith(".versions.toml")
 
-    override fun collect(file: PsiFile): List<Declaration> {
-        val vfile = file.virtualFile ?: return emptyList()
-        if (file.name.endsWith(".toml")) return GradleCatalog.collect(GradleBuildFiles.text(vfile), vfile, GradleBuildFiles.forCatalog(vfile, environment))
-        return GradleScripts.collect(GradleBuildFiles.script(vfile), vfile, GradleBuildFiles.forScript(vfile, environment))
+    override fun collect(file: PsiFile): List<Declaration> = file.virtualFile?.let { collect(it, environment()) }.orEmpty()
+
+    private fun collect(file: VirtualFile, environment: GradleEnvironment): List<Declaration> {
+        val catalog = file.name.endsWith(".toml")
+        val context = if (catalog) GradleBuildFiles.forCatalog(file, environment) else GradleBuildFiles.forScript(file, environment)
+        // `related()` collects every script of the build for each annotated one, so a script is scanned once per change.
+        val stamp = Collected.Stamp(FileStamps.document(file), context.stamp)
+        file.getUserData(COLLECTED)?.takeIf { it.stamp == stamp }?.let { return it.declarations }
+        val declarations = if (catalog) GradleCatalog.collect(GradleBuildFiles.text(file), file, context)
+            else GradleScripts.collect(GradleBuildFiles.script(file), file, context)
+        file.putUserData(COLLECTED, Collected(stamp, declarations))
+        return declarations
     }
 
     /** Other scripts of the build that use the same root project property or `gradle.properties` entry. */
@@ -45,15 +63,15 @@ class GradleProvider internal constructor(environment: () -> GradleEnvironment) 
             .mapTo(hashSetOf()) { it.key }
         if (shared.isEmpty()) return emptyList()
         val root = GradleBuildFiles.root(self) ?: return emptyList()
-        val psi = PsiManager.getInstance(file.project)
+        val environment = environment()
         return CatalogSources.scripts(root)
-            .filter { it != self }
-            .mapNotNull { psi.findFile(it) }
-            .flatMap { collect(it) }
+            .filter { it != self && it.isValid }
+            .flatMap { collect(it, environment) }
             .filter { it.edit?.key in shared }
     }
 
     companion object {
+        private val COLLECTED = Key.create<Collected>("version-checker.gradle-declarations")
         private val googleGroups = listOf("androidx.", "com.android.", "com.google.android.", "com.google.firebase", "com.google.gms", "com.google.mlkit")
 
         /** [repos] are the ones the build declares, or null for Maven Central, or Google for Android groups. */
