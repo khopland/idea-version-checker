@@ -33,6 +33,18 @@ class HttpCacheTest {
             assertEquals(listOf(200, 304, 200, 200, 304), repository.statuses)
         }
     }
+
+    @Test
+    fun asksForCompressedResponsesAndStoresThemUnpacked() = runBlocking {
+        FakeRepository().use { repository ->
+            val directory = Files.createTempDirectory("http-cache")
+            val body = """{"versions": {${(1..200).joinToString { "\"1.0.$it\": {}" }}}}"""
+            repository.routes["/react"] = FakeRepository.Response(200, body, mapOf("ETag" to "W/\"v1\"", "Content-Encoding" to "gzip"))
+            assertEquals(body, http(directory).get("${repository.url}/react").text())
+            assertEquals(body, http(directory).get("${repository.url}/react").text())
+            assertEquals(listOf(200, 304), repository.statuses)
+        }
+    }
 }
 
 class HttpReasonTest {
