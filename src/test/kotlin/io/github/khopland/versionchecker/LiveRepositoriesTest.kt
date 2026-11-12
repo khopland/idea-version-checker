@@ -44,6 +44,7 @@ class LiveRepositoriesTest : BasePlatformTestCase() {
 
         val react = NpmLookup("react", Npmrc(emptyMap()).registry("react")).fetch()
         assertTrue("18.2.0" in react.versions)
+        assertEquals(java.time.Instant.parse("2022-06-14T00:00:00Z").toEpochMilli().toDouble(), react.publishedAt("18.2.0")!!.toDouble(), 86_400_000.0)
         val scoped = NpmLookup("@types/node", Npmrc(emptyMap()).registry("@types/node")).fetch()
         assertTrue("20.0.0" in scoped.versions)
 

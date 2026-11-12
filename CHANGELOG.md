@@ -5,6 +5,11 @@
 ### Added
 
 - Docker images: `FROM image:tag` in Dockerfiles and `image:` in Compose files, with tags from Docker Hub, ghcr.io, quay.io and other registries that list public images without a login. A tag keeps its shape and its variant, so `node:20-alpine` is offered `22-alpine`. An image with a digest is checked but not changed.
+- `package.json` can keep a version on purpose: list the package under `"versionChecker": {"keep": {…}}`, with the reason as the value. **Keep this version** in the Alt+Enter submenu of a fix adds the entry, and the list in a workspace root counts for every package. **Update This File**, **Update All Files** and the **Dependency Updates** tool window skip kept versions.
+
+### Changed
+
+- The minimum release age now applies to npm versions too, so a release that is a few hours old is not offered. Release times come from the full registry document, read only for a package that has an update.
 
 ## [2.4.0]
 

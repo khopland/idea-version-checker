@@ -98,7 +98,22 @@ A suppress comment in the build file keeps one version. It lives in the file, so
 | `pnpm-workspace.yaml`, workflows, Dockerfiles, Compose files, `.sdkmanrc`, `.tool-versions` | `#noinspection OutdatedDependencyVersion` on the line above. |
 
 To add the comment, press **Alt+Enter** on the warning, open the submenu of any fix with the right arrow, and pick **Suppress for tag**, **Suppress for statement** or **Suppress for line**. A comment where the version is set, on a Maven property or a catalog `[versions]` entry, keeps every declaration that uses it.
-Use `MovedDependency` the same way for moved packages, and `VulnerableDependency` for vulnerable versions. `package.json` cannot have comments, so there turn the inspection off for the file or project instead.
+Use `MovedDependency` the same way for moved packages, and `VulnerableDependency` for vulnerable versions.
+
+`package.json` cannot have comments, so it lists the versions to keep, with the reason as the value:
+
+```json
+"versionChecker": {
+  "keep": {
+    "react": "waiting for the new types",
+    "pnpm": ""
+  }
+}
+```
+
+The name is the package, also for an override, or the package manager for `packageManager`. A plain list of names works too.
+The list in the root `package.json` of a workspace counts for every package below it.
+To add the entry, press **Alt+Enter** on the warning, open the submenu of any fix with the right arrow, and pick **Keep this version**. The list keeps outdated versions only: a vulnerable version still shows.
 
 ## Vulnerabilities
 
@@ -148,7 +163,7 @@ Build scripts, `buildSrc` and included builds that import the catalog are search
 
 **Settings → Tools → Version Checker**:
 
-- **Minimum release age (hours)**: hide Maven, Gradle and wrapper versions published less recently than this, for example `24` to match a Nexus quarantine. It does not apply to npm: a Nexus quarantine already leaves held-back versions out of the npm metadata, while Maven metadata still lists them. The fix for a vulnerability follows it too. It does not apply to Docker images either: a registry does not say when a tag was published.
+- **Minimum release age (hours)**: hide Maven, Gradle, wrapper and npm versions published less recently than this, for example `24` to match a Nexus quarantine, or to wait until a hijacked release has been found and removed. The fix for a vulnerability follows it too. It does not apply to Docker images: a registry does not say when a tag was published.
 - **Check for known vulnerabilities**: off by default. See [Vulnerabilities](#vulnerabilities).
 - **Nexus IQ**, per project: the server, credentials and optional application for [Nexus IQ](docs/vulnerabilities.md#nexus-iq).
 
@@ -166,8 +181,9 @@ The plugin reads repository metadata over HTTP, using the IDE proxy settings. It
 
 When a repository fails for several versions in a file, for example without VPN, the file shows one warning that says how many versions were not checked.
 
-Release times for the minimum release age come from the POM's `Last-Modified` header (Maven and Gradle) and `services.gradle.org` (Gradle wrapper).
-A version without a known release time is hidden while the setting is above zero.
+Release times for the minimum release age come from the POM's `Last-Modified` header (Maven and Gradle), `services.gradle.org` (Gradle wrapper) and the full registry document (npm).
+The npm document can be several megabytes, so it is read only for a package that has an update, and only while the setting is above zero.
+A version without a known release time is hidden while the setting is above zero. An npm registry that gives no release times at all hides nothing.
 
 ## Development
 

@@ -4,6 +4,7 @@
                          enabledByDefault="true" level="WEAK WARNING"
                          implementationClass="io.github.khopland.versionchecker.npm.DuplicateDependencyInspection"/>
         <externalAnnotator language="JSON" implementationClass="io.github.khopland.versionchecker.core.TransitiveVulnerabilityAnnotator"/>
+        <lang.inspectionSuppressor language="JSON" implementationClass="io.github.khopland.versionchecker.npm.KeptVersionSuppressor"/>
     </extensions>
     <applicationListeners>
         <listener class="io.github.khopland.versionchecker.npm.LockfileListener" topic="com.intellij.openapi.vfs.newvfs.BulkFileListener"/>
