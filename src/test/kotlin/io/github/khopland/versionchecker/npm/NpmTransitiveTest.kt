@@ -761,16 +761,31 @@ class NpmTransitiveTest : BasePlatformTestCase() {
         assertEquals(listOf("web >  > qs@6.3.0"), transitive(myFixture.configureByText("package.json", """{"packageManager": "bun@1.2.0", "dependencies": {"web": "^1.0.0"}}""")))
     }
 
-    fun testNoOverrideFixForYarnOrBun() {
+    fun testYarnAndBunOverrideByName() {
         val yarn = yarnLock("6.0.0")
         myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
         assertEquals(1, warnings().size)
-        assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
+        intentions("\"web\"")
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs to ^6.2.4 in package.json"))
+        assertTrue(myFixture.editor.document.text, Regex("\"resolutions\": \\{\\s*\"qs\": \"\\^6.2.4\"").containsMatchIn(myFixture.editor.document.text))
+        assertTrue("The resolution is there already", intentions("\"web\"").none { it.startsWith("Override ") })
+
         WriteAction.runAndWait<Throwable> { yarn.delete(this) }
         bunLock("6.0.0")
         myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
+        intentions("\"web\"")
+        myFixture.launchAction(myFixture.findSingleIntention("Override qs to ^6.2.4 in package.json"))
+        assertTrue(myFixture.editor.document.text, Regex("\"overrides\": \\{\\s*\"qs\": \"\\^6.2.4\"").containsMatchIn(myFixture.editor.document.text))
+        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}, "resolutions": {"qs": "6.0.0"}}""")
+        assertTrue("Bun reads resolutions too", intentions("\"web\"").none { it.startsWith("Override ") })
+    }
+
+    fun testNoOverrideByNameWhileAnotherMajorIsInstalled() {
+        myFixture.addFileToProject("yarn.lock", "# yarn lockfile v1\n\nweb@^1.0.0:\n  version \"1.0.0\"\n  dependencies:\n    qs \"^6.0.0\"\n    old \"^1.0.0\"\n\n" +
+            "old@^1.0.0:\n  version \"1.0.0\"\n  dependencies:\n    qs \"^5.0.0\"\n\nqs@^6.0.0:\n  version \"6.0.0\"\n\nqs@^5.0.0:\n  version \"5.2.1\"\n")
+        myFixture.configureByText("package.json", """{"dependencies": {"web": "^1.0.0"}}""")
         assertEquals(1, warnings().size)
-        assertTrue(intentions("\"web\"").none { it.startsWith("Override ") })
+        assertTrue("A resolution would move qs 5 to 6", intentions("\"web\"").none { it.startsWith("Override ") })
     }
 
     fun testNothingIsSentWhenTheSettingIsOff() {

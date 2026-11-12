@@ -132,8 +132,10 @@ class NpmProvider : DeclarationProvider {
 
     /**
      * An override in the root of the workspace, scoped to the vulnerable version's major, so other copies keep theirs:
-     * npm `overrides`, or for pnpm see [pnpmOverridesInWorkspaceFile]. Not for Yarn or Bun, nor for a package that this file depends on directly,
-     * which npm refuses to override, nor for one that is already overridden where the package manager reads it.
+     * npm `overrides`, or for pnpm see [pnpmOverridesInWorkspaceFile]. Yarn `resolutions` and Bun `overrides` name a package
+     * but no range, so they move every copy, and get the fix only while all installed copies are in that major.
+     * Not for a package that this file depends on directly, which npm refuses to override, nor for one that is already
+     * overridden where the package manager reads it.
      */
     override fun pin(file: PsiFile, transitive: Transitive, version: String): PinFix? {
         val root = (file as? JsonFile)?.topLevelValue as? JsonObject ?: return null
@@ -144,9 +146,17 @@ class NpmProvider : DeclarationProvider {
         val keys = when (lock) {
             is PackageLock -> listOf("overrides")
             is PnpmLock -> listOf("pnpm", "overrides")
+            is YarnLock -> listOf("resolutions")
+            is BunLock -> listOf("overrides")
             else -> return null
         }
-        val key = NpmOverrides.key(name, transitive.pkg.version, version) ?: return null
+        val scoped = NpmOverrides.key(name, transitive.pkg.version, version) ?: return null
+        // The installed copies, for a package manager that overrides by name.
+        val copies = (lock as? YarnLock)?.versions(name) ?: (lock as? BunLock)?.versions(name)
+        if (copies != null && copies.any { NpmOverrides.key(name, it, version) == null }) return null
+        // Bun reads `resolutions` too.
+        if (lock is BunLock && !NpmOverrides.canAdd(root, listOf("resolutions"), name, name)) return null
+        val key = if (copies != null) name else scoped
         if (lock is PnpmLock) {
             val workspaceText = vfile.parent?.findChild(PnpmWorkspace.FILE_NAME)?.let { PnpmWorkspace.text(it) ?: return null }
             // pnpm reads overrides from one of the files, so only an override in the one the fix writes to counts.

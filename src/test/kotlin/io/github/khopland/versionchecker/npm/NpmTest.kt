@@ -200,6 +200,39 @@ class NpmTest : BasePlatformTestCase() {
         assertEquals(listOf("react", "@types/node", "react", "qs (override)"), PnpmWorkspaceProvider().collect(file).map { it.name })
     }
 
+    fun testUnusedPnpmCatalogEntries() {
+        myFixture.enableInspections(UnusedPnpmCatalogEntryInspection())
+        myFixture.addFileToProject("package.json", """{"name": "root", "devDependencies": {"typescript": "catalog:"}, "pnpm": {"overrides": {"parent>qs": "catalog:"}}}""")
+        myFixture.addFileToProject("packages/app/package.json", """{"dependencies": {"react": "catalog:react18", "lodash": "catalog:default", "left-pad": "^1.0.0"}}""")
+        myFixture.addFileToProject("node_modules/x/package.json", """{"dependencies": {"left-pad": "catalog:"}}""")
+        val file = myFixture.addFileToProject("pnpm-workspace.yaml", """
+            packages:
+              - packages/*
+            catalog:
+              typescript: ~5.4.5
+              lodash: 4.17.21
+              qs: 6.11.0
+              left-pad: 1.3.0   # nobody
+              react: ^19.0.0
+              "@scope/tool": 1.0.0
+            catalogs:
+              react18:
+                react: ^18.2.0
+                react-dom: ^18.2.0
+            overrides:
+              "@scope/tool": "catalog:"
+              semver: 7.5.2
+        """.trimIndent())
+        myFixture.configureFromExistingVirtualFile(file.virtualFile)
+        val unused = myFixture.doHighlighting().filter { it.description?.startsWith("No package uses") == true }
+        assertEquals(listOf("left-pad" to "No package uses left-pad", "react" to "No package uses react", "react-dom" to "No package uses react-dom from catalog react18"),
+            unused.map { myFixture.file.text.substring(it.startOffset, it.endOffset) to it.description })
+
+        myFixture.editor.caretModel.moveToOffset(myFixture.editor.document.text.indexOf("left-pad") + 1)
+        myFixture.launchAction(myFixture.findSingleIntention("Remove unused entry"))
+        assertTrue(myFixture.editor.document.text.contains("  qs: 6.11.0\n  react: ^19.0.0\n"))
+    }
+
     fun testDuplicateDependencies() {
         myFixture.enableInspections(DuplicateDependencyInspection())
         myFixture.configureByText("package.json", """

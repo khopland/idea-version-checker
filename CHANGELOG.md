@@ -6,6 +6,8 @@
 
 - Docker images: `FROM image:tag` in Dockerfiles and `image:` in Compose files, with tags from Docker Hub, ghcr.io, quay.io and other registries that list public images without a login. A tag keeps its shape and its variant, so `node:20-alpine` is offered `22-alpine`. An image with a digest is checked but not changed.
 - `package.json` can keep a version on purpose: list the package under `"versionChecker": {"keep": {…}}`, with the reason as the value. **Keep this version** in the Alt+Enter submenu of a fix adds the entry, and the list in a workspace root counts for every package. **Update This File**, **Update All Files** and the **Dependency Updates** tool window skip kept versions.
+- The fix that pins a vulnerable transitive package now works for Yarn (`resolutions`) and Bun (`overrides`) too, while every installed copy of the package is in the same major version.
+- **Unused pnpm catalog entry** inspection: a `catalog` or `catalogs` entry in `pnpm-workspace.yaml` that no package uses, with a fix that removes it.
 
 ### Changed
 
