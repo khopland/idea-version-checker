@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.5.0]
+
 ### Added
 
 - Docker images: `FROM image:tag` in Dockerfiles and `image:` in Compose files, with tags from Docker Hub, ghcr.io, quay.io and other registries that list public images without a login. A tag keeps its shape and its variant, so `node:20-alpine` is offered `22-alpine`. An image with a digest is checked but not changed.
