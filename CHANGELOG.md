@@ -8,10 +8,18 @@
 - `package.json` can keep a version on purpose: list the package under `"versionChecker": {"keep": {…}}`, with the reason as the value. **Keep this version** in the Alt+Enter submenu of a fix adds the entry, and the list in a workspace root counts for every package. **Update This File**, **Update All Files** and the **Dependency Updates** tool window skip kept versions.
 - The fix that pins a vulnerable transitive package now works for Yarn (`resolutions`) and Bun (`overrides`) too, while every installed copy of the package is in the same major version.
 - **Unused pnpm catalog entry** inspection: a `catalog` or `catalogs` entry in `pnpm-workspace.yaml` that no package uses, with a fix that removes it.
+- npm: an update in `package.json` says when it conflicts with what is installed beside it, in the warning and on the **Alt+Enter** fix, as in `Update to 19.0.0 (major, conflicts with react-dom)`:
+  - the new version needs a peer dependency the project does not have, as in `19.0.0 needs react ^19.0.0, not 18.2.0`,
+  - another dependency needs the old version as its peer, as in `9.0.0 breaks eslint-plugin-x 3.0.0, which needs ^8.0.0`, with the newer version of that dependency that accepts the update,
+  - the new version needs a newer Node.js than `.nvmrc`, `.node-version` or `.tool-versions` names, as in `6.0.0 needs Node.js >=20, not 18.19.0`.
+
+  **Update This File** and **Update All Files** list the conflicts that remain after the update. Packages updated together, such as `react` and `react-dom`, do not conflict.
 
 ### Changed
 
 - The minimum release age now applies to npm versions too, so a release that is a few hours old is not offered. Release times come from the full registry document, read only for a package that has an update.
+- Repository answers are downloaded compressed. The first check of a `package.json` downloads about a fifth of what it did, for example 18 MB instead of 87 MB for 40 common packages.
+- npm documents over 8 MB, such as those of `next` and `typescript`, are kept on disk like the others, so they are not downloaded again after a restart or every 30 minutes.
 
 ## [2.4.0]
 

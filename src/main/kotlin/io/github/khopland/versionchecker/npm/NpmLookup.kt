@@ -7,6 +7,7 @@ import com.google.gson.stream.JsonToken
 import io.github.khopland.versionchecker.core.Http
 import io.github.khopland.versionchecker.core.HttpFailure
 import io.github.khopland.versionchecker.core.Lookup
+import io.github.khopland.versionchecker.core.Needs
 import io.github.khopland.versionchecker.core.Releases
 import io.github.khopland.versionchecker.core.ReleaseNotes
 import kotlinx.coroutines.CancellationException
@@ -16,7 +17,7 @@ import java.io.Reader
 import java.time.Instant
 
 /**
- * Reads the small install document from the registry, which has versions and deprecations.
+ * Reads the small install document from the registry, which has versions, deprecations, peer dependencies and `engines`.
  * Release times are only in the full document, which can be megabytes. It is read once, and only when the minimum
  * release age asks about a version, so only for a package that has an update.
  */
@@ -103,7 +104,17 @@ internal class NpmLookup(val packageName: String, private val registry: NpmRegis
             }.toMap()
             // Semver prerelease versions have a hyphen after the version core.
             val stable = versions.keySet().filter { '-' !in it.substringBefore('+') }
-            return Releases(stable, deprecated, publishedAt = publishedAt)
+            // Most versions of a package need the same, so they share one instance.
+            val shared = hashMapOf<Pair<Map<String, String>, String?>, Needs>()
+            val needs = stable.mapNotNull { version ->
+                val manifest = versions.get(version).asJsonObject
+                val peers = manifest.get("peerDependencies")?.takeIf { it.isJsonObject }?.asJsonObject?.entrySet().orEmpty()
+                    .mapNotNull { (name, range) -> range.takeIf { it.isJsonPrimitive }?.asString?.let { name to it } }.toMap()
+                val node = manifest.get("engines")?.takeIf { it.isJsonObject }?.asJsonObject?.get("node")?.takeIf { it.isJsonPrimitive }?.asString
+                    ?.takeIf { it.isNotBlank() }
+                if (peers.isEmpty() && node == null) null else version to shared.getOrPut(peers to node) { Needs(peers, node) }
+            }.toMap()
+            return Releases(stable, deprecated, publishedAt = publishedAt, needs = needs)
         }
     }
 }

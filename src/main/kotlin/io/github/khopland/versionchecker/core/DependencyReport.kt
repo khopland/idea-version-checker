@@ -42,7 +42,7 @@ class DependencyReport(private val project: Project, private val scope: Coroutin
      * [source] follows later edits to the file, so it still finds the declaration before the next check.
      */
     class Row(val declaration: Declaration, val file: VirtualFile, val line: Int, val outcome: Outcome, val fixes: Map<UpdateKind, String>,
-              val source: OpenFileDescriptor, val vulnerable: Vulnerable? = null) {
+              val source: OpenFileDescriptor, val vulnerable: Vulnerable? = null, val conflicts: Map<String, List<Conflict>> = emptyMap()) {
         val updates get() = outcome as? Outcome.Updates
         val failure get() = (outcome as? Outcome.Failed)?.message
 
@@ -64,7 +64,7 @@ class DependencyReport(private val project: Project, private val scope: Coroutin
         /** The same text as the editor warnings, the vulnerability first. */
         val message: String get() = listOfNotNull(
             vulnerable?.let { VulnerabilityAnnotator.message(declaration, it) },
-            failure?.let { "Could not check ${declaration.name}: $it" } ?: VersionAnnotator.message(declaration, updates!!, fixes),
+            failure?.let { "Could not check ${declaration.name}: $it" } ?: VersionAnnotator.message(declaration, updates!!, fixes, conflicts),
         ).joinToString(". ")
     }
 
@@ -123,7 +123,8 @@ class DependencyReport(private val project: Project, private val scope: Coroutin
                 val line = FileDocumentManager.getInstance().getDocument(file)
                     ?.let { it.getLineNumber(declaration.range.startOffset.coerceIn(0, it.textLength)) + 1 } ?: 1
                 Row(declaration, file, line, outcome, checked.fixes[declaration].orEmpty().takeIf { declaration in outdated }.orEmpty(),
-                    OpenFileDescriptor(project, file, declaration.range.startOffset), vulnerable)
+                    OpenFileDescriptor(project, file, declaration.range.startOffset), vulnerable,
+                    if (declaration in outdated) Conflicts.offered(declaration, checked.outcomes) else emptyMap())
             }
         }.sortedWith(compareBy<Row>({ -(it.worst?.rank ?: -1) }, { it.failure != null }, { it.file.path }, { it.line }))
         return State(rows, checked.declarations.size, checked.scanned.toSet(), done = true, vulnerabilities = vulnerabilities,

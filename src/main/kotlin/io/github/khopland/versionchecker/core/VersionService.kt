@@ -42,7 +42,7 @@ class VersionService(private val scope: CoroutineScope) {
         declarations.associateWith { declaration ->
             async {
                 lookups.getValue(declaration.lookup.key).await().fold(
-                    onSuccess = { releases -> outcome(declaration.current, releases, cutoff) },
+                    onSuccess = { releases -> outcome(declaration.current, releases, cutoff, declaration.checked) },
                     onFailure = { error ->
                         if (error is CancellationException) throw error
                         LOG.info("Could not check ${declaration.name}", error)
@@ -77,9 +77,12 @@ class VersionService(private val scope: CoroutineScope) {
             return releases.allPublishedBefore?.let { it <= cutoff } == true || releases.publishedAt(version)?.let { it <= cutoff } == true
         }
 
-        suspend fun outcome(current: String, releases: Releases, minimumAgeCutoff: Long?): Outcome.Updates {
+        /** [checked] is the version a lockfile installs, when it is not [current]. */
+        suspend fun outcome(current: String, releases: Releases, minimumAgeCutoff: Long?, checked: String = current): Outcome.Updates {
             val targets = Targets.pick(current, releases.versions) { oldEnough(releases, minimumAgeCutoff, it) }
-            return Outcome.Updates(targets, releases.deprecated[current], releases.moved)
+            val needs = if (releases.needs.isEmpty()) emptyMap() else
+                (UpdateKind.entries.mapNotNull { targets[it] } + checked).mapNotNull { version -> releases.needs[version]?.let { version to it } }.toMap()
+            return Outcome.Updates(targets, releases.deprecated[current], releases.moved, needs)
         }
 
         /**

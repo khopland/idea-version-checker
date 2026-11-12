@@ -60,20 +60,26 @@ class Updater(private val project: Project, private val scope: CoroutineScope) {
             Edits.apply(project, changes.map { it.second }, "Update ${mode.label} versions").toSet()
         }
         val failed = checked.declarations.associateWith { checked.outcomes.getValue(it) }.filterValues { it is Outcome.Failed }
-        notify(changes.filter { it.second in applied }.map { it.first }, checked.fixes, mode, failed)
+        val updated = changes.filter { it.second in applied }.map { it.first }
+        // Against the versions the others have now, so packages that were updated together do not conflict.
+        val written = updated.associateWith { checked.fixes.getValue(it).getValue(mode) }
+        val conflicts = updated.flatMap { Conflicts.of(it, written.getValue(it), checked.outcomes) { other -> written[other] ?: other.checked } }
+            .map { it.text }.distinct()
+        notify(updated, checked.fixes, mode, failed, conflicts)
     }
 
     private fun notify(updated: List<Declaration>, fixes: Map<Declaration, Map<UpdateKind, String>>, mode: UpdateKind,
-                       failed: Map<Declaration, Outcome>) {
+                       failed: Map<Declaration, Outcome>, conflicts: List<String>) {
         val title = if (updated.isEmpty()) "No ${mode.label} updates" else
             "Updated ${StringUtil.pluralize("version", updated.size).let { "${updated.size} $it" }} in " +
                 updated.map { it.edit!!.file }.distinct().size.let { "$it ${StringUtil.pluralize("file", it)}" }
         val lines = updated.take(LIST_LIMIT).map { "${it.name} ${it.current} → ${fixes[it]?.get(mode)}" } +
             listOfNotNull("…and ${updated.size - LIST_LIMIT} more".takeIf { updated.size > LIST_LIMIT }) +
+            conflicts.take(LIST_LIMIT).map { "Conflict: $it" } +
             failed.entries.take(LIST_LIMIT).map { (declaration, outcome) -> "Could not check ${declaration.name}: ${(outcome as Outcome.Failed).message}" }
         NotificationGroupManager.getInstance().getNotificationGroup("Version Checker")
             .createNotification(title, lines.joinToString("<br>") { StringUtil.escapeXmlEntities(it) },
-                if (failed.isEmpty()) NotificationType.INFORMATION else NotificationType.WARNING)
+                if (failed.isEmpty() && conflicts.isEmpty()) NotificationType.INFORMATION else NotificationType.WARNING)
             .notify(project)
     }
 

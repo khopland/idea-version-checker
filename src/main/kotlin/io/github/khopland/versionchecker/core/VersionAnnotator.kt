@@ -72,10 +72,11 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
         }
         for (declaration in checked) {
             val outcome = outcomes[declaration] as? Outcome.Updates ?: continue
-            val message = message(declaration, outcome, fixes[declaration].orEmpty()) ?: continue
+            val conflicts = Conflicts.offered(declaration, outcomes)
+            val message = message(declaration, outcome, fixes[declaration].orEmpty(), conflicts) ?: continue
             val newest = outcome.targets.major
             outdated.annotate(holder, outdated.level.severity, message, declaration.range,
-                VulnerabilityAnnotator.updateFixes(declaration, fixes[declaration].orEmpty().values, result.vulnerabilities) + UpdateFileFix() +
+                VulnerabilityAnnotator.updateFixes(declaration, fixes[declaration].orEmpty().values, result.vulnerabilities, conflicts) + UpdateFileFix() +
                     listOfNotNull(if (declaration.lookup.hasReleaseNotes && newest != null) OpenReleaseNotesFix(declaration.name, declaration.lookup, newest) else null))
         }
     }
@@ -86,7 +87,11 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
         fun movedMessage(declaration: Declaration, moved: Moved): String =
             "${declaration.name} has moved to ${moved.to}" + (moved.newest?.let { " (newest $it)" } ?: "") + (moved.message?.let { ": $it" } ?: "")
 
-        fun message(declaration: Declaration, outcome: Outcome.Updates, fixes: Map<UpdateKind, String>): String? {
+        private const val LISTED = 3
+
+        /** [conflicts] are those of the offered versions, from [Conflicts.offered]. */
+        fun message(declaration: Declaration, outcome: Outcome.Updates, fixes: Map<UpdateKind, String>,
+                    conflicts: Map<String, List<Conflict>> = emptyMap()): String? {
             val versions = UpdateKind.entries.mapNotNull { outcome.targets[it] }.distinct()
             val deprecated = outcome.deprecated?.let { "${declaration.current} is deprecated: $it" }
             if (versions.isEmpty()) return deprecated?.let { "${declaration.name} $it" }
@@ -96,7 +101,11 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
                 fixes.isEmpty() -> "the version is shared, and its users need different versions"
                 else -> null
             }
-            return listOfNotNull("${declaration.name} ${declaration.current} → $updates", deprecated, reason).joinToString(". ")
+            val conflicting = conflicts.flatMap { (version, found) ->
+                found.take(LISTED).map { it.text(declaration, version) } +
+                    listOfNotNull("$version has ${found.size - LISTED} more conflicts".takeIf { found.size > LISTED })
+            }
+            return (listOfNotNull("${declaration.name} ${declaration.current} → $updates", deprecated, reason) + conflicting).joinToString(". ")
         }
     }
 }
