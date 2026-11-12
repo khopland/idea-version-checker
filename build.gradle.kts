@@ -39,6 +39,7 @@ dependencies {
         bundledPlugin("org.jetbrains.idea.maven")
         bundledPlugin("com.intellij.modules.json")
         bundledPlugin("org.jetbrains.plugins.yaml")
+        bundledPlugin("Docker")
     }
 }
 

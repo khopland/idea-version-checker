@@ -6,5 +6,6 @@
     <extensions defaultExtensionNs="io.github.khopland.version-checker">
         <declarationProvider implementation="io.github.khopland.versionchecker.npm.PnpmWorkspaceProvider"/>
         <declarationProvider implementation="io.github.khopland.versionchecker.actions.GitHubActionsProvider"/>
+        <declarationProvider implementation="io.github.khopland.versionchecker.docker.ComposeProvider"/>
     </extensions>
 </idea-plugin>

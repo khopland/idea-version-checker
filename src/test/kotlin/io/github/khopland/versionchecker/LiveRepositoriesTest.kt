@@ -59,6 +59,13 @@ class LiveRepositoriesTest : BasePlatformTestCase() {
         assertTrue(java.versions.toString(), java.versions.any { it.endsWith("-tem") })
         val checkout = io.github.khopland.versionchecker.actions.GitHubTags("actions", "checkout", "v3").fetch()
         assertTrue(checkout.versions.toString(), "v4" in checkout.versions && "v4.1.0" !in checkout.versions)
+        // Docker Hub and ghcr.io give an anonymous token; mcr.microsoft.com needs none.
+        val image = { reference: String -> io.github.khopland.versionchecker.docker.RegistryTags(io.github.khopland.versionchecker.docker.Image.parse(reference)!!) }
+        val nodeImage = image("node:20-alpine").fetch()
+        assertTrue(nodeImage.versions.size.toString(), "22-alpine" in nodeImage.versions && "22.11.0-alpine" !in nodeImage.versions)
+        assertTrue("0.5.0" in image("ghcr.io/astral-sh/uv:0.4.0").fetch().versions)
+        assertTrue("9.0" in image("mcr.microsoft.com/dotnet/sdk:8.0").fetch().versions)
+        assertTrue("26.0" in image("quay.io/keycloak/keycloak:25.0").fetch().versions)
 
         assertEquals("https://github.com/junit-team/junit4/releases",
             MavenLookup("junit", "junit", listOf(MavenRepo.CENTRAL)).releaseNotes("4.13.2"))
