@@ -37,16 +37,75 @@ class NpmTest : BasePlatformTestCase() {
         assertEquals(Npmrc.DEFAULT, Npmrc.forDirectory(Files.createTempDirectory("empty"), env = emptyMap(), home = Files.createTempDirectory("h").toString()).registry("react").url)
     }
 
-    fun testRegistryDocumentIgnoresTheMinimumReleaseAge() = runBlocking {
+    fun testRegistryDocument() = runBlocking {
         val document = JsonParser.parseString("""
             {"versions": {"1.0.0": {}, "1.0.1": {"deprecated": "Security issue"}, "1.1.0": {}, "2.0.0-rc.1": {}, "2.0.0": {}}}
         """).asJsonObject
         val releases = NpmLookup.parse(document)
         assertEquals(listOf("1.0.0", "1.0.1", "1.1.0", "2.0.0"), releases.versions)
-        // The registry quarantine already removed held-back versions, so a cutoff does not hide anything.
-        val cutoff = System.currentTimeMillis()
-        assertEquals(Targets("1.0.1", "1.1.0", "2.0.0"), VersionService.outcome("1.0.0", releases, cutoff).targets)
+        assertEquals(Targets("1.0.1", "1.1.0", "2.0.0"), VersionService.outcome("1.0.0", releases, null).targets)
         assertEquals("Security issue", VersionService.outcome("1.0.1", releases, null).deprecated)
+    }
+
+    fun testMinimumReleaseAgeReadsTheFullDocumentOnceAndOnlyForAnUpdate() = runBlocking {
+        FakeRepository().use { repository ->
+            val day = java.util.concurrent.TimeUnit.DAYS.toMillis(1)
+            val now = System.currentTimeMillis()
+            fun date(age: Long) = java.time.Instant.ofEpochMilli(now - age).toString()
+            // One route answers both requests: the lookup reads `versions`, and the release times read `time`.
+            repository.routes["/lib"] = FakeRepository.Response(200, """
+                {"name": "lib", "versions": {"1.0.0": {"dist": {}}, "1.0.1": {}, "1.1.0": {}, "2.0.0": {}},
+                 "time": {"created": "${date(90 * day)}", "modified": "${date(0)}", "1.0.0": "${date(90 * day)}", "1.0.1": "${date(30 * day)}",
+                          "1.1.0": "${date(3 * day)}", "2.0.0": "${date(day / 2)}", "unpublished": {"time": "x"}},
+                 "readme": "…"}""")
+            repository.routes["/plain"] = FakeRepository.Response(200, """{"versions": {"1.0.0": {}, "2.0.0": {}}}""")
+            val registry = NpmRegistry(repository.url + "/", emptyMap())
+            val releases = NpmLookup("lib", registry, http = { repository.http }).fetch()
+            assertEquals(Targets("1.0.1", "1.1.0", "2.0.0"), VersionService.outcome("1.0.0", releases, null).targets)
+            assertEquals(Targets(null, null, null), VersionService.outcome("2.0.0", releases, now - day).targets)
+            assertEquals("No update and no cutoff need no release times", listOf("GET /lib"), repository.requests)
+            assertEquals(Targets("1.0.1", "1.1.0", "1.1.0"), VersionService.outcome("1.0.0", releases, now - day).targets)
+            assertEquals(Targets("1.0.1", "1.0.1", "1.0.1"), VersionService.outcome("1.0.0", releases, now - 7 * day).targets)
+            assertEquals(listOf("GET /lib", "GET /lib"), repository.requests)
+
+            // A registry without release times cannot hold a version back, and one that fails hides the update.
+            val plain = NpmLookup("plain", registry, http = { repository.http }).fetch()
+            assertEquals(Targets(null, null, "2.0.0"), VersionService.outcome("1.0.0", plain, now - day).targets)
+            val failing = NpmLookup("lib", registry, http = { repository.http }).fetch()
+            repository.routes["/lib"] = FakeRepository.Response(500)
+            assertEquals(Targets(null, null, null), VersionService.outcome("1.0.0", failing, now - day).targets)
+        }
+    }
+
+    fun testKeepListKeepsAVersion() {
+        myFixture.enableInspections(io.github.khopland.versionchecker.core.OutdatedVersionInspection())
+        val service = VersionService.getInstance()
+        val previous = service.fetch
+        service.fetch = { io.github.khopland.versionchecker.core.Releases(listOf("1.0.0", "2.0.0", "9.0.0", "10.0.0")) }
+        service.clear()
+        try {
+            myFixture.addFileToProject("package.json", """{"name": "root", "versionChecker": {"keep": ["lodash"]}}""")
+            myFixture.addFileToProject("packages/app/package.json", """
+                {
+                  "name": "app",
+                  "packageManager": "pnpm@9.0.0",
+                  "dependencies": {"react": "^1.0.0", "lodash": "1.0.0", "left-pad": "1.0.0"},
+                  "overrides": {"parent>qs": "1.0.0"},
+                  "versionChecker": {"keep": {"react": "waiting for the new types", "qs": "", "pnpm": ""}}
+                }
+            """.trimIndent())
+            myFixture.configureFromTempProjectFile("packages/app/package.json")
+            fun outdated() = myFixture.doHighlighting().filter { it.severity == com.intellij.lang.annotation.HighlightSeverity.WARNING }.mapNotNull { it.description }
+            assertEquals(listOf("left-pad 1.0.0 → 10.0.0 (major)"), outdated())
+
+            myFixture.editor.caretModel.moveToOffset(myFixture.editor.document.text.indexOf("\"left-pad\": \"1.0.0") + 13)
+            myFixture.launchAction(myFixture.availableIntentions.first { it.text == "Keep this version" })
+            assertTrue(myFixture.editor.document.text, Regex("\"pnpm\": \"\",\\s*\"left-pad\": \"\"").containsMatchIn(myFixture.editor.document.text))
+            assertEquals(emptyList<String>(), outdated())
+        } finally {
+            service.fetch = previous
+            service.clear()
+        }
     }
 
     fun testLookupUsesScopedUrlHeadersAndTreatsMissingPackagesAsEmpty() = runBlocking {

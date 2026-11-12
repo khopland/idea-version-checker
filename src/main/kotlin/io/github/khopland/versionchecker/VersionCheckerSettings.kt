@@ -39,7 +39,7 @@ class VersionCheckerConfigurable : BoundConfigurable("Version Checker") {
         row("Minimum release age:") {
             intTextField(0..100_000).columns(6).bindIntText(state::minReleaseAgeHours)
             label("hours")
-        }.rowComment("Hide Maven, Gradle and wrapper versions published less than this long ago, for example to match a Nexus quarantine. npm is not affected: the registry already hides quarantined versions. 0 shows the newest version.")
+        }.rowComment("Hide Maven, Gradle, wrapper and npm versions published less than this long ago, for example to match a Nexus quarantine, or to wait until a hijacked release has been found and removed. 0 shows the newest version.")
         row { checkBox("Check for known vulnerabilities (sends dependency names and versions to osv.dev)").bindSelected(state::checkVulnerabilities) }
             .rowComment("Declared Maven, Gradle and npm dependencies, and in Maven, npm, pnpm, Yarn and Bun projects the packages they bring in, as the last Maven import or the lockfile resolved them. A project with a Nexus IQ server under <b>Nexus IQ</b> sends them there instead.")
     }
