@@ -71,7 +71,10 @@ class MavenProvider : DeclarationProvider {
         return MavenProjectsManager.getInstance(file.project).projects.asSequence()
             .map { it.file }.filter { it != self && it.isValid }
             .mapNotNull { psi.findFile(it) as? XmlFile }
-            .flatMap { collect(it, environment) }
+            .flatMap {
+                ProgressManager.checkCanceled()
+                collect(it, environment)
+            }
             .filter { it.edit?.key in shared }
             .toList()
     }

@@ -1,5 +1,6 @@
 package io.github.khopland.versionchecker.gradle
 
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFile
@@ -33,7 +34,7 @@ class GradleProvider internal constructor(private val newEnvironment: () -> Grad
     private fun environment(): GradleEnvironment = current?.takeIf { it.isCurrent() } ?: newEnvironment().also { current = it }
 
     private class Collected(val stamp: Stamp, val declarations: List<Declaration>) {
-        /** The file's text, and what its [GradleContext] was made from. */
+        /** The file's text, and what its [GradleContext] gives it. */
         data class Stamp(val text: Long, val context: Any?)
     }
 
@@ -66,7 +67,10 @@ class GradleProvider internal constructor(private val newEnvironment: () -> Grad
         val environment = environment()
         return CatalogSources.scripts(root)
             .filter { it != self && it.isValid }
-            .flatMap { collect(it, environment) }
+            .flatMap {
+                ProgressManager.checkCanceled()
+                collect(it, environment)
+            }
             .filter { it.edit?.key in shared }
     }
 

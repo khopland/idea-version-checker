@@ -13,7 +13,7 @@ import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 
 /** A version that a script names instead of writing it, and where it is set. */
-internal class GradleVariable(val name: String, val value: String, val file: VirtualFile, val range: TextRange)
+internal data class GradleVariable(val name: String, val value: String, val file: VirtualFile, val range: TextRange)
 
 /**
  * What one build file needs from the rest of its build. A null repository list means none is declared, so libraries
@@ -26,7 +26,7 @@ internal class GradleContext(
     val buildscript: List<MavenRepo>? = null,
     /** A variable the script does not set itself: an extra property of the root project, or a Gradle property. */
     val variable: (String) -> GradleVariable? = { null },
-    /** Equal for two contexts that were made from the same build and property files, so what was collected with one fits the other. */
+    /** Equal for two contexts that give a script the same repositories and variables, so what was collected with one fits the other. */
     val stamp: Any? = null,
 )
 
@@ -165,8 +165,13 @@ internal object GradleBuildFiles {
     /** The files a [Build] parses, so an edit to one of them, or another file taking its place, discards the build. */
     private data class BuildStamp(val settings: FileStamp?, val root: FileStamp?, val properties: FileStamp?)
 
-    /** What a [GradleContext] was made from: the build, and the `gradle.properties` files between the script and the root. */
-    private data class ContextStamp(val build: Build, val properties: List<FileStamp>)
+    /**
+     * What a [GradleContext] gives a script: the repositories, the root project's extra properties, and the
+     * `gradle.properties` files between the script and the root. By value, so an edit to the root script that changes
+     * none of them, as most do, leaves what the other scripts collected alone.
+     */
+    private data class ContextStamp(val libraries: List<MavenRepo>?, val plugins: List<MavenRepo>?, val buildscript: List<MavenRepo>?,
+                                    val rootExtras: Map<String, GradleVariable>, val properties: List<FileStamp>)
 
     private class CachedBuild(val environment: GradleEnvironment, val stamp: BuildStamp, val build: Build)
 
@@ -212,12 +217,9 @@ internal object GradleBuildFiles {
         val rootExtras = if (isRoot || isSettings) emptyMap() else build.rootExtras
         val propertyFiles = build.propertyFiles(file.parent)
         val properties = propertyFiles.map(::properties)
-        return GradleContext(
-            libraries.distinctBy { it.base }.ifEmpty { null },
-            build.plugins(settings).ifEmpty { null },
-            self[RepoScope.BUILDSCRIPT].distinctBy { it.base }.ifEmpty { null },
-            { name -> rootExtras[name] ?: properties.firstNotNullOfOrNull { it[name] } },
-            ContextStamp(build, propertyFiles.map(::FileStamp)))
+        val stamp = ContextStamp(libraries.distinctBy { it.base }.ifEmpty { null }, build.plugins(settings).ifEmpty { null },
+            self[RepoScope.BUILDSCRIPT].distinctBy { it.base }.ifEmpty { null }, rootExtras, propertyFiles.map(::FileStamp))
+        return GradleContext(stamp.libraries, stamp.plugins, stamp.buildscript, { name -> rootExtras[name] ?: properties.firstNotNullOfOrNull { it[name] } }, stamp)
     }
 
     fun forCatalog(file: VirtualFile, environment: GradleEnvironment): GradleContext {
@@ -226,8 +228,8 @@ internal object GradleBuildFiles {
         val project = build.rootRepos[RepoScope.PROJECT, RepoScope.SHARED] + build.init[RepoScope.PROJECT, RepoScope.SHARED]
         // The catalog serves every project, so the repositories for the whole build come first.
         val libraries = settingsRepos.ifEmpty { project }
-        return GradleContext(libraries.distinctBy { it.base }.ifEmpty { null }, build.plugins(build.settings).ifEmpty { null },
-            stamp = ContextStamp(build, emptyList()))
+        val stamp = ContextStamp(libraries.distinctBy { it.base }.ifEmpty { null }, build.plugins(build.settings).ifEmpty { null }, null, emptyMap(), emptyList())
+        return GradleContext(stamp.libraries, stamp.plugins, stamp = stamp)
     }
 
     /**

@@ -197,6 +197,31 @@ class GradleBuildTest : BasePlatformTestCase() {
         assertEquals(listOf("2.0"), provider.collect(script).map { it.current })
     }
 
+    fun testARootScriptEditOnlyCountsWhenItChangesWhatTheModulesGet() {
+        myFixture.addFileToProject("settings.gradle.kts", "include(\"app\")")
+        val root = myFixture.addFileToProject("build.gradle.kts", """
+            extra["libVersion"] = "1.0"
+            dependencies { implementation("com.example:root:3.0") }
+        """.trimIndent())
+        val script = myFixture.addFileToProject("app/build.gradle.kts", """dependencies { implementation("com.example:lib:${'$'}libVersion") }""")
+
+        val first = provider.collect(script)
+        assertEquals(listOf("1.0"), first.map { it.current })
+        // Typing in the root script below the property changes nothing the module reads.
+        myFixture.saveText(root.virtualFile, root.text.replace("root:3.0", "root:3.1"))
+        assertSame(first, provider.collect(script))
+
+        // A line above moves the property, and the module's fix writes there.
+        myFixture.saveText(root.virtualFile, "// moved\n" + root.text)
+        val moved = provider.collect(script)
+        assertEquals(first.single().edit!!.range.shiftRight("// moved\n".length), moved.single().edit!!.range)
+
+        myFixture.saveText(root.virtualFile, root.text.replace("\"1.0\"", "\"2.0\"") + "\nallprojects { repositories { maven { url = uri(\"https://all.example.com\") } } }")
+        val changed = provider.collect(script)
+        assertEquals(listOf("2.0"), changed.map { it.current })
+        assertEquals(listOf("https://all.example.com"), repos(changed.single()).map { it.base })
+    }
+
     fun testEditingRootPropertiesRebuildsTheRepositories() {
         myFixture.addFileToProject("settings.gradle.kts", """
             dependencyResolutionManagement { repositories { maven { url = uri(property("repoUrl")) } } }
