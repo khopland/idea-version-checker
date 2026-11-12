@@ -1,8 +1,13 @@
 package io.github.khopland.versionchecker.core
 
 import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import io.github.khopland.versionchecker.VersionCheckerSettings
+import io.github.khopland.versionchecker.vuln.NexusIqSettings
 import kotlinx.coroutines.CompletableDeferred
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -87,6 +92,80 @@ class AnnotatorTest : BasePlatformTestCase() {
             service.patience = null
             service.fetch = fetch
             gate.complete(Unit)
+        }
+    }
+
+    /** Counts what the annotators ask the provider for, to see that they share it. */
+    private class CountingProvider : DeclarationProvider {
+        private val delegate = FakeProvider()
+        var collected = 0
+        var related = 0
+        var applications = 0
+        var transitive = 0
+
+        override val fileNames = listOf("counted.xml")
+        override fun accepts(file: PsiFile) = file.name == "counted.xml"
+        override fun collect(file: PsiFile): List<Declaration> {
+            collected++
+            return delegate.collect(file)
+        }
+
+        override fun related(file: PsiFile, declarations: List<Declaration>): List<Declaration> {
+            related++
+            return emptyList()
+        }
+
+        override fun transitive(file: PsiFile): List<Transitive> {
+            transitive++
+            return emptyList()
+        }
+
+        override fun application(file: PsiFile): ApplicationHint {
+            applications++
+            return ApplicationHint(declared = "app")
+        }
+
+        var outside = 0
+        override fun stamp(file: PsiFile): Any = outside
+    }
+
+    fun testAnnotatorsShareOneSnapshot() {
+        val provider = CountingProvider()
+        DeclarationProvider.EP.point.registerExtension(provider, testRootDisposable)
+        myFixture.enableInspections(OutdatedVersionInspection(), VulnerableDependencyInspection())
+        VersionCheckerSettings.getInstance().state.checkVulnerabilities = true
+        NexusIqSettings.getInstance(project).state.serverUrl = "https://nexus.example"
+        try {
+            val file = myFixture.configureByText("counted.xml", """<libs><lib name="a" version="1.0.0"/></libs>""")
+            VersionAnnotator().collectInformation(file)
+            VulnerabilityAnnotator().collectInformation(file)
+            TransitiveVulnerabilityAnnotator().collectInformation(file)
+            // The three annotators are separate, but they read one collection, one related scan and one application.
+            assertEquals(1, provider.collected)
+            assertEquals(1, provider.related)
+            assertEquals(1, provider.applications)
+            assertEquals(1, provider.transitive)
+
+            WriteCommandAction.runWriteCommandAction(project) {
+                myFixture.editor.document.insertString(0, " ")
+                PsiDocumentManager.getInstance(project).commitAllDocuments()
+            }
+            VersionAnnotator().collectInformation(file)
+            assertEquals(2, provider.collected)
+
+            // Something the provider reads outside the IDE's files, such as the user's settings file.
+            provider.outside++
+            VersionAnnotator().collectInformation(file)
+            assertEquals(3, provider.collected)
+
+            // The server is a setting, so the application follows it without a new collection.
+            assertNotNull(VulnerabilityAnnotator().collectInformation(file)!!.application)
+            NexusIqSettings.getInstance(project).state.serverUrl = null
+            assertNull(VulnerabilityAnnotator().collectInformation(file)!!.application)
+            assertEquals(3, provider.collected)
+        } finally {
+            VersionCheckerSettings.getInstance().state.checkVulnerabilities = false
+            NexusIqSettings.getInstance(project).state.serverUrl = null
         }
     }
 

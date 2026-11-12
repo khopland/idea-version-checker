@@ -36,6 +36,9 @@ class NpmProvider : DeclarationProvider {
 
     override fun accepts(file: PsiFile) = file is JsonFile && file.name == "package.json" && "/node_modules/" !in file.virtualFile?.path.orEmpty()
 
+    /** The registry settings, which also come from the user's `.npmrc` or `.yarnrc.yml`. */
+    override fun stamp(file: PsiFile): Any? = file.virtualFile?.let(NpmPackages::registries)
+
     /**
      * The Nexus IQ application named after this package or a package.json above it in the project, nearest first, such
      * as the root of a workspace. A scoped name is also tried without its scope.
