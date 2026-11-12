@@ -26,6 +26,9 @@ internal class BunLock(private val workspaces: Map<String, String>, private val 
 
     override fun dependencies(node: Lockfile.Node) = packages[node.id]?.dependencies.orEmpty().mapNotNull { name -> resolve(node.id, name)?.let(::node) }
 
+    /** Every version of [name] the lockfile installs. */
+    fun versions(name: String) = packages.keys.mapNotNullTo(HashSet()) { path -> node(path)?.takeIf { it.name == name }?.version }
+
     /** Links, folders, git, tarballs and workspaces have no registry version, so they are no [Lockfile.Node]. */
     private fun node(path: String): Lockfile.Node? {
         val (name, version) = PnpmLock.split(packages[path]?.reference ?: return null) ?: return null

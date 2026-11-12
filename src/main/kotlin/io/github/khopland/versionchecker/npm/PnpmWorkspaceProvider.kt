@@ -35,8 +35,12 @@ class PnpmWorkspaceProvider : DeclarationProvider {
 }
 
 internal object PnpmWorkspace {
-    /** One `key: value` line. [section] is `catalog`, `overrides` or the catalog name under `catalogs`. [range] excludes quotes. */
-    class Entry(val section: String, val key: String, val value: String, val range: TextRange)
+    /**
+     * One `key: value` line. [section] is `catalog`, `overrides` or the catalog name under `catalogs`. [range] excludes quotes.
+     * [catalog] is the name packages use for the entry's catalog, `default` for `catalog`, or null for an override.
+     * [keyRange] is the key without quotes, and [line] the whole line with its line break.
+     */
+    class Entry(val section: String, val key: String, val value: String, val range: TextRange, val catalog: String?, val keyRange: TextRange, val line: TextRange)
 
     private val line = Regex("""^( *)(?:"([^"]+)"|'([^']+)'|([^\s:#'"][^:#]*?))\s*:(?:\s+(?:"([^"]*)"|'([^']*)'|([^\s#'"][^#]*?)))?\s*(?:#.*)?$""")
 
@@ -81,6 +85,25 @@ internal object PnpmWorkspace {
         return lines.joinToString("\n")
     }
 
+    private val catalogUse = Regex(""""([^"\\]+)"\s*:\s*"catalog:([^"]*)"""")
+
+    /** The `package: catalog` pairs that a package.json [text] takes from a catalog, as `"react": "catalog:"` or `"catalog:name"`. */
+    fun catalogUses(text: CharSequence): Set<Pair<String, String>> = catalogUse.findAll(text).mapNotNullTo(HashSet()) { match ->
+        NpmPackages.target(match.groupValues[1])?.let { it to match.groupValues[2].ifEmpty { "default" } }
+    }
+
+    /**
+     * The catalog entries that no package in [packages], the text of each package.json in the workspace, takes its version
+     * from, and no override in the file itself.
+     */
+    fun unusedCatalogEntries(text: String, packages: Collection<CharSequence>): List<Entry> {
+        val entries = entries(text)
+        val used = packages.flatMapTo(HashSet()) { catalogUses(it) }
+        entries.filter { it.catalog == null && it.value.startsWith("catalog:") }
+            .forEach { override -> NpmPackages.target(override.key)?.let { used += it to override.value.removePrefix("catalog:").ifEmpty { "default" } } }
+        return entries.filter { it.catalog != null && (it.key to it.catalog) !in used }
+    }
+
     fun entries(text: String): List<Entry> {
         val result = mutableListOf<Entry>()
         // The keys that enclose the current line, with their indentation.
@@ -102,7 +125,11 @@ internal object PnpmWorkspace {
                         path.size == 2 && path[0] == "catalogs" -> path[1]
                         else -> null
                     }
-                    if (section != null) result += Entry(section, key, value.value, TextRange(offset + value.range.first, offset + value.range.last + 1))
+                    val keyGroup = (2..4).firstNotNullOf { match.groups[it] }
+                    val keyStart = offset + keyGroup.range.first
+                    if (section != null) result += Entry(section, key, value.value, TextRange(offset + value.range.first, offset + value.range.last + 1),
+                        if (path == listOf("overrides")) null else if (path.size == 1) "default" else section,
+                        TextRange.from(keyStart, key.length), TextRange(offset, minOf(offset + raw.length + 1, text.length)))
                 }
             }
             offset += raw.length + 1
