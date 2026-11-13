@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.5.1]
+
 ### Changed
 
 - npm: the packages a `package.json` brings in are read from the lockfile once per change of either file, instead of on every highlighting pass, and a package that many dependencies share is resolved once.
