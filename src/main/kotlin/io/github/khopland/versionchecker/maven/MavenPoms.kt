@@ -1,11 +1,14 @@
 package io.github.khopland.versionchecker.maven
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiManager
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
+import io.github.khopland.versionchecker.core.FileStamps
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.project.MavenProject
 import org.jetbrains.idea.maven.project.MavenProjectsManager
@@ -21,6 +24,21 @@ internal data class PropertyValue(val file: XmlFile, val tag: XmlTag, val name: 
 internal object MavenPoms {
     private val placeholder = Regex("""\$\{([^}]+)}""")
     private val propertyReference = Regex("""^\$\{([^}]+)}$""")
+
+    /**
+     * [stamps] are the PSI stamps of the chain's files, and [imported] is the state of Maven's projects it was resolved
+     * with. [files] counts the files the IDE knows: a chain that ends at a parent that was not found is resolved again
+     * when a file appears, since it can be that parent in the local repository.
+     */
+    private class CachedChain(val imported: Long, val stamps: List<Long>, val files: Long, val chain: PomChain)
+
+    private val CHAIN = Key.create<CachedChain>("version-checker.maven-chain")
+
+    /** Changes when Maven imports, removes or resolves a project, which can change a POM's parents, and when the user asks to check again. */
+    fun imported(manager: MavenProjectsManager): Long = manager.modificationTracker.modificationCount + FileStamps.epoch()
+
+    /** The PSI stamps of the POM and its parents. An edit to any of them can change what the POM inherits. */
+    fun stamps(chain: PomChain): List<Long> = chain.all.map { it.modificationStamp }
 
     fun child(tag: XmlTag?, vararg path: String): XmlTag? = path.fold(tag) { current, name -> current?.findFirstSubTag(name) }
 
@@ -61,8 +79,18 @@ internal object MavenPoms {
 
     fun profiles(root: XmlTag): List<XmlTag> = children(root, "profiles", "profile")
 
+    /** [file]'s parents, resolved once while the POM, the parents found and Maven's projects stay the same. */
     fun chain(project: Project, file: XmlFile): PomChain {
         val manager = MavenProjectsManager.getInstance(project)
+        val imported = imported(manager)
+        val files = VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS.modificationCount
+        file.getUserData(CHAIN)?.takeIf {
+            it.imported == imported && (it.chain.complete || it.files == files) && it.chain.ancestors.all(XmlFile::isValid) && it.stamps == stamps(it.chain)
+        }?.let { return it.chain }
+        return resolveChain(project, file, manager).also { file.putUserData(CHAIN, CachedChain(imported, stamps(it), files, it)) }
+    }
+
+    private fun resolveChain(project: Project, file: XmlFile, manager: MavenProjectsManager): PomChain {
         val ancestors = mutableListOf<XmlFile>()
         val seen = hashSetOf(file.virtualFile?.path)
         var current = file

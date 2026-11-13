@@ -179,6 +179,34 @@ class MavenImportedTest : BasePlatformTestCase() {
         assertEquals(own.single().edit!!.key, related.single().edit!!.key)
     }
 
+    fun testAnEditOnlyCollectsThePomsThatReadIt() {
+        val parent = pom("base", "<properties><guava.version>32.0.0-jre</guava.version></properties>")
+        val dependency = { artifact: String -> """<dependencies>
+            <dependency><groupId>com.google.guava</groupId><artifactId>$artifact</artifactId><version>${'$'}{guava.version}</version></dependency>
+        </dependencies>""" }
+        val api = pom("api", dependency("guava"), parent = "base")
+        val impl = pom("impl", dependency("guava-testlib"), parent = "base")
+        fun edit(file: XmlFile, old: String, new: String) = com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
+            val documents = com.intellij.psi.PsiDocumentManager.getInstance(project)
+            val document = documents.getDocument(file)!!
+            document.setText(document.text.replace(old, new))
+            documents.commitDocument(document)
+        }
+        val provider = MavenProvider()
+        val before = provider.collect(impl)
+        assertSame(before, provider.collect(impl))
+
+        // A sibling's edit changes nothing the module reads, so `related()` does not collect it again.
+        edit(api, "<artifactId>guava</artifactId>", "<artifactId>failureaccess</artifactId>")
+        assertEquals(listOf("com.google.guava:failureaccess"), provider.collect(api).map { it.name })
+        assertSame(before, provider.collect(impl))
+        assertSame(before.single(), provider.related(api, provider.collect(api)).single())
+
+        // The parent's property is the module's version.
+        edit(parent, "32.0.0-jre", "33.0.0-jre")
+        assertEquals(listOf("33.0.0-jre"), provider.collect(impl).map { it.current })
+    }
+
     fun testNexusIqApplicationFromTheClmPluginOrTheArtifactIds() {
         pom("root", """<build><pluginManagement><plugins><plugin>
             <groupId>com.sonatype.clm</groupId><artifactId>clm-maven-plugin</artifactId>

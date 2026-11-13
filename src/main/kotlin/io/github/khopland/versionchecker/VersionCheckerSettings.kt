@@ -11,6 +11,7 @@ import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.columns
 import com.intellij.ui.dsl.builder.panel
 import io.github.khopland.versionchecker.core.VersionService
+import io.github.khopland.versionchecker.core.FileStamps
 import io.github.khopland.versionchecker.core.VersionsChangedListener
 import io.github.khopland.versionchecker.core.VulnerabilityService
 import io.github.khopland.versionchecker.vuln.NexusIqSettings
@@ -54,6 +55,7 @@ class VersionCheckerConfigurable : BoundConfigurable("Version Checker") {
 fun refreshAll() {
     VersionService.getInstance().clear()
     VulnerabilityService.getInstance().clear()
+    FileStamps.invalidate()
     ProjectManager.getInstance().openProjects.forEach {
         NexusIqSettings.getInstance(it).clear()
         DaemonCodeAnalyzer.getInstance(it).restart("Version Checker settings changed")

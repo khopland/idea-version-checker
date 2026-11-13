@@ -4,9 +4,11 @@ import com.intellij.codeInspection.*
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.VirtualFileVisitor
 import com.intellij.psi.PsiFile
 
@@ -132,6 +134,21 @@ internal object CatalogEntries {
 
 internal object CatalogSources {
     private val createdCatalog = Regex("""\bcreate\s*\(\s*["'](\w+)["']""")
+
+    private class Listing(val stamp: Long, val files: List<VirtualFile>)
+
+    private val SCRIPTS = Key.create<Listing>("version-checker.catalog-scripts")
+
+    /**
+     * The build scripts under [root], kept while the file tree keeps its shape. `GradleProvider.related()` reads them
+     * for every annotated script, so walking the whole build again when nothing was added or removed is wasted work.
+     */
+    fun scripts(root: VirtualFile): List<VirtualFile> {
+        val stamp = VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS.modificationCount
+        root.getUserData(SCRIPTS)?.takeIf { it.stamp == stamp }?.let { return it.files }
+        return files(root, sources = false) { it.name.endsWith(".gradle") || it.name.endsWith(".gradle.kts") }
+            .also { root.putUserData(SCRIPTS, Listing(stamp, it)) }
+    }
 
     /**
      * The text of every file in the build at [root] that can use its default catalog `libs`: the build scripts, and the

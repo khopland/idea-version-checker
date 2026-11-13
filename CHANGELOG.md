@@ -5,6 +5,7 @@
 ### Changed
 
 - npm: the packages a `package.json` brings in are read from the lockfile once per change of either file, instead of on every highlighting pass, and a package that many dependencies share is resolved once.
+- Gradle and Maven: a build script or POM is read again only when it, or something it gets a version or a repository from, changes. Before, every highlighting pass and every refresh of the **Dependency Updates** tool window read every script of a Gradle build and every module of a Maven project again.
 
 ## [2.5.0]
 
