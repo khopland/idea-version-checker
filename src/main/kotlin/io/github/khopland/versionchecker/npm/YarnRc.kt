@@ -34,6 +34,11 @@ internal class YarnRc(private val values: Map<String, String>) : RegistryConfig 
         return NpmRegistry(url, headers)
     }
 
+    /** By the settings, like [Npmrc]. */
+    override fun equals(other: Any?) = other is YarnRc && other.values == values
+
+    override fun hashCode() = values.hashCode()
+
     companion object {
         const val DEFAULT = "https://registry.yarnpkg.com/"
         private val placeholder = Regex("""\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}""")

@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * `pnpm-lock.yaml`, lockfile version 6 (pnpm 8) or 9 (pnpm 9 and later). [importers] maps each workspace (`.` for the
  * root) to its declared packages and the versions they resolve to, such as `1.0.0`, `1.0.0(react@18.2.0)` with peers,
@@ -7,11 +9,16 @@ package io.github.khopland.versionchecker.npm
  * the package's own dependencies. The file is read as text, one entry per line, like `pnpm-workspace.yaml`.
  */
 internal class PnpmLock(private val importers: Map<String, Map<String, String>>, private val snapshots: Map<String, Map<String, String>>) : Lockfile {
+    /** Shared by every root of a transitive walk, which otherwise resolves the same snapshot over and over. */
+    private val children = ConcurrentHashMap<String, List<Lockfile.Node>>()
+
     override fun hasWorkspace(path: String) = path.ifEmpty { "." } in importers
 
     override fun direct(workspace: String, name: String, range: String?) = importers[workspace.ifEmpty { "." }]?.get(name)?.let { node(name, it) }
 
-    override fun dependencies(node: Lockfile.Node) = snapshots[node.id].orEmpty().mapNotNull { (name, reference) -> node(name, reference) }
+    override fun dependencies(node: Lockfile.Node) = children.getOrPut(node.id) {
+        snapshots[node.id].orEmpty().mapNotNull { (name, reference) -> node(name, reference) }
+    }
 
     /**
      * An alias names the real package: `other@1.0.0`, with a leading slash in version 6. Links, files, git and tarballs

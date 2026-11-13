@@ -5,6 +5,7 @@ import com.google.gson.JsonParser
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import java.util.concurrent.ConcurrentHashMap
 
 /** The packages a lockfile installs. A workspace package is linked, not installed, so it is no [Node]. */
 internal interface Lockfile {
@@ -21,6 +22,9 @@ internal interface Lockfile {
     fun direct(workspace: String, name: String, range: String? = null): Node?
 
     fun dependencies(node: Node): List<Node>
+
+    /** A [lockfile], the package's [workspace] in it, and the [file] it was read from, whose stamp tells when what a caller derived from it is stale. */
+    class Located(val lockfile: Lockfile, val workspace: String, val file: VirtualFile)
 
     companion object {
         private const val MAX_DEPTH = 8
@@ -39,7 +43,11 @@ internal interface Lockfile {
          * The lockfile that installs the package in [packageJson], and the package's workspace in it: `""` in the same
          * folder, or the path from a workspace root above it that lists the folder as a workspace.
          */
-        fun find(packageJson: VirtualFile): Pair<Lockfile, String>? {
+        fun find(packageJson: VirtualFile): Pair<Lockfile, String>? =
+            locate(packageJson)?.let { it.lockfile to it.workspace }
+
+        /** [find], with the lockfile's file so a caller can cache what it derives from it until either file changes. */
+        fun locate(packageJson: VirtualFile): Located? {
             var directory = packageJson.parent
             var relative = ""
             repeat(MAX_DEPTH) {
@@ -49,8 +57,8 @@ internal interface Lockfile {
                 val manager = if (found.size < 2) null else dir.findChild("package.json")
                     ?.let { runCatching { packageManager.find(VfsUtilCore.loadText(it))?.groupValues?.get(1) }.getOrNull() }
                 val lock = found.sortedWith(compareByDescending<Pair<VirtualFile, (String) -> Lockfile?>> { (file, _) -> file.name == MANAGERS[manager] }
-                    .thenByDescending { it.first.timeStamp }).firstNotNullOfOrNull { (file, parse) -> read(file, parse) }
-                if (lock != null) return if (lock.hasWorkspace(relative)) lock to relative else null
+                    .thenByDescending { it.first.timeStamp }).firstNotNullOfOrNull { (file, parse) -> read(file, parse)?.let { file to it } }
+                if (lock != null) return if (lock.second.hasWorkspace(relative)) Located(lock.second, relative, lock.first) else null
                 relative = if (relative.isEmpty()) dir.name else "${dir.name}/$relative"
                 directory = dir.parent
             }
@@ -79,12 +87,19 @@ internal class PackageLock(private val packages: Map<String, Entry>) : Lockfile 
     /** [name] differs from the folder for an alias such as `"x": "npm:other@1.0.0"`. A [link] points at a workspace. */
     class Entry(val name: String?, val version: String?, val dependencies: Set<String>, val link: Boolean)
 
+    /**
+     * The children of each package. A transitive walk visits the same package from many declared dependencies, and
+     * resolving its children walks the `node_modules` parents again every time.
+     */
+    private val children = ConcurrentHashMap<String, List<Lockfile.Node>>()
+
     override fun hasWorkspace(path: String) = path in packages
 
     override fun direct(workspace: String, name: String, range: String?) = resolve(workspace, name)?.let { node(it, name) }
 
-    override fun dependencies(node: Lockfile.Node) =
+    override fun dependencies(node: Lockfile.Node) = children.getOrPut(node.id) {
         packages[node.id]?.dependencies.orEmpty().mapNotNull { name -> resolve(node.id, name)?.let { node(it, name) } }
+    }
 
     private fun node(location: String, name: String): Lockfile.Node? {
         val entry = packages.getValue(location)

@@ -1,5 +1,7 @@
 package io.github.khopland.versionchecker.npm
 
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * `yarn.lock`, of Yarn 1 or of Yarn 2 and later. Each entry starts with the descriptors that resolve to it, such as
  * `"qs@^6.0.0", qs@^6.1.0:` in Yarn 1 or `"qs@npm:^6.0.0, qs@npm:^6.1.0":` since Yarn 2, and lists the package's
@@ -11,13 +13,18 @@ internal class YarnLock(private val entries: Map<String, Entry>, private val wor
     /** [pkg] is the registry name and version, or null for a git, file, link, patch or workspace package. */
     class Entry(val id: String, val pkg: Pair<String, String>?, val dependencies: Map<String, String>)
 
+    /** Shared by every root of a transitive walk, which otherwise resolves the same entry over and over. */
+    private val children = ConcurrentHashMap<String, List<Lockfile.Node>>()
+
     /** Yarn 1 does not list workspaces, so it is taken to install every one. */
     override fun hasWorkspace(path: String) = workspaces == null || path.ifEmpty { "." } in workspaces
 
     override fun direct(workspace: String, name: String, range: String?) =
         (workspaces?.get(workspace.ifEmpty { "." })?.dependencies?.get(name) ?: range)?.let { node(name, it) }
 
-    override fun dependencies(node: Lockfile.Node) = entries[node.id]?.dependencies.orEmpty().mapNotNull { (name, range) -> node(name, range) }
+    override fun dependencies(node: Lockfile.Node) = children.getOrPut(node.id) {
+        entries[node.id]?.dependencies.orEmpty().mapNotNull { (name, range) -> node(name, range) }
+    }
 
     /** Every version of [name] the lockfile installs. */
     fun versions(name: String) = entries.values.mapNotNullTo(HashSet()) { entry -> entry.pkg?.takeIf { it.first == name }?.second }
