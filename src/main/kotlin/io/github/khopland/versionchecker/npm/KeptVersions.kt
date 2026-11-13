@@ -14,9 +14,15 @@ import com.intellij.json.psi.JsonStringLiteral
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
 import com.intellij.psi.codeStyle.CodeStyleManager
+import com.intellij.psi.util.CachedValue
+import com.intellij.psi.util.CachedValueProvider
+import com.intellij.psi.util.CachedValuesManager
+import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.psi.util.PsiTreeUtil
 import io.github.khopland.versionchecker.core.OutdatedVersionInspection
 
@@ -50,14 +56,24 @@ internal object KeptVersions {
     }
 
     /** Whether [file], or a package.json above it in the project, keeps [name]. */
-    fun keeps(file: JsonFile, name: String): Boolean {
-        val vfile = file.originalFile.virtualFile ?: return name in names(file.topLevelValue as? JsonObject ?: return false)
+    fun keeps(file: JsonFile, name: String): Boolean = name in kept(file)
+
+    /**
+     * The names that [file] and the package.json files above it keep. Every declaration asks, for every inspection,
+     * so the files are read once per change instead.
+     */
+    private fun kept(file: JsonFile): Set<String> = CachedValuesManager.getManager(file.project).getCachedValue(file, KEPT, {
+        val vfile = file.originalFile.virtualFile
         val index = ProjectFileIndex.getInstance(file.project)
         val psi = PsiManager.getInstance(file.project)
-        return generateSequence(vfile.parent) { it.parent }.takeWhile { index.isInContent(it) }
-            .mapNotNull { (it.findChild("package.json")?.let(psi::findFile) as? JsonFile)?.topLevelValue as? JsonObject }
-            .any { name in names(it) }
-    }
+        val roots = if (vfile == null) sequenceOf(file.topLevelValue as? JsonObject) else
+            generateSequence(vfile.parent) { it.parent }.takeWhile { index.isInContent(it) }
+                .map { (it.findChild("package.json")?.let(psi::findFile) as? JsonFile)?.topLevelValue as? JsonObject }
+        CachedValueProvider.Result.create(roots.filterNotNull().flatMapTo(HashSet(), ::names) as Set<String>,
+            PsiModificationTracker.MODIFICATION_COUNT, ProjectRootManager.getInstance(file.project))
+    }, false)
+
+    private val KEPT = Key.create<CachedValue<Set<String>>>("version-checker.kept-versions")
 }
 
 /** Makes a kept version count as suppressed for the editor, the bulk updates and the tool window, and adds the action that keeps one. */

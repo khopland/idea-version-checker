@@ -61,6 +61,20 @@ class UnusedCatalogEntryTest : BasePlatformTestCase() {
         assertTrue(myFixture.editor.document.text.contains("groovy-json = \"org.apache.groovy:groovy-json:4.0.0\"\n# commented"))
     }
 
+    fun testACheckFollowsEditsToTheBuild() {
+        val app = myFixture.addFileToProject("app/build.gradle.kts", script)
+        myFixture.addFileToProject("settings.gradle.kts", """include("app", "lib")""")
+        val file = myFixture.addFileToProject("gradle/libs.versions.toml", catalog)
+        fun unused() = UnusedCatalogEntryInspection().checkFile(file, InspectionManager.getInstance(project), true)!!.map { it.descriptionTemplate }
+        assertContainsElements(unused(), "Library guava is not used", "Library junit is not used")
+
+        // What each script uses is kept between checks, so a changed script and a new one must both be read.
+        myFixture.saveText(app.virtualFile, script + "\ndependencies { implementation(libs.guava) }")
+        assertDoesntContain(unused(), "Library guava is not used")
+        myFixture.addFileToProject("lib/build.gradle.kts", "dependencies { testImplementation(libs.junit) }")
+        assertDoesntContain(unused(), "Library junit is not used")
+    }
+
     fun testOtherCatalogsSkipTheCheck() {
         myFixture.addFileToProject("build.gradle.kts", script)
         myFixture.addFileToProject("settings.gradle.kts", """

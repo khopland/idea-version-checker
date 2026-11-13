@@ -21,51 +21,90 @@ enum class UpdateKind {
  * `-incubating` is a variant: Apache incubator projects publish real releases with it.
  */
 object Versions {
-    private val numericPrefix = Regex("""^[vV]?(\d+(?:\.\d+)*)(.*)$""")
-    private val marker = Regex("""(?i)^(?:alpha|a|beta|b|milestone|m|rc|cr|pre|preview|snapshot|dev|ea|eap|canary|nightly|next|experimental|insiders)\d*$""")
-    private val separators = Regex("""[.\-_+]+""")
+    private val markers = setOf("alpha", "a", "beta", "b", "milestone", "m", "rc", "cr", "pre", "preview", "snapshot", "dev", "ea", "eap", "canary",
+        "nightly", "next", "experimental", "insiders")
     private val releaseWords = setOf("final", "release", "ga")
+    private const val SEPARATORS = ".-_+"
 
-    /** The parts after the numbers. Build numbers directly after the numbers belong to the version, not the variant. */
-    private class Suffix(val prerelease: List<String>, val build: List<String>, val variant: List<String>)
+    /**
+     * A version read once. [numbers] is empty and the rest unset for text that does not start with a number. Build
+     * numbers directly after the numbers belong to the version, not the [variant].
+     */
+    private class Parsed(val numbers: LongArray, val matched: Boolean, val prerelease: List<String> = emptyList(),
+                         val build: List<String> = emptyList(), val variant: List<String> = emptyList()) {
+        val stable get() = matched && prerelease.isEmpty()
+    }
 
-    private fun suffix(version: String): Suffix? {
-        val rest = numericPrefix.matchEntire(version)?.groupValues?.get(2) ?: return null
-        val tokens = rest.split(separators).filter { it.isNotEmpty() && it.lowercase() !in releaseWords }
-        val prerelease = mutableListOf<String>()
-        val build = mutableListOf<String>()
-        val variant = mutableListOf<String>()
-        var i = 0
-        while (i < tokens.size) {
-            val token = tokens[i]
+    private val UNKNOWN = Parsed(LongArray(0), false)
+
+    private fun digit(c: Char) = c in '0'..'9'
+
+    /**
+     * Reads `v1.2.3` and what follows it. Versions are compared and sorted in the thousands for one package, so this
+     * scans the text once instead of matching several patterns for every comparison.
+     */
+    private fun parse(version: String): Parsed {
+        var i = if (version.isNotEmpty() && (version[0] == 'v' || version[0] == 'V')) 1 else 0
+        if (i >= version.length || !digit(version[i]) || version.any { it == '\n' || it == '\r' || it == '\u0085' || it == '\u2028' || it == '\u2029' }) return UNKNOWN
+        val numbers = ArrayList<Long>(4)
+        while (true) {
+            val start = i
+            while (i < version.length && digit(version[i])) i++
+            numbers += version.substring(start, i).toLongOrNull() ?: Long.MAX_VALUE
+            if (i + 1 < version.length && version[i] == '.' && digit(version[i + 1])) i++ else break
+        }
+        if (i == version.length) return Parsed(numbers.toLongArray(), true)
+        val tokens = ArrayList<String>(4)
+        while (i < version.length) {
+            while (i < version.length && version[i] in SEPARATORS) i++
+            val start = i
+            while (i < version.length && version[i] !in SEPARATORS) i++
+            if (i > start) version.substring(start, i).takeIf { it.lowercase() !in releaseWords }?.let(tokens::add)
+        }
+        val prerelease = ArrayList<String>(2)
+        val build = ArrayList<String>(1)
+        val variant = ArrayList<String>(2)
+        var t = 0
+        while (t < tokens.size) {
+            val token = tokens[t]
             when {
-                marker.matches(token) -> {
+                marker(token) -> {
                     prerelease += token.lowercase()
                     // A number after a marker is its counter, as in `rc-5`.
-                    while (i + 1 < tokens.size && tokens[i + 1].all(Char::isDigit)) prerelease += tokens[++i]
+                    while (t + 1 < tokens.size && tokens[t + 1].all(Char::isDigit)) prerelease += tokens[++t]
                 }
                 variant.isEmpty() && prerelease.isEmpty() && token.all(Char::isDigit) -> build += token
                 else -> variant += token.lowercase()
             }
-            i++
+            t++
         }
-        return Suffix(prerelease, build, variant)
+        return Parsed(numbers.toLongArray(), true, prerelease, build, variant)
     }
 
-    fun isStable(version: String) = suffix(version)?.prerelease?.isEmpty() == true
+    /** A prerelease word with an optional counter, such as `rc`, `RC1` or `beta2`. */
+    private fun marker(token: String): Boolean {
+        var end = token.length
+        while (end > 0 && digit(token[end - 1])) end--
+        if (end == 0) return false
+        val word = CharArray(end) { token[it].let { c -> if (c in 'A'..'Z') c + 32 else c } }
+        return String(word) in markers
+    }
+
+    fun isStable(version: String) = parse(version).stable
 
     /** The numeric part, for example `[4, 13, 2]` for `4.13.2-jre`. */
-    fun numbers(version: String): List<Long> =
-        numericPrefix.matchEntire(version)?.groupValues?.get(1)?.split('.')?.map { it.toLongOrNull() ?: Long.MAX_VALUE }.orEmpty()
+    fun numbers(version: String): List<Long> = parse(version).numbers.asList()
 
     /** The variant, for example `jre` for `33.0.0-jre` and `groovy.4.0` for `2.3-groovy-4.0`. Empty for `5.6.15.Final`. */
-    fun flavor(version: String): String = suffix(version)?.variant?.joinToString(".") ?: version.lowercase()
+    fun flavor(version: String): String = flavor(version, parse(version))
 
-    fun compare(left: String, right: String): Int {
-        compareNumbers(numbers(left), numbers(right)).let { if (it != 0) return it }
-        val a = suffix(left)
-        val b = suffix(right)
-        if (a == null || b == null) return left.compareTo(right)
+    private fun flavor(version: String, parsed: Parsed) = if (parsed.matched) parsed.variant.joinToString(".") else version.lowercase()
+
+    fun compare(left: String, right: String): Int = if (left == right) 0 else compare(left, parse(left), right, parse(right))
+
+    private fun compare(left: String, a: Parsed, right: String, b: Parsed): Int {
+        compareNumbers(a.numbers, b.numbers).let { if (it != 0) return it }
+        if (!a.matched || !b.matched) return left.compareTo(right)
         compareTokens(a.build, b.build).let { if (it != 0) return it }
         // A prerelease comes before the release with the same numbers.
         if (a.prerelease.isEmpty() != b.prerelease.isEmpty()) return if (a.prerelease.isEmpty()) 1 else -1
@@ -73,7 +112,7 @@ object Versions {
         return compareTokens(a.variant, b.variant)
     }
 
-    private fun compareNumbers(a: List<Long>, b: List<Long>): Int {
+    private fun compareNumbers(a: LongArray, b: LongArray): Int {
         for (i in 0 until maxOf(a.size, b.size)) {
             val c = a.getOrElse(i) { 0 }.compareTo(b.getOrElse(i) { 0 })
             if (c != 0) return c
@@ -95,8 +134,8 @@ object Versions {
     val comparator: Comparator<String> = Comparator(::compare)
 
     fun kind(current: String, candidate: String): UpdateKind {
-        val a = numbers(current)
-        val b = numbers(candidate)
+        val a = parse(current).numbers
+        val b = parse(candidate).numbers
         return when {
             a.getOrElse(0) { 0 } != b.getOrElse(0) { 0 } -> UpdateKind.MAJOR
             a.getOrElse(1) { 0 } != b.getOrElse(1) { 0 } -> UpdateKind.MINOR
@@ -104,12 +143,15 @@ object Versions {
         }
     }
 
-    /** Stable versions newer than [current] with the same variant, newest first. */
+    /** Stable versions newer than [current] with the same variant, newest first. Each version is read once, also for the sort. */
     fun candidates(current: String, versions: Collection<String>): List<String> {
-        val flavor = flavor(current)
+        val base = parse(current)
+        val flavor = flavor(current, base)
         return versions.asSequence().distinct()
-            .filter { isStable(it) && flavor(it) == flavor && compare(it, current) > 0 }
-            .sortedWith(comparator.reversed())
+            .map { it to parse(it) }
+            .filter { (version, parsed) -> parsed.stable && flavor(version, parsed) == flavor && compare(version, parsed, current, base) > 0 }
+            .sortedWith { (left, a), (right, b) -> compare(right, b, left, a) }
+            .map { it.first }
             .toList()
     }
 }

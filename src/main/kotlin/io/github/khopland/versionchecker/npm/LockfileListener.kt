@@ -16,6 +16,8 @@ import com.intellij.util.PathUtil
  */
 class LockfileListener : BulkFileListener {
     override fun after(events: List<VFileEvent>) {
+        // Every change to any file comes here, so the names are checked before anything is asked of the projects.
+        if (events.none { PathUtil.getFileName(it.path) in WATCHED }) return
         for (project in ProjectManager.getInstance().openProjects) {
             if (project.isDisposed) continue
             val daemon = DaemonCodeAnalyzer.getInstance(project)

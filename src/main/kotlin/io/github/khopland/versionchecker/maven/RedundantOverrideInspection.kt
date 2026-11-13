@@ -2,7 +2,13 @@ package io.github.khopland.versionchecker.maven
 
 import com.intellij.codeInspection.*
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiManager
+import com.intellij.psi.util.CachedValue
+import com.intellij.psi.util.CachedValueProvider
+import com.intellij.psi.util.CachedValuesManager
+import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.psi.xml.XmlFile
 import com.intellij.psi.xml.XmlTag
 import io.github.khopland.versionchecker.core.Versions
@@ -33,6 +39,9 @@ internal class RemoveOverrideFix(private val name: String, private val removePar
 
 internal object RedundantOverrides {
     private val versionProperty = Regex("""(?i).*[.\-_]?version$""")
+    private val whitespace = Regex("""\s+""")
+    private val REFERENCES = Key.create<CachedValue<Set<String>>>("version-checker.maven-property-references")
+    private val PROJECT_REFERENCES = Key.create<CachedValue<Set<String>>>("version-checker.maven-project-property-references")
 
     fun find(file: PsiFile): List<Redundancy> {
         val xml = file as? XmlFile ?: return emptyList()
@@ -100,7 +109,7 @@ internal object RedundantOverrides {
         }
     }
 
-    private fun normalized(tag: XmlTag) = tag.subTags.joinToString("|") { it.text.replace(Regex("""\s+"""), " ") }
+    private fun normalized(tag: XmlTag) = tag.subTags.joinToString("|") { it.text.replace(whitespace, " ") }
 
     /** A plugin `<version>` in `<build><plugins>` that equals, or is older than, the version in plugin management. */
     private fun pluginVersions(root: XmlTag, chain: PomChain, imported: MavenProject): List<Redundancy> {
@@ -167,10 +176,39 @@ internal object RedundantOverrides {
         if (!chain.complete) return emptyList()
         val properties = MavenPoms.child(root, "properties")?.subTags.orEmpty().filter { versionProperty.matches(it.localName) }
         if (properties.isEmpty()) return emptyList()
-        val psi = com.intellij.psi.PsiManager.getInstance(root.project)
-        val texts = (chain.all.map { it.text } + manager.projects.mapNotNull { psi.findFile(it.file)?.text }).distinct()
-        return properties.filter { property -> texts.none { "\${${property.localName}}" in it } }
+        val inProject = references(root.project, manager)
+        val inChain = chain.all.map(::references)
+        return properties.filter { property -> property.localName !in inProject && inChain.none { property.localName in it } }
             .map { Redundancy(it, "Property ${it.localName} is not used", "Remove unused property") }
+    }
+
+    /**
+     * The names in `${…}` in the POMs of the project. The inspection asks for every POM it visits, and reading every
+     * POM's text each time makes Inspect Code quadratic in the number of modules, so the names are kept until a POM changes.
+     */
+    private fun references(project: Project, manager: MavenProjectsManager): Set<String> =
+        CachedValuesManager.getManager(project).getCachedValue(project, PROJECT_REFERENCES, {
+            val psi = PsiManager.getInstance(project)
+            CachedValueProvider.Result.create(manager.projects.mapNotNull { psi.findFile(it.file) }.flatMapTo(HashSet(), ::references),
+                PsiModificationTracker.MODIFICATION_COUNT, manager.modificationTracker)
+        }, false)
+
+    /** The names in `${…}` in [file], read once per change of the file. */
+    private fun references(file: PsiFile): Set<String> = CachedValuesManager.getManager(file.project).getCachedValue(file, REFERENCES, {
+        CachedValueProvider.Result.create(references(file.viewProvider.contents), file)
+    }, false)
+
+    /** Every name that `${name}` is in [text] for, also one that starts inside another `${`. */
+    internal fun references(text: CharSequence): Set<String> {
+        val names = HashSet<String>()
+        var start = text.indexOf("\${")
+        while (start >= 0) {
+            val end = text.indexOf('}', start + 2)
+            if (end < 0) break
+            names += text.substring(start + 2, end)
+            start = text.indexOf("\${", start + 2)
+        }
+        return names
     }
 
     private fun newer(candidate: String, current: String) =

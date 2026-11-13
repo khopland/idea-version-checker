@@ -1,6 +1,5 @@
 package io.github.khopland.versionchecker.npm
 
-import com.google.gson.JsonParser
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import io.github.khopland.versionchecker.core.Conflicts
 import io.github.khopland.versionchecker.core.Lookup
@@ -65,13 +64,13 @@ class NpmConflictsTest : BasePlatformTestCase() {
     }
 
     fun testRegistryDocumentHasPeersAndEngines() = runBlocking {
-        val releases = NpmLookup.parse(JsonParser.parseString("""
+        val releases = NpmLookup.parse("""
             {"versions": {
               "1.0.0": {},
               "1.1.0": {"peerDependencies": {"react": "^18.0.0"}, "engines": {"node": ">=18"}},
               "2.0.0": {"peerDependencies": {"react": "^19.0.0"}, "engines": ["node >=20"]},
               "3.0.0-rc.1": {"peerDependencies": {"react": "^20.0.0"}}}}
-        """).asJsonObject)
+        """.reader())
         assertEquals(setOf("1.1.0", "2.0.0"), releases.needs.keys)
         assertEquals(mapOf("react" to "^18.0.0"), releases.needs.getValue("1.1.0").peers)
         assertEquals(">=18", releases.needs.getValue("1.1.0").node)

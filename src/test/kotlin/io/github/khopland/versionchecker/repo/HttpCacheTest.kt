@@ -35,6 +35,15 @@ class HttpCacheTest {
     }
 
     @Test
+    fun keysStayTheSameSoStoredEntriesAreFound() {
+        val cache = HttpCache(Files.createTempDirectory("http-cache"))
+        val text = "https://repo.example/meta.xml\nAccept=application/json\nAuthorization=Bearer token"
+        // The first 40 hex digits of the SHA-256, as every version of the plugin has named its entries.
+        val expected = java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }.take(40)
+        assertEquals(expected, cache.key("https://repo.example/meta.xml", mapOf("Authorization" to "Bearer token", "Accept" to "application/json")))
+    }
+
+    @Test
     fun asksForCompressedResponsesAndStoresThemUnpacked() = runBlocking {
         FakeRepository().use { repository ->
             val directory = Files.createTempDirectory("http-cache")

@@ -4,6 +4,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.concurrent.TimeUnit
 
 /**
@@ -18,7 +19,7 @@ class HttpCache(private val directory: Path) {
     fun key(url: String, headers: Map<String, String>): String {
         // Credentials are part of the key, because a repository can answer differently per user.
         val text = url + "\n" + headers.toSortedMap().entries.joinToString("\n") { "${it.key}=${it.value}" }
-        return MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }.take(40)
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.toByteArray()), 0, 20)
     }
 
     fun get(key: String): Entry? = runCatching {
@@ -27,8 +28,11 @@ class HttpCache(private val directory: Path) {
         val body = directory.resolve("$key.body")
         if (!Files.isRegularFile(meta) || !Files.isRegularFile(body)) return null
         val lines = Files.readAllLines(meta)
+        val now = System.currentTimeMillis()
+        // The time only keeps the entry from the pruner, so it is written at most once a day instead of on every hit.
+        if (now - Files.getLastModifiedTime(meta).toMillis() > TimeUnit.DAYS.toMillis(1))
+            Files.setLastModifiedTime(meta, java.nio.file.attribute.FileTime.fromMillis(now))
         Entry(Files.readAllBytes(body), lines.getOrNull(0)?.ifEmpty { null }, lines.getOrNull(1)?.ifEmpty { null })
-            .also { Files.setLastModifiedTime(meta, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis())) }
     }.getOrNull()
 
     fun put(key: String, entry: Entry) {

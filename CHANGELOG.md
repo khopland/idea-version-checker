@@ -7,6 +7,13 @@
 - npm: the packages a `package.json` brings in are read from the lockfile once per change of either file, instead of on every highlighting pass, and a package that many dependencies share is resolved once.
 - Gradle and Maven: a build script or POM is read again only when it, or something it gets a version or a repository from, changes. Before, every highlighting pass and every refresh of the **Dependency Updates** tool window read every script of a Gradle build and every module of a Maven project again.
 - The outdated, vulnerable and transitive checks of one file share what they read from it, so a highlighting pass reads a build file once instead of three times.
+- Versions are compared several times faster, and the registry document of an npm package with thousands of releases is read without keeping all of it in memory.
+- **Inspect Code** with the **Redundant Maven override** inspection no longer reads every POM of the project for each POM, and the **Unused version catalog entry** inspection reads a build script once per change instead of on every pass.
+
+### Fixed
+
+- npm: a version that the registry marks with `"deprecated": false` is no longer shown as deprecated.
+- npm: a registry that answers with something other than a package document, such as a proxy's sign-in page, gives a warning that names the registry.
 
 ## [2.5.0]
 
