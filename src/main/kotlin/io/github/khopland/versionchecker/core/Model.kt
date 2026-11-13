@@ -124,6 +124,13 @@ interface DeclarationProvider {
     /** What [file] says about its Nexus IQ application, or null when it says nothing. Runs in a read action. Must not do I/O. */
     fun application(file: PsiFile): ApplicationHint? = null
 
+    /**
+     * What [collect], [related], [transitive] and [application] read that is neither PSI nor a file in the IDE's file
+     * system, such as the user's `settings.xml` or what Maven imported. [FileSnapshot] keeps what the annotators
+     * collected while this is equal to what it was. Runs in a read action for every annotator, so it must stay cheap.
+     */
+    fun stamp(file: PsiFile): Any? = null
+
     companion object {
         val EP = ExtensionPointName<DeclarationProvider>("io.github.khopland.version-checker.declarationProvider")
 

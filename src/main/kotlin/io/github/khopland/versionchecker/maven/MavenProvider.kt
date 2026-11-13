@@ -61,6 +61,9 @@ class MavenProvider : DeclarationProvider {
 
     override fun accepts(file: PsiFile) = file is XmlFile && file.name == "pom.xml"
 
+    /** Maven's projects, whose import gives the repositories and the dependency tree, and the settings files. */
+    override fun stamp(file: PsiFile): Any = Shared(file.project).stamp
+
     /** Other project POMs that use a property defined in another file, so a fix agrees with every module. */
     override fun related(file: PsiFile, declarations: List<Declaration>): List<Declaration> {
         val self = file.virtualFile ?: return emptyList()

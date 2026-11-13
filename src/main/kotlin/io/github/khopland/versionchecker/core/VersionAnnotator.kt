@@ -39,12 +39,12 @@ class VersionAnnotator : ExternalAnnotator<VersionAnnotator.Info, VersionAnnotat
 
     private fun collectInformation(file: PsiFile, editor: Boolean): Info? {
         val provider = DeclarationProvider.forFile(file) ?: return null
-        val declarations = provider.collect(file)
-        if (declarations.isEmpty()) return null
+        val snapshot = FileSnapshot.of(file, provider)
+        if (snapshot.declarations.isEmpty()) return null
         val vulnerabilities = VersionCheckerSettings.getInstance().checkVulnerabilities && VulnerableDependencyInspection.enabled(file)
-        return Info(declarations, provider.related(file, declarations), Suppression.suppressed(file, declarations, OutdatedVersionInspection()),
-            Suppression.suppressed(file, declarations, MovedDependencyInspection()), vulnerabilities, file.project,
-            if (vulnerabilities) VulnerabilityService.application(provider, file) else null, editor)
+        return Info(snapshot.declarations, snapshot.related, snapshot.suppressed(OutdatedVersionInspection()),
+            snapshot.suppressed(MovedDependencyInspection()), vulnerabilities, file.project,
+            if (vulnerabilities) snapshot.application else null, editor)
     }
 
     override fun doAnnotate(info: Info): Result = runBlockingCancellable {

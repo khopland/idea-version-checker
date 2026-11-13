@@ -42,6 +42,9 @@ class GradleProvider internal constructor(private val newEnvironment: () -> Grad
 
     override fun accepts(file: PsiFile) = file.name.endsWith(".gradle") || file.name.endsWith(".gradle.kts") || file.name.endsWith(".versions.toml")
 
+    /** The files in the Gradle user home, which have repositories and credentials for every build. */
+    override fun stamp(file: PsiFile): Any = environment()
+
     override fun collect(file: PsiFile): List<Declaration> = file.virtualFile?.let { collect(it, environment()) }.orEmpty()
 
     private fun collect(file: VirtualFile, environment: GradleEnvironment): List<Declaration> {

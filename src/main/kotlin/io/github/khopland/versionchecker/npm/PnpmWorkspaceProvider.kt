@@ -18,6 +18,9 @@ class PnpmWorkspaceProvider : DeclarationProvider {
 
     override fun accepts(file: PsiFile) = file.name == "pnpm-workspace.yaml"
 
+    /** The registry settings, as for `package.json`. */
+    override fun stamp(file: PsiFile): Any? = file.virtualFile?.let(NpmPackages::registries)
+
     override fun collect(file: PsiFile): List<Declaration> {
         val vfile = file.virtualFile ?: return emptyList()
         val registries by lazy { NpmPackages.registries(vfile) }
