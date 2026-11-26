@@ -17,6 +17,7 @@ Use IntelliJ IDEA 2026.1.4 through 2026.3.x. Open **Settings → Plugins → Mar
 | Read what changed | **Alt+Enter** → **Open release notes**. It opens the GitHub releases of the project when its POM or `package.json` points to GitHub, otherwise its home page, or the release notes of Gradle, Maven, Node.js or the action. |
 | Update every version in a file | **Tools → Versions → Update This File → Patch / Minor / Major**, or the editor and Project view context menus. |
 | Update every build file in the project | **Tools → Versions → Update All Files → Patch / Minor / Major**. |
+| Hear about updates without looking | When a project opens, the plugin checks every build file in the background and says how many versions are outdated or vulnerable, with a link to the tool window. It says so again only when the list changes. Turn it off in the settings, or with **Don't show again**. |
 | Check again now | **Tools → Versions → Check Now**. Results otherwise stay cached for 30 minutes. After that, and after a restart, the plugin asks the repository whether its stored copy is still current, so an unchanged document is not downloaded again. |
 
 The **Dependency Updates** tool window lists every outdated version in the project, one row each, with the newest patch, minor and major update and where it is declared.
@@ -190,6 +191,7 @@ Build scripts, `buildSrc` and included builds that import the catalog are search
 
 - **Minimum release age (hours)**: hide Maven, Gradle, wrapper and npm versions published less recently than this, for example `24` to match a Nexus quarantine, or to wait until a hijacked release has been found and removed. The fix for a vulnerability follows it too. It does not apply to Docker images: a registry does not say when a tag was published.
 - **Check for known vulnerabilities**: off by default. See [Vulnerabilities](#vulnerabilities).
+- **Show a summary when a project opens**: on by default. Checks every build file in the background after the project opens and says how many versions are outdated or vulnerable. The same list is not announced twice.
 - **Nexus IQ**, per project: the server, credentials and optional application for [Nexus IQ](docs/vulnerabilities.md#nexus-iq).
 
 To turn a check off, or change its severity, use **Settings → Editor → Inspections → Version Checker**.
@@ -228,6 +230,8 @@ It sends no keyboard or mouse input, so you can keep working, but an IDE window 
 It needs the network for Maven Central and npm. It is not part of `check` or CI.
 Starter takes screenshots of the whole screen when a step fails; the task deletes them after every run.
 `marketplaceScreenshots` is separate: the IDE paints its own window into each image, so nothing else on the screen is in them.
+
+The platform tests open editors, so they need fonts even on a headless machine: on Linux, install `fontconfig` and a font such as `fonts-dejavu-core`. Without them, most tests fail with `Could not initialize class sun.awt.X11FontManager`.
 
 The demo projects in `src/test/resources` have outdated versions on purpose. Copy one to the Git-ignored `examples/` directory and open the copy.
 

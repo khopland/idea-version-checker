@@ -22,11 +22,14 @@ class VersionCheckerSettings : SimplePersistentStateComponent<VersionCheckerSett
     class State : BaseState() {
         var minReleaseAgeHours by property(0)
         var checkVulnerabilities by property(false)
+        var summaryOnOpen by property(true)
     }
 
     val minReleaseAgeHours get() = state.minReleaseAgeHours.coerceAtLeast(0)
     /** Off by default: the check sends dependency names and versions to osv.dev, or the project's Nexus IQ server. */
     val checkVulnerabilities get() = state.checkVulnerabilities
+    /** Whether a project that opens says how many versions are outdated or vulnerable. */
+    val summaryOnOpen get() = state.summaryOnOpen
 
     companion object {
         fun getInstance(): VersionCheckerSettings = ApplicationManager.getApplication().service()
@@ -43,6 +46,8 @@ class VersionCheckerConfigurable : BoundConfigurable("Version Checker") {
         }.rowComment("Hide Maven, Gradle, wrapper and npm versions published less than this long ago, for example to match a Nexus quarantine, or to wait until a hijacked release has been found and removed. 0 shows the newest version.")
         row { checkBox("Check for known vulnerabilities (sends dependency names and versions to osv.dev)").bindSelected(state::checkVulnerabilities) }
             .rowComment("Declared Maven, Gradle and npm dependencies, and in Maven, npm, pnpm, Yarn and Bun projects the packages they bring in, as the last Maven import or the lockfile resolved them. A project with a Nexus IQ server under <b>Nexus IQ</b> sends them there instead.")
+        row { checkBox("Show a summary when a project opens").bindSelected(state::summaryOnOpen) }
+            .rowComment("Checks every build file in the background and says how many versions are outdated or vulnerable, with a link to <b>Dependency Updates</b>. It says so again only when the list changes.")
     }
 
     override fun apply() {
