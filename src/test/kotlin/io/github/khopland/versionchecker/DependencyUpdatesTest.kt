@@ -212,4 +212,49 @@ class DependencyUpdatesTest : BasePlatformTestCase() {
         Edits.apply(project, listOf(Change(edit, "1.0.2")), "Update")
         assertEquals("Nothing changes when the text is no longer as expected", 1, changed)
     }
+
+    fun testProjectSummaryAnnouncesAListOnce() {
+        val shown = mutableListOf<String>()
+        project.messageBus.connect(testRootDisposable).subscribe(com.intellij.notification.Notifications.TOPIC,
+            object : com.intellij.notification.Notifications {
+                override fun notify(notification: com.intellij.notification.Notification) {
+                    if (notification.groupId == "Version Checker") shown += "${notification.title}: ${notification.content}"
+                }
+            })
+        val file = myFixture.addFileToProject("app/fake.xml", """
+            <libs>
+              <lib name="current" version="2.0.0"/>
+              <lib name="broken" version="1.0.0"/>
+              <lib name="a" version="1.0.0"/>
+            </libs>
+        """.trimIndent())
+        myFixture.addFileToProject("lib/fake.xml", """<libs><lib name="shared-y" version="1.0.1"/></libs>""")
+
+        var state = check()
+        assertEquals("Versions that could not be checked are not counted",
+            "2 outdated versions in 2 build files", ProjectSummary.text(ProjectSummary.counts(state)))
+        assertTrue(ProjectSummary.notifyIfChanged(project, state))
+        assertEquals(listOf("Dependency updates: 2 outdated versions in 2 build files"), shown)
+        assertFalse("The same list is not announced again", ProjectSummary.notifyIfChanged(project, check()))
+
+        val start = file.text.indexOf("""name="a" version="""") + """name="a" version="""".length
+        Edits.apply(project, listOf(Change(Edit(file.virtualFile, TextRange(start, start + 5), "1.0.0"), "2.0.0")), "Update")
+        state = check()
+        assertEquals("1 outdated version in 1 build file", ProjectSummary.text(ProjectSummary.counts(state)))
+        assertTrue("A changed list is announced", ProjectSummary.notifyIfChanged(project, state))
+        assertEquals(2, shown.size)
+    }
+
+    fun testProjectSummaryIsQuietWithoutUpdates() {
+        myFixture.addFileToProject("fake.xml", """<libs><lib name="current" version="2.0.0"/><lib name="broken" version="1.0.0"/></libs>""")
+        val state = check()
+        assertNull(ProjectSummary.text(ProjectSummary.counts(state)))
+        assertFalse(ProjectSummary.notifyIfChanged(project, state))
+    }
+
+    fun testProjectSummaryText() {
+        assertEquals("1 outdated version, 3 vulnerable in 2 build files", ProjectSummary.text(ProjectSummary.Counts(1, 3, 2)))
+        assertEquals("1 vulnerable in 1 build file", ProjectSummary.text(ProjectSummary.Counts(0, 1, 1)))
+        assertNull(ProjectSummary.text(ProjectSummary.Counts(0, 0, 0)))
+    }
 }

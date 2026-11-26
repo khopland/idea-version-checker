@@ -68,6 +68,7 @@
         <projectConfigurable parentId="version.checker" id="version.checker.nexus.iq" displayName="Nexus IQ"
                              instance="io.github.khopland.versionchecker.vuln.NexusIqConfigurable"/>
         <notificationGroup id="Version Checker" displayType="BALLOON"/>
+        <postStartupActivity implementation="io.github.khopland.versionchecker.ProjectSummaryActivity"/>
         <toolWindow id="Dependency Updates" anchor="bottom" icon="io.github.khopland.versionchecker.VersionCheckerIcons.ToolWindow"
                     factoryClass="io.github.khopland.versionchecker.DependencyUpdatesToolWindowFactory" doNotActivateOnStart="true"/>
         <errorHandler implementation="com.intellij.diagnostic.JetBrainsMarketplaceErrorReportSubmitter"/>

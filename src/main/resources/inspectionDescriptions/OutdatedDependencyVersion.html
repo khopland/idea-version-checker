@@ -1,13 +1,16 @@
 <html>
 <body>
-Reports dependency, plugin and wrapper versions that have a newer stable release.
+Reports dependency, plugin, toolchain, action and image versions that have a newer stable release.
 <p>Use <b>Alt+Enter</b> to update to the newest patch, minor or major release.
 <b>Tools | Versions</b> updates a whole file or project.</p>
-<p>Supported files: <code>pom.xml</code>, <code>package.json</code>, Gradle build scripts, <code>libs.versions.toml</code>,
-and the Maven and Gradle wrapper properties.
-The minimum release age in <b>Settings | Tools | Version Checker</b> hides recent Maven, Gradle and wrapper releases.</p>
+<p>Supported files: <code>pom.xml</code>, <code>package.json</code> and <code>pnpm-workspace.yaml</code>, Gradle build scripts,
+<code>gradle.properties</code> and <code>libs.versions.toml</code>, the Maven and Gradle wrapper properties,
+<code>.nvmrc</code>, <code>.node-version</code>, <code>.sdkmanrc</code> and <code>.tool-versions</code>,
+GitHub Actions workflows and <code>action.yml</code>, Dockerfiles and Compose files.</p>
+<p>The minimum release age in <b>Settings | Tools | Version Checker</b> hides recent Maven, Gradle, wrapper and npm releases.</p>
 <p>To keep a version on purpose, add a suppress comment from the <b>Alt+Enter</b> menu, for example
 <code>&lt;!--suppress OutdatedDependencyVersion --&gt;</code> in a POM or <code>#noinspection OutdatedDependencyVersion</code>
-in <code>libs.versions.toml</code>. The update actions skip suppressed versions.</p>
+in <code>libs.versions.toml</code>. In <code>package.json</code>, <b>Keep this version</b> adds the package to
+<code>"versionChecker": {"keep": {…}}</code>. The update actions skip kept versions.</p>
 </body>
 </html>
