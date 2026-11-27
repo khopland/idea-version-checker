@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.6.0]
+
 ### Added
 
 - When a project opens, the plugin checks every build file in the background and says how many versions are outdated or vulnerable, with a link to the **Dependency Updates** tool window. It says so again only when the list changes. Turn it off with **Show a summary when a project opens** in **Settings → Tools → Version Checker**, or with **Don't show again**.
